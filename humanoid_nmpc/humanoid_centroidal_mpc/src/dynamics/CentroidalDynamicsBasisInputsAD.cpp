@@ -37,9 +37,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/memory/memory.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 #include "ocs2_centroidal_model/AccessHelperFunctions.h"
 #include "ocs2_centroidal_model/CentroidalModelPinocchioMapping.h"
 #include "ocs2_centroidal_model/ModelHelperFunctions.h"
+#include "ocs2_core/Dimensions.h"
 #include "pinocchio/multibody/data.hpp"
 #include "pinocchio/multibody/model.hpp"
 
@@ -48,8 +50,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 namespace {
-constexpr size_t kWrenchDim = 6;
-constexpr size_t kForceDim = 3;
 
 /** Frame index of every contact; validate() has established that each frame exists. */
 std::array<pinocchio::FrameIndex, kNumContacts> contactFrameIndices(const PinocchioInterface& pinocchioInterface,
@@ -84,10 +84,10 @@ absl::Status CentroidalDynamicsBasisInputsAD::validate(const PinocchioInterface&
   const pinocchio::ModelTpl<scalar_t>& model = pinocchioInterface.getModel();
   const Eigen::Index numBasisPerFoot = localBasisMatrices[0].cols();
   for (size_t i = 0; i < kNumContacts; ++i) {
-    if (localBasisMatrices[i].rows() != static_cast<Eigen::Index>(kWrenchDim) || localBasisMatrices[i].cols() != numBasisPerFoot) {
+    if (localBasisMatrices[i].rows() != static_cast<Eigen::Index>(kContactWrenchDim) || localBasisMatrices[i].cols() != numBasisPerFoot) {
       return absl::InternalError(absl::StrCat("[CentroidalDynamicsBasisInputsAD] basis matrix ", i, " has size ",
-                                              localBasisMatrices[i].rows(), "x", localBasisMatrices[i].cols(), ", expected ", kWrenchDim,
-                                              "x", numBasisPerFoot, "."));
+                                              localBasisMatrices[i].rows(), "x", localBasisMatrices[i].cols(), ", expected ",
+                                              kContactWrenchDim, "x", numBasisPerFoot, "."));
     }
     const std::string& frameName = modelSettings.contactNames[i];
     if (!model.existFrame(frameName)) {
@@ -143,7 +143,7 @@ CentroidalDynamicsBasisInputsAD::CentroidalDynamicsBasisInputsAD(const Centroida
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-std::string CentroidalDynamicsBasisInputsAD::uniqueModelName(const std::string& modelName,
+std::string CentroidalDynamicsBasisInputsAD::uniqueModelName(absl::string_view modelName,
                                                              const std::array<matrix_t, kNumContacts>& localBasisMatrices) {
   // A cached CppAD library compiled for a different basis (another generator set, friction coefficient, footprint or
   // number of generators) must never be reused, so the name carries the basis' content key.
@@ -166,7 +166,7 @@ VECTOR_T<SCALAR_T> CentroidalDynamicsBasisInputsAD::toWorldFrameWrenchInput(cons
     const MATRIX3_T<SCALAR_T> w_R_l = data.oMf[contactFrameIndices_[i]].rotation();
     // Contact i is the i-th six-DoF contact (there are no three-DoF contacts, checked in the constructor).
     centroidal_model::getContactForces(wrenchInput, i, info) = w_R_l * wrenchLocal.template head<kForceDim>();
-    centroidal_model::getContactTorques(wrenchInput, i, info) = w_R_l * wrenchLocal.template tail<kForceDim>();
+    centroidal_model::getContactTorques(wrenchInput, i, info) = w_R_l * wrenchLocal.template tail<kTorqueDim>();
   }
   centroidal_model::getJointVelocities(wrenchInput, info) = basisInput.tail(jointDim_);
   return wrenchInput;

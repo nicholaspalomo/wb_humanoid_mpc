@@ -962,17 +962,20 @@ TEST_F(ContactPlanningIntegrationTest, DerivesHeadingModelParametersFromTheModel
   ASSERT_GT(mu, 0.0);
   EXPECT_TRUE(config.hasModelParameters());
   EXPECT_NEAR(config.yawTorqueBudget.torsionalFrictionTorque, muTorsion * weight, 1.0e-9) << "torsional friction times the weight";
-  EXPECT_NEAR(config.yawTorqueBudget.doubleSupportYawCouple, mu * 0.5 * weight * config.stepWidth.nominalStepWidth, 1.0e-9)
-      << "friction couple of two feet";
+  // The planner models friction as a circle, the one inscribed in the wrench cone's N-facet pyramid: mu cos(pi / N).
+  ASSERT_TRUE(cone.num_basis_vectors.has_value());
+  const scalar_t inscribedMu = mu * std::cos(M_PI / static_cast<scalar_t>(cone.num_basis_vectors.value_or(1)));
+  EXPECT_NEAR(config.yawTorqueBudget.doubleSupportYawCouple, inscribedMu * 0.5 * weight * config.stepWidth.nominalStepWidth, 1.0e-9)
+      << "friction couple of two feet, on the inscribed friction circle";
   EXPECT_GT(config.yawTorqueBudget.torsionalFrictionTorque, 0.0);
 
   // Hip yaw limits per leg: l_leg_hpz [-0.174, 0.787], r_leg_hpz [-0.787, 0.174] on the DRC Atlas.
-  const std::pair<scalar_t, scalar_t> leftBounds = config.footYawOffsetBounds(0);
-  const std::pair<scalar_t, scalar_t> rightBounds = config.footYawOffsetBounds(1);
-  const scalar_t leftLower = leftBounds.first;
-  const scalar_t leftUpper = leftBounds.second;
-  const scalar_t rightLower = rightBounds.first;
-  const scalar_t rightUpper = rightBounds.second;
+  const ContactPlanningConfig::FootYawOffsetBounds leftBounds = config.footYawOffsetBounds(0);
+  const ContactPlanningConfig::FootYawOffsetBounds rightBounds = config.footYawOffsetBounds(1);
+  const scalar_t leftLower = leftBounds.lower;
+  const scalar_t leftUpper = leftBounds.upper;
+  const scalar_t rightLower = rightBounds.lower;
+  const scalar_t rightUpper = rightBounds.upper;
   const int leftHip = model.joints[model.getJointId("l_leg_hpz")].idx_q();
   const int rightHip = model.joints[model.getJointId("r_leg_hpz")].idx_q();
   EXPECT_NEAR(leftLower, model.lowerPositionLimit(leftHip), 1.0e-9);
@@ -996,16 +999,16 @@ TEST_F(ContactPlanningIntegrationTest, DerivesHeadingModelParametersFromTheModel
   EXPECT_EQ(module->setConfig(reloaded), absl::OkStatus());
   EXPECT_TRUE(module->getConfig().hasModelParameters());
   EXPECT_NEAR(module->getConfig().yawTorqueBudget.torsionalFrictionTorque, config.yawTorqueBudget.torsionalFrictionTorque, 1.0e-12);
-  EXPECT_NEAR(module->getConfig().footYawOffsetBounds(1).first, rightLower, 1.0e-12);
+  EXPECT_NEAR(module->getConfig().footYawOffsetBounds(1).lower, rightLower, 1.0e-12);
 
   // comHeight is only filled where the configuration leaves it unset, and the ZMP box where it leaves it at 0.
   ContactPlanningGroundParameters ground;
   ground.frictionCoefficient = mu;
   ground.torsionalFrictionCoefficient = muTorsion;
   PinocchioInterface pinocchio = interface_->getPinocchioInterface();
-  const ContactPlanningModelParameters derived = deriveContactPlanningModelParameters(
-      pinocchio, interface_->getEffectiveMpcRobotModel(), interface_->getInitialState(),
-      interface_->modelSettings().contactParentJointNames, ground, config.shared.gravity, config.stepWidth.nominalStepWidth);
+  const ContactPlanningModelParameters derived =
+      deriveContactPlanningModelParameters(pinocchio, interface_->getEffectiveMpcRobotModel(), interface_->getInitialState(),
+                                           interface_->modelSettings().contactParentJointNames, ground);
   EXPECT_GT(derived.comHeight, 0.6);
   EXPECT_LT(derived.comHeight, 1.2);
   ContactPlanningConfig explicitHeight = reloaded;
@@ -1557,11 +1560,11 @@ TEST_F(ContactPlanningIntegrationTest, CadenceAndDcmCorrectionsMatchTheirClosedF
   dcm.formulation.setExecutionRule(term::kDcmStepAdjustment, /*on=*/true);
   EXPECT_EQ(module->setConfig(dcm), absl::OkStatus());
   time += 0.02;
-  const std::optional<std::pair<scalar_t, scalar_t>> phase = swingPhaseAtTime(referenceManager->getModeSchedule(), foot, time);
+  const std::optional<SwingWindow> phase = swingPhaseAtTime(referenceManager->getModeSchedule(), foot, time);
   if (!phase.has_value()) {
     GTEST_FAIL();
   }
-  const scalar_t touchDown = phase->second;
+  const scalar_t touchDown = phase->touchDown;
   const scalar_t propagation = std::exp(omega * (touchDown - time));
   vector_t pushed = state;
   pushed(6) += 0.01;  // base x, and with it the CoM x and the DCM x

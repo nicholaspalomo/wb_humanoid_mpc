@@ -33,6 +33,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <memory>
 #include <utility>
 
+#include "ocs2_core/Dimensions.h"
+
 #include "humanoid_common_mpc/HumanoidPreComputation.h"
 
 namespace ocs2::humanoid {
@@ -49,8 +51,7 @@ ZeroVelocityConstraintCppAd::ZeroVelocityConstraintCppAd(const SwitchedModelRefe
       referenceManagerPtr_(&referenceManager),
       eeTwistConstraintPtr_(
           std::make_unique<EndEffectorKinematicsTwistConstraint>(endEffectorKinematics, numConstraints, std::move(config))),
-      contactPointIndex_(contactPointIndex),
-      numConstraints_(numConstraints) {}
+      contactPointIndex_(contactPointIndex) {}
 
 /******************************************************************************************************/
 /******************************************************************************************************/
@@ -60,7 +61,6 @@ ZeroVelocityConstraintCppAd::ZeroVelocityConstraintCppAd(const ZeroVelocityConst
       referenceManagerPtr_(rhs.referenceManagerPtr_),
       eeTwistConstraintPtr_(rhs.eeTwistConstraintPtr_->clone()),
       contactPointIndex_(rhs.contactPointIndex_),
-      numConstraints_(rhs.numConstraints_),
       // isActive_ is copied deliberately: the SQP solver clones the whole problem once per worker thread,
       // and a copy constructor that dropped this flag silently reverted a deactivated term to active.
       isActive_(rhs.isActive_) {}
@@ -83,7 +83,7 @@ vector_t ZeroVelocityConstraintCppAd::getValue(scalar_t time,
   const HumanoidPreComputation& humanoidPreComp = cast<HumanoidPreComputation>(preComp);
   // Modify to actual ground height
   EndEffectorKinematicsTwistConstraint::Config& config = eeTwistConstraintPtr_->getConfig();
-  config.b[2] = -config.Ax(2, 2) * humanoidPreComp.getFootReferenceHeight(contactPointIndex_);
+  config.b[kZAxisIndex] = -config.Ax(kZAxisIndex, kZAxisIndex) * humanoidPreComp.getFootReferenceHeight(contactPointIndex_);
   return eeTwistConstraintPtr_->getValue(time, state, input, preComp);
 }
 
@@ -97,7 +97,7 @@ VectorFunctionLinearApproximation ZeroVelocityConstraintCppAd::getLinearApproxim
   const HumanoidPreComputation& humanoidPreComp = cast<HumanoidPreComputation>(preComp);
   // Modify to actual ground height
   EndEffectorKinematicsTwistConstraint::Config& config = eeTwistConstraintPtr_->getConfig();
-  config.b[2] = -config.Ax(2, 2) * humanoidPreComp.getFootReferenceHeight(contactPointIndex_);
+  config.b[kZAxisIndex] = -config.Ax(kZAxisIndex, kZAxisIndex) * humanoidPreComp.getFootReferenceHeight(contactPointIndex_);
   return eeTwistConstraintPtr_->getLinearApproximation(time, state, input, preComp);
 }
 

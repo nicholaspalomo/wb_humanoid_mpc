@@ -40,6 +40,12 @@ namespace LinearInterpolation {
 
 using index_alpha_t = std::pair<int, scalar_t>;
 
+/**
+ * The weight alpha of the left node at the middle of an interval: above it, the left node is the nearer one, which an
+ * interpolation between data of different sizes snaps to.
+ */
+inline constexpr scalar_t kMidpointWeight = 0.5;
+
 template <class T>
 using remove_cvref_t = typename std::remove_cv<typename std::remove_reference<T>::type>::type;
 

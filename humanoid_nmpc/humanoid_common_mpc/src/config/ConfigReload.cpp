@@ -75,7 +75,10 @@ ConfigReload reloadOf(humanoid_mpc_config::TuningOptions::Reload reload) {
 }
 
 // LINT.IfChange(tuning_inheritance)
-/** The tuning of `field` below a block whose tuning is `parent` (tuning_options.proto, config_schema.inherit()). */
+/**
+ * The tuning of `field` below a block whose tuning is `parent` (tuning_options.proto, config_schema.inherit()). The
+ * GUI-only options (the slider, the unit, the minimum, base_controller_label) are not read here.
+ */
 FieldTuning inherit(const FieldTuning& parent, const FieldDescriptor& field) {
   FieldTuning tuning = parent;
   tuning.registry.clear();

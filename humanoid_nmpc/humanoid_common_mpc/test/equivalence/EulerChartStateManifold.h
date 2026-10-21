@@ -92,6 +92,7 @@ class EulerChartStateManifold final : public StateManifold {
   void interpolateInto(const vector_t& x0, const vector_t& x1, scalar_t alpha, vector_t& x) const override;
   void project(vector_t& x) const override { quaternionManifold_->project(x); }
   scalar_t getMaximumRotationAngle(const vector_t& dx) const override { return quaternionManifold_->getMaximumRotationAngle(dx); }
+  bool hasRepresentableRotations(const vector_t& x) const override { return quaternionManifold_->hasRepresentableRotations(x); }
   void pullBackStateColumns(const vector_t& x, matrix_t& J) const override { quaternionManifold_->pullBackStateColumns(x, J); }
   void pullBackStateRows(const vector_t& x, matrix_t& M) const override { quaternionManifold_->pullBackStateRows(x, M); }
   void pullBackGradient(const vector_t& x, vector_t& g) const override { quaternionManifold_->pullBackGradient(x, g); }

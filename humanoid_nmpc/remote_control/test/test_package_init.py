@@ -68,7 +68,7 @@ class TestPackageInit(unittest.TestCase):
                     )
                     or os.path.exists(
                         os.path.join(
-                            os.path.dirname(remote_control.__file__), name + ".py"
+                            os.path.dirname(remote_control.__file__), f"{name}.py"
                         )
                     ),
                     f"remote_control.{name} is not a module of the package",

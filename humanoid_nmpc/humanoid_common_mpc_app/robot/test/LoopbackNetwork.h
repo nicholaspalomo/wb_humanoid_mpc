@@ -42,12 +42,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid::test_support {
 
-/** A TCP port of the loopback interface that is free now (the kernel's choice). */
-int freeLoopbackPort();
-
 /**
- * Writes a network file at `path` that puts each of `nodes` on 127.0.0.1 at a free port, and loads it back, as the
- * processes of a test read it (--network_config).
+ * Writes a network file at `path` that puts each of `nodes` on 127.0.0.1 in this test process's own DDS domain
+ * (robot::ipc::isolatedTestNetwork()), with the shipped topics' QoS, and loads it back, as the child processes of a
+ * test read it (--network_config).
  */
 absl::StatusOr<robot::ipc::NetworkConfig> writeLoopbackNetworkFile(const std::string& path, const std::vector<std::string>& nodes);
 

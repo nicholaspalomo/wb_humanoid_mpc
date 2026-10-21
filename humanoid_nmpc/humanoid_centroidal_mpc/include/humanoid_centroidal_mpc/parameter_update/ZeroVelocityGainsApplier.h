@@ -62,7 +62,10 @@ class ZeroVelocityGainsApplier final : public HotFieldApplier {
   void apply(HotUpdateTarget& target) override;
 };
 
-/** The Ax/Av gains of the zero_velocity twist constraint of `gains` (mirrors CentroidalMpcInterface::getStanceFootConstraint). */
+/**
+ * The Ax/Av gains of the zero_velocity twist constraint of `gains`: the one definition, which
+ * CentroidalMpcInterface::getStanceFootConstraint() builds the constraint with and the hot reload applies.
+ */
 EndEffectorKinematicsTwistConstraint::Config footTwistConfig(const ModelSettings::FootConstraintConfig& gains);
 
 /**

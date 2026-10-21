@@ -65,7 +65,6 @@ constexpr absl::string_view kStoredTaskFile = "mpc/task.textproto";
 constexpr absl::string_view kStoredReferenceFile = "command/reference.textproto";
 // The PD gains: kJointPdGainsFileInConfigDirectory; the contact planner's mirror: kContactPlanningFileName in mpc/.
 constexpr absl::string_view kSeedSuffix = ".seed";
-constexpr absl::string_view kBackupSuffix = ".bak";
 constexpr absl::string_view kRejectedSuffix = ".rejected";
 constexpr absl::string_view kBootMarker = ".booting";
 // clang-format off
@@ -259,10 +258,10 @@ absl::Status RobotConfigDirectory::seedFile(size_t kind) {
   if (replace) {
     RETURN_IF_ERROR(createParentOf(stored));
     if (current.exists) {
-      RETURN_IF_ERROR(doneOrNotDurable(writeFileAtomically(absl::StrCat(stored, kBackupSuffix), current.bytes)));
+      RETURN_IF_ERROR(doneOrNotDurable(writeFileAtomically(absl::StrCat(stored, kStoredConfigFileBackupSuffix), current.bytes)));
       LOG(INFO) << "[RobotConfigDirectory] " << stored << " is the bundle's " << seedOf(kind)
                 << " again (--config_seed=" << configSeedPolicyName(options_.seedPolicy) << "); the copy it replaced is " << stored
-                << kBackupSuffix << ".";
+                << kStoredConfigFileBackupSuffix << ".";
     } else {
       LOG(INFO) << "[RobotConfigDirectory] Seeded " << stored << " from " << seedOf(kind) << ".";
     }

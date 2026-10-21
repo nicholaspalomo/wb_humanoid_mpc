@@ -2,12 +2,13 @@ load("@rules_python//python:defs.bzl", "py_test")
 
 # The ROS-free dev container: its image (docker/), its compose and dev container definitions, and CI's copy of the
 # image's setup. No ROS, one Pinocchio from robotpkg and one environment for all three, one VNC display, and the ports
-# of the ZeroMQ bus and of Rerun published.
+# of the DDS bus and of Rerun published.
 py_test(
     name = "test_dev_container",
     size = "small",
     srcs = ["test_dev_container.py"],
     data = [
+        "//:.devcontainer/README.md",
         "//:.devcontainer/devcontainer.json",
         "//:.devcontainer/openbox_layout.py",
         "//:.devcontainer/post_create.sh",

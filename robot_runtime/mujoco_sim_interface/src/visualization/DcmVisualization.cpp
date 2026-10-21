@@ -33,36 +33,51 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstring>
 
 #include "absl/base/nullability.h"
+#include "ocs2_core/Dimensions.h"
 
 #include "mujoco_sim_interface/MujocoSimInterface.h"
+#include "mujoco_sim_interface/MujocoUtils.h"
 #include "mujoco_sim_interface/visualization/GroundMarkerGeoms.h"
 
 namespace robot::mujoco_sim_interface {
+
+using ::ocs2::kHorizontalPositionDim;
+using ::ocs2::kPositionDim;
+using ::ocs2::kZAxisIndex;
+
+namespace {
+constexpr double kDcmMarkerRadius = 0.025;  // [m] the disc at the DCM
+// The line on the ground from the shadow of the center of mass to the DCM.
+constexpr double kDcmLineHeight = 0.004;  // [m] above the ground plane
+constexpr double kDcmLineWidth = 0.004;   // [m]
+constexpr float kDcmLineAlpha = 0.6f;
+constexpr float kDcmLineEmission = 0.6f;
+}  // namespace
 
 void DcmVisualization::addSceneGeoms(const VisualizationFrame& frame) {
   if (frame.model == nullptr || frame.state == nullptr || frame.scene == nullptr) return;
   const mjModel* absl_nonnull model = frame.model;
   const RobotCentroidalState state = robotCentroidalState(model, frame.state->data);
   if (!state.valid) return;
-  const double gravity = std::fabs(model->opt.gravity[2]);
-  double dcm[2];
-  divergentComponentOfMotion(state.com, state.comVelocity, state.com[2], gravity, dcm);
-  const MarkerColor green{.r = 0.1f, .g = 0.9f, .b = 0.3f, .a = 0.9f};
+  const double gravity = std::fabs(model->opt.gravity[kZAxisIndex]);
+  double dcm[kHorizontalPositionDim];
+  divergentComponentOfMotion(state.com, state.comVelocity, state.com[kZAxisIndex], gravity, dcm);
+  constexpr MarkerColor kDcmColor{.r = 0.1f, .g = 0.9f, .b = 0.3f, .a = 0.9f};  // green
   // The offset from the CoM's shadow to the DCM is the velocity term v / omega: a line on the ground makes it readable.
   if (frame.scene->ngeom < frame.scene->maxgeom) {
     mjvGeom* absl_nonnull line = &frame.scene->geoms[frame.scene->ngeom++];
     std::memset(line, 0, sizeof(mjvGeom));
-    const mjtNum from[3] = {state.com[0], state.com[1], 0.004};
-    const mjtNum to[3] = {dcm[0], dcm[1], 0.004};
-    mjv_connector(line, mjGEOM_CAPSULE, /*width=*/0.004, from, to);
-    line->rgba[0] = green.r;
-    line->rgba[1] = green.g;
-    line->rgba[2] = green.b;
-    line->rgba[3] = 0.6f;
+    const mjtNum from[kPositionDim] = {state.com[0], state.com[1], kDcmLineHeight};
+    const mjtNum to[kPositionDim] = {dcm[0], dcm[1], kDcmLineHeight};
+    mjv_connector(line, mjGEOM_CAPSULE, kDcmLineWidth, from, to);
+    line->rgba[kRedChannel] = kDcmColor.r;
+    line->rgba[kGreenChannel] = kDcmColor.g;
+    line->rgba[kBlueChannel] = kDcmColor.b;
+    line->rgba[kAlphaChannel] = kDcmLineAlpha;
     line->category = mjCAT_DECOR;
-    line->emission = 0.6f;
+    line->emission = kDcmLineEmission;
   }
-  addGroundDiscGeom(frame.scene, dcm[0], dcm[1], /*radius=*/0.025, green);
+  addGroundDiscGeom(frame.scene, dcm[0], dcm[1], kDcmMarkerRadius, kDcmColor);
 }
 
 }  // namespace robot::mujoco_sim_interface

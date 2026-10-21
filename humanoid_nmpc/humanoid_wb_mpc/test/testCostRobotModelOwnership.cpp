@@ -43,7 +43,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "gtest/gtest.h"
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
-#include "humanoid_nmpc/humanoid_wb_mpc/test/AffineEndEffectorDynamics.h"
 #include "humanoid_wb_mpc/WBMpcInterface.h"
 #include "humanoid_wb_mpc/common/WBAccelMpcRobotModel.h"
 #include "humanoid_wb_mpc/cost/EndEffectorDynamicsCostHelpers.h"
@@ -60,8 +59,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 namespace {
-
-using test_support::AffineEndEffectorDynamics;
 
 /** The whole-body robot model of the G1, counting its live instances, clones included. */
 class CountingRobotModel final : public WBAccelMpcRobotModel<ad_scalar_t> {
@@ -122,11 +119,13 @@ TEST(CostRobotModelOwnership, TheJointTorqueCostReleasesTheRobotModelsItClones) 
     const CountingRobotModel model(interface->modelSettings());
     ASSERT_EQ(CountingRobotModel::liveInstances, 1);
     {
-      const JointTorqueCostCppAd cost(vector_t::Ones(static_cast<Eigen::Index>(model.getJointDim())), interface->getPinocchioInterface(),
-                                      model, "jointTorqueCostOwnership", interface->modelSettings());
+      absl::StatusOr<std::unique_ptr<JointTorqueCostCppAd>> cost =
+          JointTorqueCostCppAd::Create(vector_t::Ones(static_cast<Eigen::Index>(model.getJointDim())), interface->getPinocchioInterface(),
+                                       model, "jointTorqueCostOwnership", interface->modelSettings());
+      ASSERT_TRUE(cost.ok()) << cost.status();
       EXPECT_EQ(CountingRobotModel::liveInstances, 2) << "the cost holds a copy of the model of its own";
       {
-        const std::unique_ptr<JointTorqueCostCppAd> costCopy(cost.clone());
+        const std::unique_ptr<JointTorqueCostCppAd> costCopy((*cost)->clone());
         EXPECT_EQ(CountingRobotModel::liveInstances, 3) << "every copy of the cost holds a copy of its own";
       }
       EXPECT_EQ(CountingRobotModel::liveInstances, 2) << "a copy of the cost released its model";
@@ -139,18 +138,17 @@ TEST(CostRobotModelOwnership, TheJointTorqueCostReleasesTheRobotModelsItClones) 
 TEST(CostRobotModelOwnership, TheSwingFootCostReleasesTheRobotModelsItClones) {
   const std::unique_ptr<WBMpcInterface> interface = g1ControllerModelsInAFreshDirectory("footCostOwnership");
   ASSERT_NE(interface, nullptr);
-  // The cost keeps a clone of the end-effector dynamics and never evaluates it while taping: a stand-in does.
-  const AffineEndEffectorDynamics footDynamics;
   {
     const CountingRobotModel model(interface->modelSettings());
     ASSERT_EQ(CountingRobotModel::liveInstances, 1);
     {
-      const EndEffectorDynamicsFootCost cost(*interface->getSwitchedModelReferenceManagerPtr(), EndEffectorDynamicsWeights(),
-                                             interface->getPinocchioInterface(), footDynamics, model, /*contactIndex=*/0,
-                                             "footCostOwnership", interface->modelSettings());
+      absl::StatusOr<std::unique_ptr<EndEffectorDynamicsFootCost>> cost = EndEffectorDynamicsFootCost::Create(
+          *interface->getSwitchedModelReferenceManagerPtr(), EndEffectorDynamicsWeights(), interface->getPinocchioInterface(), model,
+          /*contactIndex=*/0, "footCostOwnership", interface->modelSettings());
+      ASSERT_TRUE(cost.ok()) << cost.status();
       EXPECT_EQ(CountingRobotModel::liveInstances, 2) << "the cost holds a copy of the model of its own";
       {
-        const std::unique_ptr<EndEffectorDynamicsFootCost> costCopy(cost.clone());
+        const std::unique_ptr<EndEffectorDynamicsFootCost> costCopy((*cost)->clone());
         EXPECT_EQ(CountingRobotModel::liveInstances, 3) << "every copy of the cost holds a copy of its own";
       }
       EXPECT_EQ(CountingRobotModel::liveInstances, 2) << "a copy of the cost released its model";

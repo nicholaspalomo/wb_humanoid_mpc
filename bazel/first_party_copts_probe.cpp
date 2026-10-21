@@ -45,6 +45,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "cppad/cg.hpp"
+#include "dds/dds.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "hpipm_d_ocp_qp_ipm.h"  // NOLINT(build/include_subdir): HPIPM installs its headers in no directory
@@ -56,12 +57,18 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "pinocchio/multibody/model.hpp"
 #include "turbojpeg.h"  // NOLINT(build/include_subdir): libjpeg-turbo installs turbojpeg.h without a directory
 #include "urdf_parser/urdf_parser.h"
-#include "zmq.hpp"  // NOLINT(build/include_subdir): cppzmq installs its header in no directory
 
 #include "humanoid_mpc_msgs/robot_state_sample.nproto.h"
 #include "humanoid_mpc_msgs/robot_state_sample.pb.h"
 
 namespace wb_humanoid_mpc::copts_probe {
+namespace {
+
+// The rotation angle [rad] and the state size of the probe's Eigen and OCS2 instantiations; any value compiles the same.
+constexpr double kProbeRotationAngle = 0.5;
+constexpr int kProbeStateSize = 3;
+
+}  // namespace
 
 int instantiateThirdPartyTemplates() {
   absl::flat_hash_map<std::string, int> counts;
@@ -69,9 +76,9 @@ int instantiateThirdPartyTemplates() {
   const absl::StatusOr<int> parsed = absl::InvalidArgumentError("probe");
   const absl::Status& status = parsed.status();
 
-  const Eigen::Quaterniond rotation(Eigen::AngleAxisd(/*angle=*/0.5, Eigen::Vector3d::UnitZ()));
+  const Eigen::Quaterniond rotation(Eigen::AngleAxisd(kProbeRotationAngle, Eigen::Vector3d::UnitZ()));
   const Eigen::Vector3d rotated = rotation * Eigen::Vector3d::UnitX();
-  const ocs2::vector_t state = ocs2::vector_t::Zero(/*size=*/3);
+  const ocs2::vector_t state = ocs2::vector_t::Zero(kProbeStateSize);
 
   pinocchio::Model model;
   pinocchio::Data data(model);
@@ -81,7 +88,7 @@ int instantiateThirdPartyTemplates() {
   const std::string serialized = message.SerializeAsString();
   ocs2::humanoid::msgs::RobotStateSample sample;
 
-  const zmq::message_t frame(serialized.data(), serialized.size());
+  const dds_duration_t timeout = DDS_MSECS(serialized.size());
   const CppAD::cg::CG<double> constant(1.0);
   const CppAD::AD<CppAD::cg::CG<double>> taped(constant);
   const ::testing::Matcher<int> matcher = ::testing::Eq(1);
@@ -89,7 +96,8 @@ int instantiateThirdPartyTemplates() {
   const int rgbPixelSize = tjPixelSize[TJPF_RGB];
   const EGLint eglStatus = EGL_SUCCESS;
 
-  const size_t total = counts.size() + serialized.size() + frame.size() + static_cast<size_t>(sample.joint_positions.size());
+  const size_t total =
+      counts.size() + serialized.size() + static_cast<size_t>(timeout) + static_cast<size_t>(sample.joint_positions.size());
   return static_cast<int>(total) + static_cast<int>(rotated.x() + state.sum()) + (status.ok() ? 1 : 0) + (matcher.Matches(1) ? 1 : 0) +
          (CppAD::Variable(taped) ? 1 : 0) + model.nq + static_cast<int>(headers.size()) + rgbPixelSize + static_cast<int>(eglStatus);
 }

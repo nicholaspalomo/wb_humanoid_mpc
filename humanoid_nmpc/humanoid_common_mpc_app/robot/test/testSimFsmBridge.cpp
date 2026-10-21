@@ -68,12 +68,12 @@ class SimFsmBridgeTest : public ::testing::Test {
     OperatorCommandMailbox::Config config;
     config.jointNames = jointNamesByIndex(description);
     config.initialNominalPositions.assign(description.getNumJoints(), 0.0);
-    absl::StatusOr<std::unique_ptr<OperatorCommandMailbox>> mailbox = OperatorCommandMailbox::Create(config, registry_);
+    absl::StatusOr<std::unique_ptr<OperatorCommandMailbox>> mailbox = OperatorCommandMailbox::Create(config, &registry_);
     EXPECT_TRUE(mailbox.ok()) << mailbox.status();
     mailbox_ = *std::move(mailbox);
     sim_->initSim();
     sim_->updateInterfaceStateFromRobot();
-    bridge_ = std::make_unique<SimFsmBridge>(description, sim_->getRobotState(), *mailbox_, states_, &log_);
+    bridge_ = std::make_unique<SimFsmBridge>(description, sim_->getRobotState(), mailbox_.get(), &states_, sim_.get(), &log_);
   }
 
   void send(const std::string& command) {
@@ -112,20 +112,20 @@ TEST_F(SimFsmBridgeTest, ModeCommandsSwitchTheTorquesAndPublishTheMode) {
   published();
   std::string mode = "ZERO_TORQUE";
   send("JOINT_PD");
-  EXPECT_TRUE(bridge_->processCommands(mode, *sim_));
+  EXPECT_TRUE(bridge_->processCommands(mode));
   EXPECT_EQ(mode, "JOINT_PD");
   EXPECT_FALSE(sim_->isZeroTorqueMode());
   EXPECT_EQ(robot_test::valueOrFail(published()).mode, "JOINT_PD");
 
   send("MPC_ACTIVE");
-  EXPECT_TRUE(bridge_->processCommands(mode, *sim_));
+  EXPECT_TRUE(bridge_->processCommands(mode));
   EXPECT_EQ(mode, "WB_MPC") << "the older name of WB_MPC";
   send("ZERO_TORQUE");
-  EXPECT_TRUE(bridge_->processCommands(mode, *sim_));
+  EXPECT_TRUE(bridge_->processCommands(mode));
   EXPECT_EQ(mode, "ZERO_TORQUE");
   EXPECT_TRUE(sim_->isZeroTorqueMode());
   send("ENABLE_TORQUES");
-  EXPECT_TRUE(bridge_->processCommands(mode, *sim_));
+  EXPECT_TRUE(bridge_->processCommands(mode));
   EXPECT_EQ(mode, "WB_MPC");
   EXPECT_FALSE(sim_->isZeroTorqueMode());
   // The torque switch was reported for the communication thread to log.
@@ -140,29 +140,29 @@ TEST_F(SimFsmBridgeTest, OneCommandPerCycleInTheOrderTheyWereSent) {
   send("JOINT_PD");
   send("GRAVITY_COMP");
   send("SAFETY");
-  EXPECT_TRUE(bridge_->processCommands(mode, *sim_));
+  EXPECT_TRUE(bridge_->processCommands(mode));
   EXPECT_EQ(mode, "JOINT_PD");
-  EXPECT_TRUE(bridge_->processCommands(mode, *sim_));
+  EXPECT_TRUE(bridge_->processCommands(mode));
   EXPECT_EQ(mode, "GRAVITY_COMP");
-  EXPECT_TRUE(bridge_->processCommands(mode, *sim_));
+  EXPECT_TRUE(bridge_->processCommands(mode));
   EXPECT_EQ(mode, "SAFETY");
-  EXPECT_FALSE(bridge_->processCommands(mode, *sim_));
+  EXPECT_FALSE(bridge_->processCommands(mode));
 }
 
 TEST_F(SimFsmBridgeTest, TheGantryMovesOnlyWhenItWouldChange) {
   published();
   std::string mode = "JOINT_PD";
   send("LOCK_GANTRY");
-  EXPECT_FALSE(bridge_->processCommands(mode, *sim_)) << "locked already: nothing to do";
+  EXPECT_FALSE(bridge_->processCommands(mode)) << "locked already: nothing to do";
   EXPECT_FALSE(published().has_value());
   send("UNLOCK_GANTRY");
-  EXPECT_TRUE(bridge_->processCommands(mode, *sim_));
+  EXPECT_TRUE(bridge_->processCommands(mode));
   EXPECT_FALSE(sim_->isGantryLocked());
   const msgs::FsmState unlocked = robot_test::valueOrFail(published());
   EXPECT_FALSE(unlocked.gantry_locked);
   EXPECT_EQ(unlocked.mode, "JOINT_PD");
   send("LOCK_GANTRY");
-  EXPECT_TRUE(bridge_->processCommands(mode, *sim_));
+  EXPECT_TRUE(bridge_->processCommands(mode));
   EXPECT_TRUE(sim_->isGantryLocked());
   EXPECT_TRUE(robot_test::valueOrFail(published()).gantry_locked);
 }
@@ -170,44 +170,44 @@ TEST_F(SimFsmBridgeTest, TheGantryMovesOnlyWhenItWouldChange) {
 TEST_F(SimFsmBridgeTest, TheGantryFollowsTheSliderWhileLockedAndOnlyOnceItHasMoved) {
   std::string mode = "JOINT_PD";
   const double spawnHeight = sim_->getGantryHeight();
-  EXPECT_FALSE(bridge_->processCommands(mode, *sim_));
+  EXPECT_FALSE(bridge_->processCommands(mode));
   EXPECT_DOUBLE_EQ(sim_->getGantryHeight(), spawnHeight) << "no walking command yet: the gantry stays where it is";
   humanoid_mpc_msgs::WalkingVelocityCommand command;
   command.set_desired_pelvis_height(0.7);
   mailbox_->onWalkingVelocityCommand(command);
-  bridge_->processCommands(mode, *sim_);
+  bridge_->processCommands(mode);
   EXPECT_DOUBLE_EQ(sim_->getGantryHeight(), 0.7);
   // A cycle that processes a command leaves the height alone.
   command.set_desired_pelvis_height(0.8);
   mailbox_->onWalkingVelocityCommand(command);
   send("GRAVITY_COMP");
-  bridge_->processCommands(mode, *sim_);
+  bridge_->processCommands(mode);
   EXPECT_DOUBLE_EQ(sim_->getGantryHeight(), 0.7);
-  bridge_->processCommands(mode, *sim_);
+  bridge_->processCommands(mode);
   EXPECT_DOUBLE_EQ(sim_->getGantryHeight(), 0.8);
   // Unlocked, the slider does not move the gantry.
   sim_->unlockGantry();
   command.set_desired_pelvis_height(1.2);
   mailbox_->onWalkingVelocityCommand(command);
-  bridge_->processCommands(mode, *sim_);
+  bridge_->processCommands(mode);
   EXPECT_DOUBLE_EQ(sim_->getGantryHeight(), 0.8);
 }
 
 TEST_F(SimFsmBridgeTest, EveryControllerResetIsCountedAndTheHealthIsPublishedOnChange) {
   published();
-  bridge_->publishControllerReset("JOINT_PD", /*gantryLocked=*/true);
-  bridge_->publishControllerReset("JOINT_PD", /*gantryLocked=*/true);
+  bridge_->publishControllerReset("JOINT_PD");
+  bridge_->publishControllerReset("JOINT_PD");
   const msgs::FsmState reset = robot_test::valueOrFail(published());
   EXPECT_EQ(reset.controller_resets, 2u) << "the newest state carries every reset so far";
   EXPECT_EQ(bridge_->controllerResets(), 2u);
 
-  bridge_->setMpcHealthy(/*mpcHealthy=*/true, "WB_MPC", /*gantryLocked=*/false);
+  bridge_->setMpcHealthy(/*mpcHealthy=*/true, "WB_MPC");
   EXPECT_FALSE(published().has_value()) << "healthy already: nothing to publish";
-  bridge_->setMpcHealthy(/*mpcHealthy=*/false, "WB_MPC", /*gantryLocked=*/false);
+  bridge_->setMpcHealthy(/*mpcHealthy=*/false, "WB_MPC");
   const msgs::FsmState unhealthy = robot_test::valueOrFail(published());
   EXPECT_FALSE(unhealthy.mpc_healthy);
   EXPECT_EQ(unhealthy.controller_resets, 2u);
-  bridge_->publishFsmState("WB_MPC", /*gantryLocked=*/false);
+  bridge_->publishFsmState("WB_MPC");
   EXPECT_FALSE(robot_test::valueOrFail(published()).mpc_healthy) << "every state carries the health";
 }
 
@@ -229,7 +229,7 @@ TEST_F(SimFsmBridgeTest, ADodgeballIsHandedToTheSimulatorBeforeTheCommands) {
   ASSERT_TRUE(golden.ok()) << golden.status();
   mailbox_->onDodgeballThrow(*golden);
   std::string mode = "JOINT_PD";
-  EXPECT_FALSE(bridge_->processCommands(mode, *sim_)) << "a throw is not an FSM command";
+  EXPECT_FALSE(bridge_->processCommands(mode)) << "a throw is not an FSM command";
   robot::mujoco_sim_interface::MujocoSimInterface::DodgeballThrow left;
   EXPECT_FALSE(mailbox_->takeDodgeballThrow(left)) << "taken by the bridge";
 }

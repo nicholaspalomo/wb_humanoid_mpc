@@ -137,7 +137,8 @@ absl::StatusOr<matrix_t> physicalTangentJacobian(const vector_t& eulerState, con
 
 /**
  * d (T_B(Theta) dTheta) / d Theta at the angles `eulerZyx` and the rates `eulerZyxRates` (3 x 3, columns yaw, pitch,
- * roll): the coupling block of the whole-body rates in eulerChartJacobian() and physicalTangentJacobian().
+ * roll): the coupling block of the whole-body rates in eulerChartJacobian() and physicalTangentJacobian(). It is
+ * EulerBoundary's localAngularVelocityEulerZyxJacobian(), bit for bit.
  */
 matrix3_t localAngularVelocityEulerAngleDerivative(const vector3_t& eulerZyx, const vector3_t& eulerZyxRates);
 

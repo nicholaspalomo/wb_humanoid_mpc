@@ -203,6 +203,62 @@ TEST(ModelSettingsFromConfig, FixingEveryJointIsRefused) {
   EXPECT_THAT(settings.status().message(), HasSubstr("at least one active joint"));
 }
 
+TEST(ModelSettingsFromConfig, AnUnknownOrRepeatedFixedJointIsRefusedNamingIt) {
+  // A misspelled fixed joint would otherwise stay active without a word.
+  mpc_config::TaskFile unknown = twoJointTask();
+  unknown.model_settings.fixed_joint_names = {"shoulderr"};
+  const absl::StatusOr<ModelSettings> misspelled = ModelSettings::Create(unknown, twoJointUrdf(), "test_", /*verbose=*/false);
+  EXPECT_EQ(misspelled.status().code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_THAT(misspelled.status().message(), HasSubstr("model_settings.fixed_joint_names names shoulderr, which the URDF does not have"));
+  mpc_config::TaskFile repeated = twoJointTask();
+  repeated.model_settings.fixed_joint_names = {"shoulder", "shoulder"};
+  const absl::StatusOr<ModelSettings> twice = ModelSettings::Create(repeated, twoJointUrdf(), "test_", /*verbose=*/false);
+  EXPECT_EQ(twice.status().code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_THAT(twice.status().message(), HasSubstr("names shoulder more than once"));
+}
+
+TEST(ModelSettingsFromConfig, ANegativeOrNanGainTimeOrStepWidthIsRefusedNamingIt) {
+  using FootConstraintConfig = mpc_config::ModelSettingsConfig::FootConstraintConfig;
+  struct Gain {
+    const char* absl_nonnull name;
+    double FootConstraintConfig::*absl_nonnull field;
+  };
+  const std::vector<Gain> gains = {
+      {.name = "position_error_gain_z", .field = &FootConstraintConfig::position_error_gain_z},
+      {.name = "orientation_error_gain", .field = &FootConstraintConfig::orientation_error_gain},
+      {.name = "linear_velocity_error_gain_z", .field = &FootConstraintConfig::linear_velocity_error_gain_z},
+      {.name = "linear_velocity_error_gain_xy", .field = &FootConstraintConfig::linear_velocity_error_gain_xy},
+      {.name = "angular_velocity_error_gain", .field = &FootConstraintConfig::angular_velocity_error_gain},
+      {.name = "linear_acceleration_error_gain_z", .field = &FootConstraintConfig::linear_acceleration_error_gain_z},
+      {.name = "linear_acceleration_error_gain_xy", .field = &FootConstraintConfig::linear_acceleration_error_gain_xy},
+      {.name = "angular_acceleration_error_gain", .field = &FootConstraintConfig::angular_acceleration_error_gain},
+  };
+  for (const Gain& gain : gains) {
+    for (const double value : {-1.0, std::numeric_limits<double>::quiet_NaN()}) {
+      FootConstraintConfig config;
+      config.*gain.field = value;
+      EXPECT_THAT(footConstraintFromConfig(config).status().message(),
+                  HasSubstr(absl::StrCat("model_settings.foot_constraint.", gain.name, ": ")))
+          << value;
+    }
+    FootConstraintConfig zero;
+    zero.*gain.field = 0.0;
+    EXPECT_TRUE(footConstraintFromConfig(zero).ok()) << gain.name << " = 0 switches the error feedback off";
+  }
+  for (const double value : {-1.0, std::numeric_limits<double>::quiet_NaN()}) {
+    mpc_config::TaskFile stance = twoJointTask();
+    stance.model_settings.phase_transition_stance_time = value;
+    EXPECT_THAT(ModelSettings::Create(stance, twoJointUrdf(), "test_", /*verbose=*/false).status().message(),
+                HasSubstr("model_settings.phase_transition_stance_time: "));
+    mpc_config::NominalFootholdConfig foothold;
+    foothold.step_width = value;
+    EXPECT_THAT(nominalFootholdFromConfig(foothold).status().message(), HasSubstr("nominal_foothold.step_width: "));
+  }
+  mpc_config::TaskFile terrain = twoJointTask();
+  terrain.terrain_height = std::numeric_limits<double>::quiet_NaN();
+  EXPECT_THAT(ModelSettings::Create(terrain, twoJointUrdf(), "test_", /*verbose=*/false).status().message(), HasSubstr("terrain_height: "));
+}
+
 TEST(ModelSettingsFromConfig, AnArmJointThatIsNotAnActiveJointIsRefusedNamingIt) {
   mpc_config::TaskFile misspelled = twoJointTask();
   misspelled.model_settings.arm_joint_names = {
@@ -249,8 +305,10 @@ TEST(ModelSettingsFromConfig, TheSchemaDefaultsAreTheSettingsDefaults) {
   ASSERT_TRUE(footConstraint.ok()) << footConstraint.status();
   EXPECT_EQ(describe(*footConstraint), describe(ModelSettings::FootConstraintConfig{}));
   EXPECT_EQ(describe(contactImplicitFromConfig(mpc_config::ContactImplicitConfig{})), describe(ModelSettings::ContactImplicitConfig{}));
-  EXPECT_EQ(text(nominalFootholdFromConfig(mpc_config::NominalFootholdConfig{}).stepWidth),
-            text(ModelSettings::NominalFootholdConfig{}.stepWidth));
+  const absl::StatusOr<ModelSettings::NominalFootholdConfig> nominalFoothold =
+      nominalFootholdFromConfig(mpc_config::NominalFootholdConfig{});
+  ASSERT_TRUE(nominalFoothold.ok()) << nominalFoothold.status();
+  EXPECT_EQ(text(nominalFoothold->stepWidth), text(ModelSettings::NominalFootholdConfig{}.stepWidth));
 }
 
 /** A value of `field` other than its default: a number scaled and shifted, a bool flipped, a joint name of the robot. */

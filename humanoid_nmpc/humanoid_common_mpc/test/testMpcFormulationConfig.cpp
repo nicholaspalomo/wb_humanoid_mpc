@@ -170,7 +170,6 @@ TEST(MpcFormulationNames, costNamesResolveInEitherSpelling) {
   EXPECT_EQ(*stringToMpcCostType("state_quadratic_cost"), MpcCostType::kStateQuadraticCost);
   EXPECT_EQ(*stringToMpcCostType("input_quadratic_cost"), MpcCostType::kInputQuadraticCost);
   EXPECT_EQ(*stringToMpcCostType("terminal_cost"), MpcCostType::kTerminalCost);
-  EXPECT_EQ(*stringToMpcCostType("icp_cost"), MpcCostType::kIcpCost);
   EXPECT_EQ(*stringToMpcCostType("task_space_foot_cost"), MpcCostType::kTaskSpaceFootCost);
   EXPECT_EQ(*stringToMpcCostType("task_space_torso_cost"), MpcCostType::kTaskSpaceTorsoCost);
   EXPECT_EQ(*stringToMpcCostType("external_torque_cost"), MpcCostType::kExternalTorqueCost);
@@ -198,13 +197,23 @@ TEST(MpcFormulationNames, everyEnumeratorRoundTripsThroughItsName) {
     ASSERT_TRUE(name.ok()) << static_cast<int>(type);
     EXPECT_EQ(*stringToMpcHardConstraintType(*name), type) << *name;
   }
-  for (MpcCostType type : {MpcCostType::kStateInputQuadraticCost, MpcCostType::kStateQuadraticCost, MpcCostType::kInputQuadraticCost,
-                           MpcCostType::kTerminalCost, MpcCostType::kIcpCost, MpcCostType::kTaskSpaceFootCost,
-                           MpcCostType::kTaskSpaceTorsoCost, MpcCostType::kExternalTorqueCost, MpcCostType::kJointTorqueCost,
-                           MpcCostType::kDcmTerminalCost, MpcCostType::kComAndAcomTrackingCost}) {
+  for (MpcCostType type :
+       {MpcCostType::kStateInputQuadraticCost, MpcCostType::kStateQuadraticCost, MpcCostType::kInputQuadraticCost,
+        MpcCostType::kTerminalCost, MpcCostType::kTaskSpaceFootCost, MpcCostType::kTaskSpaceTorsoCost, MpcCostType::kExternalTorqueCost,
+        MpcCostType::kJointTorqueCost, MpcCostType::kDcmTerminalCost, MpcCostType::kComAndAcomTrackingCost}) {
     const absl::StatusOr<std::string> name = mpcCostTypeToString(type);
     ASSERT_TRUE(name.ok()) << static_cast<int>(type);
     EXPECT_EQ(*stringToMpcCostType(*name), type) << *name;
+  }
+}
+
+TEST(MpcFormulationNames, theRemovedIcpCostIsRefusedWithWhatReplacesIt) {
+  for (const absl::string_view name : {"icp_cost", "icpCost"}) {
+    const absl::StatusOr<MpcCostType> refused = stringToMpcCostType(name);
+    ASSERT_FALSE(refused.ok()) << name;
+    EXPECT_EQ(refused.status().code(), absl::StatusCode::kInvalidArgument);
+    EXPECT_TRUE(absl::StrContains(refused.status().message(), "was removed")) << refused.status().message();
+    EXPECT_TRUE(absl::StrContains(refused.status().message(), "dcm_terminal_cost")) << refused.status().message();
   }
 }
 
@@ -308,6 +317,7 @@ TEST(MpcFormulationLoader, aMissingFileIsNotFound) {
 
 TEST(MpcFormulationLoader, theListsLoadAsWritten) {
   const std::string path = writeContent("lists",
+                                        "# proto-message: humanoid_mpc_config.TaskFile\n"
                                         "hard_constraints: [\"zero_wrench\", \"zero_velocity\", \"normal_velocity\"]\n"
                                         "soft_constraints: [\"joint_limits\", \"friction_force_cone\", \"contact_moment_xy\"]\n"
                                         "costs: \"state_quadratic_cost\"\n");

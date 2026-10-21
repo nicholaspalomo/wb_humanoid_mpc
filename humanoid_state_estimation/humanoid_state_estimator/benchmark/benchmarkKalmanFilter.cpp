@@ -102,19 +102,19 @@ Names makeNames(int num_contacts) {
 }
 
 std::vector<KalmanFilterProcessModel> makeProcessModel(const Names& names) {
-  std::vector<KalmanFilterProcessModel> process_model;
-  process_model.push_back({.state_name = "base_position",
-                           .A_state_transition = {{"base_velocity", kDt * identity(3)}},
-                           .B_control_input = {{"imu_acceleration", 0.5 * kDt * kDt * identity(3)}}});
-  process_model.push_back({.state_name = "base_velocity", .B_control_input = {{"imu_acceleration", kDt * identity(3)}}});
+  std::vector<KalmanFilterProcessModel> processModel;
+  processModel.push_back({.stateName = "base_position",
+                          .stateTransition = {{"base_velocity", kDt * identity(3)}},
+                          .controlInputMatrix = {{"imu_acceleration", 0.5 * kDt * kDt * identity(3)}}});
+  processModel.push_back({.stateName = "base_velocity", .controlInputMatrix = {{"imu_acceleration", kDt * identity(3)}}});
   for (const std::string& contact : names.contact) {
-    process_model.push_back({.state_name = contact, .Q_process_noise = 1.0e-8 * identity(3)});
+    processModel.push_back({.stateName = contact, .processNoiseCovariance = 1.0e-8 * identity(3)});
   }
-  return process_model;
+  return processModel;
 }
 
 std::vector<KalmanFilterInput> makeInputs(const vector_t& acceleration) {
-  return {{.name = "imu_acceleration", .input = acceleration, .Q_input_noise = 1.0e-4 * identity(3)}};
+  return {{.name = "imu_acceleration", .input = acceleration, .inputNoiseCovariance = 1.0e-4 * identity(3)}};
 }
 
 std::vector<KalmanFilterMeasurement> makeMeasurements(const Names& names,
@@ -127,16 +127,16 @@ std::vector<KalmanFilterMeasurement> makeMeasurements(const Names& names,
   for (size_t contact = 0; contact < names.contact.size(); ++contact) {
     measurements.push_back({.name = names.relative_position[contact],
                             .measurement = contact_positions[contact] - base_position,
-                            .H_measurement_model = {{names.contact[contact], identity(3)}, {"base_position", -identity(3)}},
-                            .R_measurement_noise = 1.0e-6 * identity(3)});
+                            .measurementModel = {{names.contact[contact], identity(3)}, {"base_position", -identity(3)}},
+                            .measurementNoiseCovariance = 1.0e-6 * identity(3)});
     measurements.push_back({.name = names.velocity[contact],
                             .measurement = base_velocity,
-                            .H_measurement_model = {{"base_velocity", identity(3)}},
-                            .R_measurement_noise = 1.0e-4 * identity(3)});
+                            .measurementModel = {{"base_velocity", identity(3)}},
+                            .measurementNoiseCovariance = 1.0e-4 * identity(3)});
     measurements.push_back({.name = names.height[contact],
                             .measurement = contact_positions[contact].tail(1),
-                            .H_measurement_model = {{names.contact[contact], e_z}},
-                            .R_measurement_noise = 1.0e-6 * identity(1)});
+                            .measurementModel = {{names.contact[contact], e_z}},
+                            .measurementNoiseCovariance = 1.0e-6 * identity(1)});
   }
   return measurements;
 }
@@ -164,26 +164,25 @@ void run(int num_contacts, bool real_time_caller, int iterations) {
   const vector_t base_velocity = (vector_t(3) << 0.3, 0.0, 0.0).finished();
   const vector_t acceleration = vector_t::Zero(3);
 
-  std::vector<KalmanFilterState> initial_states = {
-      {.name = "base_position", .state = base_position, .P_state_estimate = 1.0e-4 * identity(3)},
-      {.name = "base_velocity", .state = vector_t::Zero(3), .P_state_estimate = identity(3)}};
+  std::vector<KalmanFilterState> initialStates = {
+      {.name = "base_position", .state = base_position, .stateCovariance = 1.0e-4 * identity(3)},
+      {.name = "base_velocity", .state = vector_t::Zero(3), .stateCovariance = identity(3)}};
   for (int contact = 0; contact < num_contacts; ++contact) {
-    initial_states.push_back(
-        {.name = names.contact[contact], .state = contact_positions[contact], .P_state_estimate = 1.0e-2 * identity(3)});
+    initialStates.push_back({.name = names.contact[contact], .state = contact_positions[contact], .stateCovariance = 1.0e-2 * identity(3)});
   }
-  absl::StatusOr<std::unique_ptr<KalmanFilter>> created = KalmanFilter::Create(initial_states);
+  absl::StatusOr<std::unique_ptr<KalmanFilter>> created = KalmanFilter::Create(initialStates);
   if (!created.ok()) {
     absl::PrintF("Create failed: %s\n", created.status().message());
     return;
   }
   std::unique_ptr<KalmanFilter> filter = std::move(*created);
-  const int measurement_dim = 7 * num_contacts;
-  if (real_time_caller && !filter->reserve(/*max_input_dim=*/3, measurement_dim).ok()) {
+  const int measurementDim = 7 * num_contacts;
+  if (real_time_caller && !filter->reserve(/*maxInputDim=*/3, measurementDim).ok()) {
     absl::PrintF("reserve failed\n");
     return;
   }
 
-  std::vector<KalmanFilterProcessModel> process_model = makeProcessModel(names);
+  std::vector<KalmanFilterProcessModel> processModel = makeProcessModel(names);
   std::vector<KalmanFilterInput> inputs = makeInputs(acceleration);
   std::vector<KalmanFilterMeasurement> measurements = makeMeasurements(names, contact_positions, base_position, base_velocity);
   KalmanFilterState base_position_estimate;
@@ -211,7 +210,7 @@ void run(int num_contacts, bool real_time_caller, int iterations) {
         measurements[3 * contact].measurement = contact_positions[contact] - base_position;
       }
     } else {
-      process_model = makeProcessModel(names);
+      processModel = makeProcessModel(names);
       inputs = makeInputs(acceleration);
       measurements = makeMeasurements(names, contact_positions, base_position, base_velocity);
     }
@@ -219,7 +218,7 @@ void run(int num_contacts, bool real_time_caller, int iterations) {
     const size_t build_allocations = heapAllocationCount() - allocations;
 
     allocations = heapAllocationCount();
-    const absl::Status predicted = filter->predict(process_model, inputs);
+    const absl::Status predicted = filter->predict(processModel, inputs);
     const Clock::time_point after_predict = Clock::now();
     const size_t predict_allocations = heapAllocationCount() - allocations;
 
@@ -264,7 +263,7 @@ void run(int num_contacts, bool real_time_caller, int iterations) {
     }
   }
 
-  absl::PrintF("  %d contacts (n = %d states, M = %d measurement rows), %s caller:\n", num_contacts, 6 + 3 * num_contacts, measurement_dim,
+  absl::PrintF("  %d contacts (n = %d states, M = %d measurement rows), %s caller:\n", num_contacts, 6 + 3 * num_contacts, measurementDim,
                real_time_caller ? "real-time" : "naive");
   printPhase("build", build, iterations);
   printPhase("predict", predict, iterations);

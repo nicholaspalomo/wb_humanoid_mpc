@@ -47,6 +47,8 @@ namespace ocs2::humanoid {
  * becomes cheaper than standing (a foot lifted and put back costs only the switch cost, while standing pays this term
  * at every node of the horizon) and the robot marches at a zero velocity command. See the regression test
  * DoubleSupportPenaltyLeavesStandingAlone.
+ *
+ * Not thread-safe, like every ContactPlanningTerm: the planner that owns it configures and evaluates it from one thread at a time.
  */
 class DoubleSupportPenaltyCost final : public AssignmentCost {
  public:

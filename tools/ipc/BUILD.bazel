@@ -5,8 +5,8 @@ load("@rules_python//python:defs.bzl", "py_binary", "py_library", "py_test")
 #
 #   bazel run //tools/ipc:ipc_tool -- list | echo <topic> | hz <topic>
 #
-# The tool only receives, on pyzmq directly, following the bus contract of
-# humanoid_nmpc/docs/distributed_runtime/README.md; of the bus library it only uses the network file's loader.
+# The tool only receives: a subscribe-only robot_ipc.Bus on the network file's DDS domain
+# (humanoid_nmpc/docs/distributed_runtime/README.md).
 
 package(default_visibility = ["//visibility:public"])
 
@@ -25,10 +25,9 @@ py_library(
         # JointPdGainsFile).
         "//humanoid_nmpc/humanoid_mpc_config:config_py_proto",
         "//humanoid_nmpc/humanoid_mpc_msgs:messages_py_proto",
-        # The network file's loader (robot_ipc.load_network_config); the bus itself is not used.
+        # The network file's loader and the subscribe-only bus.
         "//robot_runtime/robot_ipc:robot_ipc_py",
         requirement("protobuf"),
-        requirement("pyzmq"),
     ],
 )
 
@@ -39,13 +38,16 @@ py_binary(
     deps = [":ipc_tool_lib"],
 )
 
-# A raw PUB socket on an ephemeral loopback port that frames messages as the bus README specifies.
+# Publishers of raw bus messages on the test process's own DDS domain, and its network file.
 py_library(
     name = "bus_test_publisher",
     testonly = True,
     srcs = ["bus_test_publisher.py"],
     imports = ["."],
-    deps = [requirement("pyzmq")],
+    deps = [
+        "//robot_runtime/robot_ipc:robot_ipc_py",
+        requirement("cyclonedds"),
+    ],
 )
 
 py_test(

@@ -39,18 +39,15 @@ from unittest import mock
 from humanoid_rerun_viewer import bridge
 from humanoid_rerun_viewer import bus_bridge
 from humanoid_rerun_viewer import cli
+from humanoid_rerun_viewer import plot_config as plot_config_module
 import robot_ipc
 
 INVALID_PERIODS = (0.0, -1.0, math.nan)
 
 
 def _network() -> robot_ipc.NetworkConfig:
-    """A network of one loopback node, which the rejected options never reach."""
-    return robot_ipc.NetworkConfig(
-        nodes=(
-            robot_ipc.NodeEndpoint("publisher", "127.0.0.1", robot_ipc.EPHEMERAL_PORT),
-        )
-    )
+    """A network of one node of this test process's own DDS domain."""
+    return robot_ipc.isolated_test_network(["publisher"])
 
 
 class BusBridgePeriodTest(unittest.TestCase):
@@ -99,7 +96,67 @@ class MaxSceneFrequencyFlagTest(unittest.TestCase):
                 )
 
 
+def _help(flag: str) -> str:
+    """The help text of `flag` in the bridge's parser."""
+    for action in cli.build_parser()._actions:
+        if flag in action.option_strings:
+            return action.help or ""
+    raise AssertionError(f"no flag {flag}")
+
+
+def _shipped_plot_config() -> plot_config_module.PlotConfig:
+    return plot_config_module.load_plot_config(
+        cli.resolve_input_path(cli.DEFAULT_PLOT_CONFIG)
+    )
+
+
+class PlotsDefaultTest(unittest.TestCase):
+    """Whether the bridge plots: what --plots and its help say, and what every shipped launch then gets."""
+
+    def test_the_flag_wins(self) -> None:
+        config = plot_config_module.PlotConfig(signals=("x",))
+        self.assertFalse(cli.plots_enabled(False, "spawn", config))
+        self.assertTrue(cli.plots_enabled(True, "serve_web", None))
+
+    def test_a_plot_configuration_turns_the_plots_on(self) -> None:
+        config = plot_config_module.PlotConfig(signals=("x",))
+        for sink in ("serve_web", "spawn"):
+            with self.subTest(sink=sink):
+                self.assertTrue(cli.plots_enabled(None, sink, config))
+
+    def test_without_a_configuration_only_serve_web_is_off(self) -> None:
+        self.assertFalse(cli.plots_enabled(None, "serve_web", None))
+        self.assertTrue(cli.plots_enabled(None, "spawn", None))
+
+    def test_the_shipped_launches_plot(self) -> None:
+        # Every launch file runs serve_web with the shipped configuration, the bridge's default --plot_config.
+        args = cli.build_parser().parse_args([])
+        self.assertTrue(
+            cli.plots_enabled(args.plots, "serve_web", _shipped_plot_config())
+        )
+
+    def test_the_help_says_so(self) -> None:
+        text = _help("--plots")
+        self.assertNotIn("off for serve_web, on otherwise", text)
+        self.assertIn("plot configuration", text)
+
+
 class TerminalStateFlagTest(unittest.TestCase):
+    def test_the_help_names_the_plot_configurations_default(self) -> None:
+        # The shipped configuration sets draw_terminal_state false, so the flag's effective default is off.
+        self.assertEqual(
+            plot_config_module.resolve_allowed_instances(
+                config=_shipped_plot_config(),
+                cli_robot_instances=None,
+                cli_terminal_state=None,
+            ),
+            ("measured",),
+        )
+        text = _help("--terminal_state")
+        self.assertNotIn("default: on", text)
+        self.assertIn("draw_terminal_state", text)
+        self.assertIn("plot configuration", _help("--robot_instances"))
+
     def test_default_is_none(self) -> None:
         parser = cli.build_parser()
         args = parser.parse_args([])

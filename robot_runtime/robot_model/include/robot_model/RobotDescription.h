@@ -32,13 +32,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstddef>
 #include <limits>
 #include <optional>
-#include <ostream>
 #include <string>
 #include <vector>
 
 #include "absl/base/nullability.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/str_format.h"
 #include "absl/strings/string_view.h"
 
 #include "robot_core/Types.h"
@@ -53,7 +53,12 @@ struct JointDescription {
   scalar_t max_velocity = std::numeric_limits<scalar_t>::max();
   scalar_t max_effort = std::numeric_limits<scalar_t>::max();
 
-  friend std::ostream& operator<<(std::ostream& os, const JointDescription& joint);
+  /** Formats the joint as `JointDescription { id: ..., min_angle: ..., ... }` for absl::StrCat, StrFormat and logging. */
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink, const JointDescription& joint) {
+    absl::Format(&sink, "JointDescription { id: %d, min_angle: %v, max_angle: %v, max_velocity: %v, max_effort: %v }", joint.id,
+                 joint.min_angle, joint.max_angle, joint.max_velocity, joint.max_effort);
+  }
 };
 
 /**
@@ -113,7 +118,15 @@ class RobotDescription {
   /** The name of joint `jointIndex`, which must be below getNumJoints(); another index ends the process. */
   const std::string& getJointName(joint_index_t jointIndex) const;
 
-  friend std::ostream& operator<<(std::ostream& os, const RobotDescription& robot);
+  /** Formats the URDF path and every joint, one per line in joint-index order, for absl::StrCat and logging. */
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink, const RobotDescription& robot) {
+    absl::Format(&sink, "RobotDescription {\nGenerated from URDF: %s\n Joint names and descriptions:\n", robot.urdf_path_);
+    for (joint_index_t index = 0; index < robot.getNumJoints(); ++index) {
+      absl::Format(&sink, "  {%s: %v }\n", robot.joint_names_[index], robot.joints_[index]);
+    }
+    sink.Append("}");
+  }
 
  private:
   /** The description of `urdfPath`'s joints, given in joint-index order. */

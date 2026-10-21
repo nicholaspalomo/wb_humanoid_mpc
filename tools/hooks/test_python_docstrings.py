@@ -51,7 +51,7 @@ class LicenseTest(unittest.TestCase):
             1,
         )
         self.assertEqual(
-            _count(docstrings.check_license_docstring, LICENSE + '"""The module."""\n'),
+            _count(docstrings.check_license_docstring, f'{LICENSE}"""The module."""\n'),
             0,
         )
 
@@ -60,11 +60,11 @@ class LicenseTest(unittest.TestCase):
             _count(docstrings.check_license_header, '"""The module."""\n'), 1
         )
         self.assertEqual(
-            _count(docstrings.check_license_header, LICENSE + '"""The module."""\n'), 0
+            _count(docstrings.check_license_header, f'{LICENSE}"""The module."""\n'), 0
         )
         self.assertEqual(
             _count(
-                docstrings.check_license_header, "#!/usr/bin/env python3\n" + LICENSE
+                docstrings.check_license_header, f"#!/usr/bin/env python3\n{LICENSE}"
             ),
             0,
         )
@@ -82,7 +82,7 @@ class LicenseTest(unittest.TestCase):
         findings = docstrings.check_license_header(holder_only, "src/a.py")
         self.assertEqual(len(findings), 1, findings)
         self.assertIn("lacks the preamble", findings[0].message)
-        holderless = LICENSE.replace(", Nicholas Palomo.", ".", 1) + '"""Doc."""\n'
+        holderless = f'{LICENSE.replace(", Nicholas Palomo.", ".", 1)}"""Doc."""\n'
         findings = docstrings.check_license_header(holderless, "src/a.py")
         self.assertEqual(len(findings), 1, findings)
         self.assertIn("name the holder", findings[0].message)
@@ -104,7 +104,7 @@ class SummaryTest(unittest.TestCase):
             '"""\nOn the next line.\n"""\n',
             '"""A summary\ncontinued on a second line.\n"""\n',
             'def f():\n    """Two lines.\n    No blank line."""\n',
-            '"""' + "x" * 140 + '."""\n',
+            f'"""{"x" * 140}."""\n',
         ]:
             with self.subTest(source=source):
                 self.assertEqual(_count(docstrings.check_docstring_summary, source), 1)
@@ -207,7 +207,7 @@ class RegistryTest(unittest.TestCase):
         check_test_support.assert_check_behaves(
             self,
             "py-docstring-summary",
-            LICENSE + '"""No period"""\n',
+            f'{LICENSE}"""No period"""\n',
             "src/a.py",
         )
         check_test_support.assert_check_behaves(

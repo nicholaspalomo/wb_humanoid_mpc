@@ -29,9 +29,9 @@
 
 The rows are the parameters of the file's schema (humanoid_mpc_config/joint_pd_gains_file.proto, through
 config_schema): the default gains, and each joint's, grouped by limb. Every change is published, debounced, as the
-whole file (humanoid_mpc_config.JointPdGainsFile on operator/pd_gains) after a strict parse of the edited text; "Save"
-writes the changes into the file and keeps every other byte of it, then sends the saved text to the robot's store
-(robot_config_save.py), whose copy the robot's controllers read.
+whole file (humanoid_mpc_config.JointPdGainsUpdate on operator/pd_gains, paired with its configuration path) after a
+strict parse of the edited text; "Save" writes the changes into the file and keeps every other byte of it, then sends
+the saved text to the robot's store (robot_config_save.py), whose copy the robot's controllers read.
 """
 
 from collections.abc import Callable
@@ -447,17 +447,53 @@ class JointPdGainsTab(ttk.Frame):
         Raises:
             tuned_file.TunedFileError: the edited text would not parse into its edited message.
         """
-        return None if self.gains is None else self.gains.edited().message
+        if self.gains is None:
+            return None
+        self._take_disk_changes()
+        return self.gains.edited().message
+
+    def poll_files(self) -> None:
+        """Takes an edit of the gains file made on disk (an editor's, push_robot_config's), for the tick.
+
+        The rows are rendered again from the file, and while the operator holds changes the file with them is published
+        again: the robot applies the file on disk alone by its watcher, which would drop the changes, and gains that
+        arrive after the file was written are applied over it.
+        """
+        if (
+            self._take_disk_changes()
+            and self.gains is not None
+            and self.gains.changes()
+        ):
+            self._publish_to_topic()
+
+    def _take_disk_changes(self) -> bool:
+        """Rebases the file on what is on disk now (tuned_file.TunedFile.refresh()), rendering the rows again if it changed.
+
+        Returns:
+            Whether the file changed on disk since it was loaded, saved or last taken.
+        """
+        if self.gains is None or self.gains.refresh() is None:
+            return False
+        self._populate_rows()
+        self._on_search_filter()
+        self._show_status(
+            "The file changed on disk: its values were taken, and your changes kept."
+        )
+        return True
 
     def _publish_to_topic(self) -> None:
-        """Publishes the file with the current gains, as a JointPdGainsFile on operator/pd_gains."""
+        """Publishes the file with the current gains, as a JointPdGainsUpdate on operator/pd_gains."""
         self._debounce_publish_id = None
         if not self.enable_online_tuning or not self.param_publisher:
             return
         try:
             gains = self.build_gains()
-            if gains is not None:
-                self.param_publisher.publish(gains)
+            if gains is not None and self.gains is not None:
+                update = operator_bus.joint_pd_gains_update(
+                    gains,
+                    config_path=robot_config_save.config_path_of(self.gains.path),
+                )
+                self.param_publisher.publish(update)
         except tuned_file.TunedFileError as error:
             self._show_status(f"Not published: {error}", error=True)
         # pylint: disable-next=broad-exception-caught  # Shown to the operator: a Tk callback must not raise.
@@ -485,8 +521,8 @@ class JointPdGainsTab(ttk.Frame):
         except (OSError, tuned_file.TunedFileError) as error:
             self._show_status(f"Error saving: {error}", error=True)
             return False
-        for row in self.slider_rows.values():
-            row.mark_saved()
+        self._populate_rows()
+        self._on_search_filter()
         self.robot_save.send(
             robot_config_save.KIND_JOINT_PD_GAINS, self.gains.path, text
         )

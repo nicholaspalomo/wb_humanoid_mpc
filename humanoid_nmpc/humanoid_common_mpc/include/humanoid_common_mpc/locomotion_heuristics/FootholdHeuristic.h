@@ -47,8 +47,9 @@ namespace ocs2::humanoid {
 struct FootholdHeuristicContext {
   // Three kinds of field, and it matters which is which. PREDICTED: where the base will be when this foot lands,
   // because Bledt's H_r is relative to the hip at the step's own time. MEASURED at the last solve and latched: the
-  // feedback quantities the capture point closes its loop on. COMMANDED at the touch-down time: what the operator asked
-  // for, which the Raibert-style leads are proportional to.
+  // feedback quantities the capture point closes its loop on, with the command at that same instant to compare them
+  // with. COMMANDED at the touch-down time: what the operator asked for, which the Raibert-style leads are
+  // proportional to.
 
   /** Which foot is landing; kContactLeftIndex or kContactRightIndex. */
   size_t contactIndex = 0;
@@ -65,6 +66,13 @@ struct FootholdHeuristicContext {
   scalar_t baseYaw = 0.0;
   /** [m/s] MEASURED CoM linear velocity in the world at the last solve. */
   vector2_t measuredVelocity = vector2_t::Zero();
+  /**
+   * [m/s] COMMANDED CoM linear velocity in the world at the last solve: the command at the instant `measuredVelocity`
+   * was measured, which is what a velocity ERROR has to compare it with. The command at the touch-down below is a
+   * different vector whenever the command turns or ramps: comparing the measurement with it reads a perfectly tracked
+   * turn as an error of |v| times the angle turned by the touch-down.
+   */
+  vector2_t commandedVelocityAtMeasurement = vector2_t::Zero();
   /** [m/s] COMMANDED CoM linear velocity in the world at the touch-down time. */
   vector2_t commandedVelocity = vector2_t::Zero();
   /** [rad/s] COMMANDED yaw rate at the touch-down time. */
@@ -95,15 +103,18 @@ struct FootholdHeuristicContext {
  *    nothing at all, silently. That is also the right answer on the merits: these heuristics ARE the analytic
  *    alternative to an optimization-based foothold planner, and running both is two opinions fighting over one
  *    variable. The combination is rejected.
- *  - SOMETHING MUST KEEP THE FEET APART. The anchor takes its lateral separation from the stance foot plus
- *    `nominal_foothold.step_width`, or - with `hip_centered_stepping` listed - from the hips. With the
- *    step width at 0 and no hip_centered_stepping, every other heuristic would correct a target on the stance foot's
- *    own lateral line and the swing foot would be aimed at the stance foot. That combination is rejected too.
+ *  - SOMETHING MUST KEEP THE FEET APART. The anchor takes its lateral separation from half of
+ *    `nominal_foothold.step_width` to each side of the predicted base, or - with `hip_centered_stepping` listed - from
+ *    the hips. With the step width at 0 and no hip_centered_stepping, every other heuristic would correct a target on
+ *    the base's own lateral line and both feet would be aimed at the same point. That combination is rejected too.
  *  - THE FOOT COST'S XY WEIGHTS MUST BE NON-ZERO. `task_space_foot_cost.weights.pos_x` and `pos_y` gate this whole
  *    channel and are 0 on every robot shipped here, because with `zero_velocity` in `hard_constraints` the stance
  *    foot is pinned by the schedule and placement follows from it. A landing target multiplied by a zero weight is
  *    dead weight, so Create() warns (LocomotionHeuristicEnvironment::footPositionIsUntracked) rather than letting the
  *    operator tune coefficients that cannot move anything.
+ *
+ * Like every LocomotionHeuristic, its const methods are safe to call concurrently; configure() is not, and must not run
+ * while they do.
  */
 class FootholdHeuristic : public LocomotionHeuristic {
  public:

@@ -73,6 +73,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
 #include "humanoid_mpc_config/contact_planning_file.nproto.h"
 #include "humanoid_mpc_config/task_file.nproto.h"
+#include "humanoid_nmpc/humanoid_common_mpc/test/support/StatusTestMacros.h"
 #include "robot_core/ResourcePaths.h"
 
 namespace ocs2::humanoid {
@@ -130,24 +131,26 @@ std::ostream& operator<<(std::ostream& stream, const AcomRobotCase& robotCase) {
  *
  * The bounds are PER ROBOT and MEASURED, and they do not all mean "good".
  *
- *  - atlas is the reference, and the only network validated for closed loop. Its bounds sit well above its
- *    measurement on purpose: a retrain on four times the data moved the mean by 2 %, the same order as the 1.8 % spread
- *    across training seeds, so bounds pinned to the last measurement would fail on a reseed rather than on a
- *    regression. They are set where a MEANINGFUL regression lives - a wrong architecture, a bad export, a network
- *    trained for another robot.
+ * All three headers were trained with the composed objective J_l(Delta_theta) J_Delta_theta ~ Abar_omega,j by
+ * `train_main --install_header` on 80 000 samples over 300 epochs, and record that recipe in their banners.
  *
- *  - g1 and engineai_sa01 do NOT meet atlas's bounds, and are NOT VALIDATED: on average their joint Jacobian is 40 %
- *    and 51 % off the target, against atlas's 22 %, and at some configurations of both robots the network is further
- *    from the target than no network at all (worst relative error above 1). They were measured and kept rather than
- *    retrained, and their bounds are those measurements plus about 20 %: loose enough that a reseeded retrain of the
- *    same recipe still passes, tight enough that a permuted, transposed or wrong-robot header fails (the positive
- *    control theBoundsRejectANetworkFedTheWrongJointOrder shows it does). These bounds pin "no worse than what ships",
- *    NOT "good enough to use"; a better network is how they come down, and meeting atlas's bounds is what validating
- *    one would take.
+ *  - atlas is the reference, and the only network validated for closed loop. Its bounds sit about 40 % above its
+ *    measurement on purpose: retrains on more data or another seed move the mean by about 2 %, so bounds pinned to the
+ *    last measurement would fail on a reseed rather than on a regression. They are set where a MEANINGFUL regression
+ *    lives - a wrong architecture, a bad export, a network trained for another robot or on the uncomposed objective -
+ *    and well below both the constant-Jacobian baseline (0.378) and the same network fed the wrong joint order (1.37).
  *
- * "measured" is what this file's samples give on the shipped header (mean and worst relative Frobenius error, then
- * mean and worst relative rate error, the latter of the composed attitude xi (x) Exp(Delta_theta) at a tilted base);
- * the test logs the fresh numbers next to it.
+ *  - g1 and engineai_sa01 do NOT meet atlas's bounds, and are NOT VALIDATED: on average their rate map is 34 % and 44 %
+ *    off the target, against atlas's 16 %, and at some configurations of both robots the network is further from the
+ *    target than no network at all (worst relative error above 1). Their bounds are their measurements plus about 20 %:
+ *    loose enough that a reseeded retrain of the same recipe still passes, tight enough that a permuted, transposed or
+ *    wrong-robot header fails (the positive control theBoundsRejectANetworkFedTheWrongJointOrder shows it does), and
+ *    below each robot's constant-Jacobian baseline. These bounds pin "no worse than what ships", NOT "good enough to
+ *    use"; a better network is how they come down, and meeting atlas's bounds is what validating one would take.
+ *
+ * "measured" is what this file's samples give on the shipped header (mean and worst relative Frobenius error of
+ * J_l(Delta_theta) J_Delta_theta, then mean and worst relative rate error of the composed attitude
+ * xi (x) Exp(Delta_theta) at a tilted base); the test logs the fresh numbers next to it.
  */
 // LINT.IfChange(acom_acceptance_robots)
 const AcomRobotCase kAcomRobotCases[] = {
@@ -156,25 +159,25 @@ const AcomRobotCase kAcomRobotCases[] = {
      .urdfFile = "robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf",
      /*validatedForClosedLoop=*/.validatedForClosedLoop = true,
      /*measured=*/.measured =
-         {.meanRelativeError = 0.219, .worstRelativeError = 0.375, .meanRelativeRateError = 0.039, .worstRelativeRateError = 0.137},
+         {.meanRelativeError = 0.158, .worstRelativeError = 0.363, .meanRelativeRateError = 0.031, .worstRelativeRateError = 0.130},
      /*bounds=*/.bounds =
-         {.meanRelativeError = 0.30, .worstRelativeError = 0.50, .meanRelativeRateError = 0.08, .worstRelativeRateError = 0.25}},
+         {.meanRelativeError = 0.22, .worstRelativeError = 0.45, .meanRelativeRateError = 0.05, .worstRelativeRateError = 0.20}},
     {.robotName = "engineai_sa01",
      .configPackage = "robot_models/engineai_sa01/engineai_sa01_centroidal_mpc",
      .urdfFile = "robot_models/engineai_sa01/engineai_sa01_description/urdf/zq_sa01.urdf",
      /*validatedForClosedLoop=*/.validatedForClosedLoop = false,
      /*measured=*/.measured =
-         {.meanRelativeError = 0.508, .worstRelativeError = 1.62, .meanRelativeRateError = 0.121, .worstRelativeRateError = 0.632},
+         {.meanRelativeError = 0.445, .worstRelativeError = 1.70, .meanRelativeRateError = 0.105, .worstRelativeRateError = 0.642},
      /*bounds=*/.bounds =
-         {.meanRelativeError = 0.60, .worstRelativeError = 1.95, .meanRelativeRateError = 0.15, .worstRelativeRateError = 0.80}},
+         {.meanRelativeError = 0.53, .worstRelativeError = 2.05, .meanRelativeRateError = 0.13, .worstRelativeRateError = 0.77}},
     {.robotName = "g1",
      .configPackage = "robot_models/unitree_g1/g1_centroidal_mpc",
      .urdfFile = "robot_models/unitree_g1/g1_description/urdf/g1_29dof.urdf",
      /*validatedForClosedLoop=*/.validatedForClosedLoop = false,
      /*measured=*/.measured =
-         {.meanRelativeError = 0.402, .worstRelativeError = 1.33, .meanRelativeRateError = 0.076, .worstRelativeRateError = 0.246},
+         {.meanRelativeError = 0.342, .worstRelativeError = 1.14, .meanRelativeRateError = 0.059, .worstRelativeRateError = 0.225},
      /*bounds=*/.bounds =
-         {.meanRelativeError = 0.48, .worstRelativeError = 1.60, .meanRelativeRateError = 0.09, .worstRelativeRateError = 0.30}},
+         {.meanRelativeError = 0.41, .worstRelativeError = 1.37, .meanRelativeRateError = 0.07, .worstRelativeRateError = 0.27}},
 };
 // clang-format off
 // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/acom/AngularCenterOfMass.cpp:acom_robot_dispatch, //humanoid_nmpc/humanoid_common_mpc/BUILD.bazel:acom_acceptance_data, //humanoid_learning/acom/README.md:acom_acceptance_numbers, //robot_models/drc_atlas/README.md:acom_status, //robot_models/unitree_g1/README.md:acom_status, //robot_models/engineai_sa01/README.md:acom_status)
@@ -182,12 +185,12 @@ const AcomRobotCase kAcomRobotCases[] = {
 
 /** The robot's task file, from the test's runfiles. */
 std::string taskFileOf(const AcomRobotCase& robotCase) {
-  return robot::resolveResourcePath(absl::StrCat(robotCase.configPackage, "/config/mpc/task.textproto")).value();
+  return checkedValue(robot::resolveResourcePath(absl::StrCat(robotCase.configPackage, "/config/mpc/task.textproto")));
 }
 
 /** The robot's URDF, from the test's runfiles. */
 std::string urdfFileOf(const AcomRobotCase& robotCase) {
-  return robot::resolveResourcePath(robotCase.urdfFile).value();
+  return checkedValue(robot::resolveResourcePath(robotCase.urdfFile));
 }
 
 /**
@@ -207,12 +210,15 @@ std::string urdfFileOf(const AcomRobotCase& robotCase) {
  * axes. The ACoM attitude is xi_a = xi (x) Exp(Delta_theta(q_j)) (AngularCenterOfMass::acomAttitude()), so its world
  * angular velocity is omega_W + R(xi) J_l(Delta_theta) J_Delta_theta qdot_j, with omega_W the base's; omega_locked is
  * omega_W + R(xi) Abar_omega,j qdot_j with the connection in base axes. The base term is exact by construction, which
- * reduces the claim to the joint block alone - to first order in |Delta_theta|, where J_l(Delta_theta) = I:
+ * reduces the claim to the joint block alone, exactly and not only to first order in |Delta_theta|:
  *
- *   d(Delta_theta)/d(q_j)  ~=  Abar_omega,j(q)  =  I_G(q)^-1 A_omega,j(q),
+ *   J_l(Delta_theta) d(Delta_theta)/d(q_j)  ~=  Abar_omega,j(q)  =  I_G(q)^-1 A_omega,j(q),
  *
- * which is exactly the Frobenius objective train_acom.py minimizes, on the connection dataset_generator.py samples in
- * base axes at the identity base (a MuJoCo free joint, whose angular velocity is the body angular velocity omega_B). So this file is the
+ * with J_l the left Jacobian of SO(3). The network's offsets are tens of degrees (up to 80 on G1), where J_l is far from
+ * the identity, so the Jacobian alone would be the wrong thing to grade: this composed map (acomJointRateJacobian()) is
+ * what is graded, and it is exactly the Frobenius objective train_acom.py minimizes, on the connection
+ * dataset_generator.py samples in base axes at the identity base (a MuJoCo free joint, whose angular velocity is the
+ * body angular velocity omega_B). So this file is the
  * C++-side acceptance test for the TRAINING, evaluated through the exported weight header that the robot actually runs - not through the
  * JAX parameters the Python tests see - for every robot that has one. A retrained or re-exported network that regressed, a transposed
  * weight matrix, a row permutation applied in the wrong direction, or a header exported for the wrong robot all show up here and nowhere
@@ -230,9 +236,8 @@ std::string urdfFileOf(const AcomRobotCase& robotCase) {
  * root joint's own body velocity, whatever coordinates the root joint has, so nothing here depends on how the MPC's
  * Pinocchio model parameterizes the base orientation.
  *
- * Configurations are drawn uniformly from the model's joint-limit box, which is the box dataset_generator.py samples.
- * (The shipped headers were trained on that box trimmed by 10 % of each range at both ends, a margin the generator no
- * longer applies because it excluded G1's nominal knee angle; the numbers below therefore include the trimmed margins.)
+ * Configurations are drawn uniformly from the model's joint-limit box, which is the box dataset_generator.py samples and
+ * the shipped headers were trained on.
  *
  * The relation is an approximation and cannot be otherwise: the connection Abar_omega,j has non-zero curvature, so no
  * exact integrable whole-body orientation exists at all - that is the entire premise of the paper. The thresholds are
@@ -250,10 +255,10 @@ class AcomAngularVelocityConsistencyTest : public ::testing::TestWithParam<AcomR
     // The REDUCED model the MPC builds, not the full URDF: the trained network is indexed by the MPC's joints, and on
     // the full model the joint count would not even match.
     modelSettingsPtr_ = std::make_unique<ModelSettings>(
-        ModelSettings::Create(taskFile, urdfFile, "testAcomAngularVelocityConsistency", /*verbose=*/false).value());
+        checkedValue(ModelSettings::Create(taskFile, urdfFile, "testAcomAngularVelocityConsistency", /*verbose=*/false)));
     ASSERT_EQ(modelSettingsPtr_->robotName, robotCase.robotName) << "the case's task file belongs to another robot";
     pinocchioInterfacePtr_ =
-        std::make_unique<PinocchioInterface>(loadCustomPinocchioInterface(taskFile, urdfFile, *modelSettingsPtr_).value());
+        std::make_unique<PinocchioInterface>(checkedValue(loadCustomPinocchioInterface(taskFile, urdfFile, *modelSettingsPtr_)));
     const pinocchio::Model& model = pinocchioInterfacePtr_->getModel();
     numJoints_ = model.nv - model.joints[kRootJoint].nv();
 
@@ -361,6 +366,18 @@ class AcomAngularVelocityConsistencyTest : public ::testing::TestWithParam<AcomR
   }
 
   /**
+   * The map from joint velocities to the ACoM's angular velocity in base axes, J_l(Delta_theta) J_Delta_theta, at the
+   * joint positions `qJoints`: R(Delta_theta) - the attitude at the identity base, Exp(Delta_theta) - times the tangent
+   * Jacobian's joint block J_r(Delta_theta) J_Delta_theta, which carries that block from the attitude's axes into the
+   * base's (J_l = R J_r). This, not J_Delta_theta alone, is what the composition xi (x) Exp(Delta_theta) makes the
+   * network responsible for.
+   */
+  matrix_t acomJointRateJacobian(const vector_t& qJoints) const {
+    const matrix3_t offsetRotation = quaternionRotationMatrix(acomPtr_->acomAttitude(vector4_t::UnitW(), qJoints));
+    return offsetRotation * acomPtr_->acomAttitudeTangentJacobian(qJoints).jointAngles;
+  }
+
+  /**
    * Mean and worst relative Frobenius error of `jacobian` against the connection over kNumSamples configurations.
    * `jacobian` maps the Pinocchio configuration to a (3 x numJoints) joint Jacobian.
    */
@@ -388,13 +405,14 @@ class AcomAngularVelocityConsistencyTest : public ::testing::TestWithParam<AcomR
   Eigen::Index numJoints_ = 0;
 };
 
-TEST_P(AcomAngularVelocityConsistencyTest, theJointJacobianApproximatesTheCentroidalConnection) {
-  // The training objective itself, evaluated on the exported weights over the joint-limit box. Reported relative to the
-  // norm of the target, so the number means the same thing on another robot.
+TEST_P(AcomAngularVelocityConsistencyTest, theJointRateMapApproximatesTheCentroidalConnection) {
+  // The training objective itself, J_l(Delta_theta) J_Delta_theta against the connection, evaluated on the exported
+  // weights over the joint-limit box. Reported relative to the norm of the target, so the number means the same thing on
+  // another robot.
   const AcomRobotCase& robotCase = GetParam();
   std::mt19937 generator(20260919);
-  const std::pair<scalar_t, scalar_t> error = relativeJacobianError(
-      generator, [this](const vector_t& q) -> matrix_t { return acomPtr_->computeJointOffsetJacobian(q.tail(numJoints_)); });
+  const std::pair<scalar_t, scalar_t> error =
+      relativeJacobianError(generator, [this](const vector_t& q) -> matrix_t { return acomJointRateJacobian(q.tail(numJoints_)); });
   RecordProperty("meanRelativeError", absl::StrCat(error.first));
   RecordProperty("worstRelativeError", absl::StrCat(error.second));
   LOG(INFO) << "[aCOM " << robotCase.robotName << "] mean relative Frobenius error " << error.first << " (shipped "
@@ -402,14 +420,15 @@ TEST_P(AcomAngularVelocityConsistencyTest, theJointJacobianApproximatesTheCentro
             << ")";
 
   EXPECT_LT(error.first, robotCase.bounds.meanRelativeError)
-      << "the exported aCOM network no longer approximates I_G^-1 A_omega,j as well as the shipped one; retrain or re-export";
+      << "the exported aCOM network's J_l J no longer approximates I_G^-1 A_omega,j as well as the shipped one; retrain or re-export";
   EXPECT_LT(error.second, robotCase.bounds.worstRelativeError) << "some configuration in the joint-limit box is badly approximated";
 }
 
 TEST_P(AcomAngularVelocityConsistencyTest, theBoundsRejectANetworkFedTheWrongJointOrder) {
   // Positive control for the bounds above: are they tight enough to fail the regression they exist to catch? A header
-  // trained on a different joint order evaluates N(P q) where the MPC expects N(q), so its Jacobian is J_N(P q) P. The
-  // same network, fed its joints reversed, is exactly such a header - and it has to land above the robot's bound.
+  // trained on a different joint order evaluates N(P q) where the MPC expects N(q), so its rate map is
+  // J_l(N(P q)) J_N(P q) P. The same network, fed its joints reversed, is exactly such a header - and it has to land
+  // above the robot's bound.
   const AcomRobotCase& robotCase = GetParam();
   std::vector<int> reversed(static_cast<size_t>(numJoints_));
   std::iota(reversed.rbegin(), reversed.rend(), 0);
@@ -418,7 +437,7 @@ TEST_P(AcomAngularVelocityConsistencyTest, theBoundsRejectANetworkFedTheWrongJoi
   std::mt19937 generator(20260919);
   const std::pair<scalar_t, scalar_t> error = relativeJacobianError(generator, [this, &permutation](const vector_t& q) -> matrix_t {
     const vector_t permutedJoints = permutation * q.tail(numJoints_);
-    return acomPtr_->computeJointOffsetJacobian(permutedJoints) * matrix_t(permutation);
+    return acomJointRateJacobian(permutedJoints) * matrix_t(permutation);
   });
   LOG(INFO) << "[aCOM " << robotCase.robotName << "] joint-reversed network: mean relative Frobenius error " << error.first;
   EXPECT_GT(error.first, robotCase.bounds.meanRelativeError)
@@ -504,10 +523,10 @@ TEST_P(AcomAngularVelocityConsistencyTest, theNetworkBeatsTheTwoTrivialBaselines
   // A guard against a threshold that passes vacuously. Two predictors need no training at all:
   //
   //   - Delta_theta == 0, the base orientation used as the whole-body orientation. Its relative error is exactly one.
-  //   - a LINEAR Delta_theta, i.e. the constant Jacobian E[Abar_omega,j]. This one is the real baseline: it costs a
-  //     single matrix and captures whatever part of the connection does not vary with configuration. If the network
-  //     were barely better than this, the SIREN and the whole training pipeline would be buying almost nothing, and
-  //     the honest fix would be to ship the constant matrix.
+  //   - the constant rate map E[Abar_omega,j], the best a single matrix can do (a linear Delta_theta, to first order in
+  //     its offsets). This one is the real baseline: it captures whatever part of the connection does not vary with
+  //     configuration. If the network's J_l(Delta_theta) J_Delta_theta were barely better than this, the SIREN and the
+  //     whole training pipeline would be buying almost nothing, and the honest fix would be to ship the constant matrix.
   //
   // A network that collapsed to zero, was exported with zeroed weights, or was trained for a different robot passes
   // every structural test in this package, and is caught here.
@@ -521,7 +540,7 @@ TEST_P(AcomAngularVelocityConsistencyTest, theNetworkBeatsTheTwoTrivialBaselines
   for (int sample = 0; sample < kNumSamples; ++sample) {
     const vector_t q = sampleConfiguration(generator);
     targets.push_back(connectionJointBlock(q));
-    predictions.push_back(acomPtr_->computeJointOffsetJacobian(q.tail(numJoints_)));
+    predictions.push_back(acomJointRateJacobian(q.tail(numJoints_)));
     meanConnection += targets.back();
   }
   meanConnection /= static_cast<scalar_t>(kNumSamples);

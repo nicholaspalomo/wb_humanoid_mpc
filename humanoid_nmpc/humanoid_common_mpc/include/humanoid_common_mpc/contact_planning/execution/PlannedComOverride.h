@@ -64,6 +64,8 @@ namespace ocs2::humanoid {
  * Only the knots inside the plan's horizon are rewritten (planCoversTime). Past the plan's end the target keeps the
  * operator's own knots, which the reference manager appends for exactly that stretch: the plan's lookups clamp to its
  * last node, so rewriting them froze the tail at the last planned position while asking for the last planned velocity.
+ *
+ * Not thread-safe, like every ContactPlanningTerm: the planner that owns it configures and evaluates it from one thread at a time.
  */
 class PlannedComOverride final : public ExecutionRule {
  public:

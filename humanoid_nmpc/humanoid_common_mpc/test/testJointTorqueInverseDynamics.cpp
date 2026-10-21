@@ -41,7 +41,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/base/nullability.h"
 #include "absl/log/log.h"
+#include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "gtest/gtest.h"
@@ -61,6 +63,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
 #include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
 #include "humanoid_mpc_config/task_file.nproto.h"
+#include "humanoid_nmpc/humanoid_common_mpc/test/support/StatusTestMacros.h"
 
 /*
  * computeJointTorques() and computeBaseHeldJointTorques() against Pinocchio's recursive Newton-Euler algorithm.
@@ -79,7 +82,6 @@ namespace {
 using ad_fun_t = CppAD::ADFun<ad_base_t>;
 using ForceVector = std::vector<pinocchio::Force>;
 
-constexpr std::array<const char* absl_nonnull, 2> kSoleFrames = {"foot_l_contact", "foot_r_contact"};
 constexpr scalar_t kGravity = 9.81;
 
 std::string runfilePath(absl::string_view relativePath) {
@@ -110,6 +112,12 @@ struct Robot {
 
   const pinocchio::Model& model() const { return pinocchioInterface->getModel(); }
   Eigen::Index numJoints() const { return model().nv - static_cast<Eigen::Index>(kBaseVelocityDim); }
+  /** The sole frames of the task file's model_settings.contact_names, in the order of the contacts. */
+  feet_array_t<pinocchio::FrameIndex> soleFrames() const {
+    feet_array_t<pinocchio::FrameIndex> frames{};
+    for (size_t i = 0; i < kNumContacts; ++i) frames[i] = model().getFrameId(settings->contactNames[i]);
+    return frames;
+  }
 };
 
 std::unique_ptr<Robot> loadRobot(absl::string_view taskFile, absl::string_view urdfFile, absl::string_view mpcName) {
@@ -117,11 +125,11 @@ std::unique_ptr<Robot> loadRobot(absl::string_view taskFile, absl::string_view u
   const std::string task = runfilePath(taskFile);
   const std::string urdf = runfilePath(urdfFile);
   if (task.empty() || urdf.empty()) return nullptr;
-  robot->task = loadTaskFile(task).value();
+  robot->task = checkedValue(loadTaskFile(task));
   robot->settings =
-      std::make_unique<ModelSettings>(ModelSettings::Create(robot->task, urdf, std::string(mpcName), /*verbose=*/false).value());
+      std::make_unique<ModelSettings>(checkedValue(ModelSettings::Create(robot->task, urdf, std::string(mpcName), /*verbose=*/false)));
   robot->pinocchioInterface =
-      std::make_unique<PinocchioInterface>(loadCustomPinocchioInterface(robot->task, urdf, *robot->settings).value());
+      std::make_unique<PinocchioInterface>(checkedValue(loadCustomPinocchioInterface(robot->task, urdf, *robot->settings)));
   return robot;
 }
 
@@ -175,12 +183,13 @@ Sample makeSample(const pinocchio::Model& model, size_t seed) {
 ForceVector soleWrenchesAsJointForces(const pinocchio::Model& model,
                                       pinocchio::Data& data,
                                       const vector_t& q,
-                                      const std::array<vector6_t, 2>& wrenches) {
+                                      const std::array<vector6_t, 2>& wrenches,
+                                      const feet_array_t<pinocchio::FrameIndex>& soleFrames) {
   pinocchio::forwardKinematics(model, data, q);
   pinocchio::updateFramePlacements(model, data);
   ForceVector fext(static_cast<size_t>(model.njoints), pinocchio::Force::Zero());
-  for (size_t foot = 0; foot < kSoleFrames.size(); ++foot) {
-    const pinocchio::FrameIndex frame = model.getFrameId(kSoleFrames[foot]);
+  for (size_t foot = 0; foot < soleFrames.size(); ++foot) {
+    const pinocchio::FrameIndex frame = soleFrames[foot];
     const pinocchio::JointIndex joint = model.frames[frame].parentJoint;
     const matrix3_t rotation = data.oMi[joint].rotation();
     const vector3_t lever = data.oMf[frame].translation() - data.oMi[joint].translation();
@@ -198,9 +207,9 @@ struct RneaReference {
   vector_t jointTorques;
 };
 
-RneaReference floatingBaseRnea(const pinocchio::Model& model, const Sample& sample) {
+RneaReference floatingBaseRnea(const pinocchio::Model& model, const Sample& sample, const feet_array_t<pinocchio::FrameIndex>& soleFrames) {
   pinocchio::Data data(model);
-  const ForceVector fext = soleWrenchesAsJointForces(model, data, sample.q, sample.wrenches);
+  const ForceVector fext = soleWrenchesAsJointForces(model, data, sample.q, sample.wrenches, soleFrames);
   vector_t a = vector_t::Zero(model.nv);
   a.tail(sample.qddJoints.size()) = sample.qddJoints;
   // tau(a) = M a + b(q, v, fext), so the base rows vanish at a_b = -M_bb^-1 tau_b(a_b = 0).
@@ -213,24 +222,23 @@ RneaReference floatingBaseRnea(const pinocchio::Model& model, const Sample& samp
 }
 
 /** RNEA with the base held still: its joint rows at a_b = 0. */
-vector_t baseHeldRnea(const pinocchio::Model& model, const Sample& sample) {
+vector_t baseHeldRnea(const pinocchio::Model& model, const Sample& sample, const feet_array_t<pinocchio::FrameIndex>& soleFrames) {
   pinocchio::Data data(model);
-  const ForceVector fext = soleWrenchesAsJointForces(model, data, sample.q, sample.wrenches);
+  const ForceVector fext = soleWrenchesAsJointForces(model, data, sample.q, sample.wrenches, soleFrames);
   vector_t a = vector_t::Zero(model.nv);
   a.tail(sample.qddJoints.size()) = sample.qddJoints;
   return pinocchio::rnea(model, data, sample.q, sample.v, a, fext).tail(sample.qddJoints.size());
 }
 
 /** computeJointTorques as it was: the joint rows of crba()'s upper-triangular mass matrix. The positive control. */
-vector_t legacyJointTorques(const pinocchio::Model& model, const Sample& sample) {
+vector_t legacyJointTorques(const pinocchio::Model& model, const Sample& sample, const feet_array_t<pinocchio::FrameIndex>& soleFrames) {
   pinocchio::Data data(model);
   pinocchio::crba(model, data, sample.q);
   pinocchio::nonLinearEffects(model, data, sample.q, sample.v);
   vector_t generalizedForce = vector_t::Zero(model.nv);
-  for (size_t foot = 0; foot < kSoleFrames.size(); ++foot) {
+  for (size_t foot = 0; foot < soleFrames.size(); ++foot) {
     matrix_t jacobian = matrix_t::Zero(6, model.nv);
-    pinocchio::computeFrameJacobian(model, data, sample.q, model.getFrameId(kSoleFrames[foot]),
-                                    pinocchio::ReferenceFrame::LOCAL_WORLD_ALIGNED, jacobian);
+    pinocchio::computeFrameJacobian(model, data, sample.q, soleFrames[foot], pinocchio::ReferenceFrame::LOCAL_WORLD_ALIGNED, jacobian);
     generalizedForce += jacobian.transpose() * sample.wrenches[foot];
   }
   const vector6_t baseAcceleration = computeBaseAcceleration<scalar_t>(data.M, data.nle, sample.qddJoints, generalizedForce);
@@ -262,7 +270,7 @@ TEST_F(JointTorqueInverseDynamicsTest, theJointTorquesAreRneaJointRowsAtTheBaseA
     for (size_t seed = 0; seed < 5; ++seed) {
       SCOPED_TRACE(absl::StrCat(robot->settings->robotName, ", sample ", seed));
       const Sample sample = makeSample(robot->model(), seed);
-      const RneaReference reference = floatingBaseRnea(robot->model(), sample);
+      const RneaReference reference = floatingBaseRnea(robot->model(), sample, robot->soleFrames());
       const scalar_t scale = std::max(1.0, maxAbs(reference.jointTorques));
       // The reference balances the base, and the case under test has both a base and a joint acceleration.
       ASSERT_LT(maxAbs(reference.baseResidual), 1.0e-9 * scale);
@@ -270,12 +278,13 @@ TEST_F(JointTorqueInverseDynamicsTest, theJointTorquesAreRneaJointRowsAtTheBaseA
       ASSERT_GT(maxAbs(sample.qddJoints), 0.1);
 
       PinocchioInterface pinocchioInterface = *robot->pinocchioInterface;
-      const vector_t torques = computeJointTorques<scalar_t>(sample.q, sample.v, sample.qddJoints, sample.wrenches, pinocchioInterface);
+      const vector_t torques =
+          computeJointTorques<scalar_t>(sample.q, sample.v, sample.qddJoints, sample.wrenches, robot->soleFrames(), pinocchioInterface);
       EXPECT_LT(maxAbs(torques - reference.jointTorques), 1.0e-9 * scale)
           << "computeJointTorques: " << torques.transpose() << "\nRNEA:                " << reference.jointTorques.transpose();
 
       // Positive control: the upper-triangular joint rows are measurably wrong on the same sample.
-      EXPECT_GT(maxAbs(legacyJointTorques(robot->model(), sample) - reference.jointTorques), 1.0e-2);
+      EXPECT_GT(maxAbs(legacyJointTorques(robot->model(), sample, robot->soleFrames()) - reference.jointTorques), 1.0e-2);
     }
   }
 }
@@ -283,7 +292,7 @@ TEST_F(JointTorqueInverseDynamicsTest, theJointTorquesAreRneaJointRowsAtTheBaseA
 TEST_F(JointTorqueInverseDynamicsTest, theJointTorquesDoNotDependOnWhatTheDataHeld) {
   const Sample sample = makeSample(g1_->model(), /*seed=*/3);
   PinocchioInterface fresh = *g1_->pinocchioInterface;
-  const vector_t expected = computeJointTorques<scalar_t>(sample.q, sample.v, sample.qddJoints, sample.wrenches, fresh);
+  const vector_t expected = computeJointTorques<scalar_t>(sample.q, sample.v, sample.qddJoints, sample.wrenches, g1_->soleFrames(), fresh);
 
   // crba() writes each joint's rows over its own subtree only, and leaves every other entry of M - the lower triangle,
   // and the two legs' coupling - at whatever an earlier user of the data left there. None of it may reach the result.
@@ -295,7 +304,7 @@ TEST_F(JointTorqueInverseDynamicsTest, theJointTorquesDoNotDependOnWhatTheDataHe
 
   PinocchioInterface used = *g1_->pinocchioInterface;
   used.getData().M.setConstant(1.0e3);
-  const vector_t torques = computeJointTorques<scalar_t>(sample.q, sample.v, sample.qddJoints, sample.wrenches, used);
+  const vector_t torques = computeJointTorques<scalar_t>(sample.q, sample.v, sample.qddJoints, sample.wrenches, g1_->soleFrames(), used);
   EXPECT_LT(maxAbs(torques - expected), 1.0e-12 * std::max(1.0, maxAbs(expected)));
   EXPECT_TRUE(used.getData().M.isApprox(used.getData().M.transpose(), 1.0e-12)) << "the mass matrix is left symmetric";
 }
@@ -306,19 +315,21 @@ TEST_F(JointTorqueInverseDynamicsTest, theBaseHeldJointTorquesAreRneaJointRowsAt
       SCOPED_TRACE(absl::StrCat(robot->settings->robotName, ", sample ", seed));
       Sample sample = makeSample(robot->model(), seed);
       PinocchioInterface pinocchioInterface = *robot->pinocchioInterface;
-      const vector_t expected = baseHeldRnea(robot->model(), sample);
+      const vector_t expected = baseHeldRnea(robot->model(), sample, robot->soleFrames());
       const scalar_t scale = std::max(1.0, maxAbs(expected));
-      EXPECT_LT(maxAbs(computeBaseHeldJointTorques<scalar_t>(sample.q, sample.v, sample.qddJoints, sample.wrenches, pinocchioInterface) -
+      EXPECT_LT(maxAbs(computeBaseHeldJointTorques<scalar_t>(sample.q, sample.v, sample.qddJoints, sample.wrenches, robot->soleFrames(),
+                                                             pinocchioInterface) -
                        expected),
                 1.0e-9 * scale);
 
       // At zero joint acceleration it is exactly what computeJointTorques returned before it carried the base
       // acceleration - which is what the gantry's weight-compensating feedforward was tuned on.
       sample.qddJoints.setZero();
-      const vector_t legacy = legacyJointTorques(robot->model(), sample);
-      EXPECT_LT(
-          maxAbs(computeBaseHeldJointTorques<scalar_t>(sample.q, sample.v, sample.qddJoints, sample.wrenches, pinocchioInterface) - legacy),
-          1.0e-9 * scale);
+      const vector_t legacy = legacyJointTorques(robot->model(), sample, robot->soleFrames());
+      EXPECT_LT(maxAbs(computeBaseHeldJointTorques<scalar_t>(sample.q, sample.v, sample.qddJoints, sample.wrenches, robot->soleFrames(),
+                                                             pinocchioInterface) -
+                       legacy),
+                1.0e-9 * scale);
 
       // With no wrench and the robot at rest: the gravity torques of the free legs, g_j(q).
       sample.v.setZero();
@@ -326,14 +337,69 @@ TEST_F(JointTorqueInverseDynamicsTest, theBaseHeldJointTorquesAreRneaJointRowsAt
       pinocchio::Data data(robot->model());
       pinocchio::nonLinearEffects(robot->model(), data, sample.q, sample.v);
       const vector_t gravity = data.nle.tail(robot->numJoints());
-      EXPECT_LT(maxAbs(computeBaseHeldJointTorques<scalar_t>(sample.q, sample.v, sample.qddJoints, sample.wrenches, pinocchioInterface) -
+      EXPECT_LT(maxAbs(computeBaseHeldJointTorques<scalar_t>(sample.q, sample.v, sample.qddJoints, sample.wrenches, robot->soleFrames(),
+                                                             pinocchioInterface) -
                        gravity),
                 1.0e-9 * std::max(1.0, maxAbs(gravity)));
       // ...whereas the floating base falls freely without a wrench, and gravity then loads no joint.
-      EXPECT_GT(maxAbs(computeJointTorques<scalar_t>(sample.q, sample.v, sample.qddJoints, sample.wrenches, pinocchioInterface) - gravity),
+      EXPECT_GT(maxAbs(computeJointTorques<scalar_t>(sample.q, sample.v, sample.qddJoints, sample.wrenches, robot->soleFrames(),
+                                                     pinocchioInterface) -
+                       gravity),
                 1.0);
     }
   }
+}
+
+/** A copy of `robot`'s Pinocchio interface whose contact frames are renamed `newNames`, which must be new frame names. */
+PinocchioInterface withRenamedContactFrames(const Robot& robot, const std::array<std::string, kNumContacts>& newNames) {
+  pinocchio::Model model = robot.model();
+  for (size_t i = 0; i < kNumContacts; ++i) model.frames[model.getFrameId(robot.settings->contactNames[i])].name = newNames[i];
+  return PinocchioInterface(model);
+}
+
+TEST_F(JointTorqueInverseDynamicsTest, theWrenchesAreAppliedAtTheConfiguredContactFramesWhateverTheirNames) {
+  // The inverse dynamics used to look the soles up as "foot_l_contact" and "foot_r_contact"; a robot whose contact frames
+  // are named otherwise read frame nframes, out of bounds. Renamed, the frames are found by the configured names, and the
+  // torques are RNEA's with the wrenches on those frames.
+  const std::array<std::string, kNumContacts> renamed = {"left_sole_renamed", "right_sole_renamed"};
+  const PinocchioInterface renamedInterface = withRenamedContactFrames(*g1_, renamed);
+  const pinocchio::Model& model = renamedInterface.getModel();
+  ASSERT_FALSE(model.existFrame("foot_l_contact") || model.existFrame("foot_r_contact")) << "the frames were not renamed";
+  EXPECT_TRUE(checkContactFramesExist(model, renamed).ok());
+  EXPECT_EQ(checkContactFramesExist(model, g1_->settings->contactNames).code(), absl::StatusCode::kNotFound);
+
+  const feet_array_t<pinocchio::FrameIndex> soleFrames = {model.getFrameId(renamed[0]), model.getFrameId(renamed[1])};
+  EXPECT_EQ(soleFrames, g1_->soleFrames()) << "renaming keeps the frames' indices";
+  for (size_t seed = 0; seed < 3; ++seed) {
+    SCOPED_TRACE(absl::StrCat("sample ", seed));
+    const Sample sample = makeSample(model, seed);
+    const RneaReference reference = floatingBaseRnea(model, sample, soleFrames);
+    const scalar_t scale = std::max(1.0, maxAbs(reference.jointTorques));
+    PinocchioInterface pinocchioInterface = renamedInterface;
+    EXPECT_LT(maxAbs(computeJointTorques<scalar_t>(sample.q, sample.v, sample.qddJoints, sample.wrenches, soleFrames, pinocchioInterface) -
+                     reference.jointTorques),
+              1.0e-9 * scale);
+    EXPECT_LT(maxAbs(computeBaseHeldJointTorques<scalar_t>(sample.q, sample.v, sample.qddJoints, sample.wrenches, soleFrames,
+                                                           pinocchioInterface) -
+                     baseHeldRnea(model, sample, soleFrames)),
+              1.0e-9 * scale);
+    // Positive control: the frames matter - the wrenches on the exchanged soles are other torques.
+    const feet_array_t<pinocchio::FrameIndex> exchanged = {soleFrames[1], soleFrames[0]};
+    EXPECT_GT(maxAbs(computeJointTorques<scalar_t>(sample.q, sample.v, sample.qddJoints, sample.wrenches, exchanged, pinocchioInterface) -
+                     reference.jointTorques),
+              1.0);
+  }
+}
+
+TEST(CheckContactFramesExist, RefusesTooFewNamesAndNamesTheMissingFrame) {
+  pinocchio::Model model;
+  model.addFrame(pinocchio::Frame("left_sole", /*parentJoint=*/0, pinocchio::SE3::Identity(), pinocchio::OP_FRAME));
+  model.addFrame(pinocchio::Frame("right_sole", /*parentJoint=*/0, pinocchio::SE3::Identity(), pinocchio::OP_FRAME));
+  EXPECT_TRUE(checkContactFramesExist(model, std::vector<std::string>{"left_sole", "right_sole"}).ok());
+  EXPECT_EQ(checkContactFramesExist(model, std::vector<std::string>{"left_sole"}).code(), absl::StatusCode::kInvalidArgument);
+  const absl::Status missing = checkContactFramesExist(model, std::vector<std::string>{"left_sole", "no_such_sole"});
+  EXPECT_EQ(missing.code(), absl::StatusCode::kNotFound);
+  EXPECT_TRUE(absl::StrContains(missing.message(), "no_such_sole")) << missing;
 }
 
 TEST_F(JointTorqueInverseDynamicsTest, theTapedJointTorquesMatchAndCarryNoComparisonBetweenVariables) {
@@ -353,7 +419,7 @@ TEST_F(JointTorqueInverseDynamicsTest, theTapedJointTorquesMatchAndCarryNoCompar
   PinocchioInterfaceCppAd pinocchioInterfaceCppAd = g1_->pinocchioInterface->toCppAd();
   const std::array<ad_vector6_t, 2> wrenches = {ad_vector6_t(x.segment(model.nq + nv + nj, 6)), ad_vector6_t(x.tail(6))};
   ad_vector_t y = computeJointTorques<ad_scalar_t>(x.head(model.nq), x.segment(model.nq, nv), x.segment(model.nq + nv, nj), wrenches,
-                                                   pinocchioInterfaceCppAd);
+                                                   g1_->soleFrames(), pinocchioInterfaceCppAd);
   ad_fun_t fun(x, y);
 
   CppAD::vector<ad_base_t> numericInput(static_cast<size_t>(numInputs));
@@ -361,7 +427,7 @@ TEST_F(JointTorqueInverseDynamicsTest, theTapedJointTorquesMatchAndCarryNoCompar
   const CppAD::vector<ad_base_t> numericOutput = fun.Forward(/*q=*/0, numericInput);
   vector_t taped(nj);
   for (Eigen::Index i = 0; i < nj; ++i) taped(i) = numericOutput[static_cast<size_t>(i)].getValue();
-  const RneaReference reference = floatingBaseRnea(model, sample);
+  const RneaReference reference = floatingBaseRnea(model, sample, g1_->soleFrames());
   EXPECT_LT(maxAbs(taped - reference.jointTorques), 1.0e-9 * std::max(1.0, maxAbs(reference.jointTorques)));
 
   CppAD::cg::CodeHandler<scalar_t> handler;
@@ -403,7 +469,7 @@ TEST_F(JointTorqueInverseDynamicsTest, theCorrectionOnTheShippedAtlasStanceIsThe
   pinocchio::Data data(model);
   const vector3_t com = pinocchio::centerOfMass(model, data, standing.q);
   pinocchio::framesForwardKinematics(model, data, standing.q);
-  const vector3_t soleToCom = com - data.oMf[model.getFrameId(kSoleFrames[0])].translation();
+  const vector3_t soleToCom = com - data.oMf[atlas_->soleFrames()[0]].translation();
   pendulum.wrenches[0].head<3>() = weight * soleToCom / soleToCom.z();
 
   const std::array<std::pair<const char* absl_nonnull, const Sample* absl_nonnull>, 3> cases = {
@@ -415,19 +481,20 @@ TEST_F(JointTorqueInverseDynamicsTest, theCorrectionOnTheShippedAtlasStanceIsThe
     SCOPED_TRACE(description);
     const Sample& sample = *cases[c].second;
     PinocchioInterface pinocchioInterface = *atlas_->pinocchioInterface;
-    const vector_t corrected = computeJointTorques<scalar_t>(sample.q, sample.v, sample.qddJoints, sample.wrenches, pinocchioInterface);
-    const RneaReference reference = floatingBaseRnea(model, sample);
+    const vector_t corrected =
+        computeJointTorques<scalar_t>(sample.q, sample.v, sample.qddJoints, sample.wrenches, atlas_->soleFrames(), pinocchioInterface);
+    const RneaReference reference = floatingBaseRnea(model, sample, atlas_->soleFrames());
     EXPECT_LT(maxAbs(corrected - reference.jointTorques), 1.0e-9 * std::max(1.0, maxAbs(reference.jointTorques)));
 
     // At zero joint acceleration the correction is the base coupling: the base-held torques plus M_jb a_b.
     PinocchioInterface baseHeldInterface = *atlas_->pinocchioInterface;
-    const vector_t baseHeld =
-        computeBaseHeldJointTorques<scalar_t>(sample.q, sample.v, sample.qddJoints, sample.wrenches, baseHeldInterface);
+    const vector_t baseHeld = computeBaseHeldJointTorques<scalar_t>(sample.q, sample.v, sample.qddJoints, sample.wrenches,
+                                                                    atlas_->soleFrames(), baseHeldInterface);
     const matrix_t& M = pinocchioInterface.getData().M;
     const vector_t coupling = M.bottomLeftCorner(atlas_->numJoints(), 6) * reference.baseAcceleration;
     EXPECT_LT(maxAbs(corrected - baseHeld - coupling), 1.0e-9 * std::max(1.0, maxAbs(corrected)));
 
-    const vector_t change = corrected - legacyJointTorques(model, sample);
+    const vector_t change = corrected - legacyJointTorques(model, sample, atlas_->soleFrames());
     Eigen::Index joint = 0;
     const scalar_t largest = change.cwiseAbs().maxCoeff(&joint);
     LOG(INFO) << "[DRC Atlas, " << description << "] a_b = " << reference.baseAcceleration.transpose() << "; largest torque change "

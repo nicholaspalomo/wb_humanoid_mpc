@@ -53,6 +53,9 @@ namespace ocs2::humanoid {
  * change SwitchedModelReferenceManager's own documentation argues against for good reasons. See FootholdHeuristic and
  * HipCenteredSteppingParameters; the layer warns when this is listed alone, and warns again when the others are
  * listed without it.
+ *
+ * Like every LocomotionHeuristic, its const methods are safe to call concurrently; configure() is not, and must not run
+ * while they do.
  */
 class HipCenteredSteppingHeuristic final : public FootholdHeuristic {
  public:

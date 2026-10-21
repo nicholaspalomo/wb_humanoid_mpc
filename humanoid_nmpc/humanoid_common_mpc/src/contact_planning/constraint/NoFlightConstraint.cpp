@@ -32,16 +32,23 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cmath>
 #include <string>
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
+
 namespace ocs2::humanoid {
 
-static_assert(kNumContacts == 2, "the no-flight row is written for a biped");
+namespace {
+// The upper bound of the contact flags' sum c_L + c_R: every foot in contact.
+constexpr scalar_t kMaxContactFlagSum = static_cast<scalar_t>(kBipedFootCount);
+}  // namespace
+
+static_assert(kNumContacts == kBipedFootCount, "the no-flight row is written for a biped");
 
 std::string NoFlightConstraint::describe() const {
   return "1 <= c_L + c_R <= 2 on the running nodes";
 }
 
 void NoFlightConstraint::addRows(const ContactPlanningContext& /*ctx*/, int /*node*/, RowBuilder& rows) const {
-  rows.addHard(/*xCoefficients=*/{}, {{idx_.contact[0], 1.0}, {idx_.contact[1], 1.0}}, /*lower=*/1.0, /*upper=*/2.0);
+  rows.addHard(/*xCoefficients=*/{}, {{idx_.contact[0], 1.0}, {idx_.contact[1], 1.0}}, /*lower=*/1.0, /*upper=*/kMaxContactFlagSum);
 }
 
 }  // namespace ocs2::humanoid

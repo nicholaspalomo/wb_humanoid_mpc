@@ -69,6 +69,9 @@ class ScalarBatcher:
     """Buffers rows of scalars and sends them per entity on flush().
 
     Not thread-safe: the bridge appends and flushes on the bus's receive thread.
+
+    Attributes:
+        pending_rows: The rows appended since the last flush(), over every entity.
     """
 
     def __init__(
@@ -82,13 +85,9 @@ class ScalarBatcher:
         self._max_pending_rows = max_pending_rows
         # Keyed by (entity path, whether the rows carry a robot time).
         self._batches: dict[tuple[str, bool], _Batch] = {}
-        self._pending_rows = 0
+        self.pending_rows = 0
         self.rows_sent = 0
         self.batches_sent = 0
-
-    @property
-    def pending_rows(self) -> int:
-        return self._pending_rows
 
     def append(
         self,
@@ -122,7 +121,7 @@ class ScalarBatcher:
             batch.robot_times.append(robot_time)
         batch.wall_times.append(wall_time)
         batch.rows.append(values)
-        self._pending_rows += 1
+        self.pending_rows += 1
         if len(batch.rows) >= self._max_pending_rows:
             self._send(key, batch)
 
@@ -139,7 +138,7 @@ class ScalarBatcher:
         count = len(batch.rows)
         if count == 0:
             return 0
-        self._pending_rows -= count
+        self.pending_rows -= count
         path, has_robot_time = key
         indexes = []
         if has_robot_time:

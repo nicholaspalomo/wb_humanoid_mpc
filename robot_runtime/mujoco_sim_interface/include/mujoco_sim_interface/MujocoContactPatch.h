@@ -34,6 +34,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/base/nullability.h"
 #include "mujoco/mujoco.h"
+#include "ocs2_core/Dimensions.h"
+
+#include "mujoco_sim_interface/MujocoUtils.h"
 
 namespace robot::mujoco_sim_interface {
 
@@ -58,8 +61,11 @@ struct TargetContactPatch {
   bool yawPlanned = false;  // the yaw is planned (heading model); otherwise it holds the measured foot yaw
 };
 
-/** Corners of the contact patch polygon in the contact frame (x forward, y left), in order around the polygon. */
-using ContactPatchCorners = std::vector<std::array<double, 2>>;
+/**
+ * Corners of the contact patch polygon in the contact frame (x forward, y left), in order around the polygon: points of the
+ * ground plane, (x, y), placed in the world frame as (x, y, z).
+ */
+using ContactPatchCorners = std::vector<std::array<double, ocs2::kHorizontalPositionDim>>;
 
 /** A generic foot outline (0.2 m x 0.1 m) for contact points without a configured patch. */
 ContactPatchCorners defaultContactPatchCorners();
@@ -68,16 +74,19 @@ ContactPatchCorners defaultContactPatchCorners();
  * World-frame corners of `corners` placed at `patch`: rotated by its yaw about z, translated to its origin and lifted
  * by `heightOffset` above its z.
  */
-std::vector<std::array<double, 3>> contactPatchWorldCorners(const TargetContactPatch& patch,
-                                                            const ContactPatchCorners& corners,
-                                                            double heightOffset = 0.0);
+std::vector<std::array<double, ocs2::kPositionDim>> contactPatchWorldCorners(const TargetContactPatch& patch,
+                                                                             const ContactPatchCorners& corners,
+                                                                             double heightOffset = 0.0);
 
 /** How a patch is drawn. */
 struct ContactPatchStyle {
-  std::array<float, 4> rgba{1.0f, 1.0f, 1.0f, 1.0f};
+  /** The emission of a patch drawn without one. */
+  static constexpr float kDefaultEmission = 0.5f;
+
+  std::array<float, kMjRgbaChannels> rgba{1.0f, 1.0f, 1.0f, 1.0f};  // red, green, blue and alpha
   bool fill = true;   // thin translucent slab over the bounds of the corners (exact for a rectangle)
   bool arrow = true;  // arrow along the patch's x axis from its origin, shows the yaw
-  float emission = 0.5f;
+  float emission = kDefaultEmission;
 };
 
 /**

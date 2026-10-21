@@ -31,6 +31,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <cstddef>
 
+#include "ocs2_core/Dimensions.h"
+
 namespace ocs2 {
 
 /**
@@ -45,10 +47,10 @@ struct StateManifoldSegment {
   static StateManifoldSegment euclidean(size_t dimension) { return StateManifoldSegment{Type::kEuclidean, dimension}; }
 
   /** A unit-quaternion block (four coefficients x, y, z, w). */
-  static StateManifoldSegment unitQuaternion() { return StateManifoldSegment{Type::kUnitQuaternion, 4}; }
+  static StateManifoldSegment unitQuaternion() { return StateManifoldSegment{Type::kUnitQuaternion, kQuaternionCoefficients}; }
 
   size_t getAmbientDim() const { return dimension; }
-  size_t getTangentDim() const { return type == Type::kUnitQuaternion ? 3 : dimension; }
+  size_t getTangentDim() const { return type == Type::kUnitQuaternion ? kRotationTangentDim : dimension; }
 
   Type type;
   size_t dimension;  // the ambient size

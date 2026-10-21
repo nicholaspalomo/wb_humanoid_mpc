@@ -42,7 +42,7 @@ namespace ocs2::humanoid {
 WeightCompInitializer::WeightCompInitializer(const PinocchioInterface& pinocchioInterface,
                                              const SwitchedModelReferenceManager& referenceManager,
                                              const MpcRobotModelBase<scalar_t>& mpcRobotModel)
-    : mpcRobotModelPtr_(&mpcRobotModel), pinocchioInterface_(pinocchioInterface), referenceManagerPtr_(&referenceManager) {}
+    : mpcRobotModelPtr_(&mpcRobotModel), pinocchioInterfacePtr_(&pinocchioInterface), referenceManagerPtr_(&referenceManager) {}
 
 /******************************************************************************************************/
 /******************************************************************************************************/
@@ -50,7 +50,7 @@ WeightCompInitializer::WeightCompInitializer(const PinocchioInterface& pinocchio
 
 WeightCompInitializer::WeightCompInitializer(const WeightCompInitializer& rhs)
     : mpcRobotModelPtr_(rhs.mpcRobotModelPtr_),
-      pinocchioInterface_(rhs.pinocchioInterface_),
+      pinocchioInterfacePtr_(rhs.pinocchioInterfacePtr_),
       referenceManagerPtr_(rhs.referenceManagerPtr_) {}
 
 /******************************************************************************************************/
@@ -67,7 +67,7 @@ WeightCompInitializer* absl_nonnull WeightCompInitializer::clone() const {
 
 void WeightCompInitializer::compute(scalar_t time, const vector_t& state, scalar_t /*nextTime*/, vector_t& input, vector_t& nextState) {
   const contact_flag_t contactFlags = referenceManagerPtr_->getContactFlags(time);
-  input = weightCompensatingInput(pinocchioInterface_, contactFlags, *mpcRobotModelPtr_);
+  input = weightCompensatingInput(*pinocchioInterfacePtr_, contactFlags, *mpcRobotModelPtr_);
   nextState = state;
 }
 

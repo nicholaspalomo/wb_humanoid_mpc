@@ -33,6 +33,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 #include "absl/status/status.h"
+#include "absl/strings/string_view.h"
 
 namespace ocs2::humanoid {
 
@@ -102,9 +103,9 @@ inline constexpr char kPlannedComOverride[] = "planned_com_override";
 // clang-format on
 
 /** Normalizes a term name for comparison: lower case, `_`, `-` and spaces removed. */
-std::string normalizeTermName(const std::string& name);
+std::string normalizeTermName(absl::string_view name);
 /** True if the two names denote the same term. */
-bool sameTermName(const std::string& a, const std::string& b);
+bool sameTermName(absl::string_view a, absl::string_view b);
 
 /** Which list of the formulation a term belongs to. */
 enum class TermKind { kModelBlock, kCost, kSoftConstraint, kHardConstraint, kLogicRule, kAssignmentCost, kSearchStage, kExecutionRule };
@@ -115,7 +116,7 @@ std::string termKindName(TermKind kind);
 /** Canonical names of every term of a kind, in the order of the default formulation. */
 const std::vector<std::string>& knownTermNames(TermKind kind);
 /** Canonical spelling of `name` among the terms of `kind`, or empty if the name is unknown. */
-std::string canonicalTermName(TermKind kind, const std::string& name);
+std::string canonicalTermName(TermKind kind, absl::string_view name);
 
 /**
  * The model block the term `name` of `kind` needs in the `dynamics` list, or empty when it needs none. This is the one
@@ -124,7 +125,7 @@ std::string canonicalTermName(TermKind kind, const std::string& name);
  * ContactPlanningTerm::requiredBlocks() says the same thing a third time, from the term's side; a test builds every
  * term through the factory and holds the two answers equal.
  */
-std::string requiredModelBlock(TermKind kind, const std::string& name);
+std::string requiredModelBlock(TermKind kind, absl::string_view name);
 
 /**
  * The term lists of the planner's formulation: which model blocks, costs, constraints, logic rules, assignment costs,
@@ -154,22 +155,22 @@ struct ContactPlanningFormulation {
   std::vector<std::string>& list(TermKind kind);
   const std::vector<std::string>& list(TermKind kind) const;
 
-  static bool listed(const std::vector<std::string>& list, const std::string& name);
+  static bool listed(const std::vector<std::string>& list, absl::string_view name);
   /** Adds `name` to the end of the list, or removes it, without duplicates. */
-  static void setListed(std::vector<std::string>& list, const std::string& name, bool on);
+  static void setListed(std::vector<std::string>& list, absl::string_view name, bool on);
 
-  bool hasDynamics(const std::string& name) const { return listed(dynamics, name); }
-  bool hasCost(const std::string& name) const { return listed(costs, name); }
-  bool hasSoftConstraint(const std::string& name) const { return listed(softConstraints, name); }
-  bool hasHardConstraint(const std::string& name) const { return listed(hardConstraints, name); }
-  bool hasLogicRule(const std::string& name) const { return listed(logicRules, name); }
-  bool hasSearchStage(const std::string& name) const { return listed(search, name); }
-  bool hasExecutionRule(const std::string& name) const { return listed(execution, name); }
+  bool hasDynamics(absl::string_view name) const { return listed(dynamics, name); }
+  bool hasCost(absl::string_view name) const { return listed(costs, name); }
+  bool hasSoftConstraint(absl::string_view name) const { return listed(softConstraints, name); }
+  bool hasHardConstraint(absl::string_view name) const { return listed(hardConstraints, name); }
+  bool hasLogicRule(absl::string_view name) const { return listed(logicRules, name); }
+  bool hasSearchStage(absl::string_view name) const { return listed(search, name); }
+  bool hasExecutionRule(absl::string_view name) const { return listed(execution, name); }
 
-  void setExecutionRule(const std::string& name, bool on) { setListed(execution, name, on); }
-  void setLogicRule(const std::string& name, bool on) { setListed(logicRules, name, on); }
-  void setSearchStage(const std::string& name, bool on) { setListed(search, name, on); }
-  void setCost(const std::string& name, bool on) { setListed(costs, name, on); }
+  void setExecutionRule(absl::string_view name, bool on) { setListed(execution, name, on); }
+  void setLogicRule(absl::string_view name, bool on) { setListed(logicRules, name, on); }
+  void setSearchStage(absl::string_view name, bool on) { setListed(search, name, on); }
+  void setCost(absl::string_view name, bool on) { setListed(costs, name, on); }
 
   /** True when the heading model (the ACoM dynamics block) is part of the reduced model. */
   bool usesHeadingModel() const { return hasDynamics(term::kHeadingDoubleIntegrator); }
@@ -194,9 +195,12 @@ struct ContactPlanningFormulation {
 
   /** One line per list, for the start-up print. */
   std::string summary() const;
-
-  bool operator==(const ContactPlanningFormulation& other) const;
-  bool operator!=(const ContactPlanningFormulation& other) const { return !(*this == other); }
 };
+
+/** Equal when every list names the same terms in the same order, the names compared like every other lookup. */
+bool operator==(const ContactPlanningFormulation& lhs, const ContactPlanningFormulation& rhs);
+inline bool operator!=(const ContactPlanningFormulation& lhs, const ContactPlanningFormulation& rhs) {
+  return !(lhs == rhs);
+}
 
 }  // namespace ocs2::humanoid

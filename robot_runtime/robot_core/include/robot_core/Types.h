@@ -38,6 +38,9 @@ using joint_index_t = size_t;
 
 using scalar_t = double;
 
+// The fixed-size vectors and matrices, named for their size: each holds several quantities of that size, so the size is
+// the name's, not one quantity's.
+// NOLINTBEGIN(magic-number): each alias is named for its size, which no quantity's dimension names.
 template <typename SCALAR_T>
 using VECTOR_T = Eigen::Matrix<SCALAR_T, -1, 1>;
 template <typename SCALAR_T>
@@ -58,6 +61,7 @@ template <typename SCALAR_T>
 using MATRIX4_T = Eigen::Matrix<SCALAR_T, 4, 4>;
 template <typename SCALAR_T>
 using MATRIX6_T = Eigen::Matrix<SCALAR_T, 6, 6>;
+// NOLINTEND(magic-number)
 template <typename SCALAR_T>
 using QUATERNION_T = Eigen::Quaternion<SCALAR_T>;
 

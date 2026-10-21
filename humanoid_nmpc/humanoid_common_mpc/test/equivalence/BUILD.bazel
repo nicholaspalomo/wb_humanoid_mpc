@@ -229,9 +229,11 @@ _MPC_TEST_DEPS = [
 # The MPC-level equivalence of one configuration (MPC_EQUIVALENCE_CONFIGURATION): the dynamics, their linearization and
 # the SQP's shooting interval against the oracle (testMpcDynamicsEquivalence), RK4 rollouts through ordinary attitudes,
 # across a yaw of +-pi and through gimbal lock (testMpcRolloutEquivalence), the quadratic state costs to second order
-# under the task file's Euler-written weights (testMpcOrientationCostEquivalence) and one real-time SQP iteration on the
-# quaternion manifold against the Euler-chart iteration (EulerChartStateManifold, testMpcSqpStepEquivalence). The four
-# test files share one binary so that the robot's CppAD libraries are generated once. Exclusive: one at a time.
+# under the task file's Euler-written weights (testMpcOrientationCostEquivalence), one real-time SQP iteration on the
+# quaternion manifold against the Euler-chart iteration (EulerChartStateManifold, testMpcSqpStepEquivalence), and the
+# SQP's convergence on the shipped tuning, iterated and in real time, or the known cycle of the configurations that do
+# not converge (testMpcSqpConvergence). The five test files share one binary so that the robot's CppAD libraries are
+# generated once. Exclusive: one at a time.
 [
     cc_test(
         name = "testMpcEquivalence_" + robot,
@@ -240,13 +242,18 @@ _MPC_TEST_DEPS = [
             "testMpcDynamicsEquivalence.cpp",
             "testMpcOrientationCostEquivalence.cpp",
             "testMpcRolloutEquivalence.cpp",
+            "testMpcSqpConvergence.cpp",
             "testMpcSqpStepEquivalence.cpp",
         ],
         copts = FIRST_PARTY_COPTS,
         data = data,
         env = {"MPC_EQUIVALENCE_CONFIGURATION": robot},
         tags = ["exclusive"],
-        deps = _MPC_TEST_DEPS,
+        deps = _MPC_TEST_DEPS + [
+            "//humanoid_nmpc/humanoid_mpc_validation:closed_loop_metrics",
+            "//humanoid_nmpc/humanoid_mpc_validation:sqp_step_diagnostics",
+            "//lib/ocs2:ocs2_sqp",
+        ],
     )
     for robot, data in _MPC_EQUIVALENCE_ROBOTS.items()
 ]
@@ -254,7 +261,7 @@ _MPC_TEST_DEPS = [
 # The deterministic evaluation points of the two term tests below, built from the configuration's shipped task file, and
 # the points inside the bands of the piecewise polynomial barriers; the precomputation requests that precede every
 # evaluation of a term, the checks that a test covered every term of its collections, each where it is not zero, and the
-# ICP weight of the tests' problem copies.
+# soft stance-foot constraint of the tests' problem copies.
 cc_library(
     name = "term_probe_points",
     testonly = True,

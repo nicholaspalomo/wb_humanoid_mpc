@@ -172,21 +172,4 @@ std::string RobotDescription::getURDFName() const {
   return std::filesystem::path(urdf_path_).filename().string();
 }
 
-std::ostream& operator<<(std::ostream& os, const JointDescription& joint) {
-  os << "JointDescription { " << "id: " << joint.id << ", min_angle: " << joint.min_angle << ", max_angle: " << joint.max_angle
-     << ", max_velocity: " << joint.max_velocity << ", max_effort: " << joint.max_effort << " }";
-  return os;
-}
-
-std::ostream& operator<<(std::ostream& os, const RobotDescription& robot) {
-  os << "RobotDescription {\n";
-  os << "Generated from URDF: " << robot.getURDFPath() << '\n';
-  os << " Joint names and descriptions:\n";
-  for (joint_index_t index = 0; index < robot.getNumJoints(); ++index) {
-    os << "  {" << robot.joint_names_[index] << ": " << robot.joints_[index] << " }\n";
-  }
-  os << "}";
-  return os;
-}
-
 }  // namespace robot::model

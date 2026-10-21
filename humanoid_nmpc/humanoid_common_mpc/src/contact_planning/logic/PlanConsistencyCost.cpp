@@ -47,9 +47,9 @@ void PlanConsistencyCost::configure(const ContactPlanningConfig& config) {
 scalar_t PlanConsistencyCost::cost(const ContactLogicState& s, const MiqpAssignment& a) const {
   using S = ContactLogicState;
   int numInconsistent = 0;
-  if (s.previousPlanShift >= 0 && s.previousAssignment != nullptr && cost_ > 0.0) {
+  if (s.previousPlanShift.has_value() && s.previousAssignment != nullptr && cost_ > 0.0) {
     for (int k = 0; k < s.numNodes; ++k) {
-      const int source = std::min(k + s.previousPlanShift, s.numNodes - 1);
+      const int source = std::min(k + *s.previousPlanShift, s.numNodes - 1);
       for (size_t foot = 0; foot < kNumContacts; ++foot) {
         const int8_t value = a[static_cast<size_t>(S::contactBinaryIndex(k, foot))];
         if (value != kMiqpFree && value != (*s.previousAssignment)[static_cast<size_t>(S::contactBinaryIndex(source, foot))]) {

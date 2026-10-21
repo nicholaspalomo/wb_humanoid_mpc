@@ -55,6 +55,9 @@ namespace ocs2::humanoid {
  *
  * With omega = psidot e_z and a horizontal velocity the cross product reduces to (v_y psidot, -v_x psidot), which are
  * the two scalars the coefficients below multiply.
+ *
+ * Like every LocomotionHeuristic, its const methods are safe to call concurrently; configure() is not, and must not run
+ * while they do.
  */
 class HighSpeedTurningHeuristic final : public FootholdHeuristic {
  public:

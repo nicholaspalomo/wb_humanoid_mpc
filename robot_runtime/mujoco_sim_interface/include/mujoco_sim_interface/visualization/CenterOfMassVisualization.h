@@ -38,6 +38,8 @@ namespace robot::mujoco_sim_interface {
 /**
  * Whole-body center of mass of the robot: a sphere at the CoM, a thin vertical line down to the ground, and its
  * "shadow", a disc at the CoM's projection on the ground plane (the point the ZMP and the DCM are compared against).
+ *
+ * Not thread-safe: the viewer drives it from one thread.
  */
 class CenterOfMassVisualization final : public MujocoVisualization {
  public:

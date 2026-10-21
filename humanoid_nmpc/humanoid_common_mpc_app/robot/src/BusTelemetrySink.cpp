@@ -36,16 +36,22 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_mpc_ipc/Topics.h"
 
 namespace ocs2::humanoid {
+namespace {
+
+/** [s] How often a failing publication of robot/state is logged at most. */
+constexpr double kPublishFailureLogPeriodSeconds = 5.0;
+
+}  // namespace
 
 absl::string_view BusTelemetrySink::name() const {
   return kBusTelemetrySinkName;
 }
 
 void BusTelemetrySink::write(const humanoid_mpc_msgs::RobotStateSample& sample) {
-  const absl::Status status = bus_.publishFromIoThread(ipc::topics::kRobotState, sample);
+  const absl::Status status = bus_->publishFromIoThread(ipc::topics::kRobotState, sample);
   if (!status.ok()) {
     ++publishFailures_;
-    LOG_EVERY_N_SEC(WARNING, 5.0) << "[BusTelemetrySink] Publishing robot/state failed: " << status.message();
+    LOG_EVERY_N_SEC(WARNING, kPublishFailureLogPeriodSeconds) << "[BusTelemetrySink] Publishing robot/state failed: " << status.message();
   }
 }
 

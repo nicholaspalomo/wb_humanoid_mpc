@@ -39,6 +39,8 @@ namespace ocs2::humanoid {
 /**
  * `foot_separation` (soft, every node): |e_x . (p_L - p_R)| <= maxStepLength and minStepWidth <= e_y . (p_L - p_R) <=
  * maxStepWidth (the self-collision margin), with the first-order heading term of the frame.
+ *
+ * Not thread-safe, like every ContactPlanningTerm: the planner that owns it configures and evaluates it from one thread at a time.
  */
 class FootSeparationConstraint final : public LipConstraintBase {
  public:

@@ -230,14 +230,74 @@ TEST(ProjectileRegistry, EveryAdvertisedNameResolves) {
 
 /*======================================= restitution -> solref =========================================*/
 
-TEST(ContactDampRatio, InvertsTheLogarithmicDecrement) {
-  // The relation this has to satisfy is e = exp(-pi zeta / sqrt(1 - zeta^2)); check the round trip rather than the
-  // formula, so that a rearrangement that is algebraically wrong cannot pass.
-  for (const double restitution : {0.1, 0.3, 0.5, 0.8, 0.95}) {
-    const double zeta = contactDampRatioForRestitution(restitution);
-    const double recovered = std::exp(-M_PI * zeta / std::sqrt(1.0 - zeta * zeta));
-    EXPECT_NEAR(recovered, restitution, 1.0e-9) << "at e = " << restitution;
+namespace {
+
+/** The acceleration of a linear spring-damper of unit natural frequency and damping ratio `zeta` at penetration `x`. */
+double springDamperAcceleration(double zeta, double x, double v) {
+  return -x - 2.0 * zeta * v;
+}
+
+/**
+ * The restitution of a one-sided linear spring-damper of damping ratio `zeta`, by integration rather than the closed
+ * form: x'' = -x - 2 zeta x' (e does not depend on omega, so time is in units of 1 / omega) from an impact x = 0 at unit
+ * speed, with classical Runge-Kutta steps of 1e-4, until the spring-damper force reaches zero (the ball leaves); the
+ * speed there, interpolated linearly in the force between the two steps around it.
+ */
+double integratedRestitution(double zeta) {
+  constexpr double kStep = 1.0e-4;
+  double x = 0.0;
+  double v = -1.0;
+  double force = springDamperAcceleration(zeta, x, v);
+  for (int step = 0; step < 10'000'000; ++step) {
+    const double k1x = v;
+    const double k1v = springDamperAcceleration(zeta, x, v);
+    const double k2x = v + 0.5 * kStep * k1v;
+    const double k2v = springDamperAcceleration(zeta, x + 0.5 * kStep * k1x, v + 0.5 * kStep * k1v);
+    const double k3x = v + 0.5 * kStep * k2v;
+    const double k3v = springDamperAcceleration(zeta, x + 0.5 * kStep * k2x, v + 0.5 * kStep * k2v);
+    const double k4x = v + kStep * k3v;
+    const double k4v = springDamperAcceleration(zeta, x + kStep * k3x, v + kStep * k3v);
+    const double nextX = x + kStep / 6.0 * (k1x + 2.0 * k2x + 2.0 * k3x + k4x);
+    const double nextV = v + kStep / 6.0 * (k1v + 2.0 * k2v + 2.0 * k3v + k4v);
+    const double nextForce = springDamperAcceleration(zeta, nextX, nextV);
+    if (nextForce <= 0.0) return v + (nextV - v) * force / (force - nextForce);
+    x = nextX;
+    v = nextV;
+    force = nextForce;
   }
+  return std::numeric_limits<double>::quiet_NaN();
+}
+
+}  // namespace
+
+TEST(ContactRestitution, TheClosedFormIsTheIntegratedOneSidedContact) {
+  // Under-damped, critically damped and over-damped. The ball leaves where the force vanishes, at the largest rebound
+  // speed, not where x returns to zero: the logarithmic decrement exp(-pi zeta / sqrt(1 - zeta^2)) would be 0.137 at
+  // zeta = 0.535, where the contact gives 0.280, and 0 at zeta = 1, where it gives exp(-2).
+  for (const double zeta : {0.01, 0.0744, 0.3, 0.535, 0.9, 0.999999, 1.0, 1.000001, 1.5, 4.0, 10.0}) {
+    EXPECT_NEAR(contactRestitutionForDampRatio(zeta), integratedRestitution(zeta), 1.0e-6) << "zeta = " << zeta;
+  }
+  EXPECT_NEAR(contactRestitutionForDampRatio(0.535), 0.2796, 1.0e-4);
+  EXPECT_DOUBLE_EQ(contactRestitutionForDampRatio(1.0), std::exp(-2.0));
+  EXPECT_EQ(contactRestitutionForDampRatio(0.0), 1.0) << "an undamped contact gives the speed back";
+}
+
+TEST(ContactRestitution, FallsMonotonicallyAndContinuouslyThroughCriticalDamping) {
+  double previous = contactRestitutionForDampRatio(0.0);
+  for (double zeta = 0.001; zeta < kMaxContactDampRatio; zeta += 0.001) {
+    const double restitution = contactRestitutionForDampRatio(zeta);
+    EXPECT_LT(restitution, previous) << "zeta = " << zeta;
+    EXPECT_LT(previous - restitution, 4.0e-3) << "a jump at zeta = " << zeta;  // |de/dzeta| <= pi
+    previous = restitution;
+  }
+}
+
+TEST(ContactDampRatio, InvertsTheRestitutionOfTheOneSidedContact) {
+  for (const double restitution : {0.003, 0.05, 0.135, 0.136, 0.3, 0.5, 0.8, 0.95, 0.999}) {
+    const double zeta = contactDampRatioForRestitution(restitution);
+    EXPECT_NEAR(contactRestitutionForDampRatio(zeta), restitution, 1.0e-12) << "at e = " << restitution;
+  }
+  EXPECT_NEAR(contactDampRatioForRestitution(0.8), 0.0744, 1.0e-4);
 }
 
 TEST(ContactDampRatio, MoreBounceMeansLessDamping) {
@@ -246,11 +306,19 @@ TEST(ContactDampRatio, MoreBounceMeansLessDamping) {
 }
 
 TEST(ContactDampRatio, TheDegenerateEndsAreClampedRatherThanInfinite) {
-  // e = 1 would be a contact that never loses energy; e = 0 would take the log of zero.
-  EXPECT_TRUE(std::isfinite(contactDampRatioForRestitution(1.0)));
-  EXPECT_TRUE(std::isfinite(contactDampRatioForRestitution(0.0)));
-  EXPECT_TRUE(std::isfinite(contactDampRatioForRestitution(-1.0)));
+  // No finite damping stops a one-sided spring-damper dead, and e = 1 would never settle: both ends are clamped.
+  EXPECT_EQ(contactDampRatioForRestitution(0.0), kMaxContactDampRatio);
+  EXPECT_EQ(contactDampRatioForRestitution(-1.0), kMaxContactDampRatio);
+  EXPECT_EQ(contactDampRatioForRestitution(std::numeric_limits<double>::quiet_NaN()), kMaxContactDampRatio);
+  EXPECT_EQ(contactDampRatioForRestitution(1.0), contactDampRatioForRestitution(kMaxContactRestitution));
   EXPECT_GT(contactDampRatioForRestitution(1.0), 0.0);
+}
+
+TEST(ProjectileContact, TheTimeConstantKeepsTheStiffnessAtEveryRestitution) {
+  // omega = 1 / (timeconst dampratio) is the same at every damping ratio, so a lively ball does not ring faster.
+  for (const double zeta : {0.001, 0.0744, 0.5, 1.0, 10.0}) {
+    EXPECT_NEAR(1.0 / (projectileContactTimeConstant(zeta) * zeta), kProjectileContactNaturalFrequency, 1.0e-9) << zeta;
+  }
 }
 
 /*========================================= injecting the ball ==========================================*/
@@ -277,7 +345,8 @@ TEST(AddProjectileToSpec, AppendsAFreeSphereWithTheRightMassSizeAndContact) {
   ASSERT_GE(ballGeom, 0);
   EXPECT_EQ(withBall.model->geom_type[ballGeom], mjGEOM_SPHERE);
   EXPECT_NEAR(withBall.model->geom_size[3 * ballGeom], ball.radius, 1.0e-9);
-  EXPECT_NEAR(withBall.model->geom_solref[mjNREF * ballGeom + 0], kProjectileContactTimeConstant, 1.0e-12);
+  EXPECT_NEAR(withBall.model->geom_solref[mjNREF * ballGeom + 0],
+              projectileContactTimeConstant(contactDampRatioForRestitution(ball.restitution)), 1.0e-12);
   EXPECT_NEAR(withBall.model->geom_solref[mjNREF * ballGeom + 1], contactDampRatioForRestitution(ball.restitution), 1.0e-9);
   // Priority, so that it is the BALL's solref that every contact uses rather than an average with the floor's.
   EXPECT_GT(withBall.model->geom_priority[ballGeom], withBall.model->geom_priority[withBall.geom("floor")]);
@@ -386,8 +455,30 @@ TEST(ProjectileContact, RestitutionIsTheConfiguredOneAgainstAFloorWithItsOwnCont
     scene.model->opt.timestep = timestep;
     const double restitution = measuredRestitution(scene, /*height=*/1.0);
     ASSERT_TRUE(std::isfinite(restitution)) << "the ball never bounced at dt = " << timestep;
-    // The discrete contact is not exactly the continuous one, so a band: 0.797 and 0.842 measured.
+    // The discrete contact is not exactly the continuous one, so a band: 0.797 and 0.782 measured.
     EXPECT_NEAR(restitution, ball.restitution, 0.06) << "at dt = " << timestep;
+  }
+}
+
+// One bounce keeps the fraction e^2 of the ball's kinetic energy, across the range of restitutions a ball can be given,
+// at the simulator's 0.5 ms step and a finer one. The band, 0.02 of e: gravity acts through the ~10 ms contact (g T / v_in
+// = 2% from a 1 m drop) and the step is not infinitely fine; a contact that ADDS energy, as the fixed 20 ms time
+// constant did at e = 0.9 and 0.95, is off by more than the speed itself.
+TEST(ProjectileContact, OneBounceKeepsTheFractionESquaredOfTheEnergy) {
+  const std::string path = writeTempFile("projectile_energy_ratio.xml", kShippedScene);
+  for (const double timestep : {0.00025, 0.0005}) {
+    for (const double restitution : {0.3, 0.6, 0.8, 0.9, 0.95}) {
+      Projectile ball = dodgeball();
+      ball.restitution = restitution;
+      const Scene scene(path, &ball);
+      ASSERT_NE(scene.model, nullptr);
+      scene.model->opt.timestep = timestep;
+      const double speedRatio = measuredRestitution(scene, /*height=*/1.0);
+      ASSERT_TRUE(std::isfinite(speedRatio)) << "the ball never bounced at e = " << restitution;
+      const double energyRatio = speedRatio * speedRatio;
+      EXPECT_NEAR(std::sqrt(energyRatio), restitution, 0.02) << "e = " << restitution << ", dt = " << timestep << ": energy ratio "
+                                                             << energyRatio << " against e^2 = " << restitution * restitution;
+    }
   }
 }
 
@@ -618,7 +709,7 @@ TEST(SetProjectileMass, RejectsASphereThatIsNotCenteredOrNotItsOwnTree) {
   const std::string path = writeTempFile("projectile_not_centered.xml", R"(
 <mujoco>
   <worldbody>
-    <body name="offcentre" pos="0 0 1">
+    <body name="offcenter" pos="0 0 1">
       <freejoint/>
       <geom type="sphere" size="0.1" pos="0.05 0 0" mass="1"/>
     </body>
@@ -636,7 +727,7 @@ TEST(SetProjectileMass, RejectsASphereThatIsNotCenteredOrNotItsOwnTree) {
   char error[1000] = {0};
   mjModel* absl_nullable model = mj_loadXML(path.c_str(), /*vfs=*/nullptr, error, sizeof(error));
   if (model == nullptr) GTEST_SKIP() << "MuJoCo rejected the nested free joint fixture: " << error;
-  EXPECT_FALSE(setProjectileMass(model, mj_name2id(model, mjOBJ_BODY, "offcentre"), /*mass=*/2.0).ok());
+  EXPECT_FALSE(setProjectileMass(model, mj_name2id(model, mjOBJ_BODY, "offcenter"), /*mass=*/2.0).ok());
   EXPECT_FALSE(setProjectileMass(model, mj_name2id(model, mjOBJ_BODY, "nested"), /*mass=*/2.0).ok());
   mj_deleteModel(model);
 }
@@ -778,15 +869,12 @@ TEST(ClearProjectileLaunch, ReportsAThrowThatCannotBeClearedAndRejectsNonsense) 
 
 /*=========================================== the fallback impulse ======================================*/
 
-TEST(ProjectileArrivalMomentum, IsTheClampedMassTimesTheArrivalVelocity) {
+TEST(ProjectileArrivalVelocity, IsTheLaunchVelocityLessGravityOverTheFlight) {
   const std::array<double, 3> launchVelocity{{-8.0, 1.0, 2.0}};
-  const std::array<double, 3> momentum = projectileArrivalMomentum(launchVelocity, /*flightTime=*/0.4, /*mass=*/2.0, /*gravity=*/9.81);
-  EXPECT_NEAR(momentum[0], 2.0 * -8.0, 1.0e-12);
-  EXPECT_NEAR(momentum[1], 2.0 * 1.0, 1.0e-12);
-  EXPECT_NEAR(momentum[2], 2.0 * (2.0 - 9.81 * 0.4), 1.0e-12) << "gravity takes g t off the vertical on the way";
-  // The same clamp as the real ball, so a hand-published mass cannot schedule an arbitrary impulse.
-  const std::array<double, 3> heavy = projectileArrivalMomentum(launchVelocity, /*flightTime=*/0.4, /*mass=*/500.0, /*gravity=*/9.81);
-  EXPECT_NEAR(heavy[0], kMaxProjectileMass * -8.0, 1.0e-12);
+  const std::array<double, 3> velocity = projectileArrivalVelocity(launchVelocity, /*flightTime=*/0.4, /*gravity=*/9.81);
+  EXPECT_EQ(velocity[0], -8.0);
+  EXPECT_EQ(velocity[1], 1.0);
+  EXPECT_NEAR(velocity[2], 2.0 - 9.81 * 0.4, 1.0e-12) << "gravity takes g t off the vertical on the way";
 }
 
 /*=========================================== when to park it ===========================================*/

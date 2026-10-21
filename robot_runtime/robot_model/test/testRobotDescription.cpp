@@ -31,7 +31,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <fstream>
 #include <limits>
 #include <optional>
-#include <sstream>
 #include <string>
 #include <system_error>
 #include <utility>
@@ -41,6 +40,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
+#include "absl/strings/str_cat.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
@@ -232,7 +232,7 @@ TEST_F(RobotDescriptionTest, MovingADescriptionKeepsItsJoints) {
   EXPECT_EQ(moved.getJointIndex("wrist_joint"), 2u);
 }
 
-TEST_F(RobotDescriptionTest, JointDescriptionStreamOperator) {
+TEST_F(RobotDescriptionTest, JointDescriptionStringifiesItsLimits) {
   JointDescription jointDesc;
   jointDesc.id = 42;
   jointDesc.min_angle = -1.5;
@@ -240,10 +240,9 @@ TEST_F(RobotDescriptionTest, JointDescriptionStreamOperator) {
   jointDesc.max_velocity = 2.0;
   jointDesc.max_effort = 100.0;
 
-  std::stringstream ss;
-  ss << jointDesc;
-  EXPECT_THAT(ss.str(), HasSubstr("id: 42"));
-  EXPECT_THAT(ss.str(), HasSubstr("min_angle: -1.5"));
+  const std::string output = absl::StrCat(jointDesc);
+  EXPECT_THAT(output, HasSubstr("id: 42"));
+  EXPECT_THAT(output, HasSubstr("min_angle: -1.5"));
 }
 
 TEST(JointDescriptionTest, ADefaultJointHasNoLimits) {
@@ -252,10 +251,8 @@ TEST(JointDescriptionTest, ADefaultJointHasNoLimits) {
   EXPECT_EQ(joint.max_angle, std::numeric_limits<scalar_t>::max());
 }
 
-TEST_F(RobotDescriptionTest, RobotDescriptionStreamOperatorListsTheJointsInIndexOrder) {
-  std::stringstream ss;
-  ss << description();
-  const std::string output = ss.str();
+TEST_F(RobotDescriptionTest, RobotDescriptionStringifiesTheJointsInIndexOrder) {
+  const std::string output = absl::StrCat(description());
   EXPECT_TRUE(absl::StrContains(output, "test_robot.urdf"));
   EXPECT_TRUE(absl::StrContains(output, "shoulder_joint"));
   EXPECT_TRUE(absl::StrContains(output, "elbow_joint"));

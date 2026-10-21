@@ -34,15 +34,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 #include "absl/base/nullability.h"
+#include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "ocs2_core/cost/StateInputGaussNewtonCostAd.h"
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
-#include "ocs2_robotic_tools/end_effector/EndEffectorKinematics.h"
 #include "pinocchio/algorithm/frames.hpp"
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
-#include "humanoid_common_mpc/cost/EndEffectorKinematicCostHelpers.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 
 namespace ocs2::humanoid {
@@ -87,8 +86,10 @@ class ExternalTorqueQuadraticCostAD : public ocs2::StateInputCostGaussNewtonAd {
   void setActive(bool active) { isActive_ = active; }
   bool getActive() const { return isActive_; }
 
+  const std::vector<std::string>& activeJointNames() const { return activeJointNames_; }
   void getWeights(vector_t& weights) const { weights = sqrtWeights_.cwiseProduct(sqrtWeights_); }
-  void setWeights(const vector_t& weights) { sqrtWeights_ = weights.cwiseSqrt(); }
+  /** Updates the weights in activeJointNames() order; refuses weights of another size. */
+  absl::Status setWeights(const vector_t& weights);
 
  protected:
   ExternalTorqueQuadraticCostAD(const ExternalTorqueQuadraticCostAD& other);

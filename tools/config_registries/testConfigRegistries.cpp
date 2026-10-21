@@ -52,6 +52,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/ContactPlannerFactory.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningFormulation.h"
 #include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicFormulation.h"
+#include "humanoid_common_mpc/reference_manager/ArmSwing.h"
 #include "humanoid_common_mpc_app/robot/TelemetrySinkRegistry.h"
 #include "humanoid_common_mpc_app/robot/config/robot/RobotProcessSettingsFromConfig.h"
 #include "humanoid_mpc_config/config_registries.nproto.h"
@@ -61,6 +62,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_mpc_config/rollout_settings_config.nproto.h"
 #include "humanoid_mpc_config/sqp_settings_config.nproto.h"
 #include "humanoid_mpc_config/task_file.nproto.h"
+#include "humanoid_state_estimator/StateEstimatorRegistry.h"
 #include "mujoco_sim_interface/CheaterSimContactEstimator.h"
 #include "mujoco_sim_interface/MujocoSimInterface.h"
 #include "mujoco_sim_interface/Projectile.h"
@@ -136,6 +138,7 @@ bool isRolloutIntegrator(const std::string& name) {
 /** What each registry accepts, by its own resolver: a name it offers must be a name it reads. */
 absl::flat_hash_map<std::string, Accepts> acceptors() {
   return {
+      {"arm_swing", [](const std::string& name) { return armSwingGeneratorFromName(name).ok(); }},
       {"basis_generator_set", [](const std::string& name) { return getBasisGeneratorSetBuilder(name).ok(); }},
       {"basis_regularization", [](const std::string& name) { return getBasisRegularizationBuilder(name).ok(); }},
       {"centroidal_model", [](const std::string& name) { return centroidalModelTypeFromName(name).ok(); }},
@@ -159,6 +162,7 @@ absl::flat_hash_map<std::string, Accepts> acceptors() {
       {"sensitivity_integrator", &isSensitivityIntegrator},
       {"soft_constraint", [](const std::string& name) { return stringToMpcSoftConstraintType(name).ok(); }},
       {"stance_constraint", &isStanceConstraint},
+      {"state_estimator", [](const std::string& name) { return estimation::StateEstimatorRegistry().has(name); }},
       {"telemetry_sink", [](const std::string& name) { return TelemetrySinkRegistry().has(name); }},
       {"terminal_dcm_target", &isTerminalDcmTarget},
       {"visualization", [](const std::string& name) { return robot::mujoco_sim_interface::createVisualization(name) != nullptr; }},

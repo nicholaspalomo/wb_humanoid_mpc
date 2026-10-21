@@ -49,7 +49,11 @@ namespace robot::mujoco_sim_interface {
 
 absl::StatusOr<std::unique_ptr<MujocoViewer>> createViewer(absl::string_view name, const MujocoSimInterface* absl_nonnull sim) {
   // LINT.IfChange(viewer_factories)
-  if (name == kGlfwViewerName) return std::make_unique<GlfwMujocoViewer>(sim);
+  if (name == kGlfwViewerName) {
+    absl::StatusOr<std::unique_ptr<GlfwMujocoViewer>> viewer = GlfwMujocoViewer::Create(sim);
+    if (!viewer.ok()) return viewer.status();
+    return std::unique_ptr<MujocoViewer>(*std::move(viewer));
+  }
   if (name == kWebViewerName) {
     absl::StatusOr<std::unique_ptr<WebMujocoViewer>> viewer = WebMujocoViewer::Create(sim, sim->getConfig().viewer.web);
     if (!viewer.ok()) return viewer.status();

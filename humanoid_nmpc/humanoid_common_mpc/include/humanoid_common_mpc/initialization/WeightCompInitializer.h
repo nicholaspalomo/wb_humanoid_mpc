@@ -43,16 +43,16 @@ namespace ocs2::humanoid {
  * Initializes the input policy of the MPC with the contact wrenches that carry the robot's weight on the feet that are
  * in contact at each time, and holds the state.
  *
- * The reference manager and the robot model must outlive it. Cloned for each solver thread; a single instance is not
- * thread-safe.
+ * The Pinocchio interface, the reference manager and the robot model must outlive it (and every clone). Cloned for each solver thread; a
+ * single instance is not thread-safe.
  */
 class WeightCompInitializer final : public Initializer {
  public:
-  /*
-   * Constructor
-   * @param [in] pinocchioInterface : The pinocchio model interface
-   * @param [in] referenceManager : Switched system reference manager.
-   * @param [in] extendNormalizedMomentum: If true, it extrapolates the normalized momenta; otherwise sets them to zero.
+  /**
+   * Keeps pointers to all three arguments, which must outlive the initializer and every clone of it.
+   * @param [in] pinocchioInterface : the Pinocchio model, for the robot's mass.
+   * @param [in] referenceManager : the switched-system reference manager, for the contact flags at each time.
+   * @param [in] mpcRobotModel : the robot model, for the input layout the wrenches are written into.
    */
   WeightCompInitializer(const PinocchioInterface& pinocchioInterface,
                         const SwitchedModelReferenceManager& referenceManager,
@@ -70,7 +70,7 @@ class WeightCompInitializer final : public Initializer {
   WeightCompInitializer(const WeightCompInitializer& rhs);
 
   const MpcRobotModelBase<scalar_t>* absl_nonnull mpcRobotModelPtr_;
-  const PinocchioInterface& pinocchioInterface_;
+  const PinocchioInterface* absl_nonnull pinocchioInterfacePtr_;
   const SwitchedModelReferenceManager* absl_nonnull referenceManagerPtr_;
 };
 

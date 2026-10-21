@@ -48,11 +48,14 @@ namespace ocs2::humanoid {
  * care which of the two produced it.
  *
  * A planner is used from one thread at a time (the module's worker, or the solver thread in synchronous mode) but not
- * from both at once; implementations need no locking of their own.
+ * from both at once; implementations need no locking of their own. Planners are held through a pointer to this
+ * interface and are neither copyable nor movable, which rules out slicing.
  */
 class ContactPlannerInterface {
  public:
   virtual ~ContactPlannerInterface() = default;
+  ContactPlannerInterface(const ContactPlannerInterface&) = delete;
+  ContactPlannerInterface& operator=(const ContactPlannerInterface&) = delete;
 
   /**
    * Plans from the given input. Must not throw on a failure to plan: an invalid ContactPlan is returned instead, and
@@ -71,6 +74,9 @@ class ContactPlannerInterface {
 
   /** The assembled formulation, for the start-up print: what this planner is and what it was configured with. */
   virtual std::string getFormulationSummary() const = 0;
+
+ protected:
+  ContactPlannerInterface() = default;
 };
 
 }  // namespace ocs2::humanoid

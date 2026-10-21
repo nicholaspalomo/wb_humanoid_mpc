@@ -34,6 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 
 #include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
 
 #include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
 #include "humanoid_common_mpc/contact_planning/execution/ExecutionRule.h"
@@ -50,20 +51,22 @@ namespace ocs2::humanoid {
  */
 class ContactPlanningTermFactory {
  public:
-  static absl::StatusOr<std::unique_ptr<LipModelBlock>> makeModelBlock(const std::string& name);
-  static absl::StatusOr<std::unique_ptr<LipCost>> makeCost(const std::string& name);
-  static absl::StatusOr<std::unique_ptr<LipConstraint>> makeSoftConstraint(const std::string& name);
-  static absl::StatusOr<std::unique_ptr<LipConstraint>> makeHardConstraint(const std::string& name);
-  static absl::StatusOr<std::unique_ptr<ContactLogicRule>> makeLogicRule(const std::string& name);
-  static absl::StatusOr<std::unique_ptr<AssignmentCost>> makeAssignmentCost(const std::string& name);
-  static absl::StatusOr<std::unique_ptr<SearchStage>> makeSearchStage(const std::string& name);
+  ContactPlanningTermFactory() = delete;  // only static members
+
+  static absl::StatusOr<std::unique_ptr<LipModelBlock>> makeModelBlock(absl::string_view name);
+  static absl::StatusOr<std::unique_ptr<LipCost>> makeCost(absl::string_view name);
+  static absl::StatusOr<std::unique_ptr<LipConstraint>> makeSoftConstraint(absl::string_view name);
+  static absl::StatusOr<std::unique_ptr<LipConstraint>> makeHardConstraint(absl::string_view name);
+  static absl::StatusOr<std::unique_ptr<ContactLogicRule>> makeLogicRule(absl::string_view name);
+  static absl::StatusOr<std::unique_ptr<AssignmentCost>> makeAssignmentCost(absl::string_view name);
+  static absl::StatusOr<std::unique_ptr<SearchStage>> makeSearchStage(absl::string_view name);
   /**
    * The execution rules the core knows (phase resetting, cadence modulation, DCM step adjustment). The planned heading
    * override needs the robot model and lives with the reference manager, which passes its own maker as `extra`. A rule
    * that neither the core nor `extra` builds is an InvalidArgument naming it.
    */
   using ExtraRuleMaker = std::function<std::unique_ptr<ExecutionRule>(const std::string& canonicalName)>;
-  static absl::StatusOr<std::unique_ptr<ExecutionRule>> makeExecutionRule(const std::string& name, const ExtraRuleMaker& extra = nullptr);
+  static absl::StatusOr<std::unique_ptr<ExecutionRule>> makeExecutionRule(absl::string_view name, const ExtraRuleMaker& extra = nullptr);
 
   /**
    * The problem of the configuration's formulation: the listed terms in list order, finalized (layout composed, terms

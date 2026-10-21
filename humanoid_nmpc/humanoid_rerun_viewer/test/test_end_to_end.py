@@ -27,11 +27,9 @@
 
 """The bridge on a loopback bus: messages published with robot_ipc end up in an .rrd file, and the binary stops cleanly.
 
-Concurrent tests never collide on a port. Every publisher binds an ephemeral port (EPHEMERAL_PORT) and the bridge, or
-the binary's network file, is then given the port the kernel chose; a publisher that restarts binds that port again,
-which the connections of its first run keep out of the kernel's ephemeral choices while they linger in TIME_WAIT. A
-network file that names a node nobody runs names a port this test holds bound, without listening, until it ends.
-Publishers repeat until the bridge has what it needs, which absorbs ZeroMQ's asynchronous connect.
+Concurrent tests never see each other: every bus of this test, and the binary through the network file the test writes,
+joins this test process's own DDS domain and tag (robot_ipc.isolated_test_network()). Publishers repeat until the bridge
+has what it needs, which absorbs DDS discovery, and a publisher that restarts is discovered again.
 """
 
 from collections.abc import Callable
@@ -47,15 +45,18 @@ import unittest
 from humanoid_mpc_msgs import fsm_state_pb2
 from humanoid_mpc_msgs import loop_timing_pb2
 from humanoid_mpc_msgs import mpc_status_pb2
+from humanoid_mpc_msgs import visualization_scene_pb2
 
 from humanoid_mpc_ipc import topics
 from humanoid_rerun_viewer import blueprint
 from humanoid_rerun_viewer import bridge
 from humanoid_rerun_viewer import bus_bridge
+from humanoid_rerun_viewer import rerun_sinks
 from humanoid_rerun_viewer import scene_contract
 from humanoid_rerun_viewer import status_contract
 from humanoid_rerun_viewer import telemetry_contract
 from humanoid_rerun_viewer import urdf_model
+import loopback_ports
 import robot_ipc
 import rrd_contents
 import synthetic_messages
@@ -63,6 +64,11 @@ import synthetic_messages
 TIMEOUT_S = 30.0
 PUBLISHER = "viz"
 LINKS = synthetic_messages.link_names_with_visuals()
+# The points of one line strip of a heavy scene: about 1.5 MB on the wire, enough to fill rerun-sdk's buffers of a
+# viewer that takes nothing (about 100 MiB) within seconds.
+HEAVY_SCENE_POINTS = 50_000
+# How long a heavy feed lasts [s].
+HEAVY_FEED_S = 6.0
 
 
 def wait_for(condition: Callable[[], bool], timeout: float = TIMEOUT_S) -> bool:
@@ -86,10 +92,28 @@ def reserve_unused_port(test: unittest.TestCase) -> int:
     return reservation.getsockname()[1]
 
 
-def loopback_network(port: int) -> robot_ipc.NetworkConfig:
-    return robot_ipc.NetworkConfig(
-        nodes=(robot_ipc.NodeEndpoint(PUBLISHER, "127.0.0.1", port),)
-    )
+ROBOT_TIMELINE = scene_contract.ROBOT_TIMELINE
+
+
+def listens(port: int) -> bool:
+    """Whether a server listens on the loopback `port`."""
+    try:
+        with socket.create_connection(("127.0.0.1", port), timeout=0.2):
+            return True
+    except OSError:
+        return False
+
+
+def kill_quietly(pid: int) -> None:
+    try:
+        os.kill(pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+
+
+def isolated_network() -> robot_ipc.NetworkConfig:
+    """This test process's own DDS domain, with the publisher node."""
+    return robot_ipc.isolated_test_network([PUBLISHER])
 
 
 class Publisher:
@@ -122,6 +146,15 @@ class Publisher:
         )
 
 
+def heavy_scene() -> visualization_scene_pb2.VisualizationScene:
+    """A scene with one line strip of HEAVY_SCENE_POINTS points at a path of the contract."""
+    scene = visualization_scene_pb2.VisualizationScene()
+    strip = scene.line_strips.add(path="plan/base").strips.add()
+    for index in range(HEAVY_SCENE_POINTS):
+        strip.points.add(x=1e-4 * index)
+    return scene
+
+
 def telemetry_beyond(
     publisher: Publisher, handled: dict[str, int], count: int
 ) -> Callable[[], bool]:
@@ -138,9 +171,7 @@ class LoopbackBusTest(unittest.TestCase):
     def setUp(self) -> None:
         self.directory = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.directory)
-        self.publisher_bus = robot_ipc.Bus(
-            PUBLISHER, loopback_network(robot_ipc.EPHEMERAL_PORT)
-        )
+        self.publisher_bus = robot_ipc.Bus(PUBLISHER, isolated_network())
         self.addCleanup(self.publisher_bus.close)
         self.publisher_bus.start()
 
@@ -156,7 +187,7 @@ class LoopbackBusTest(unittest.TestCase):
         the_bridge.log_static()
         feed = bus_bridge.BusBridge(
             the_bridge,
-            loopback_network(self.publisher_bus.bound_port),
+            isolated_network(),
             flush_period=0.02,
         )
         self.addCleanup(feed.stop)
@@ -229,13 +260,12 @@ class LoopbackBusTest(unittest.TestCase):
         self.assertIn(blueprint.SCENE_VIEW_NAME, contents.view_names())
 
     def test_a_restarted_publisher_is_picked_up_again(self) -> None:
-        # ZeroMQ reconnects on its own: the bridge needs no restart when the visualization publisher restarts. The
-        # first run binds the port the kernel chooses; the restart binds it again.
-        port = self.publisher_bus.bound_port
+        # DDS discovery matches the restarted publisher's writers: the bridge needs no restart when the visualization
+        # publisher restarts.
         recording = bridge.new_recording("test_end_to_end_restart")
         recording.save(os.path.join(self.directory, "restart.rrd"))
         the_bridge = bridge.RerunBridge(recording, None)
-        feed = bus_bridge.BusBridge(the_bridge, loopback_network(port))
+        feed = bus_bridge.BusBridge(the_bridge, isolated_network())
         self.addCleanup(feed.stop)
         feed.start()
         handled = the_bridge.statistics.handled
@@ -243,7 +273,7 @@ class LoopbackBusTest(unittest.TestCase):
             if restart == 0:
                 publisher_bus = self.publisher_bus
             else:
-                publisher_bus = robot_ipc.Bus(PUBLISHER, loopback_network(port))
+                publisher_bus = robot_ipc.Bus(PUBLISHER, isolated_network())
                 self.addCleanup(publisher_bus.close)
                 publisher_bus.start()
             before = handled.get(topics.VIZ_TELEMETRY, 0)
@@ -268,22 +298,244 @@ class BinaryTest(unittest.TestCase):
         self.binary = os.path.abspath(os.environ["RERUN_VIEWER_BINARY"])
         self.urdf = synthetic_messages.write_sample_package(self.directory)
 
-    def write_network_file(self, port: int) -> str:
+    def write_network_file(self) -> str:
+        """The network file of this test process's own DDS domain, for the binary."""
         path = os.path.join(self.directory, "network.textproto")
         with open(path, "w", encoding="utf-8") as network_file:
-            network_file.write(
-                f'nodes {{ name: "{PUBLISHER}" host: "127.0.0.1" port: {port} }}\n'
-            )
+            network_file.write(robot_ipc.format_network_config(isolated_network()))
         return path
+
+    def launch(
+        self, name: str, *arguments: str
+    ) -> tuple[subprocess.Popen, Callable[[], str]]:
+        """Starts the binary with `arguments`, its output in a log of `name`; returns it and a reader of the log."""
+        log_path = os.path.join(self.directory, f"{name}.log")
+        with open(log_path, "w", encoding="utf-8") as log:
+            # pylint: disable-next=consider-using-with  # The process outlives this block; kill_if_running() ends it.
+            process = subprocess.Popen(
+                [self.binary, *arguments],
+                stdout=log,
+                stderr=subprocess.STDOUT,
+            )
+
+        def kill_if_running() -> None:
+            if process.poll() is None:
+                process.kill()
+                process.wait()
+
+        self.addCleanup(kill_if_running)
+
+        def log_text() -> str:
+            with open(log_path, encoding="utf-8") as log_file:
+                return log_file.read()
+
+        return process, log_text
+
+    def start_publisher(self) -> robot_ipc.Bus:
+        publisher_bus = robot_ipc.Bus(PUBLISHER, isolated_network())
+        self.addCleanup(publisher_bus.close)
+        publisher_bus.start()
+        return publisher_bus
+
+    def start_proxy(self, port: int) -> subprocess.Popen:
+        """A headless Rerun gRPC server on `port` (rerun --serve-grpc), the stand-in of a viewer."""
+        executable = rerun_sinks.viewer_executable()
+        assert (
+            executable is not None
+        )  # The rerun-sdk wheel ships it (test_rerun_sinks).
+        # pylint: disable-next=consider-using-with  # The cleanup below kills and reaps it.
+        proxy = subprocess.Popen(
+            [
+                executable,
+                "--serve-grpc",
+                f"--port={port}",
+                "--server-memory-limit=8MiB",
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+
+        def kill_proxy() -> None:
+            if proxy.poll() is None:
+                proxy.kill()
+            proxy.wait()
+
+        self.addCleanup(kill_proxy)
+        self.assertTrue(wait_for(lambda: listens(port)), f"no proxy on {port}")
+        return proxy
+
+    def wait_for_log(
+        self,
+        log_text: Callable[[], str],
+        text: str,
+        publisher: Publisher | None = None,
+        timeout: float = TIMEOUT_S,
+    ) -> None:
+        """Waits until the log holds `text`, publishing a step meanwhile when given a publisher."""
+
+        def logged() -> bool:
+            if publisher is not None:
+                publisher.step()
+            return text in log_text()
+
+        self.assertTrue(wait_for(logged, timeout), log_text())
+
+    def publish_heavily(self, publisher_bus: robot_ipc.Bus, seconds: float) -> None:
+        """Publishes heavy scenes and the other topics as fast as it can for `seconds`."""
+        scene = heavy_scene()
+        publisher = Publisher(publisher_bus)
+        deadline = time.monotonic() + seconds
+        while time.monotonic() < deadline:
+            publisher.step()
+            scene.time = publisher.time
+            publisher_bus.publish(topics.VIZ_SCENE, scene)
+
+    def stop_with_sigterm(
+        self, process: subprocess.Popen, log_text: Callable[[], str]
+    ) -> str:
+        """Sends SIGTERM; checks that the binary exits 0 within its bound and logs its statistics; returns the log."""
+        process.send_signal(signal.SIGTERM)
+        # The writer's drain and last flush, and a margin; a wedged bridge never exits.
+        bound = (
+            bus_bridge.SHUTDOWN_DRAIN_TIMEOUT_S
+            + bus_bridge.SHUTDOWN_FLUSH_TIMEOUT_S
+            + 10.0
+        )
+        try:
+            status = process.wait(timeout=bound)
+        except subprocess.TimeoutExpired:
+            self.fail(
+                f"the bridge did not stop within {bound} s of SIGTERM:\n{log_text()}"
+            )
+        self.assertEqual(status, 0, log_text())
+        self.assertIn("stopped:", log_text())
+        return log_text()
+
+    def test_an_absent_viewer_does_not_wedge_the_bridge(self) -> None:
+        # rerun-sdk buffers what no viewer takes and then blocks every log() call: the bridge must draw nothing for a
+        # viewer that is not there, and stop when asked.
+        publisher_bus = self.start_publisher()
+        process, log_text = self.launch(
+            "absent",
+            f"--urdf={self.urdf}",
+            f"--network_config={self.write_network_file()}",
+            "--rerun_sink=connect",
+            f"--rerun_url=rerun+http://127.0.0.1:{reserve_unused_port(self)}/proxy",
+        )
+        self.wait_for_log(log_text, "subscribed to")
+        self.assertIn("is not up", log_text())
+        self.publish_heavily(publisher_bus, HEAVY_FEED_S)
+        self.assertIn(
+            "dropping the bus's messages", self.stop_with_sigterm(process, log_text)
+        )
+
+    def test_a_viewer_that_comes_back_is_reconnected(self) -> None:
+        # rerun-sdk 0.38 never reconnects a gRPC client whose viewer went away; the bridge connects again.
+        port = loopback_ports.unused_ports(1)[0]
+        proxy = self.start_proxy(port)
+        publisher_bus = self.start_publisher()
+        process, log_text = self.launch(
+            "comes_back",
+            f"--urdf={self.urdf}",
+            f"--network_config={self.write_network_file()}",
+            "--rerun_sink=connect",
+            f"--rerun_url=rerun+http://127.0.0.1:{port}/proxy",
+            "--flush_period=0.02",
+        )
+        publisher = Publisher(publisher_bus)
+        self.wait_for_log(log_text, "subscribed to", publisher)
+        proxy.kill()
+        proxy.wait()
+        self.wait_for_log(log_text, "is unreachable", publisher)
+        self.start_proxy(port)
+        # Not "is back" alone, which the line that said it is unreachable ends with ("until it is back").
+        self.wait_for_log(log_text, "is back; sending", publisher)
+        for _ in range(50):
+            publisher.step()
+            time.sleep(0.01)
+        final_log = self.stop_with_sigterm(process, log_text)
+        # The recording reached the viewer that came back: the last flush did not time out.
+        self.assertNotIn("exiting without waiting", final_log)
+
+    def test_a_spawned_viewer_that_is_gone_ends_the_bridge(self) -> None:
+        # The GUI's "Open Rerun viewer" bridge then exits, so that the button starts another.
+        port = loopback_ports.unused_ports(1)[0]
+        executable = rerun_sinks.viewer_executable()
+        assert (
+            executable is not None
+        )  # The rerun-sdk wheel ships it (test_rerun_sinks).
+        pid_file = os.path.join(self.directory, "viewer.pid")
+        viewer = os.path.join(self.directory, "viewer.sh")
+        with open(viewer, "w", encoding="utf-8") as script:
+            # spawn passes the viewer --port and its options, which the gRPC server takes too.
+            script.write(
+                f'#!/bin/sh\necho $$ > "{pid_file}"\nexec "{executable}" --serve-grpc "$@"\n'
+            )
+        os.chmod(viewer, 0o755)
+        publisher_bus = self.start_publisher()
+        process, log_text = self.launch(
+            "spawn_gone",
+            f"--urdf={self.urdf}",
+            f"--network_config={self.write_network_file()}",
+            "--rerun_sink=spawn",
+            f"--grpc_port={port}",
+            f"--viewer_executable={viewer}",
+        )
+        publisher = Publisher(publisher_bus)
+        self.wait_for_log(log_text, "subscribed to", publisher)
+        with open(pid_file, encoding="utf-8") as pid:
+            viewer_pid = int(pid.read())
+        self.addCleanup(kill_quietly, viewer_pid)
+        os.kill(viewer_pid, signal.SIGKILL)
+        try:
+            status = process.wait(timeout=TIMEOUT_S)
+        except subprocess.TimeoutExpired:
+            self.fail(f"the bridge outlived its viewer:\n{log_text()}")
+        self.assertEqual(status, 0, log_text())
+        self.assertIn("is gone", log_text())
+
+    def test_a_robot_clock_that_goes_back_is_saved_as_a_second_run(self) -> None:
+        publisher_bus = self.start_publisher()
+        rrd_path = os.path.join(self.directory, "runs.rrd")
+        process, log_text = self.launch(
+            "runs",
+            f"--urdf={self.urdf}",
+            f"--network_config={self.write_network_file()}",
+            "--rerun_sink=save",
+            f"--rrd_path={rrd_path}",
+            "--flush_period=0.02",
+        )
+        publisher = Publisher(publisher_bus)
+        self.wait_for_log(log_text, "subscribed to")
+        while publisher.time < 2.0:
+            publisher.step()
+            time.sleep(0.005)
+        # A restarted simulation, whose clock starts over.
+        publisher.time = 0.5
+        for _ in range(30):
+            publisher.step()
+            time.sleep(0.005)
+        self.stop_with_sigterm(process, log_text)
+        link = scene_contract.link_path(scene_contract.MEASURED, "base_link")
+        first = rrd_contents.RrdContents(rrd_path)
+        second = rrd_contents.RrdContents(rerun_sinks.run_path(rrd_path, 2))
+        self.assertGreaterEqual(max(first.entities[link].times(ROBOT_TIMELINE)), 1.9)
+        times = second.entities[link].times(ROBOT_TIMELINE)
+        self.assertTrue(times, log_text())
+        self.assertTrue(all(0.5 < time_s < 0.85 for time_s in times), times)
+        self.assertTrue(
+            second.has(
+                scene_contract.visual_path(scene_contract.MEASURED, "base_link", 0),
+                "Asset3D:blob",
+            )
+        )
+        self.assertIn(blueprint.SCENE_VIEW_NAME, second.view_names())
 
     def run_until_signal(self, signum: int) -> None:
         """Runs the binary against a publisher until it is sent `signum`; checks that it exits 0 with a recording."""
-        publisher_bus = robot_ipc.Bus(
-            PUBLISHER, loopback_network(robot_ipc.EPHEMERAL_PORT)
-        )
+        publisher_bus = robot_ipc.Bus(PUBLISHER, isolated_network())
         self.addCleanup(publisher_bus.close)
         publisher_bus.start()
-        port = publisher_bus.bound_port
         rrd_path = os.path.join(self.directory, f"signal_{signum}.rrd")
         log_path = os.path.join(self.directory, f"signal_{signum}.log")
         with open(log_path, "w", encoding="utf-8") as log:
@@ -292,7 +544,7 @@ class BinaryTest(unittest.TestCase):
                 [
                     self.binary,
                     f"--urdf={self.urdf}",
-                    f"--network_config={self.write_network_file(port)}",
+                    f"--network_config={self.write_network_file()}",
                     "--rerun_sink=save",
                     f"--rrd_path={rrd_path}",
                     "--flush_period=0.02",
@@ -360,7 +612,7 @@ class BinaryTest(unittest.TestCase):
         )
 
     def test_configuration_errors_exit_2(self) -> None:
-        network = self.write_network_file(reserve_unused_port(self))
+        network = self.write_network_file()
         save = ["--rerun_sink=save", f"--rrd_path={self.directory}/x.rrd"]
         for arguments, expected in (
             (["--rerun_sink=save", f"--network_config={network}"], "--rrd_path"),
@@ -384,7 +636,7 @@ class BinaryTest(unittest.TestCase):
                 self.assertIn(expected, result.stderr)
 
     def test_a_viewer_that_is_not_there_does_not_hang_the_exit(self) -> None:
-        network = self.write_network_file(reserve_unused_port(self))
+        network = self.write_network_file()
         started = time.monotonic()
         result = self.run_binary(
             f"--network_config={network}",
@@ -398,7 +650,7 @@ class BinaryTest(unittest.TestCase):
         self.assertLess(time.monotonic() - started, TIMEOUT_S)
 
     def test_a_duration_ends_the_run(self) -> None:
-        network = self.write_network_file(reserve_unused_port(self))
+        network = self.write_network_file()
         rrd_path = os.path.join(self.directory, "duration.rrd")
         result = self.run_binary(
             f"--network_config={network}",

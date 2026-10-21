@@ -27,6 +27,8 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
+#include <cmath>
+#include <random>
 #include <vector>
 
 #include "gtest/gtest.h"
@@ -55,6 +57,60 @@ std::vector<double> solveTimes(LockstepSolveSchedule& schedule, double start, do
     schedule.onSolve(time, /*retryDelay=*/0.0);
   }
   return times;
+}
+
+/** The grid time after `time` as the schedule once found it: one period at a time. */
+double firstPeriodicTimeAfterByAddition(double scheduled, double period, double time) {
+  while (scheduled <= time) scheduled += period;
+  return scheduled;
+}
+
+TEST(FirstPeriodicTimeAfter, IsTheFirstGridTimeAfterTheGivenOne) {
+  std::mt19937_64 generator(/*seed=*/11);
+  std::uniform_real_distribution<double> uniform(/*a=*/0.0, /*b=*/1.0);
+  for (int trial = 0; trial < 10000; ++trial) {
+    const double scheduled = 10.0 * uniform(generator);
+    const double period = 1.0e-3 + 0.1 * uniform(generator);
+    const double time = scheduled + (trial % 4 == 0 ? -1.0 : 200.0) * period * uniform(generator);
+    const double next = firstPeriodicTimeAfter(scheduled, period, time);
+    const double oracle = firstPeriodicTimeAfterByAddition(scheduled, period, time);
+    EXPECT_GT(next, time) << trial;
+    if (scheduled > time) {
+      EXPECT_EQ(next, scheduled) << trial;
+    } else {
+      EXPECT_LE(next - period, time + 1.0e-12) << trial << ": the first grid time after, not a later one";
+    }
+    // The same grid point as the addition, up to the rounding its sums accumulate.
+    EXPECT_NEAR(next, oracle, 1.0e-12 * (1.0 + std::abs(time - scheduled) / period)) << trial;
+  }
+}
+
+TEST(FirstPeriodicTimeAfter, OnePeriodAheadIsTheSumBitForBit) {
+  std::mt19937_64 generator(/*seed=*/12);
+  std::uniform_real_distribution<double> uniform(/*a=*/0.0, /*b=*/1.0);
+  for (int trial = 0; trial < 10000; ++trial) {
+    const double scheduled = 10.0 * uniform(generator);
+    const double period = 1.0e-3 + 0.1 * uniform(generator);
+    const double time = scheduled + 0.999 * period * uniform(generator);
+    EXPECT_EQ(firstPeriodicTimeAfter(scheduled, period, time), scheduled + period) << trial;
+  }
+}
+
+TEST(FirstPeriodicTimeAfter, SkipsAnyNumberOfPeriodsAtOnce) {
+  // A billion periods, which the addition would take a billion steps for.
+  const double period = 1.0 / 60.0;
+  const double time = 1.0e9 * period + 0.25 * period;
+  const double next = firstPeriodicTimeAfter(/*scheduled=*/0.0, period, time);
+  EXPECT_GT(next, time);
+  EXPECT_LE(next - period, time);
+}
+
+TEST(LockstepSolveSchedule, AfterALongGapTheNextSolveIsOnePeriodOnTheGrid) {
+  LockstepSolveSchedule schedule(/*firstSolveTime=*/0.0, /*period=*/0.01, kTolerance);
+  ASSERT_TRUE(schedule.isDue(/*time=*/0.0, /*resetRequestedSinceFailure=*/false));
+  schedule.onSolve(/*time=*/1000.004, /*retryDelay=*/0.0);
+  EXPECT_FALSE(schedule.isDue(/*time=*/1000.009, /*resetRequestedSinceFailure=*/false));
+  EXPECT_TRUE(schedule.isDue(/*time=*/1000.010, /*resetRequestedSinceFailure=*/false));
 }
 
 TEST(LockstepSolveSchedule, SolvesInTheFirstCycleAtOrAfterEachPeriod) {

@@ -832,7 +832,7 @@ class PropertyTest(unittest.TestCase):
                     edited = document.copy()
                     edited.set_scalar(path, textproto_document.Literal("12345"))
                     self.assertEqual(
-                        edited.text(), text[: node.start] + "12345" + text[node.end :]
+                        edited.text(), f"{text[: node.start]}12345{text[node.end :]}"
                     )
                     self.assertEqual(document.text(), text)
 

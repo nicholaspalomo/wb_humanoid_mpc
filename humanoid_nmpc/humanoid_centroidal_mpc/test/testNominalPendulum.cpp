@@ -57,6 +57,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicModelParameters.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
 #include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
+#include "humanoid_nmpc/humanoid_common_mpc/test/support/StatusTestMacros.h"
 #include "support/TypedConfigFiles.h"
 
 namespace ocs2::humanoid {
@@ -139,13 +140,13 @@ class NominalPendulum : public ::testing::TestWithParam<CentroidalRobot> {
     config_ = *std::move(config);
 
     // The robot model exactly as CentroidalMpcInterface builds it, without the problem.
-    modelSettings_ =
-        std::make_unique<ModelSettings>(ModelSettings::Create(config_.task, urdfFile_, "testNominalPendulum_", /*verbose=*/false).value());
+    modelSettings_ = std::make_unique<ModelSettings>(
+        checkedValue(ModelSettings::Create(config_.task, urdfFile_, "testNominalPendulum_", /*verbose=*/false)));
     pinocchioInterface_ = std::make_unique<PinocchioInterface>(
-        loadCustomPinocchioInterface(config_.task, urdfFile_, *modelSettings_, /*scaleTotalMass=*/false).value());
-    info_ = centroidalModelInfoOf(config_, *pinocchioInterface_, *modelSettings_).value();
+        checkedValue(loadCustomPinocchioInterface(config_.task, urdfFile_, *modelSettings_, /*scaleTotalMass=*/false)));
+    HUMANOID_ASSERT_OK_AND_ASSIGN(info_, centroidalModelInfoOf(config_, *pinocchioInterface_, *modelSettings_));
     robotModel_ = std::make_unique<CentroidalMpcRobotModel<scalar_t>>(*modelSettings_, *pinocchioInterface_, info_);
-    initialState_ = initialStateOnModel(config_.task, *robotModel_).value();
+    HUMANOID_ASSERT_OK_AND_ASSIGN(initialState_, initialStateOnModel(config_.task, *robotModel_));
   }
 
   /** [m] The planner's shared.com_height; absent (the model's pendulum) for a robot that ships no planner's file. */
@@ -218,9 +219,8 @@ TEST_P(NominalPendulum, EveryConsumerDerivesTheModelsCenterOfMassAboveItsFeet) {
       << "the pendulum is not measured from the soles";
 
   PinocchioInterface forPlanner(*pinocchioInterface_);
-  const ContactPlanningModelParameters planner =
-      deriveContactPlanningModelParameters(forPlanner, *robotModel_, initialState_, modelSettings_->contactParentJointNames,
-                                           ContactPlanningGroundParameters(), /*gravity=*/9.81, /*nominalStepWidth=*/0.25);
+  const ContactPlanningModelParameters planner = deriveContactPlanningModelParameters(
+      forPlanner, *robotModel_, initialState_, modelSettings_->contactParentJointNames, ContactPlanningGroundParameters());
   EXPECT_NEAR(planner.comHeight, shared, 1.0e-12) << "a contact planner's file without shared.com_height would resolve to another pendulum";
 
   PinocchioInterface forHeuristics(*pinocchioInterface_);
@@ -261,18 +261,19 @@ TEST_P(NominalPendulum, EveryShippedPendulumNumberIsTheModels) {
     }
   }
   const mpc_config::LocomotionHeuristicsConfig& heuristics = config_.task.locomotion_heuristics;
-  const scalar_t override = heuristics.capture_point.com_height_override;
-  if (override > 0.0) {
-    EXPECT_NEAR(override, model, kRounding4) << GetParam().name << ": capture_point.com_height_override is not the model's pendulum";
+  // Absent: the measured height; present: an override, which must be the model's pendulum.
+  if (const std::optional<double> override = heuristics.capture_point.com_height_override; override.has_value()) {
+    EXPECT_NEAR(*override, model, kRounding4) << GetParam().name << ": capture_point.com_height_override is not the model's pendulum";
   }
-  const scalar_t gravity = heuristics.capture_point.gravity;
+  const absl::StatusOr<scalar_t> gravity = modelGravity(pinocchioInterface_->getModel());
+  ASSERT_TRUE(gravity.ok()) << gravity.status();
   const ShippedNumber leans[] = {
       {.field = "forward_per_cross_term", .value = heuristics.high_speed_turning.forward_per_cross_term},
       {.field = "lateral_per_cross_term", .value = heuristics.high_speed_turning.lateral_per_cross_term},
   };
   for (const ShippedNumber& lean : leans) {
     if (lean.value > 0.0) {
-      EXPECT_NEAR(lean.value, model / gravity, kRounding4)
+      EXPECT_NEAR(lean.value, model / *gravity, kRounding4)
           << GetParam().name << ": high_speed_turning." << lean.field << " is not z_com / g";
     }
   }

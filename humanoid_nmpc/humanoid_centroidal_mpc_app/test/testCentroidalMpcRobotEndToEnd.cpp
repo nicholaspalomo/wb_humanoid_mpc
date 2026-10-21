@@ -51,6 +51,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_mpc_test/ScriptedMpc.h"
 
 #include "humanoid_centroidal_mpc/CentroidalMpcInterface.h"
+#include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_mpc_ipc/MpcServer.h"
 #include "humanoid_mpc_msgs/fsm_state.pb.h"
 #include "humanoid_mpc_msgs/loop_timing.pb.h"
@@ -168,8 +169,10 @@ TEST(CentroidalMpcRobotEndToEnd, ReachesWbMpcAppliesThePolicyHoldsItsPeriodAndHo
   ipc::MpcServer::Config serverConfig;
   serverConfig.dimensions = dimensions;
   serverConfig.mpcDesiredFrequency = 50.0;
+  // The robot binary stamps its model layout, and refuses a policy of another, an unstamped one included.
+  serverConfig.modelFingerprint = modelLayoutFingerprint((*interface)->modelSettings());
   absl::StatusOr<std::unique_ptr<ipc::MpcServer>> server = ipc::MpcServer::Create(
-      *mpcBus, *mpc,
+      mpcBus.get(), mpc.get(),
       [](const SystemObservation& observation) { return TargetTrajectories({observation.time}, {observation.state}, {observation.input}); },
       serverConfig);
   ASSERT_TRUE(server.ok()) << server.status();

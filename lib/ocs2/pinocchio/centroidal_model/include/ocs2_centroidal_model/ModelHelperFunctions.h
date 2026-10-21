@@ -31,6 +31,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <ocs2_pinocchio_interface/PinocchioInterface.h>
 
+#include "ocs2_core/Dimensions.h"
+
 #include "ocs2_centroidal_model/CentroidalModelInfo.h"
 
 namespace ocs2 {
@@ -44,7 +46,22 @@ namespace ocs2 {
  * @return Ab_inv(q): inverse of the 6x6 left-block of A(q)
  */
 template <typename SCALAR_T>
-Eigen::Matrix<SCALAR_T, 6, 6> computeFloatingBaseCentroidalMomentumMatrixInverse(const Eigen::Matrix<SCALAR_T, 6, 6>& Ab);
+Eigen::Matrix<SCALAR_T, centroidal_model::kBaseVelocityDim, centroidal_model::kCentroidalMomentumDim>
+computeFloatingBaseCentroidalMomentumMatrixInverse(
+    const Eigen::Matrix<SCALAR_T, centroidal_model::kCentroidalMomentumDim, centroidal_model::kBaseVelocityDim>& Ab);
+
+/**
+ * Returns the base block A_b (6 x 6) of the SingleRigidBodyDynamics model's centroidal momentum matrix at q, whose
+ * joint block is zero: h = A_b v_b with the base velocity v_b = [dp_W, w_B] of the Composite(Translation, Spherical)
+ * root, the CoM c = p_W - R r_nom moving at dc = dp_W + [R r_nom]x R w_B and the nominal inertia about it turning with
+ * the base, L = R I_nom R' R w_B. Fixed-size: it allocates nothing, so a realtime thread can call it.
+ * @param [in] info: centroidal model information (robotMass, comToBasePositionNominal, centroidalInertiaNominal)
+ * @param [in] q: pinocchio joint positions (generalized coordinates) [p_W, xi, q_j] with a unit quaternion xi
+ */
+template <typename SCALAR_T>
+Eigen::Matrix<SCALAR_T, centroidal_model::kCentroidalMomentumDim, centroidal_model::kBaseVelocityDim> getSingleRigidBodyBaseMomentumMatrix(
+    const CentroidalModelInfoTpl<SCALAR_T>& info,
+    const Eigen::Matrix<SCALAR_T, Eigen::Dynamic, 1>& q);
 
 /**
  * Updates the centroidal momentum matrix in data.Ag (6 x nv) and the CoM position in data.com[0] for the
@@ -83,7 +100,8 @@ Eigen::Matrix<SCALAR_T, Eigen::Dynamic, 1> computeConfigurationDerivative(const 
  *       ocs2::updateCentroidalDynamics(interface, info, q)
  */
 template <typename SCALAR_T>
-const Eigen::Matrix<SCALAR_T, 6, Eigen::Dynamic>& getCentroidalMomentumMatrix(const PinocchioInterfaceTpl<SCALAR_T>& interface);
+const Eigen::Matrix<SCALAR_T, centroidal_model::kCentroidalMomentumDim, Eigen::Dynamic>& getCentroidalMomentumMatrix(
+    const PinocchioInterfaceTpl<SCALAR_T>& interface);
 
 /**
  * Computes the CoM to contact point position in world frame
@@ -97,8 +115,9 @@ const Eigen::Matrix<SCALAR_T, 6, Eigen::Dynamic>& getCentroidalMomentumMatrix(co
  *       ocs2::updateCentroidalDynamics(interface, info, q)
  */
 template <typename SCALAR_T>
-Eigen::Matrix<SCALAR_T, 3, 1> getPositionComToContactPointInWorldFrame(const PinocchioInterfaceTpl<SCALAR_T>& interface,
-                                                                       const CentroidalModelInfoTpl<SCALAR_T>& info, size_t contactIndex);
+Eigen::Matrix<SCALAR_T, kPositionDim, 1> getPositionComToContactPointInWorldFrame(const PinocchioInterfaceTpl<SCALAR_T>& interface,
+                                                                                  const CentroidalModelInfoTpl<SCALAR_T>& info,
+                                                                                  size_t contactIndex);
 
 /**
  * Computes the derivative of the normalized centroidal momentum (linear + angular) expressed in the centroidal frame
@@ -112,9 +131,10 @@ Eigen::Matrix<SCALAR_T, 3, 1> getPositionComToContactPointInWorldFrame(const Pin
  *       ocs2::updateCentroidalDynamics(interface, info, q)
  */
 template <typename SCALAR_T>
-Eigen::Matrix<SCALAR_T, 6, 1> getNormalizedCentroidalMomentumRate(const PinocchioInterfaceTpl<SCALAR_T>& interface,
-                                                                  const CentroidalModelInfoTpl<SCALAR_T>& info,
-                                                                  const Eigen::Matrix<SCALAR_T, Eigen::Dynamic, 1>& input);
+Eigen::Matrix<SCALAR_T, centroidal_model::kCentroidalMomentumDim, 1> getNormalizedCentroidalMomentumRate(
+    const PinocchioInterfaceTpl<SCALAR_T>& interface,
+    const CentroidalModelInfoTpl<SCALAR_T>& info,
+    const Eigen::Matrix<SCALAR_T, Eigen::Dynamic, 1>& input);
 
 }  // namespace ocs2
 

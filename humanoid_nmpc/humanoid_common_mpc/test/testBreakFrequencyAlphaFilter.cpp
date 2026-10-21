@@ -246,7 +246,8 @@ class VelocityCommandFilterFieldFileTest : public ::testing::Test {
   std::string referenceFileWith(absl::string_view line) {
     const std::string file =
         (std::filesystem::path(::testing::TempDir()) / absl::StrCat("reference_", files_.size(), ".textproto")).string();
-    std::ofstream(file) << "target_displacement_velocity: 0.5\n"
+    std::ofstream(file) << "# proto-message: humanoid_mpc_config.ReferenceFile\n"
+                        << "target_displacement_velocity: 0.5\n"
                         << "target_rotation_velocity: 0.5\n"
                         << "max_displacement_velocity_x: 1.0\n"
                         << "max_displacement_velocity_y: 0.5\n"
@@ -283,7 +284,8 @@ TEST_F(VelocityCommandFilterFieldFileTest, anInvalidValueIsRejectedWithAMessageT
   const std::string notANumber = referenceFileWith("velocity_command_filter_break_frequency: fast");
   const absl::StatusOr<ReferenceSettings> loaded = referenceSettingsOfFile(notANumber);
   EXPECT_EQ(loaded.status().code(), absl::StatusCode::kInvalidArgument);
-  EXPECT_TRUE(absl::StrContains(loaded.status().message(), absl::StrCat(notANumber, ":8:"))) << loaded.status();
+  // The line referenceFileWith() writes last: after the header and the seven required fields.
+  EXPECT_TRUE(absl::StrContains(loaded.status().message(), absl::StrCat(notANumber, ":9:"))) << loaded.status();
 }
 
 }  // namespace

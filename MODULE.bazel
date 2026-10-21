@@ -9,7 +9,7 @@ module(
 # External Dependencies via bzlmod
 # ==============================================================================
 
-# protobuf 36, libzmq and cppzmq all require rules_cc >= 0.2.18.
+# protobuf 36 requires rules_cc >= 0.2.18.
 bazel_dep(name = "rules_cc", version = "0.2.18")
 bazel_dep(name = "rules_foreign_cc", version = "0.14.0")
 bazel_dep(name = "rules_python", version = "1.7.0")
@@ -18,7 +18,7 @@ bazel_dep(name = "platforms", version = "1.0.0")
 bazel_dep(name = "abseil-cpp", version = "20250814.1")
 
 # ==============================================================================
-# IPC: Protocol Buffers messages over ZeroMQ (humanoid_nmpc/docs/distributed_runtime)
+# IPC: Protocol Buffers messages over Cyclone DDS (humanoid_nmpc/docs/distributed_runtime)
 # ==============================================================================
 # Bazel 9 with protobuf >= 34 uses the prebuilt protoc of the release (the prefer_prebuilt_protoc flag defaults to
 # true), so protoc itself is not compiled. The C++ generator (protoc-gen-cpp) and the C++ runtime are, so that the
@@ -30,8 +30,12 @@ bazel_dep(name = "abseil-cpp", version = "20250814.1")
 bazel_dep(name = "protobuf", version = "36.0.bcr.1")
 # LINT.ThenChange(//tools/python/operator_requirements.txt:protobuf_version)
 
-bazel_dep(name = "libzmq", version = "4.3.5.bcr.7")
-bazel_dep(name = "cppzmq", version = "4.10.0.bcr.3")
+# Cyclone DDS (Eclipse), the bus's transport: the C library ddsc, linked statically, and idlc, the IDL compiler that
+# generates the C type support of robot_runtime/robot_ipc/idl/Envelope.idl. The BCR module builds both from source with
+# this repository's toolchain, without patches. The Python bus uses the cyclonedds wheel of the same release.
+# LINT.IfChange(cyclonedds_version)
+bazel_dep(name = "cyclonedds", version = "11.0.1")
+# LINT.ThenChange(//tools/python/operator_requirements.txt:cyclonedds_version)
 
 # ==============================================================================
 # MuJoCo web viewer: offscreen EGL rendering streamed over HTTP (robot_runtime/web_viewer)

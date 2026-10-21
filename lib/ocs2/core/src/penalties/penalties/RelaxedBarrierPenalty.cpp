@@ -31,6 +31,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2 {
 
+namespace {
+
+// The value of the quadratic extension's 0.5 delta_h^2 at h = delta, where delta_h = -1: subtracted so that the
+// extension meets -mu ln(delta) there.
+constexpr scalar_t kQuadraticExtensionOffset = 0.5;
+
+}  // namespace
+
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
@@ -39,7 +47,7 @@ scalar_t RelaxedBarrierPenalty::getValue(scalar_t t, scalar_t h) const {
     return -config_.mu * log(h);
   } else {
     const scalar_t delta_h = (h - 2.0 * config_.delta) / config_.delta;
-    return config_.mu * (-log(config_.delta) + 0.5 * delta_h * delta_h - 0.5);
+    return config_.mu * (-log(config_.delta) + 0.5 * delta_h * delta_h - kQuadraticExtensionOffset);
   };
 }
 
@@ -69,7 +77,7 @@ scalar_t RelaxedBarrierPenalty::getSecondDerivative(scalar_t t, scalar_t h) cons
 /******************************************************************************************************/
 /******************************************************************************************************/
 void RelaxedBarrierPenalty::setParameters(const vector_t& parameters) {
-  if (parameters.size() != 2) {
+  if (parameters.size() != kMuDeltaParameterCount) {
     throw std::runtime_error("RelaxedBarrierPenalty::setParameters: Invalid number of parameters.");
   }
   config_.mu = parameters[0];
@@ -80,7 +88,7 @@ void RelaxedBarrierPenalty::setParameters(const vector_t& parameters) {
 /******************************************************************************************************/
 /******************************************************************************************************/
 void RelaxedBarrierPenalty::getParameters(vector_t& parameters) const {
-  parameters.resize(2);
+  parameters.resize(kMuDeltaParameterCount);
   parameters[0] = config_.mu;
   parameters[1] = config_.delta;
 }

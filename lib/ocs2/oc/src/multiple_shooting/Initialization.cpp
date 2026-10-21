@@ -34,6 +34,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2 {
 namespace multiple_shooting {
 
+namespace {
+
+/**
+ * The nodes of a time interval. The previous solution has a last interval once it has this many nodes; its last input
+ * repeats the one before (toPrimalSolution()), so inputs are interpolated only up to the start of that interval, this
+ * many nodes from the end.
+ */
+constexpr int kNodesPerInterval = 2;
+
+}  // namespace
+
 void initializeStateInputTrajectories(const vector_t& initState,
                                       const std::vector<AnnotatedTime>& timeDiscretization,
                                       const PrimalSolution& primalSolution,
@@ -50,9 +61,9 @@ void initializeStateInputTrajectories(const vector_t& initState,
   // Determine till when to use the previous solution
   scalar_t interpolateStateTill = timeDiscretization.front().time;
   scalar_t interpolateInputTill = timeDiscretization.front().time;
-  if (primalSolution.timeTrajectory_.size() >= 2) {
+  if (primalSolution.timeTrajectory_.size() >= kNodesPerInterval) {
     interpolateStateTill = primalSolution.timeTrajectory_.back();
-    interpolateInputTill = primalSolution.timeTrajectory_[primalSolution.timeTrajectory_.size() - 2];
+    interpolateInputTill = primalSolution.timeTrajectory_[primalSolution.timeTrajectory_.size() - kNodesPerInterval];
   }
 
   // Initial state

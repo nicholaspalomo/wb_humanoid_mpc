@@ -46,6 +46,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/log/initialize.h"
 #include "absl/log/log.h"
 
+#include "humanoid_common_mpc_app/node/ExitCodes.h"
 #include "tools/config_registries/ConfigRegistries.h"
 
 int main(int argc, char* absl_nonnull* absl_nonnull argv) {
@@ -54,7 +55,7 @@ int main(int argc, char* absl_nonnull* absl_nonnull argv) {
   const char* absl_nullable workspace = std::getenv("BUILD_WORKSPACE_DIRECTORY");
   if (workspace == nullptr) {
     LOG(ERROR) << "run it with `bazel run`, which sets BUILD_WORKSPACE_DIRECTORY: it writes a file of the checkout.";
-    return 2;
+    return ocs2::humanoid::node::kUsageErrorExitCode;
   }
   const std::string path = (std::filesystem::path(workspace) / ocs2::humanoid::config_registries::kConfigRegistriesFile).string();
   const std::string text =

@@ -41,6 +41,7 @@ import jax
 import jax.numpy as jnp
 import mujoco
 import numpy as np
+import optax
 
 from humanoid_learning.acom import dataset_generator
 from humanoid_learning.acom import export_acom
@@ -109,6 +110,49 @@ def _quaternion_rate_matrix(xi: jnp.ndarray) -> jnp.ndarray:
             [-xi[0], -xi[1], -xi[2]],
         ]
     )
+
+
+def _quaternion_conjugate(xi: jnp.ndarray) -> jnp.ndarray:
+    """The conjugate of quaternion coefficients (x, y, z, w), the inverse of a unit quaternion."""
+    return jnp.concatenate([-xi[:3], xi[3:]])
+
+
+def _world_rate_map(attitude_derivative: jnp.ndarray, xi: jnp.ndarray) -> jnp.ndarray:
+    """The world angular velocity per unit rate of each column of d(xi)/dq, from omega_W = 2 vec(xi_dot (x) xi^-1).
+
+    Args:
+        attitude_derivative: The derivative of the unit quaternion xi, shape (4, n).
+        xi: The unit quaternion, coefficients (x, y, z, w).
+
+    Returns:
+        The (3, n) map from the n rates to the world angular velocity.
+    """
+    inverse = _quaternion_conjugate(xi)
+    return jax.vmap(
+        lambda column: 2.0 * models.quaternion_product(column, inverse)[:3],
+        in_axes=1,
+        out_axes=1,
+    )(attitude_derivative)
+
+
+def _with_large_offsets(params: models.SirenParams) -> models.SirenParams:
+    """`params` with the readout scaled up and biased, so Delta_theta is about a radian, as on the shipped robots."""
+    w_out, b_out = params[-1]
+    return params[:-1] + [(20.0 * w_out, b_out + jnp.array([0.5, -0.7, 0.4]))]
+
+
+def _relative_rate_error(
+    model: models.SirenACOM,
+    params: models.SirenParams,
+    q_samples: np.ndarray,
+    targets: np.ndarray,
+) -> float:
+    """Mean ||J_l(Delta_theta) J_Delta_theta - Abar||_F / ||Abar||_F over the samples, as the C++ acceptance test grades."""
+    rate_jacobians = jax.vmap(model.acom_joint_rate_jacobian, in_axes=(None, 0))(
+        params, jnp.asarray(q_samples)
+    )
+    errors = np.linalg.norm(np.asarray(rate_jacobians) - targets, axis=(1, 2))
+    return float(np.mean(errors / np.linalg.norm(targets, axis=(1, 2))))
 
 
 def _run_notebook(path: str, overrides: dict) -> dict:
@@ -265,6 +309,105 @@ class TestAcomPipeline(unittest.TestCase):
                 jnp.dot(rate_matrix, models.so3_right_jacobian(phi)),
                 atol=1e-5,
             )
+
+    def test_so3_left_jacobian_matches_the_exponential(self):
+        """Exp(phi + d) = Exp(J_l(phi) d) (x) Exp(phi) to first order, and J_l(phi) = R(Exp(phi)) J_r(phi)."""
+        for phi in (jnp.array([0.02, -0.03, 0.01]), jnp.array([0.4, -1.1, 0.7])):
+            exp_phi = models.quaternion_exp(phi)
+
+            def left_increment(d, phi=phi, exp_phi=exp_phi):
+                # 2 vec(Exp(phi + d) (x) Exp(phi)^-1), whose derivative at d = 0 is the left Jacobian.
+                return (
+                    2.0
+                    * models.quaternion_product(
+                        models.quaternion_exp(phi + d), _quaternion_conjugate(exp_phi)
+                    )[:3]
+                )
+
+            left = models.so3_left_jacobian(phi)
+            np.testing.assert_allclose(
+                jax.jacobian(left_increment)(jnp.zeros((3,))), left, atol=1e-5
+            )
+            np.testing.assert_allclose(
+                left,
+                jnp.dot(
+                    models.quaternion_rotation_matrix(exp_phi),
+                    models.so3_right_jacobian(phi),
+                ),
+                atol=1e-6,
+            )
+
+    def test_joint_rate_jacobian_is_the_world_rate_of_the_attitude(self):
+        """R(xi) J_l(Delta_theta) J_Delta_theta is the world angular velocity of xi (x) Exp(Delta_theta) per joint rate.
+
+        Differentiated straight from the attitude, independently of the
+        tangent Jacobian, and at offsets of about a radian, where J_l is far
+        from the identity: the quantity training fits is the one the runtime's
+        composition turns joint velocities into, and J_Delta_theta alone is not.
+        """
+        params = _with_large_offsets(self.params)
+        q_j = jnp.linspace(-0.8, 0.9, self.in_dim)
+        xi = models.quaternion_exp(jnp.array([0.3, 0.1, -0.7]))
+        attitude = self.model.acom_attitude(params, xi, q_j)
+        attitude_derivative = jax.jacobian(
+            lambda joints: self.model.acom_attitude(params, xi, joints)
+        )(q_j)
+        world_rate = _world_rate_map(attitude_derivative, attitude)
+
+        rate_jacobian = self.model.acom_joint_rate_jacobian(params, q_j)
+        base_rotation = models.quaternion_rotation_matrix(xi)
+        np.testing.assert_allclose(
+            world_rate, jnp.dot(base_rotation, rate_jacobian), atol=1e-4
+        )
+        # The tangent Jacobian's joint block, carried from the attitude's axes into the world's, is the same map.
+        tangent = self.model.acom_attitude_tangent_jacobian(params, q_j)
+        np.testing.assert_allclose(
+            jnp.dot(models.quaternion_rotation_matrix(attitude), tangent[:, 3:]),
+            jnp.dot(base_rotation, rate_jacobian),
+            atol=1e-4,
+        )
+        # Not vacuous: at these offsets J_Delta_theta alone is a different map.
+        offset_angle = float(jnp.linalg.norm(self.model.forward(params, q_j)))
+        self.assertGreater(offset_angle, 0.5)
+        jacobian = self.model.jacobian_qj(params, q_j)
+        self.assertGreater(
+            float(
+                jnp.linalg.norm(rate_jacobian - jacobian) / jnp.linalg.norm(jacobian)
+            ),
+            0.1,
+        )
+
+    def test_training_loss_is_the_composed_rate_map_error(self):
+        """The Frobenius term train_acom minimizes is ||J_l(Delta_theta) J_Delta_theta - Abar||_F^2, not that of J alone."""
+        params = _with_large_offsets(self.params)
+        rng = np.random.default_rng(5)
+        q_batch = jnp.asarray(rng.uniform(-1.0, 1.0, size=(16, self.in_dim)))
+        targets = jnp.asarray(rng.standard_normal((16, 3, self.in_dim)))
+        _, eval_step = train_acom.create_train_step(
+            self.model, optax.adam(1e-3), reg_weight=0.0
+        )
+        _, aux = eval_step(params, q_batch, targets)
+
+        rate_jacobians = jax.vmap(
+            self.model.acom_joint_rate_jacobian, in_axes=(None, 0)
+        )(params, q_batch)
+        jacobians = jax.vmap(self.model.jacobian_qj, in_axes=(None, 0))(params, q_batch)
+        np.testing.assert_allclose(
+            aux["frob_loss"],
+            jnp.mean(jnp.sum(jnp.square(rate_jacobians - targets), axis=(1, 2))),
+            rtol=1e-5,
+        )
+        np.testing.assert_allclose(
+            aux["jacobian_frob"],
+            jnp.mean(jnp.sum(jnp.square(jacobians - targets), axis=(1, 2))),
+            rtol=1e-5,
+        )
+        np.testing.assert_allclose(
+            aux["relative_errors"],
+            jnp.linalg.norm(rate_jacobians - targets, axis=(1, 2))
+            / jnp.linalg.norm(targets, axis=(1, 2)),
+            rtol=1e-5,
+        )
 
     def test_training_convergence_on_synthetic_data(self):
         """Verifies that JAX training converges on a synthetic linear/sinusoidal CMM."""
@@ -494,6 +637,116 @@ class TestAcomPipeline(unittest.TestCase):
                     os.path.join(tmpdir, "Bad.h"),
                     joint_names=joint_names[:-1],
                 )
+
+
+class TestComposedObjective(unittest.TestCase):
+    """Training fits the rate map of the composition, on a target with large offsets where that matters."""
+
+    # pylint: disable=invalid-name  # A_bar: the notation of Chen et al., IROS 2023 (humanoid_learning/acom/README.md).
+
+    # An exactly integrable target: the connection of the attitude Exp(M q), whose rate map is J_l(M q) M. Over the
+    # unit box its offsets average about 50 degrees, which is the regime of the shipped networks (20 to 35 degrees on
+    # average, up to 80) and more.
+    _OFFSET_MAP = np.array([[0.9, -0.3, 0.4], [0.2, 0.8, -0.5], [-0.4, 0.3, 0.7]])
+    # The mean relative rate error a network that fits the composition reaches here (about 0.01 in practice).
+    _RATE_TOLERANCE = 0.05
+    _NUM_SAMPLES = 2000
+    _EPOCHS = 60
+    _HIDDEN_DIM = 32
+    _BATCH_SIZE = 64
+    _LEARNING_RATE = 2e-3
+
+    def _dataset(self, seed: int, num_samples: int) -> dict[str, np.ndarray]:
+        """Samples the synthetic target over the unit box."""
+        rng = np.random.default_rng(seed)
+        q_samples = rng.uniform(-1.0, 1.0, size=(num_samples, 3))
+        targets = np.stack(
+            [
+                np.asarray(models.so3_left_jacobian(jnp.asarray(self._OFFSET_MAP @ q)))
+                @ self._OFFSET_MAP
+                for q in q_samples
+            ]
+        )
+        return {"q_joints": q_samples, "A_bar_omega": targets}
+
+    def _train_on_the_jacobian_alone(
+        self, model: models.SirenACOM, dataset: dict[str, np.ndarray]
+    ) -> models.SirenParams:
+        """Trains `model` with the objective J_Delta_theta ~ Abar, on train_acom's architecture and schedule."""
+        q_train = jnp.asarray(dataset["q_joints"])
+        A_train = jnp.asarray(dataset["A_bar_omega"])
+        steps_per_epoch = q_train.shape[0] // self._BATCH_SIZE
+        optimizer = optax.adamw(
+            optax.cosine_decay_schedule(
+                self._LEARNING_RATE, self._EPOCHS * steps_per_epoch, alpha=0.01
+            ),
+            weight_decay=1e-4,
+        )
+        params = model.init_params(jax.random.PRNGKey(42))
+        opt_state = optimizer.init(params)
+
+        def loss(params, q_batch, A_batch):
+            jacobians = jax.vmap(model.jacobian_qj, in_axes=(None, 0))(params, q_batch)
+            offsets = jax.vmap(model.forward, in_axes=(None, 0))(params, q_batch)
+            return jnp.mean(
+                jnp.sum(jnp.square(jacobians - A_batch), axis=(1, 2))
+            ) + 1e-4 * jnp.mean(jnp.sum(jnp.square(offsets), axis=1))
+
+        @jax.jit
+        def step(params, opt_state, q_batch, A_batch):
+            grads = jax.grad(loss)(params, q_batch, A_batch)
+            updates, opt_state = optimizer.update(grads, opt_state, params)
+            return optax.apply_updates(params, updates), opt_state
+
+        key = jax.random.PRNGKey(1)
+        for _ in range(self._EPOCHS):
+            key, permutation_key = jax.random.split(key)
+            order = jax.random.permutation(permutation_key, q_train.shape[0])
+            for batch in range(steps_per_epoch):
+                indices = order[
+                    batch * self._BATCH_SIZE : (batch + 1) * self._BATCH_SIZE
+                ]
+                params, opt_state = step(
+                    params, opt_state, q_train[indices], A_train[indices]
+                )
+        return params
+
+    def test_the_composed_loss_reaches_the_rate_tolerance_where_the_plain_loss_does_not(
+        self,
+    ):
+        validation = self._dataset(seed=11, num_samples=300)
+        offsets_deg = np.degrees(
+            np.linalg.norm(validation["q_joints"] @ self._OFFSET_MAP.T, axis=1)
+        )
+        self.assertGreater(
+            float(np.mean(offsets_deg)), 40.0, "the offsets must be large"
+        )
+
+        dataset = self._dataset(seed=1, num_samples=self._NUM_SAMPLES)
+        model, params, history = train_acom.train_acom(
+            dataset=dataset,
+            in_dim=3,
+            hidden_dim=self._HIDDEN_DIM,
+            num_epochs=self._EPOCHS,
+            batch_size=self._BATCH_SIZE,
+            learning_rate=self._LEARNING_RATE,
+            verbose=False,
+        )
+        composed_error = _relative_rate_error(
+            model, params, validation["q_joints"], validation["A_bar_omega"]
+        )
+        self.assertLess(composed_error, self._RATE_TOLERANCE)
+        # The history reports the same quantity, on train_acom's own validation split.
+        best_epoch = int(history["best_epoch"][0])
+        self.assertLess(
+            history["val_mean_relative_error"][best_epoch], self._RATE_TOLERANCE
+        )
+
+        plain_params = self._train_on_the_jacobian_alone(model, dataset)
+        plain_error = _relative_rate_error(
+            model, plain_params, validation["q_joints"], validation["A_bar_omega"]
+        )
+        self.assertGreater(plain_error, 2.0 * self._RATE_TOLERANCE)
 
 
 class TestDatasetGenerator(unittest.TestCase):

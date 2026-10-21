@@ -40,6 +40,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact/ContactWrenchGate.h"
 #include "humanoid_common_mpc_app/robot/RobotBackendRegistry.h"
 #include "humanoid_common_mpc_app/robot/SimFallRecovery.h"
+#include "humanoid_state_estimator/KalmanBaseEstimator.h"
+#include "humanoid_state_estimator/StateEstimatorNames.h"
 #include "mujoco_sim_interface/CheaterSimContactEstimator.h"
 
 namespace ocs2::humanoid {
@@ -71,6 +73,10 @@ inline std::vector<std::string> wbMpcFeedforwardNames() {
 struct RobotProcessSettings {
   /** `contact_estimator`: the controller's measured contact state, by ContactEstimatorRegistry name. */
   std::string contactEstimator = robot::mujoco_sim_interface::kCheaterSimContactEstimatorName;
+  /** `state_estimator`: the base state the controller is handed, by StateEstimatorRegistry name. */
+  std::string stateEstimator = std::string(estimation::kGroundTruthStateEstimatorName);
+  /** `kalman_state_estimator`: the noise model of state_estimator `kalman`. */
+  estimation::KalmanBaseEstimator::Config kalmanStateEstimator;
   /** `sim_contact_force_threshold`, `sim_contact_timeline_window`, `sim_visualizations`, `gantry_hold`, `sim_projectile`. */
   SimulatorSettings simulator;
   /** `sim_max_base_tilt_angle`, `sim_gantry_catch_lift`. */
@@ -94,7 +100,8 @@ struct RobotProcessSettings {
    * also under a free-standing robot. 0.5 s still leaves at least half of every shipped policy horizon (1.0-1.2 s).
    */
   // LINT.IfChange(policy_timeout_default)
-  scalar_t mpcLinkPolicyTimeout = 0.5;
+  static constexpr scalar_t kDefaultMpcLinkPolicyTimeout = 0.5;
+  scalar_t mpcLinkPolicyTimeout = kDefaultMpcLinkPolicyTimeout;
   // clang-format off
   // LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_ipc/include/humanoid_mpc_ipc/RemoteMpcLink.h:policy_timeout_default, //humanoid_nmpc/humanoid_common_mpc_app/robot/README.md:robot_task_keys, //humanoid_nmpc/humanoid_mpc_config/mpc_link_config.proto:policy_timeout_default)
   // clang-format on

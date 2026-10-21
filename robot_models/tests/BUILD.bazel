@@ -1,5 +1,6 @@
 # Cross-checks over the shipped robot descriptions.
 
+load("@rl_deps//:requirements.bzl", "requirement")
 load("@rules_python//python:defs.bzl", "py_test")
 
 package(default_visibility = ["//visibility:public"])
@@ -13,6 +14,11 @@ py_test(
         "//robot_models/engineai_sa01/engineai_sa01_description",
         "//robot_models/unitree_g1/g1_description",
         "//robot_models/unitree_r1/unitree_r1_description",
+    ],
+    # MuJoCo compiles the MJCF, so each body's inertia is read as the simulator reads it.
+    deps = [
+        requirement("mujoco"),
+        requirement("numpy"),
     ],
 )
 
@@ -48,6 +54,7 @@ py_test(
         "//humanoid_nmpc/humanoid_centroidal_mpc_app:humanoid_centroidal_mpc_dummy_sim",
         "//humanoid_nmpc/humanoid_centroidal_mpc_app:humanoid_centroidal_mpc_node",
         "//humanoid_nmpc/humanoid_centroidal_mpc_app:humanoid_centroidal_mpc_robot",
+        "//humanoid_nmpc/docs/distributed_runtime:README.md",
         "//humanoid_nmpc/humanoid_common_mpc:gait_config",
         "//humanoid_nmpc/humanoid_rerun_viewer",
         "//humanoid_nmpc/humanoid_rerun_viewer:model_sandbox",
@@ -70,4 +77,29 @@ py_test(
         "//robot_models/unitree_r1/unitree_r1_description:launch/sandbox.textproto",
     ],
     deps = ["//tools/launch:launch_lib"],
+)
+
+# The default stance of every robot configuration (reference default and task initial state) on flat ground, by the
+# URDF's forward kinematics, and the MPC contact rectangle inside the MJCF's sole spheres on both feet.
+py_test(
+    name = "test_default_stance",
+    size = "small",
+    srcs = ["test_default_stance.py"],
+    data = [
+        "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+        "//robot_models/drc_atlas/drc_atlas_description",
+        "//robot_models/engineai_sa01/engineai_sa01_centroidal_mpc",
+        "//robot_models/engineai_sa01/engineai_sa01_description",
+        "//robot_models/unitree_g1/g1_centroidal_mpc",
+        "//robot_models/unitree_g1/g1_description",
+        "//robot_models/unitree_g1/g1_wb_mpc",
+        "//robot_models/unitree_r1/unitree_r1_centroidal_mpc",
+        "//robot_models/unitree_r1/unitree_r1_description",
+    ],
+    deps = [
+        "//humanoid_nmpc/humanoid_mpc_config:config_py_proto",
+        "//tools/nproto:nproto_textproto",
+        requirement("mujoco"),
+        requirement("numpy"),
+    ],
 )

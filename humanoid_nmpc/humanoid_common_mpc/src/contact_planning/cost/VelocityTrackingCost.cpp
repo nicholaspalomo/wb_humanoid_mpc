@@ -33,6 +33,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cmath>
 #include <string>
 
+#include "ocs2_core/Dimensions.h"
+
 namespace ocs2::humanoid {
 
 std::string VelocityTrackingCost::describe() const {
@@ -44,7 +46,7 @@ void VelocityTrackingCost::configure(const ContactPlanningConfig& config) {
 }
 
 void VelocityTrackingCost::addToStage(const ContactPlanningContext& ctx, int /*node*/, StageAccumulator& stage) const {
-  for (int axis = 0; axis < 2; ++axis) {
+  for (int axis = 0; axis < kHorizontalPositionDim; ++axis) {
     stage.addQuadraticResidual({{idx_.vel[axis], 1.0}}, /*uCoefficients=*/{}, -ctx.input->velocityCommand(axis), weight_);
   }
 }

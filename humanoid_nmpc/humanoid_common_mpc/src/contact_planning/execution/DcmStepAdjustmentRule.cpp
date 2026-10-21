@@ -54,9 +54,9 @@ feet_array_t<vector2_t> DcmStepAdjustmentRule::correctFootholds(const ExecutionC
   const vector2_t dcmError = computeDcm(ctx.com, ctx.comVelocity, omega) - computeDcm(ctx.predictedCom, ctx.predictedComVelocity, omega);
 
   for (size_t foot = 0; foot < kNumContacts; ++foot) {
-    const std::optional<std::pair<scalar_t, scalar_t>> phase = swingPhaseAtTime(schedule, foot, ctx.time);
+    const std::optional<SwingWindow> phase = swingPhaseAtTime(schedule, foot, ctx.time);
     if (!phase.has_value()) continue;
-    const scalar_t touchDownTime = phase->second;
+    const scalar_t touchDownTime = phase->touchDown;
     const std::optional<vector2_t> landing = plan.footholdAtTime(foot, touchDownTime);
     if (!landing.has_value()) continue;
     const vector2_t adjustment = dcmStepAdjustment(dcmError, omega, touchDownTime - ctx.time, params_.gain, params_.maxOffset);

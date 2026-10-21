@@ -108,7 +108,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * function v and an outer function phi:
  *   - a quadratic tracking cost phi(v) = 1/2 v' W v of a residual v: the Tuning* costs (v = the tuning deviation of
  *     TuningLayoutDeviation and u - u_ref, W = blockdiag(Q, R)), InputQuadraticCost (v = u - u_ref, W = R), every CppAD
- *     Gauss-Newton cost (v its cost vector, W = I: the ICP, foot, torso, external-torque and whole-body foot costs),
+ *     Gauss-Newton cost (v its cost vector, W = I: the foot, torso, external-torque and whole-body foot costs),
  *     DcmTerminalCost (v the DCM error, W its weights) and ComAndAcomTrackingCost (v = [c - c_ref; e_HT of the ACoM], W =
  *     blockdiag(Q_com, Q_acom), built here from the public pieces the cost composes);
  *   - a penalty phi(v) = sum_i p(v_i) of a constraint v: JointLimitsSoftConstraint (v = [q_max - q; q - q_min]),
@@ -120,8 +120,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * of its state and input Hessians - is the friction cone's state shift c I, c = -s sum_i p'(v_i). A term of no known
  * class fails the test by name, and so does a term no point checks (coverageFindings()) and a term whose reported
  * Hessian is zero at every point that checks it, whose comparisons would be of zeros (nonZeroFindings(); a term no point
- * can reach is exempted by name with the reason). The ICP cost, unweighted (icp_error_weight 0) on every shipped robot,
- * is weighed in the test's copy of the problem (weighUnweightedIcpCost()), so that its check is not of zeros.
+ * can reach is exempted by name with the reason).
  *
  * At every point, for every term, in the tangent the solver works in ([dx; du], x (+) dx the retraction):
  *   (1) the term's value is phi(v) (1e-10 relative), so the rule describes this term;
@@ -486,12 +485,11 @@ absl::StatusOr<SecondOrderRule> comAndAcomRule(const ComAndAcomTrackingCost& cos
 
 /** JointLimitsSoftConstraint: v = [q_max - q; q - q_min] of the model's limits, p its piecewise polynomial barrier. */
 SecondOrderRule jointLimitsRule(const JointLimitsSoftConstraint& cost, const MpcEquivalenceFixture& mpc) {
-  PieceWisePolynomialBarrierPenalty::Config config;
-  cost.getGains(config.mu, config.delta);
+  const PieceWisePolynomialBarrierPenalty::Config config = cost.getGains();
   const MpcRobotModelBase<scalar_t>* absl_nonnull model = &mpc.model();
   return SecondOrderRule{.name = "joint-limit barrier: J' p'' J",
                          .inner =
-                             [model, limits = readPinocchioJointLimits(mpc.pinocchioInterface(), mpc.modelSettings(), /*verbose=*/false)](
+                             [model, limits = readPinocchioJointLimits(mpc.pinocchioInterface(), mpc.modelSettings(), Verbosity::kQuiet)](
                                  const vector_t& x, const vector_t& /*u*/) {
                                const vector_t joints = model->getJointAngles(x);
                                const Eigen::Index jointDim = joints.size();
@@ -499,7 +497,7 @@ SecondOrderRule jointLimitsRule(const JointLimitsSoftConstraint& cost, const Mpc
                                InnerLinearization inner{.value = vector_t(2 * jointDim),
                                                         .stateJacobian = matrix_t::Zero(2 * jointDim, x.size()),
                                                         .inputJacobian = matrix_t(2 * jointDim, 0)};
-                               inner.value << limits.second - joints, joints - limits.first;
+                               inner.value << limits.upper - joints, joints - limits.lower;
                                inner.stateJacobian.block(0, start, jointDim, jointDim) = -matrix_t::Identity(jointDim, jointDim);
                                inner.stateJacobian.block(jointDim, start, jointDim, jointDim).setIdentity();
                                return inner;
@@ -1536,7 +1534,7 @@ void checkGroupAtPoint(OptimalControlProblem& problem,
   for (size_t j = 0; j < terms.size(); ++j) {
     const TangentModel model = tangentModelOf(manifold, point.state, evaluated[j]);
     const CheckContext context{.what = absl::StrCat(point.name, " ", terms[j].label),
-                               .stateDifferencesHold = point.atRest || !hasFrozenStateJacobian(terms[j].label)};
+                               .stateDifferencesHold = point.atRest || !hasFrozenStateJacobian(mpc, terms[j].label)};
     TermStatistics& termStatistics = statistics[terms[j].label];
     termStatistics.rule = terms[j].rule->name;
     ++termStatistics.points;
@@ -1564,9 +1562,6 @@ TEST_P(QuaternionRootTermHessians, EverySecondOrderIsItsRulesModelOfVerifiedFirs
   mpc.installReference(reference);
   problem.targetTrajectoriesPtr = &mpc.referenceManager().getTargetTrajectories();
   const std::vector<TargetedProbePoint> bands = barrierBandPoints(problem, mpc, points);
-  // The ICP cost ships with icp_error_weight 0 on every robot, which would leave its rule nothing to check: the copy of
-  // the problem weighs it (the weights are parameters of its library, as on a live reload).
-  const bool icpWeighed = weighUnweightedIcpCost(problem);
 
   std::map<std::string, TermStatistics> statistics;
   Tally tally;
@@ -1601,10 +1596,8 @@ TEST_P(QuaternionRootTermHessians, EverySecondOrderIsItsRulesModelOfVerifiedFirs
   const std::vector<std::string> expected = termLabels(problem, TermCollections::kCostsAndSoftConstraints);
   const std::vector<std::string> coverage = coverageFindings(expected, checked, /*exemptions=*/{});
   const std::vector<std::string> zeros = nonZeroFindings(expected, checked, nonZero, /*exemptions=*/{}, "reported Hessian");
-  absl::PrintF(
-      "[hessians] %s | %d of the problem's %d costs and soft constraints checked, %d where their reported Hessian is not zero | ICP "
-      "cost weighed: %s\n",
-      GetParam(), checked.size(), expected.size(), nonZero.size(), icpWeighed ? "yes" : "no");
+  absl::PrintF("[hessians] %s | %d of the problem's %d costs and soft constraints checked, %d where their reported Hessian is not zero\n",
+               GetParam(), checked.size(), expected.size(), nonZero.size());
   testing::Test::RecordProperty("terms", static_cast<int>(statistics.size()));
   testing::Test::RecordProperty("collection_terms", static_cast<int>(expected.size()));
   testing::Test::RecordProperty("checked_terms", static_cast<int>(checked.size()));

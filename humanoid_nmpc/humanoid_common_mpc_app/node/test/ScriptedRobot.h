@@ -49,9 +49,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid::node::test_support {
 
 /**
- * The robot process and the operator GUI as an MPC node's tests script them: two buses on ephemeral loopback ports
- * (nodes "robot" and "operator") that an MPC node's bus is connected to, the policies the robot receives, and helpers
- * that resend a message until its effect is seen (the first messages of a fresh ZeroMQ connection can be lost).
+ * The robot process and the operator GUI as an MPC node's tests script them: two buses on the test process's DDS domain
+ * (nodes "robot" and "operator", robot::ipc::isolatedTestNetwork()) that an MPC node's bus shares, the policies the robot
+ * receives, and helpers that resend a message until its effect is seen (a sample written before DDS discovery matched
+ * its writer with a reader is not delivered).
  */
 class ScriptedRobot {
  public:
@@ -60,9 +61,6 @@ class ScriptedRobot {
   ~ScriptedRobot();
   ScriptedRobot(const ScriptedRobot&) = delete;
   ScriptedRobot& operator=(const ScriptedRobot&) = delete;
-
-  /** Connects `mpcBus` to the robot and the operator, and the robot to `mpcBus`. Before any of them starts. */
-  void connect(robot::ipc::Bus& mpcBus);
 
   /** Subscribes the robot to mpc/policy and starts both buses. */
   absl::Status start();

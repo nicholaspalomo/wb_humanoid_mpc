@@ -35,6 +35,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/base/nullability.h"
 #include "absl/status/status.h"
 
+#include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
 #include "humanoid_common_mpc/contact_planning/search/SearchStage.h"
 
 namespace ocs2::humanoid {
@@ -65,6 +66,8 @@ namespace ocs2::humanoid {
  * which makes the merge pad the tail with STANCE and throws away the last steps' anticipation. It ends at
  * `maxStretch`, clipped so that no phase of the incumbent is stretched past the gait limits and so that the last
  * committed node is still the one live at the commit boundary (commitWindowStretch).
+ *
+ * Not thread-safe, like every ContactPlanningTerm: the planner that owns it configures and evaluates it from one thread at a time.
  */
 class CadenceStretchStage final : public SearchStage {
  public:
@@ -122,7 +125,7 @@ class CadenceStretchStage final : public SearchStage {
 
  private:
   int samples_ = 0;
-  scalar_t maxStretch_ = 1.25;
+  scalar_t maxStretch_ = CadenceStretchParameters::kDefaultMaxStretch;
   scalar_t timeBudget_ = 0.0;
 };
 

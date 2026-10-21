@@ -620,7 +620,7 @@ TEST(PolicyConversionTest, LeavesTheFieldsTheMpcNodeOwns) {
   message.set_resets_served(7);
   message.set_full_resets_served(3);
   message.mutable_solver_status()->set_healthy(true);
-  message.mutable_annotations()->add_target_contact_patches()->set_valid(true);
+  message.mutable_annotations()->add_target_contact_patches()->mutable_pose()->set_x(1.0);
   ASSERT_TRUE(policyToProto(policy.commandData, policy.primalSolution, policy.performanceIndex, &message).ok());
   EXPECT_EQ(message.resets_served(), 7);
   EXPECT_EQ(message.full_resets_served(), 3);
@@ -724,7 +724,10 @@ TEST(PolicyConversionTest, RejectsMalformedMessagesAndLeavesTheOutputsUnchanged)
       {"post-event index zero", kLinear, [](MpcPolicy* absl_nonnull message) { message->set_post_event_indices(0, 0); },
        "MpcPolicy.post_event_indices[0] is 0"},
       {"post-event index past the end", kLinear, [](MpcPolicy* absl_nonnull message) { message->set_post_event_indices(0, 9); },
-       "MpcPolicy.post_event_indices[0] is 9; a post-event index lies in [1, 8]"},
+       "MpcPolicy.post_event_indices[0] is 9; a post-event index lies in [1, 7]"},
+      // A post-event index names a node: the node count itself names none.
+      {"post-event index at the node count", kLinear, [](MpcPolicy* absl_nonnull message) { message->set_post_event_indices(0, 8); },
+       "MpcPolicy.post_event_indices[0] is 8; a post-event index lies in [1, 7]"},
       {"post-event indices repeating", kLinear,
        [](MpcPolicy* absl_nonnull message) { message->add_post_event_indices(message->post_event_indices(0)); },
        "MpcPolicy.post_event_indices[1] = 4 does not exceed"},

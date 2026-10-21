@@ -70,7 +70,7 @@ def _bep(directory: str, groups: dict[str, list[str]]) -> str:
                 "id": {"namedSet": {"id": set_id}},
                 "namedSetOfFiles": {
                     "files": [
-                        {"name": os.path.basename(f), "uri": "file://" + f}
+                        {"name": os.path.basename(f), "uri": f"file://{f}"}
                         for f in files
                     ]
                 },
@@ -108,7 +108,7 @@ class ReportTest(unittest.TestCase):
     def test_a_header_finding_reported_by_several_actions_is_printed_once(self):
         # The header's own action names it with the sandbox's absolute path, each .cpp action with a relative one.
         parsed = []
-        for report in (HEADER_FINDING, SANDBOX + HEADER_FINDING, "./" + HEADER_FINDING):
+        for report in (HEADER_FINDING, SANDBOX + HEADER_FINDING, f"./{HEADER_FINDING}"):
             parsed += clang_tidy_report.parse_report(report)
         findings = clang_tidy_report.deduplicate(parsed)
         self.assertEqual([f.path for f in findings], ["tools/x/include/x/Limits.h"])

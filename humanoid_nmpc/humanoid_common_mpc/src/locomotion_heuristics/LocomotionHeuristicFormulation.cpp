@@ -195,7 +195,7 @@ std::vector<std::string> LocomotionHeuristicFormulation::warnings() const {
     out.push_back(
         "locomotion_heuristics.foothold does not list 'hip_centered_stepping'. The other foothold heuristics are "
         "corrections that Bledt sums onto the hip placement; here they are summed onto the base predicted at touch-down, "
-        "with the lateral separation taken from the stance foot plus nominal_foothold.step_width instead "
+        "with the lateral separation taken from half of nominal_foothold.step_width to each side of it instead "
         "of from the hips. Along the heading that IS the dissertation's anchor, so the leads mean what they mean there; "
         "across it the stance width is this controller's, not the hips'.");
   }

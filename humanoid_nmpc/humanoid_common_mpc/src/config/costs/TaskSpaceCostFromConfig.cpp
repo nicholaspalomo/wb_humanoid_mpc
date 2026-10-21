@@ -129,8 +129,10 @@ absl::StatusOr<EndEffectorKinematicsWeights> endEffectorKinematicsWeightsFromCon
   EndEffectorKinematicsWeights result;
   for (const KinematicsWeightField& entry : kKinematicsWeightFields) {
     const double value = weights.*entry.field;
-    if (!std::isfinite(value)) {
-      return absl::InvalidArgumentError(absl::StrCat(path, ".", entry.name, " is ", value, ", but a weight must be finite."));
+    // Negated, so that NaN is refused: a weight below 0 makes the cost indefinite.
+    if (!std::isfinite(value) || !(value >= 0.0)) {
+      return absl::InvalidArgumentError(
+          absl::StrCat(path, ".", entry.name, " is ", value, ", but a weight must be finite and non-negative."));
     }
     (result.*entry.weight)(entry.axis) = value;
   }
@@ -167,6 +169,12 @@ absl::StatusOr<TaskSpaceFootCostSettings> taskSpaceFootCostFromConfig(const mpc_
   TaskSpaceFootCostSettings settings;
   ASSIGN_OR_RETURN(settings.weights, endEffectorKinematicsWeightsFromConfig(footCost.weights, "task_space_foot_cost.weights"));
   ASSIGN_OR_RETURN(settings.activeInStance, footCostActiveInStanceFromName(footCost.active_phases, "task_space_foot_cost.active_phases"));
+  const double swingVelocityReferenceWeight = footCost.swing_velocity_reference_weight.value_or(kDefaultSwingVelocityReferenceWeight);
+  if (!std::isfinite(swingVelocityReferenceWeight) || swingVelocityReferenceWeight < 0.0) {
+    return absl::InvalidArgumentError(absl::StrCat("task_space_foot_cost.swing_velocity_reference_weight is ", swingVelocityReferenceWeight,
+                                                   ", but a weight must be finite and non-negative."));
+  }
+  settings.swingVelocityReferenceWeight = swingVelocityReferenceWeight;
   return settings;
 }
 
@@ -191,6 +199,10 @@ absl::StatusOr<std::vector<TaskSpaceLinkCostSettings>> taskSpaceLinkCostsFromCon
     if (cost.active_phases != kSwingFootCostPhases) {
       return absl::InvalidArgumentError(absl::StrCat(where, " sets active_phases \"", cost.active_phases,
                                                      "\", which only task_space_foot_cost has: a link cost does not depend on contact."));
+    }
+    if (cost.swing_velocity_reference_weight.has_value()) {
+      return absl::InvalidArgumentError(absl::StrCat(where, " sets swing_velocity_reference_weight ", *cost.swing_velocity_reference_weight,
+                                                     ", which only task_space_foot_cost has: a link cost has no swing. Leave it out."));
     }
     TaskSpaceLinkCostSettings& entry = settings.emplace_back();
     entry.name = cost.name;

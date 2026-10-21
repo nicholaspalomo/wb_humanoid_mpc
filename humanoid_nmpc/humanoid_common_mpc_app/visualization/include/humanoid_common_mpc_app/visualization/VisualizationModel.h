@@ -33,7 +33,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/base/nullability.h"
 #include "absl/status/status.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/manifold/StateManifold.h"
+#include "ocs2_oc/oc_problem/OptimalControlProblem.h"
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
 
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
@@ -71,6 +73,20 @@ struct VisualizationModel {
    * while the solver uses it.
    */
   const StateManifold* absl_nullable stateManifold = nullptr;
+  /**
+   * The MPC's nominal state (its interface's getInitialState(): the task file's initial_state). The DCM plots use the
+   * pendulum height z0 of this state, the whole-body CoM above the mean height of the contact frames
+   * (computeComHeightAboveFeet(), the repository's one definition of it, which the MPC's DCM cost and contact planner
+   * derive theirs from too), and the gravity of the Pinocchio model: omega = sqrt(g / z0). Copied. Empty: the DCM groups
+   * are NaN.
+   */
+  vector_t nominalState;
+  /**
+   * The solver's own problem (SqpSolver::getOcpDefinitions().front()), whose cost and constraint terms the mpc_solution
+   * groups plot: SolutionTermEvaluator evaluates them on the solver thread, in the post-solve observer, between two
+   * solves. Retained: it must outlive the publisher, as the node's solver does. Null: the term groups have no series.
+   */
+  OptimalControlProblem* absl_nullable solverProblem = nullptr;
 };
 
 /**
@@ -78,8 +94,8 @@ struct VisualizationModel {
  * Composite(Translation, Spherical) root (its configuration must have kBaseConfigurationDim and its velocity
  * kBaseVelocityDim entries before the getJointDim() joints: nq = 7 + nj, nv = 6 + nj), when the Pinocchio model is not
  * the MPC's (its configuration q and its velocity v must have the robot model's getConfigurationDim() and
- * getVelocityDim() entries), or when the state manifold is not one of the robot model's state (its ambient size must be
- * getStateDim()).
+ * getVelocityDim() entries), when the state manifold is not one of the robot model's state (its ambient size must be
+ * getStateDim()), or when the nominal state is neither empty nor of getStateDim() entries.
  */
 absl::Status checkVisualizationModel(const VisualizationModel& model);
 

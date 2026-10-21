@@ -42,6 +42,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/base/nullability.h"
 #include "absl/base/thread_annotations.h"
+#include "absl/container/flat_hash_map.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
@@ -51,21 +52,25 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/cost/QuadraticStateInputCost.h"
 #include "ocs2_mpc/CommandData.h"
 #include "ocs2_oc/oc_data/PerformanceIndex.h"
 #include "ocs2_oc/oc_data/PrimalSolution.h"
+#include "ocs2_oc/oc_problem/OptimalControlProblem.h"
 
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_common_mpc_app/visualization/SceneContract.h"
 #include "humanoid_common_mpc_app/visualization/VisualizationPublisher.h"
 #include "humanoid_mpc_ipc/Topics.h"
+#include "humanoid_mpc_msgs/robot_model_instance.pb.h"
 #include "humanoid_mpc_msgs/telemetry_series.pb.h"
 #include "humanoid_mpc_msgs/visualization_scene.pb.h"
 #include "humanoid_nmpc/humanoid_common_mpc_app/visualization/test/VisualizationTestRobot.h"
 #include "robot_ipc/Bus.h"
 #include "robot_ipc/BusOptions.h"
 #include "robot_ipc/Delivery.h"
-#include "robot_ipc/NodeEndpoint.h"
+#include "robot_ipc/TopicStatistics.h"
+#include "robot_runtime/robot_ipc/test/TestNetwork.h"
 #include "web_viewer/ViewerThreadPriority.h"
 
 namespace ocs2::humanoid::visualization {
@@ -340,6 +345,39 @@ TEST_F(VisualizationPublisherTest, TheSceneDrawsTheLatestPolicyAndSample) {
   publisher->stop();
 }
 
+/** Whether `scenes` hold one at `time` that draws the measured robot. */
+bool hasMeasuredSceneAt(const std::vector<humanoid_mpc_msgs::VisualizationScene>& scenes, double time) {
+  for (const humanoid_mpc_msgs::VisualizationScene& scene : scenes) {
+    if (scene.time() != time) continue;
+    for (const humanoid_mpc_msgs::RobotModelInstance& robot : scene.robots()) {
+      if (robot.name() == scene::kMeasuredInstance) return true;
+    }
+  }
+  return false;
+}
+
+TEST_F(VisualizationPublisherTest, AStaleSampleGivesWayToTheObservation) {
+  // A sample older than robotStateTimeout is no longer drawn: the scene's measured robot and time are the observation's.
+  // 200 ms rather than less, so that a visualization thread delayed on a busy machine still draws the recent sample.
+  VisualizationPublisher::Options options = testOptions();
+  options.robotStateTimeout = absl::Milliseconds(200);
+  std::unique_ptr<VisualizationPublisher> publisher = create(std::move(options));
+  ASSERT_NE(publisher, nullptr);
+  ASSERT_TRUE(publisher->start().ok());
+  CommandData command;
+  PrimalSolution solution;
+  robot_->makePolicy(/*startTime=*/0.0, /*nodes=*/11, /*normalForce=*/300.0, vector2_t::Zero(), &command, &solution);
+  EXPECT_TRUE(publisher->postSolveObserver()(command, solution, PerformanceIndex()).ok());
+  ASSERT_TRUE(publisher->pushRobotState(sampleAt(0.05)));
+  ASSERT_TRUE(waitFor([&] { return hasMeasuredSceneAt(sink_.scenes(), /*time=*/0.05); })) << "the recent sample is drawn";
+  absl::SleepFor(absl::Milliseconds(600));
+  publisher->setObservation(robot_->observation(/*time=*/0.5, ModeNumber::kStance));
+  // The scene takes its time from the sample whenever it draws one, so 0.5 means the stale sample was left out.
+  ASSERT_TRUE(waitFor([&] { return hasMeasuredSceneAt(sink_.scenes(), /*time=*/0.5); })) << "the observation replaces the stale sample";
+  EXPECT_EQ(publisher->statistics().robotStatesRejected, 0u) << "the sample was dropped for its age, not rejected";
+  publisher->stop();
+}
+
 TEST_F(VisualizationPublisherTest, ASampleThatDoesNotDecodeIsCountedAndNotPlotted) {
   std::unique_ptr<VisualizationPublisher> publisher = create(testOptions());
   ASSERT_NE(publisher, nullptr);
@@ -406,7 +444,7 @@ TEST_F(VisualizationPublisherTest, InvalidOptionsAreRefused) {
 std::unique_ptr<robot::ipc::Bus> createBus(const std::string& name) {
   robot::ipc::BusOptions options;
   options.nodeName = name;
-  options.network.nodes = {robot::ipc::NodeEndpoint{.name = name, .host = "127.0.0.1", .port = robot::ipc::kEphemeralPort, .bindHost = ""}};
+  options.network = robot::ipc::isolatedTestNetwork({name});
   absl::StatusOr<std::unique_ptr<robot::ipc::Bus>> bus = robot::ipc::Bus::Create(std::move(options));
   EXPECT_TRUE(bus.ok()) << bus.status();
   return bus.ok() ? std::move(*bus) : nullptr;
@@ -419,9 +457,6 @@ TEST_F(VisualizationPublisherTest, RobotStateOnTheBusBecomesTelemetryOnTheBus) {
   std::unique_ptr<robot::ipc::Bus> robotBus = createBus("robot");
   std::unique_ptr<robot::ipc::Bus> bridgeBus = createBus("bridge");
   ASSERT_TRUE(mpcBus != nullptr && robotBus != nullptr && bridgeBus != nullptr);
-  ASSERT_TRUE(mpcBus->connect(robotBus->boundEndpoint()).ok());
-  ASSERT_TRUE(bridgeBus->connect(mpcBus->boundEndpoint()).ok());
-
   absl::StatusOr<std::unique_ptr<VisualizationPublisher>> publisher =
       VisualizationPublisher::Create(robot_->model(), *mpcBus, testOptions());
   ASSERT_TRUE(publisher.ok()) << publisher.status();
@@ -458,6 +493,31 @@ TEST_F(VisualizationPublisherTest, RobotStateOnTheBusBecomesTelemetryOnTheBus) {
   }
 }
 
+// The visualization thread, SCHED_IDLE in the node, never takes the bus's locks, which the solver thread's
+// Bus::publish() takes too: it hands its messages to the bus's IO thread, which publishes them. Until the bus runs, a
+// message therefore waits in the publisher's outbox, and the bus has not seen the topic at all; Bus::publish() would
+// have serialized and queued it at once.
+TEST_F(VisualizationPublisherTest, TheBusPublishesTheVisualizationFromItsIoThread) {
+  std::unique_ptr<robot::ipc::Bus> mpcBus = createBus("mpc");
+  ASSERT_NE(mpcBus, nullptr);
+  absl::StatusOr<std::unique_ptr<VisualizationPublisher>> publisher =
+      VisualizationPublisher::Create(robot_->model(), *mpcBus, testOptions());
+  ASSERT_TRUE(publisher.ok()) << publisher.status();
+  ASSERT_TRUE((*publisher)->start().ok());
+  ASSERT_TRUE((*publisher)->pushRobotState(sampleAt(/*time=*/0.0)));
+  ASSERT_TRUE(waitFor([&] { return (*publisher)->statistics().telemetryPublished == 1; }));
+  EXPECT_FALSE(mpcBus->statistics().contains(ipc::topics::kVizTelemetry)) << "the visualization thread called Bus::publish()";
+  ASSERT_TRUE(mpcBus->start().ok());
+  EXPECT_TRUE(waitFor([&] {
+    const absl::flat_hash_map<std::string, robot::ipc::TopicStatistics> statistics = mpcBus->statistics();
+    const absl::flat_hash_map<std::string, robot::ipc::TopicStatistics>::const_iterator it = statistics.find(ipc::topics::kVizTelemetry);
+    return it != statistics.end() && it->second.written == 1;
+  })) << "the IO thread sends what waited";
+  EXPECT_EQ((*publisher)->statistics().publishFailures, 0u);
+  (*publisher)->stop();
+  mpcBus->stop();
+}
+
 // The MPC node's attacher (node::MpcNodeRuntime::VisualizationAttacher): the publisher it creates on the node's bus takes
 // robot/state from the robot and the policies from the observer it returns, and publishes viz/telemetry and viz/scene
 // on that bus once the node starts it.
@@ -466,9 +526,6 @@ TEST_F(VisualizationPublisherTest, TheBusAttacherPublishesOnTheNodesBusFromTheRo
   std::unique_ptr<robot::ipc::Bus> robotBus = createBus("robot");
   std::unique_ptr<robot::ipc::Bus> bridgeBus = createBus("bridge");
   ASSERT_TRUE(mpcBus != nullptr && robotBus != nullptr && bridgeBus != nullptr);
-  ASSERT_TRUE(mpcBus->connect(robotBus->boundEndpoint()).ok());
-  ASSERT_TRUE(bridgeBus->connect(mpcBus->boundEndpoint()).ok());
-
   std::unique_ptr<VisualizationPublisher> publisher;
   const VisualizationPublisher::BusAttacher attacher = VisualizationPublisher::MakeBusAttacher(robot_->model(), testOptions(), &publisher);
   absl::StatusOr<VisualizationPublisher::PostSolveObserver> observer = attacher(*mpcBus);
@@ -526,6 +583,70 @@ TEST_F(VisualizationPublisherTest, TheBusAttacherNeedsAPlaceForItsPublisher) {
   const VisualizationPublisher::BusAttacher attacher =
       VisualizationPublisher::MakeBusAttacher(robot_->model(), VisualizationPublisher::Options(), /*publisher=*/nullptr);
   EXPECT_EQ(attacher(*mpcBus).status().code(), absl::StatusCode::kInvalidArgument);
+}
+
+// With the solver's problem, the post-solve observer evaluates its terms (on the calling thread, the solver's in the
+// node) and the next series plots them: the value of a quadratic cost at the solution's first node, by hand.
+TEST_F(VisualizationPublisherTest, TheObserverEvaluatesTheSolversTermsForTheTelemetry) {
+  const Eigen::Index stateDim = static_cast<Eigen::Index>(robot_->robotModel().getStateDim());
+  const Eigen::Index inputDim = static_cast<Eigen::Index>(robot_->robotModel().getInputDim());
+  OptimalControlProblem problem;
+  problem.costPtr->add("tracking", std::make_unique<QuadraticStateInputCost>(matrix_t::Identity(stateDim, stateDim),
+                                                                             matrix_t::Identity(inputDim, inputDim)));
+  VisualizationModel model = robot_->model();
+  model.solverProblem = &problem;
+  absl::Mutex mutex;
+  humanoid_mpc_msgs::TelemetrySeries latest;
+  absl::StatusOr<std::unique_ptr<VisualizationPublisher>> created = VisualizationPublisher::Create(
+      model,
+      [&mutex, &latest](absl::string_view topic, const google::protobuf::Message& message) {
+        if (topic == ipc::topics::kVizTelemetry) {
+          absl::MutexLock lock(&mutex);
+          latest = static_cast<const humanoid_mpc_msgs::TelemetrySeries&>(message);
+        }
+        return absl::OkStatus();
+      },
+      testOptions());
+  ASSERT_TRUE(created.ok()) << created.status();
+  std::unique_ptr<VisualizationPublisher> publisher = std::move(*created);
+  ASSERT_TRUE(publisher->start().ok());
+
+  CommandData command;
+  PrimalSolution solution;
+  robot_->makePolicy(/*startTime=*/0.0, /*nodes=*/11, /*normalForce=*/300.0, vector2_t::Zero(), &command, &solution);
+  PerformanceIndex performance;
+  performance.merit = 7.0;
+  ASSERT_TRUE(publisher->postSolveObserver()(command, solution, performance).ok());
+  EXPECT_EQ(publisher->statistics().solutionTermsSet, 1u);
+  // The target at the first node is the nominal state with a zero input (TestRobot::makePolicy()).
+  const scalar_t expected = 0.5 * (solution.stateTrajectory_.front() - robot_->nominalState()).squaredNorm() +
+                            0.5 * solution.inputTrajectory_.front().squaredNorm();
+  ASSERT_TRUE(publisher->pushRobotState(sampleAt(0.05)));
+  ASSERT_TRUE(waitFor([&] {
+    absl::MutexLock lock(&mutex);
+    for (const humanoid_mpc_msgs::ScalarGroup& group : latest.groups()) {
+      if (group.path() == "mpc_solution/performance" && group.values(0) == 7.0) return true;
+    }
+    return false;
+  }));
+  {
+    absl::MutexLock lock(&mutex);
+    bool found = false;
+    for (const humanoid_mpc_msgs::ScalarGroup& group : latest.groups()) {
+      if (group.path() != "mpc_solution/costs") continue;
+      found = true;
+      ASSERT_EQ(group.names_size(), 1);
+      EXPECT_EQ(group.names(0), "intermediate/tracking");
+      EXPECT_NEAR(group.values(0), expected, 1.0e-9);
+    }
+    EXPECT_TRUE(found);
+  }
+
+  // A solution whose terms cannot be evaluated is reported and counted, and its policy is handed over all the same.
+  EXPECT_FALSE(publisher->postSolveObserver()(command, PrimalSolution(), performance).ok());
+  EXPECT_EQ(publisher->statistics().solutionTermFailures, 1u);
+  EXPECT_EQ(publisher->statistics().policiesSet, 2u);
+  publisher->stop();
 }
 
 }  // namespace

@@ -197,7 +197,7 @@ absl::Status policyToProto(const CommandData& commandData,
  *
  * Besides the checks of the fromProto() functions above, requires a non-empty time trajectory (a policy without nodes
  * cannot be evaluated), one state, one input and one controller entry per time, finite values throughout, strictly
- * increasing post-event indices in [1, number of nodes], a known controller type, and controller data of the size the
+ * increasing post-event indices in [1, number of nodes - 1], a known controller type, and controller data of the size the
  * node's state and input dimensions (and the manifold's tangent dimension) imply. Allocates the arrays of the primal
  * solution and a new controller.
  */

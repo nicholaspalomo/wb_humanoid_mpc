@@ -816,7 +816,8 @@ TEST_F(ContactConstraintScheduleGatingTest, theContactWrenchDominatesTheJointTor
   // the behavior GRAVITY_COMP had in every regime.
   PinocchioInterface workingInterface = pinocchioInterface;
   const std::array<vector6_t, 2> noContact{vector6_t::Zero(), vector6_t::Zero()};
-  const vector_t unloaded = computeBaseHeldJointTorques<scalar_t>(q, qd, qdd_j, noContact, workingInterface);
+  const vector_t unloaded = computeBaseHeldJointTorques<scalar_t>(
+      q, qd, qdd_j, noContact, getContactFrameIndexArray<scalar_t>(workingInterface, model_->wrenchModel()), workingInterface);
 
   const pinocchio::Model& model = workingInterface.getModel();
   pinocchio::Data data = workingInterface.getData();
@@ -830,7 +831,8 @@ TEST_F(ContactConstraintScheduleGatingTest, theContactWrenchDominatesTheJointTor
   vector6_t halfWeight = vector6_t::Zero();
   halfWeight(2) = 0.5 * weight;
   const std::array<vector6_t, 2> standing{halfWeight, halfWeight};
-  const vector_t loaded = computeBaseHeldJointTorques<scalar_t>(q, qd, qdd_j, standing, workingInterface);
+  const vector_t loaded = computeBaseHeldJointTorques<scalar_t>(
+      q, qd, qdd_j, standing, getContactFrameIndexArray<scalar_t>(workingInterface, model_->wrenchModel()), workingInterface);
 
   const scalar_t contactContribution = (loaded - gravityOnly).cwiseAbs().maxCoeff();
   const scalar_t gravityMagnitude = gravityOnly.cwiseAbs().maxCoeff();

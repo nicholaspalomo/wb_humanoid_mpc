@@ -61,6 +61,9 @@ std::string normalizeString(absl::string_view input) {
   return output;
 }
 
+// The normalized name of the removed icp_cost, which a stale task file is told about rather than offered the list.
+constexpr char kRemovedIcpCostName[] = "icpcost";
+
 // The cost registry: the names, normalized, that a task file's costs list may use. The unknown-name message is generated
 // from it, so an enumerator added here is offered at once; the enum is walked by testMpcFormulationConfig to catch one
 // that has a canonical name but was never registered.
@@ -75,7 +78,6 @@ const absl::NoDestructor<absl::flat_hash_map<std::string, MpcCostType>> kCostMap
     {"inputcost", MpcCostType::kInputQuadraticCost},
     {"inputeffortcost", MpcCostType::kInputQuadraticCost},
     {"terminalcost", MpcCostType::kTerminalCost},
-    {"icpcost", MpcCostType::kIcpCost},
     {"taskspacefootcost", MpcCostType::kTaskSpaceFootCost},
     {"taskspacefoottrackingcost", MpcCostType::kTaskSpaceFootCost},
     {"taskspacetorsocost", MpcCostType::kTaskSpaceTorsoCost},
@@ -170,6 +172,12 @@ absl::StatusOr<MpcCostType> stringToMpcCostType(absl::string_view name) {
   if (it != kCostMap->end()) {
     return it->second;
   }
+  if (normalized == kRemovedIcpCostName) {
+    return absl::InvalidArgumentError(
+        absl::StrCat("The MPC cost '", name,
+                     "' was removed: it shipped unweighted on every robot, and its residual was the center of mass, not the capture point. "
+                     "Delete it from costs, and the icp_cost_weights block; the capture point is regulated by dcm_terminal_cost."));
+  }
   return absl::InvalidArgumentError(
       absl::StrCat("Unknown MPC cost type: '", name, "'. Supported costs are: ", absl::StrJoin(mpcCostNames(), ", "), "."));
 }
@@ -184,8 +192,6 @@ absl::StatusOr<std::string> mpcCostTypeToString(MpcCostType type) {
       return "input_quadratic_cost";
     case MpcCostType::kTerminalCost:
       return "terminal_cost";
-    case MpcCostType::kIcpCost:
-      return "icp_cost";
     case MpcCostType::kTaskSpaceFootCost:
       return "task_space_foot_cost";
     case MpcCostType::kTaskSpaceTorsoCost:

@@ -69,6 +69,8 @@ struct VisualizationFrame {
  *     visualization that acts on the MuJoCo options or the model can also undo its effect once disabled;
  *  2. addSceneGeoms(): after mjv_updateScene and before mjr_render, enabled visualizations only; append decor geoms;
  *  3. renderOverlay(): after mjr_render, enabled visualizations only; draw 2D overlays and text.
+ *
+ * Not thread-safe: the viewer drives it from one thread.
  */
 class MujocoVisualization {
  public:

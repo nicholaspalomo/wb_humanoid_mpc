@@ -88,7 +88,8 @@ void applyInput(const ViewerInput& input, DemoScene& scene) {
       scene.status.camera.elevation += input.dy * 90.0;
       return;
     case ViewerInputType::kScroll:
-      scene.zoom = std::clamp(scene.zoom * std::exp(0.05 * input.notches), 0.1, 10.0);
+      // Positive notches zoom out, as MujocoFrameRenderer::scroll() does.
+      scene.zoom = std::clamp(scene.zoom * std::exp(-0.05 * input.notches), 0.1, 10.0);
       scene.status.camera.distance = 3.0 / scene.zoom;
       return;
     case ViewerInputType::kKey:

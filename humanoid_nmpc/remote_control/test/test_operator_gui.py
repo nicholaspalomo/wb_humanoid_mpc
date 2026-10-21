@@ -64,6 +64,9 @@ class FakeApp:
         self.joystick_connected: list[bool] = []
         self.sticks = operator_bus.walking_velocity_command(0.25, 0.0, -0.5, 0.75)
         self.reference_file_polls = 0
+        self.tuning_files_polls = 0
+        self.default_pelvis_height = config_files.DEFAULT_PELVIS_HEIGHT
+        self._publishes_walking_commands = True
 
     def set_fsm_command_callback(self, callback) -> None:
         self.fsm_command_callback = callback
@@ -73,6 +76,7 @@ class FakeApp:
 
     def set_knob_positions(self, message) -> None:
         self.knobs.append(message)
+        self.sticks = message
 
     def set_joystick_connected(self, connected: bool) -> None:
         self.joystick_connected.append(connected)
@@ -82,6 +86,23 @@ class FakeApp:
 
     def poll_reference_file(self) -> None:
         self.reference_file_polls += 1
+
+    def poll_tuning_files(self) -> None:
+        self.tuning_files_polls += 1
+
+    def publishes_walking_commands(self) -> bool:
+        return self._publishes_walking_commands
+
+    def set_publishes_walking_commands(self, value: bool) -> None:
+        self._publishes_walking_commands = value
+
+    def center_velocity_sticks(self) -> None:
+        self.sticks = operator_bus.walking_velocity_command(
+            0.0, 0.0, 0.0, self.sticks.desired_pelvis_height
+        )
+
+    def slider_height(self) -> float:
+        return self.sticks.desired_pelvis_height
 
 
 def _as_app(app: FakeApp) -> base_velocity_controller_gui.App:
@@ -96,10 +117,14 @@ class FakeGamepad:
         self.connected = connected
         self.command = command
         self.ticks = 0
+        self.pelvis_height_targets: list[float] = []
 
     def tick(self):
         self.ticks += 1
         return self.command if self.connected else None
+
+    def set_pelvis_height_target(self, target: float) -> None:
+        self.pelvis_height_targets.append(target)
 
 
 class TestOperatorGuiTick(unittest.TestCase):
@@ -176,6 +201,61 @@ class TestOperatorGuiTick(unittest.TestCase):
         for _ in range(round(teleop.WALKING_COMMAND_RATE_HZ) * 3):
             gui.tick()
         self.assertEqual(self.app.reference_file_polls, 3)
+
+    def test_when_a_controller_is_lost_the_sticks_are_centered_and_published(self):
+        controller_command = operator_bus.walking_velocity_command(1.0, 0.0, 0.0, 0.8)
+        gamepad = FakeGamepad(connected=True, command=controller_command)
+        gui = self._gui(gamepad)
+        gui.tick()
+        self.assertEqual(self._walking_commands()[-1], controller_command)
+        gamepad.connected = False
+        gui.tick()
+        # The deflection must not stay: the on-screen sticks were centered.
+        last = self._walking_commands()[-1]
+        self.assertEqual(last.linear_velocity_x, 0.0)
+        self.assertEqual(last.linear_velocity_y, 0.0)
+        self.assertEqual(last.angular_velocity_z, 0.0)
+        self.assertAlmostEqual(last.desired_pelvis_height, 0.8)
+
+    def test_a_controller_that_connects_starts_from_the_slider_height(self):
+        controller_command = operator_bus.walking_velocity_command(0.0, 0.0, 0.0, 0.9)
+        gamepad = FakeGamepad(connected=False, command=controller_command)
+        gui = self._gui(gamepad)
+        self.app.sticks = operator_bus.walking_velocity_command(0.0, 0.0, 0.0, 0.7405)
+        gui.tick()
+        self.assertEqual(gamepad.pelvis_height_targets, [])
+        gamepad.connected = True
+        gui.tick()
+        # Seeded once, on the tick it connected, from the slider; not on the next ticks.
+        self.assertEqual(gamepad.pelvis_height_targets, [0.7405])
+        gui.tick()
+        self.assertEqual(gamepad.pelvis_height_targets, [0.7405])
+
+    def test_a_moved_default_moves_the_controllers_target(self):
+        controller_command = operator_bus.walking_velocity_command(0.0, 0.0, 0.0, 0.9)
+        gamepad = FakeGamepad(connected=True, command=controller_command)
+        gui = self._gui(gamepad)
+        gui.tick()
+        self.assertEqual(len(gamepad.pelvis_height_targets), 1)
+        self.app.default_pelvis_height = 0.85
+        self.app.sticks = operator_bus.walking_velocity_command(0.0, 0.0, 0.0, 0.86)
+        gui.tick()
+        self.assertEqual(gamepad.pelvis_height_targets[-1], 0.86)
+
+    def test_unticking_the_walking_commands_checkbox_sends_one_stop_command(self):
+        gui = self._gui()
+        gui.tick()
+        self.assertEqual(len(self._walking_commands()), 1)
+        self.app.set_publishes_walking_commands(False)
+        gui.tick()
+        self.assertEqual(len(self._walking_commands()), 2)
+        stop = self._walking_commands()[-1]
+        self.assertEqual(stop.linear_velocity_x, 0.0)
+        self.assertEqual(stop.linear_velocity_y, 0.0)
+        self.assertEqual(stop.angular_velocity_z, 0.0)
+        gui.tick()
+        # Nothing more is published while unticked.
+        self.assertEqual(len(self._walking_commands()), 2)
 
     def test_a_moved_default_keeps_the_operators_offset(self):
         self.assertEqual(
@@ -255,6 +335,7 @@ class TestCommandLine(unittest.TestCase):
         self.assertEqual(args.task_file, "")
         self.assertIsNone(args.default_pelvis_height)
         self.assertEqual(args.urdf_file, "")
+        self.assertEqual(args.walking_commands, "publish")
         args = base_velocity_controller_gui.build_parser().parse_args(
             [
                 "--task_file=t.textproto",
@@ -374,7 +455,7 @@ class TestTheDefaultPelvisHeightFollowsTheReferenceFile(unittest.TestCase):
         self.app = base_velocity_controller_gui.App(
             task_file=os.path.join(config, "mpc", "task.textproto"),
             reference_file=self.reference_file,
-            enable_online_tuning=False,
+            enable_online_tuning=True,
         )
         self.app.withdraw()
         self.addCleanup(self.app.destroy)
@@ -425,6 +506,77 @@ class TestTheDefaultPelvisHeightFollowsTheReferenceFile(unittest.TestCase):
         self.app.follows_reference_file_default = False
         self._save_default(self.shipped - 0.1)
         self.assertAlmostEqual(self._commanded_height(), 0.7, places=6)
+
+
+@operator_test_support.requires_display
+class TestAppOnlineTuningFileLoading(unittest.TestCase):
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.tmpdir, ignore_errors=True)
+        config1 = operator_test_support.copy_config(
+            operator_test_support.ATLAS_CONFIG, os.path.join(self.tmpdir, "c1")
+        )
+        self.task_file_on = os.path.join(config1, "mpc", "task.textproto")
+
+        config2 = operator_test_support.copy_config(
+            operator_test_support.ATLAS_CONFIG, os.path.join(self.tmpdir, "c2")
+        )
+        self.task_file_off = os.path.join(config2, "mpc", "task.textproto")
+        with open(self.task_file_off, encoding="utf-8") as handle:
+            content = handle.read()
+        self.assertIn("enable_online_tuning: true", content)
+        with open(self.task_file_off, "w", encoding="utf-8") as handle:
+            handle.write(
+                content.replace(
+                    "enable_online_tuning: true", "enable_online_tuning: false"
+                )
+            )
+
+        self.publisher = operator_test_support.RecordingPublisher(
+            topics.OPERATOR_MPC_PARAMETERS
+        )
+
+    def test_loading_a_task_file_that_disables_online_tuning_locks_the_mpc_tab(self):
+        app = base_velocity_controller_gui.App(
+            task_file=self.task_file_on,
+            enable_online_tuning=True,
+            param_publisher=self.publisher,
+        )
+        app.withdraw()
+        self.addCleanup(app.destroy)
+        tab = app.mpc_params_tab
+        self.assertTrue(tab.enable_online_tuning)
+        self.assertEqual(str(tab.save_btn.cget("state")), "normal")
+
+        # Load file with enable_online_tuning: false
+        tab.load_file(self.task_file_off)
+        self.assertFalse(tab.enable_online_tuning)
+        self.assertEqual(str(tab.save_btn.cget("state")), "disabled")
+        self.assertEqual(str(tab.reset_btn.cget("state")), "disabled")
+        self.assertFalse(tab.save())
+        self.assertEqual(self.publisher.publish_count, 0)
+
+        # Loading the tuning-on file re-enables the tab
+        tab.load_file(self.task_file_on)
+        self.assertTrue(tab.enable_online_tuning)
+        self.assertEqual(str(tab.save_btn.cget("state")), "normal")
+
+    def test_an_app_started_locked_stays_locked_after_loading_an_unlocked_file(self):
+        app = base_velocity_controller_gui.App(
+            task_file=self.task_file_off,
+            enable_online_tuning=False,
+            param_publisher=self.publisher,
+        )
+        app.withdraw()
+        self.addCleanup(app.destroy)
+        tab = app.mpc_params_tab
+        self.assertFalse(tab.enable_online_tuning)
+        self.assertEqual(str(tab.save_btn.cget("state")), "disabled")
+
+        # Loading the tuning-on file keeps the tab locked
+        tab.load_file(self.task_file_on)
+        self.assertFalse(tab.enable_online_tuning)
+        self.assertEqual(str(tab.save_btn.cget("state")), "disabled")
 
 
 if __name__ == "__main__":

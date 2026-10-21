@@ -34,20 +34,30 @@
     ... --rerun_sink save --rrd_path /tmp/walk.rrd --duration 30
 
 Relative paths are looked up in the directory the bridge was started from (BUILD_WORKING_DIRECTORY under `bazel run`)
-and then in the repository root. Ctrl-C (or SIGTERM) stops it cleanly: the bus is closed, the buffered plots are sent
-and the recording is flushed. Exit status: 0 on success, 2 for a usage or configuration error.
+and then in the repository root. Ctrl-C (or SIGTERM) stops it cleanly: the bus is closed, what is queued is drawn, the
+buffered plots are sent and the recording is flushed, within a bounded time even when the viewer takes no data.
+
+The viewer of spawn and connect may go away. The bridge probes it (ViewerWatch): a spawned viewer that is gone (closed,
+or never started) ends the run, so that whoever started the bridge, such as the GUI's button, can start another; while
+a connect viewer is unreachable, the bridge drops the messages, and when it is back, it connects again and sends the
+robot and the layout afresh. Exit status: 0 on success, 2 for a usage or configuration error.
 """
 
 import argparse
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
+import enum
+import functools
 import logging
 import math
 import os
 import signal
+import socket
 import sys
 import threading
 import time
 from typing import Any, NamedTuple
+
+import rerun as rr
 
 from humanoid_rerun_viewer import blueprint
 from humanoid_rerun_viewer import bridge as bridge_module
@@ -82,6 +92,15 @@ DEFAULT_WEB_MAX_SCENE_FREQUENCY = 12.5
 DEFAULT_WEB_FLUSH_PERIOD_S = 0.1
 # How often the main thread checks for a stop request and the duration [s].
 _POLL_PERIOD_S = 0.1
+# LINT.IfChange(viewer_watch)
+# How often the viewer of spawn and connect is probed, how long a probe may take, and how long it must be unreachable
+# to be gone [s].
+VIEWER_PROBE_PERIOD_S = 1.0
+VIEWER_PROBE_TIMEOUT_S = 0.2
+VIEWER_GONE_AFTER_S = 3.0
+# The writer is stalled when one of its tasks has taken this long [s]: a sink that takes no data.
+WRITER_STALL_S = 3.0
+# LINT.ThenChange(//humanoid_nmpc/humanoid_rerun_viewer/README.md:viewer_watch)
 
 
 def resolve_input_path(path: str) -> str:
@@ -170,6 +189,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="serve_web: also open the web viewer in a browser of this machine",
     )
     parser.add_argument(
+        "--viewer_executable",
+        default="",
+        help="spawn: the viewer to start (default: the native viewer of the rerun-sdk wheel)",
+    )
+    parser.add_argument(
         "--max_scene_frequency",
         type=float,
         default=None,
@@ -180,7 +204,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--plots",
         action=argparse.BooleanOptionalAction,
         default=None,
-        help="subscribe to viz/telemetry and show plot tabs in blueprint (default: off for serve_web, on otherwise)",
+        help="subscribe to viz/telemetry and show plot tabs in blueprint (default: on when a plot configuration is "
+        "loaded, as the shipped default is; without one, off for serve_web and on otherwise)",
     )
     parser.add_argument(
         "--plot_config",
@@ -192,12 +217,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--terminal_state",
         action=argparse.BooleanOptionalAction,
         default=None,
-        help="draw the end-of-trajectory robot visualization in viz/scene (default: on)",
+        help="draw the end-of-trajectory robots (terminal_state, terminal_target) of viz/scene (default: the plot "
+        "configuration's draw_terminal_state, which the shipped one sets false; on without a configuration)",
     )
     parser.add_argument(
         "--robot_instances",
         default="",
-        help="comma-separated list of robot instances to draw (e.g. 'measured', 'measured,terminal_state'; default: all)",
+        help="comma-separated list of robot instances to draw (e.g. 'measured', 'measured,terminal_state'; default: "
+        "the plot configuration's robot_instances, every instance when it names none)",
     )
     # LINT.ThenChange(//humanoid_nmpc/humanoid_rerun_viewer/README.md:sink_flags)
     parser.add_argument(
@@ -267,6 +294,176 @@ def load_model(urdf: str, package_path: Sequence[str]) -> urdf_model.RobotModel:
     return model
 
 
+def plots_enabled(
+    plots_flag: bool | None,
+    sink: str,
+    plot_config: plot_config_module.PlotConfig | None,
+) -> bool:
+    """Whether the bridge subscribes to viz/telemetry and shows plot tabs.
+
+    Args:
+        plots_flag: --plots (True) or --no-plots (False); None when neither was given.
+        sink: the Rerun sink's name.
+        plot_config: the plot configuration, None without one (--plot_config none, or the default file missing).
+
+    Returns:
+        The flag when given; otherwise on with a plot configuration, which limits the plots to its signals, and without
+        one on for every sink but serve_web, whose browser would otherwise get every telemetry series.
+    """
+    if plots_flag is not None:
+        return plots_flag
+    if plot_config is not None:
+        return True
+    return sink != "serve_web"
+
+
+class ViewerChange(enum.Enum):
+    """What ViewerWatch.poll() saw happen to the viewer."""
+
+    GONE = "gone"
+    BACK = "back"
+
+
+def _probe_tcp(endpoint: tuple[str, int], timeout: float) -> None:
+    """Connects to `endpoint` and closes at once; raises OSError when nothing listens there."""
+    with socket.create_connection(endpoint, timeout=timeout):
+        pass
+
+
+class ViewerWatch:
+    """Probes the viewer of a client sink (spawn, connect) and tells when it went away or came back.
+
+    A TCP connection to the viewer's gRPC port once every VIEWER_PROBE_PERIOD_S: unreachable for VIEWER_GONE_AFTER_S
+    is gone, one success is back. Not thread-safe: cli.run's main thread polls it.
+
+    Args:
+        endpoint: the viewer's (host, port).
+        up: whether the viewer is up to begin with.
+        probe: connects to the endpoint within a timeout [s], raising OSError when nothing listens; the tests pass a
+            fake one.
+        clock: monotonic seconds.
+
+    Attributes:
+        endpoint: The viewer's (host, port).
+        up: Whether the viewer was up at the last poll(); only poll() changes it.
+    """
+
+    def __init__(
+        self,
+        endpoint: tuple[str, int],
+        up: bool,
+        probe: Callable[[tuple[str, int], float], None] = _probe_tcp,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
+        self.endpoint = endpoint
+        self.up = up
+        self._probe = probe
+        self._clock = clock
+        self._next_probe = clock() + VIEWER_PROBE_PERIOD_S
+        self._unreachable_since: float | None = None
+
+    def reachable(self) -> bool:
+        """Probes the viewer once, now."""
+        try:
+            self._probe(self.endpoint, VIEWER_PROBE_TIMEOUT_S)
+            return True
+        except OSError:
+            return False
+
+    def poll(self) -> ViewerChange | None:
+        """Probes the viewer when a probe is due; returns what changed, None when nothing did."""
+        now = self._clock()
+        if now < self._next_probe:
+            return None
+        self._next_probe = now + VIEWER_PROBE_PERIOD_S
+        if self.reachable():
+            self._unreachable_since = None
+            if self.up:
+                return None
+            self.up = True
+            return ViewerChange.BACK
+        if self._unreachable_since is None:
+            self._unreachable_since = now
+        if self.up and now - self._unreachable_since >= VIEWER_GONE_AFTER_S:
+            self.up = False
+            return ViewerChange.GONE
+        return None
+
+
+def _attach_new_run(sink: rerun_sinks.Sink, application_id: str) -> rr.RecordingStream:
+    """A recording for a new run of the robot, attached to `sink` (the bridge's new_run)."""
+    recording = bridge_module.new_recording(application_id)
+    _LOGGER.info("%s", sink.attach(recording))
+    return recording
+
+
+def _reconnect(sink: rerun_sinks.Sink, the_bridge: bridge_module.RerunBridge) -> None:
+    """Attaches the bridge's recording to its viewer again and sends the static data: the writer's resume task."""
+    _LOGGER.info("%s", sink.reattach(the_bridge.recording))
+    the_bridge.resend_static()
+
+
+def _follow_viewer(
+    watch: ViewerWatch,
+    sink: rerun_sinks.Sink,
+    feed: bus_bridge.BusBridge,
+    the_bridge: bridge_module.RerunBridge,
+) -> bool:
+    """Polls the viewer: pauses the feed while a connect viewer is gone, reconnects when it is back.
+
+    Args:
+        watch: The watch polling the viewer endpoint for reachable status.
+        sink: The Rerun sink managing the connection to the viewer.
+        feed: The bus bridge whose streaming is paused or resumed.
+        the_bridge: The Rerun bridge logging the robot and scene.
+
+    Returns:
+        False when the run ends: the viewer the bridge spawned is gone.
+    """
+    change = watch.poll()
+    host, port = watch.endpoint
+    if change is ViewerChange.GONE:
+        if sink.owns_viewer:
+            _LOGGER.warning(
+                "the spawned Rerun viewer on port %d is gone (closed, or it never started); stopping",
+                port,
+            )
+            return False
+        feed.pause(f"the Rerun viewer at {host}:{port} is unreachable")
+        _LOGGER.warning(
+            "the Rerun viewer at %s:%d is unreachable; dropping the messages until it is back",
+            host,
+            port,
+        )
+    elif change is ViewerChange.BACK:
+        _LOGGER.info(
+            "the Rerun viewer at %s:%d is back; sending it the robot and the layout again",
+            host,
+            port,
+        )
+        feed.resume(functools.partial(_reconnect, sink, the_bridge))
+    return True
+
+
+class _StallWarning:
+    """Logs once per stall of the bridge's writer that it takes no data."""
+
+    def __init__(self) -> None:
+        self._warned = False
+
+    def check(self, feed: bus_bridge.BusBridge) -> None:
+        stalled_for = feed.writer_stalled_for()
+        if stalled_for < WRITER_STALL_S:
+            self._warned = False
+        elif not self._warned:
+            self._warned = True
+            _LOGGER.warning(
+                "the Rerun sink has taken no data for %.1f s (a viewer that stopped reading?); the bus's messages are "
+                "dropped once the bridge's queue is full",
+                stalled_for,
+            )
+
+
 class _StopRequest:
     """Set by SIGINT or SIGTERM; a second signal falls back to the default action (an immediate exit)."""
 
@@ -289,8 +486,52 @@ class _StopRequest:
         signal.signal(signum, signal.SIG_DFL)
 
 
+def _start_watch(
+    sink: rerun_sinks.Sink,
+    feed: bus_bridge.BusBridge,
+    the_bridge: bridge_module.RerunBridge,
+) -> ViewerWatch | None:
+    """Logs the static data, or pauses the feed while the viewer of a connect sink is not up; the watch of its viewer.
+
+    rerun-sdk buffers what an absent viewer does not take, the robot's meshes first: the static data waits for the
+    viewer, which then gets it when it is back (_follow_viewer()). A spawned viewer counts as up once spawn returned.
+
+    Args:
+        sink: The Rerun sink managing the connection to the viewer.
+        feed: The bus bridge whose streaming is paused or resumed.
+        the_bridge: The Rerun bridge logging the robot and scene.
+
+    Returns:
+        The ViewerWatch instance monitoring the endpoint, or None if the sink has no viewer endpoint.
+    """
+    endpoint = sink.viewer_endpoint
+    if endpoint is None:
+        the_bridge.log_static()
+        return None
+    watch = ViewerWatch(endpoint, up=True)
+    if sink.owns_viewer or watch.reachable():
+        the_bridge.log_static()
+        return watch
+    host, port = endpoint
+    feed.pause(f"the Rerun viewer at {host}:{port} is unreachable")
+    _LOGGER.warning(
+        "the Rerun viewer at %s:%d is not up; drawing nothing until it is",
+        host,
+        port,
+    )
+    return ViewerWatch(endpoint, up=False)
+
+
 def run(args: argparse.Namespace, stop: threading.Event | None = None) -> RunResult:
-    """Runs the bridge until `stop` is set or the duration passes."""
+    """Runs the bridge until `stop` is set or the duration passes.
+
+    Args:
+        args: the parsed command line of build_parser(), every flag present.
+        stop: set to end the run; None runs until the duration passes or Ctrl-C.
+
+    Returns:
+        The exit status, and whether the recording reached its sink.
+    """
     stop = stop if stop is not None else threading.Event()
     try:
         model = load_model(args.urdf, args.package_path) if args.urdf else None
@@ -303,7 +544,7 @@ def run(args: argparse.Namespace, stop: threading.Event | None = None) -> RunRes
 
     recording = bridge_module.new_recording(args.app_id)
     plot_config: plot_config_module.PlotConfig | None = None
-    plot_config_arg = getattr(args, "plot_config", "")
+    plot_config_arg = args.plot_config
     if plot_config_arg and plot_config_arg.lower() not in (
         "none",
         "off",
@@ -324,22 +565,17 @@ def run(args: argparse.Namespace, stop: threading.Event | None = None) -> RunRes
                 _LOGGER.error("cannot load plot config: %s", error)
                 return RunResult(EXIT_USAGE)
 
-    if getattr(args, "plots", None) is not None:
-        plots = args.plots
-    elif args.rerun_sink == "serve_web":
-        plots = bool(plot_config is not None)
-    else:
-        plots = True
+    plots = plots_enabled(args.plots, args.rerun_sink, plot_config)
 
     cli_robot_instances = (
         tuple(name.strip() for name in args.robot_instances.split(",") if name.strip())
-        if getattr(args, "robot_instances", "")
+        if args.robot_instances
         else None
     )
     allowed_instances = plot_config_module.resolve_allowed_instances(
         config=plot_config,
         cli_robot_instances=cli_robot_instances,
-        cli_terminal_state=getattr(args, "terminal_state", None),
+        cli_terminal_state=args.terminal_state,
     )
 
     layout = blueprint.build_blueprint(
@@ -356,15 +592,19 @@ def run(args: argparse.Namespace, stop: threading.Event | None = None) -> RunRes
         grpc_port=args.grpc_port,
         web_port=args.web_port,
         open_browser=args.open_browser,
+        viewer_executable=(
+            resolve_input_path(args.viewer_executable) if args.viewer_executable else ""
+        ),
     )
-    if getattr(args, "max_scene_frequency", None) is not None:
+    sink = rerun_sinks.make_sink(args.rerun_sink, layout, options)
+    if args.max_scene_frequency is not None:
         max_scene_frequency = args.max_scene_frequency
     elif args.rerun_sink == "serve_web":
         max_scene_frequency = DEFAULT_WEB_MAX_SCENE_FREQUENCY
     else:
         max_scene_frequency = 0.0
 
-    if getattr(args, "flush_period", None) is not None:
+    if args.flush_period is not None:
         flush_period = args.flush_period
     elif args.rerun_sink == "serve_web":
         flush_period = DEFAULT_WEB_FLUSH_PERIOD_S
@@ -376,6 +616,7 @@ def run(args: argparse.Namespace, stop: threading.Event | None = None) -> RunRes
         model,
         max_scene_frequency=max_scene_frequency,
         allowed_instances=allowed_instances,
+        new_run=functools.partial(_attach_new_run, sink, args.app_id),
     )
     telemetry_enabled = plots and (
         plot_config is None or plot_config_module.has_telemetry_signals(plot_config)
@@ -388,30 +629,32 @@ def run(args: argparse.Namespace, stop: threading.Event | None = None) -> RunRes
         _LOGGER.error("cannot subscribe to the bus: %s", error)
         return RunResult(EXIT_USAGE)
     try:
-        _LOGGER.info(
-            "%s",
-            rerun_sinks.attach_sink(args.rerun_sink, recording, layout, options),
-        )
+        _LOGGER.info("%s", sink.attach(recording))
     except (ValueError, RuntimeError, OSError) as error:
         _LOGGER.error("cannot start the Rerun sink '%s': %s", args.rerun_sink, error)
         feed.bus.close()
         return RunResult(EXIT_USAGE)
-    the_bridge.log_static()
+    watch = _start_watch(sink, feed, the_bridge)
     _LOGGER.info(
-        "subscribed to %s on %s",
+        "subscribed to %s on DDS domain %d (peers %s)",
         ", ".join(feed.subscribed_topics),
-        ", ".join(feed.bus.subscriber_endpoints),
+        feed.bus.domain_id,
+        ", ".join(feed.bus.discovery_peers),
     )
     deadline = time.monotonic() + args.duration if args.duration > 0.0 else None
+    stall_warning = _StallWarning()
     feed.start()
     try:
         while not stop.wait(_POLL_PERIOD_S):
             if deadline is not None and time.monotonic() >= deadline:
                 break
+            if watch is not None and not _follow_viewer(watch, sink, feed, the_bridge):
+                break
+            stall_warning.check(feed)
     finally:
         delivered = feed.stop()
         if delivered:
-            recording.disconnect()
+            sink.disconnect_all()
         else:
             _LOGGER.warning(
                 "the Rerun sink is unreachable; exiting without waiting for it"
@@ -430,7 +673,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     logging.basicConfig(
-        level=getattr(logging, args.log_level),
+        level=logging.getLevelNamesMapping()[args.log_level],
         format="humanoid_rerun_viewer: %(levelname)s: %(message)s",
     )
     if args.rerun_sink == "save" and not args.rrd_path:

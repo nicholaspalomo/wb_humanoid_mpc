@@ -49,6 +49,7 @@ class AmericanSpellingTest(unittest.TestCase):
             "analysed": "analyzed",
             "centre": "center",
             "millimetres": "millimeters",
+            "nanometre": "nanometer",
             "modelling": "modeling",
             "labelled": "labeled",
             "cancelled": "canceled",
@@ -70,6 +71,32 @@ class AmericanSpellingTest(unittest.TestCase):
         )
         self.assertEqual(fixed("heading_relinearisation"), "heading_relinearization")
         self.assertEqual(fixed("MPCCentre COLOUR Colour"), "MPCCenter COLOR Color")
+
+    def test_compound_words_with_a_british_root_are_fixed(self):
+        cases = {
+            "neighbourhood": "neighborhood",
+            "offcentre": "offcenter",
+            "colourmap": "colormap",
+            "misbehaviours": "misbehaviors",
+            "kilometresperhour": "kilometersperhour",
+            "Offcentre": "Offcenter",
+            "OFFCENTRE": "OFFCENTER",
+        }
+        for british, american in cases.items():
+            with self.subTest(british=british):
+                self.assertEqual(fixed(british), american)
+                self.assertEqual(len(american_spelling.check_source(british)), 1)
+        # Inside an identifier, the compound part is fixed and the rest is kept.
+        self.assertEqual(
+            fixed("kNeighbourhoodRadius offcentre_throw"),
+            "kNeighborhoodRadius offcenter_throw",
+        )
+
+    def test_american_compound_words_are_left_alone(self):
+        # Words that contain no British root, including American compounds of the roots.
+        text = "greyhound neighborhood offcenter colormap parameter diameter odometer accentuate"
+        self.assertEqual(fixed(text), text)
+        self.assertEqual(american_spelling.check_source(text), [])
 
     def test_american_words_that_look_british_are_left_alone(self):
         # -ise and -our words that are American too, and "analyses", the plural of "analysis".

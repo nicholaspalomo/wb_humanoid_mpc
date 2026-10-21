@@ -68,3 +68,16 @@ cc_test(
         "@googletest//:gtest_main",
     ],
 )
+
+# The frame-rate tracker: the rate of the ticks, the smoothing, a reset that forgets the period across it, and a period
+# of zero skipped rather than an infinite rate.
+cc_test(
+    name = "fps_tracker_test",
+    size = "small",
+    srcs = ["test/FPSTrackerTest.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":robot_core",
+        "@googletest//:gtest_main",
+    ],
+)

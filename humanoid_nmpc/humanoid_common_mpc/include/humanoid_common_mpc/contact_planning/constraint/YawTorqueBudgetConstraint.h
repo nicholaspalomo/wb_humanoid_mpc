@@ -40,8 +40,11 @@ namespace ocs2::humanoid {
 /**
  * `yaw_torque_budget` (hard, running nodes): the yaw torque of a foot is the torsional friction of the weight it
  * carries plus its half of the friction couple in double support. Alone a foot carries the whole weight, T_t; with
- * both feet down each carries half of it and half of the couple, (T_t + T_c) / 2, so that the pair has T_t + T_c:
- * +-tau_i - T_t c_i - (T_c - T_t) (c_L + c_R - 1) / 2 <= 0.
+ * both feet down each carries half of it and half of the couple, (T_t + T_c) / 2, so that the pair has T_t + T_c; a
+ * swinging foot, and either foot in flight, carries none. Two rows per foot and sign, the concave envelope of that
+ * budget over the two contact binaries (YawTorqueBudgetConstraint.cpp).
+ *
+ * Not thread-safe, like every ContactPlanningTerm: the planner that owns it configures and evaluates it from one thread at a time.
  */
 class YawTorqueBudgetConstraint final : public LipConstraintBase {
  public:

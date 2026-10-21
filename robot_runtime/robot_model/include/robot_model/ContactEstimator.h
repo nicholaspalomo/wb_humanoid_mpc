@@ -29,8 +29,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <string>
 #include <vector>
+
+#include "absl/strings/string_view.h"
 
 #include "robot_model/RobotState.h"
 
@@ -62,8 +63,11 @@ class ContactEstimator {
    */
   virtual void estimateContactFlags(const RobotState& robotState, std::vector<bool>& flags) = 0;
 
-  /** Name for logs and diagnostics. */
-  virtual std::string getName() const = 0;
+  /**
+   * Name for logs and diagnostics: a view of static storage (a string literal), valid while the estimator lives, so
+   * that a hot swap on the realtime thread reads it without allocating.
+   */
+  virtual absl::string_view getName() const = 0;
 };
 
 /** The flags `estimator` writes for `robotState`, in a vector of their own (allocates: for tests and tools). */

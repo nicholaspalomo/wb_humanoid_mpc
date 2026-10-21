@@ -59,13 +59,14 @@ namespace ocs2::humanoid {
  * compatible with ad_scalar_t.
  *
  * @tparam SCALAR Scalar type (scalar_t or ad_scalar_t)
+ *
+ * Not thread-safe, like the mapping it wraps, which evaluates on the Pinocchio data of one worker's PreComputation;
+ * each worker thread uses its own clone().
  */
 template <typename SCALAR>
 class BasisInputsMappingDecorator final : public PinocchioStateInputMapping<SCALAR> {
  public:
   using typename PinocchioStateInputMapping<SCALAR>::vector_t;
-
-  static constexpr size_t kWrenchDim = 6;
 
   /**
    * @param wrappedMapping    The original pinocchio mapping to delegate to.

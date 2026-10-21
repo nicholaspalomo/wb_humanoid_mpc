@@ -34,6 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/time/time.h"
 #include "ocs2_core/reference/TargetTrajectories.h"
 #include "ocs2_mpc/SystemObservation.h"
 #include "ocs2_sqp/SqpMpc.h"
@@ -78,6 +79,8 @@ class CentroidalMpcNode {
     robot::realtime::RealtimeThreadConfig solverThread = node::defaultSolverThreadConfig(/*realtimePriority=*/0);
     /** The visualization publisher's thread and queue (its defaults suit the node). */
     visualization::VisualizationPublisherOptions visualization;
+    /** node::MpcNodeRuntime::Config::walkingCommandTimeout: zero (the default) keeps the last walking command. */
+    absl::Duration walkingCommandTimeout = absl::ZeroDuration();
   };
 
   /**

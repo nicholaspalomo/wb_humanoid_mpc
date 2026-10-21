@@ -30,22 +30,19 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact/ContactWrenchGate.h"
 
 #include <algorithm>
-#include <cmath>
-#include <limits>
+#include <optional>
 
-#include "absl/log/absl_check.h"
 #include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+
+#include "humanoid_common_mpc/common/StatusMacros.h"
 
 namespace ocs2::humanoid {
 
-ContactWrenchGate::ContactWrenchGate() : ContactWrenchGate(Config()) {}
-
-ContactWrenchGate::ContactWrenchGate(const Config& config) {
-  const absl::Status valid = validateConfig(config);
-  ABSL_CHECK(valid.ok()) << valid.message();
-  config_ = config;
-  reset();
+absl::StatusOr<ContactWrenchGate> ContactWrenchGate::Create(const Config& config) {
+  RETURN_IF_ERROR(validateConfig(config));
+  return ContactWrenchGate(config);
 }
 
 bool ContactWrenchGate::isValidConfig(const Config& config) {
@@ -68,19 +65,20 @@ bool ContactWrenchGate::setConfig(const Config& config) {
 }
 
 void ContactWrenchGate::reset() {
-  onsetTime_.fill(std::numeric_limits<scalar_t>::quiet_NaN());
+  onsetTime_.fill(std::nullopt);
   scales_.fill(1.0);
 }
 
 const feet_array_t<scalar_t>& ContactWrenchGate::update(scalar_t time, const contact_flag_t& measuredContactFlags) {
   for (size_t i = 0; i < scales_.size(); ++i) {
     if (!measuredContactFlags[i]) {
-      onsetTime_[i] = std::numeric_limits<scalar_t>::quiet_NaN();
+      onsetTime_[i] = std::nullopt;
       scales_[i] = 0.0;
       continue;
     }
-    if (std::isnan(onsetTime_[i]) || time < onsetTime_[i]) onsetTime_[i] = time;
-    const scalar_t sinceOnset = time - onsetTime_[i];
+    std::optional<scalar_t>& onsetTime = onsetTime_[i];
+    if (!onsetTime.has_value() || time < *onsetTime) onsetTime = time;
+    const scalar_t sinceOnset = time - *onsetTime;
     if (sinceOnset < config_.debounceTime) {
       scales_[i] = 0.0;
     } else if (config_.rampTime > 0.0) {
@@ -92,7 +90,7 @@ const feet_array_t<scalar_t>& ContactWrenchGate::update(scalar_t time, const con
   return scales_;
 }
 
-std::array<vector6_t, 2> ContactWrenchGate::apply(std::array<vector6_t, 2> plannedWrenches) const {
+feet_array_t<vector6_t> ContactWrenchGate::apply(feet_array_t<vector6_t> plannedWrenches) const {
   for (size_t i = 0; i < plannedWrenches.size() && i < scales_.size(); ++i) {
     plannedWrenches[i] *= scales_[i];
   }

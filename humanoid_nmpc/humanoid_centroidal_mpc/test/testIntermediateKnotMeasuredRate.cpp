@@ -60,10 +60,10 @@ namespace ocs2::humanoid {
 namespace {
 
 constexpr scalar_t kInitTime = 2.0;
-// The share of the horizon of the first segment, and the share of the command the filter lets through on the first call
-// after construction (1 - 0.8).
+// The share of the horizon of the first segment, and the share of the command that reaches the knots: all of it, since
+// the calculator does not filter the command (ProceduralMpcMotionManager does, on the solver time).
 constexpr scalar_t kFirstSegmentShare = 0.7;
-constexpr scalar_t kFirstCommandFactor = 0.2;
+constexpr scalar_t kFirstCommandFactor = 1.0;
 
 /** R_z(angle) v. */
 vector2_t rotated(scalar_t angle, const vector2_t& vector) {
@@ -153,7 +153,8 @@ TEST(IntermediateKnotMeasuredRate, TheKnotsLieOnTheArcOfTheirTwist) {
   AtlasReferenceStack stack;
   const PlanarPose start{.position = vector2_t(-1.0, 2.0), .heading = -2.5};
   const BasePlanarMotion measured{.velocityInHeadingFrame = vector2_t(0.25, -0.05), .headingRate = 0.6};
-  const vector4_t command(0.5, 0.2, 0.0, 0.9);
+  // The command the calculator used to see after its per-call filter (1 - 0.8 of it), so that the knots stay unsubdivided.
+  const vector4_t command(0.1, 0.04, 0.0, 0.18);
   const TargetTrajectories targets =
       stack.targetCalculator().commandedVelocityToTargetTrajectories(command, kInitTime, standingAt(stack, start), measured);
   ASSERT_EQ(targets.stateTrajectory.size(), 3);
@@ -177,7 +178,8 @@ TEST(IntermediateKnotMeasuredRate, EveryKnotsMomentumIsTheCommandInItsHeadingFra
   AtlasReferenceStack stack;
   const PlanarPose start{.position = vector2_t(0.0, 0.0), .heading = 0.4};
   const BasePlanarMotion measured{.velocityInHeadingFrame = vector2_t(0.1, 0.0), .headingRate = 0.8};
-  const vector4_t command(0.4, -0.2, 0.0, 1.0);
+  // The command the calculator used to see after its per-call filter (1 - 0.8 of it), so that the knots stay unsubdivided.
+  const vector4_t command(0.08, -0.04, 0.0, 0.2);
   const vector_t initState = standingAt(stack, start);
   const TargetTrajectories targets =
       stack.targetCalculator().commandedVelocityToTargetTrajectories(command, kInitTime, initState, measured);
@@ -211,7 +213,7 @@ TEST(IntermediateKnotMeasuredRate, EveryKnotsMomentumIsTheCommandInItsHeadingFra
 
 TEST(IntermediateKnotMeasuredRate, AFastMeasuredTurnIsCutIntoKnotsAtMostAQuarterTurnApart) {
   AtlasReferenceStack stack;
-  // A spin of 9 rad/s (a fall): the first segment turns by 0.7 T (9 + 0.2) / 2 = 3.22 rad, past pi, where the
+  // A spin of 9 rad/s (a fall): the first segment turns by 0.7 T (9 + 1) / 2 = 3.5 rad, past pi, where the
   // shortest-path slerp of a quaternion layout would turn the reference the other way. Cut into at least three parts for
   // the yaw spacing, six here, where the chord of the turning velocity target needs more.
   const PlanarPose start{.position = vector2_t(0.2, 0.1), .heading = 0.3};
@@ -288,7 +290,7 @@ TEST(IntermediateKnotMeasuredRate, BetweenTheKnotsTheInterpolatedReferenceStaysO
   const vector2_t velocity(1.2, 0.25);
   const scalar_t yawRate = 1.0;
   const BasePlanarMotion measured{.velocityInHeadingFrame = velocity, .headingRate = yawRate};
-  // The filter lets kFirstCommandFactor of the command through on the first call.
+  // kFirstCommandFactor of the command reaches the knots.
   const vector4_t command(velocity(0) / kFirstCommandFactor, velocity(1) / kFirstCommandFactor, 0.0, yawRate / kFirstCommandFactor);
   const TargetTrajectories targets =
       stack.targetCalculator().commandedVelocityToTargetTrajectories(command, kInitTime, standingAt(stack, start), measured);

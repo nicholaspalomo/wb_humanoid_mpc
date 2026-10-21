@@ -12,7 +12,7 @@ message JointLimitsConfig {
 
   reserved 3 to max;
 
-  // The barrier (PieceWisePolynomialBarrierPenalty).
+  // The barrier (PieceWisePolynomialBarrierPenalty), both positive.
   double mu = 1 [default = 1.0];
   double delta = 2 [default = 0.001];
 }

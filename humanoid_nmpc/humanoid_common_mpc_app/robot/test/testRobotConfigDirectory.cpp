@@ -63,11 +63,11 @@ namespace {
 using ::testing::ElementsAre;
 using ::testing::HasSubstr;
 
-constexpr char kTask[] = "model_settings { robot_name: \"g1\" }\n";
-constexpr char kReference[] = "target_displacement_velocity: 0.5\n";
-constexpr char kGains[] = "default_gains { kp: 100.0 }\n";
-constexpr char kPlanner[] = "# the contact planner's file\n";
-constexpr char kSaved[] = "model_settings { robot_name: \"g1\" }\ntelemetry_frequency: 20\n";
+constexpr char kTask[] = "# proto-message: humanoid_mpc_config.TaskFile\nmodel_settings { robot_name: \"g1\" }\n";
+constexpr char kReference[] = "# proto-message: humanoid_mpc_config.ReferenceFile\ntarget_displacement_velocity: 0.5\n";
+constexpr char kGains[] = "# proto-message: humanoid_mpc_config.JointPdGainsFile\ndefault_gains { kp: 100.0 }\n";
+constexpr char kPlanner[] = "# proto-message: humanoid_mpc_config.ContactPlanningFile\n# the contact planner's file\n";
+constexpr char kSaved[] = "# proto-message: humanoid_mpc_config.TaskFile\nmodel_settings { robot_name: \"g1\" }\ntelemetry_frequency: 20\n";
 
 std::string readFile(const std::string& path) {
   std::ifstream file(path);
@@ -130,6 +130,7 @@ TEST(RobotConfigDirectory, WithoutAStoreTheBundledFilesAreReadInPlace) {
   EXPECT_FALSE(directory->usesStoredCopies());
   EXPECT_EQ(directory->identity(msgs::ConfigFileKind::kTask), "robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.textproto");
   EXPECT_EQ(directory->taskFileIdentity(), directory->identity(msgs::ConfigFileKind::kTask));
+  EXPECT_EQ(directory->pdGainsFileIdentity(), directory->identity(msgs::ConfigFileKind::kJointPdGains));
   EXPECT_EQ(directory->identity(msgs::ConfigFileKind::kJointPdGains),
             "robot_models/unitree_g1/g1_wb_mpc/config/controller/joint_pd_gains.textproto");
   EXPECT_TRUE(directory->identity(msgs::ConfigFileKind::kUnspecified).empty());

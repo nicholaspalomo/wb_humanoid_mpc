@@ -111,7 +111,7 @@ def read_header(source: str) -> Header:
 def schema_messages(proto_source: str) -> list[str]:
     """The full names (`package.Message`) of the top-level messages of a .proto file."""
     package = _PACKAGE.search(proto_source)
-    prefix = package.group(1) + "." if package else ""
+    prefix = f"{package.group(1)}." if package else ""
     return [
         prefix + definition.name
         for definition in proto_file_layout.top_level_definitions(proto_source)

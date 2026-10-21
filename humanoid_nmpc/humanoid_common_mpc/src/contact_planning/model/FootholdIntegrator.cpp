@@ -34,13 +34,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/log/check.h"
 #include "absl/strings/str_cat.h"
+#include "ocs2_core/Dimensions.h"
 
+#include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
 #include "humanoid_common_mpc/contact_planning/logic/ContactLogicState.h"
 #include "humanoid_common_mpc/contact_planning/model/LipBlockIndices.h"
 
 namespace ocs2::humanoid {
 
-static_assert(kNumContacts == 2, "the foothold block lays out two feet (kLipPlx..kLipPry, kLipDlx..kLipCr)");
+static_assert(kNumContacts == kBipedFootCount, "the foothold block lays out two feet (kLipPlx..kLipPry, kLipDlx..kLipCr)");
 
 std::string FootholdIntegrator::describe() const {
   return absl::StrCat("p_{i,k+1} = p_{i,k} + dp_{i,k}, |dp| <= bigM = ", bigM_, " m, contact binaries c_i in {0, 1}");
@@ -71,7 +73,7 @@ void FootholdIntegrator::declareVariables(LayoutBuilder& layout) const {
 
 void FootholdIntegrator::addDynamics(const ContactPlanningContext& /*ctx*/, int /*node*/, OcpQpStage& s) const {
   for (size_t foot = 0; foot < kNumContacts; ++foot) {
-    for (int axis = 0; axis < 2; ++axis) {
+    for (int axis = 0; axis < kHorizontalPositionDim; ++axis) {
       s.A(idx_.foot[foot][axis], idx_.foot[foot][axis]) = 1.0;
       s.B(idx_.foot[foot][axis], idx_.footDelta[foot][axis]) = 1.0;
     }
@@ -81,14 +83,14 @@ void FootholdIntegrator::addDynamics(const ContactPlanningContext& /*ctx*/, int 
 void FootholdIntegrator::addInputBounds(const ContactPlanningContext& ctx, int /*node*/, InputBoundsBuilder& bounds) const {
   const scalar_t M = ctx.bigM;
   for (size_t foot = 0; foot < kNumContacts; ++foot) {
-    for (int axis = 0; axis < 2; ++axis) bounds.add(idx_.footDelta[foot][axis], -M, M);
+    for (int axis = 0; axis < kHorizontalPositionDim; ++axis) bounds.add(idx_.footDelta[foot][axis], -M, M);
   }
   for (size_t foot = 0; foot < kNumContacts; ++foot) bounds.add(idx_.contact[foot], /*lower=*/0.0, /*upper=*/1.0);
 }
 
 void FootholdIntegrator::setInitialState(const ContactPlanningContext& ctx, vector_t& x0) const {
   for (size_t foot = 0; foot < kNumContacts; ++foot) {
-    for (int axis = 0; axis < 2; ++axis) x0(idx_.foot[foot][axis]) = ctx.input->footPositions[foot](axis);
+    for (int axis = 0; axis < kHorizontalPositionDim; ++axis) x0(idx_.foot[foot][axis]) = ctx.input->footPositions[foot](axis);
   }
 }
 

@@ -36,6 +36,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
+#include "ocs2_core/penalties/penalties/PenaltyBase.h"
 #include "ocs2_core/penalties/penalties/PieceWisePolynomialBarrierPenalty.h"
 #include "ocs2_core/penalties/penalties/RelaxedBarrierPenalty.h"
 #include "ocs2_core/soft_constraint/StateInputSoftConstraint.h"
@@ -126,7 +127,7 @@ void setConePenalty(OptimalControlProblem& ocp,
   for (const std::string& footName : contactNames) {
     updateTermIfPresent<StateInputSoftConstraint>(
         *ocp.softConstraintPtr, contact_term::name(footName, suffix), [&](StateInputSoftConstraint& softCon) {
-          setPenaltyParameters(softCon, contactConePenaltyParameters(barrier, softCon.get<Cone>().isScheduleGated()));
+          setPenaltyParameters(softCon, contactConePenaltyParameters(barrier, contactConeGatingOf(softCon.get<Cone>().isScheduleGated())));
         });
   }
 }
@@ -156,7 +157,7 @@ void ConstraintPenaltiesApplier::apply(HotUpdateTarget& target) {
       });
     }
     if (penalties.collision.has_value()) {
-      const vector_t collisionParams = (vector_t(2) << penalties.collision->mu, penalties.collision->delta).finished();
+      const vector_t collisionParams = (vector_t(kMuDeltaParameterCount) << penalties.collision->mu, penalties.collision->delta).finished();
       updateTermIfPresent<StateSoftConstraint>(*ocp.stateSoftConstraintPtr, kFootCollisionTerm,
                                                [&](StateSoftConstraint& softCon) { setPenaltyParameters(softCon, collisionParams); });
     }

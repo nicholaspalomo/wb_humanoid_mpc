@@ -117,8 +117,15 @@ next lift-off came up to a node early as well. `buildGait()` now places every sw
 executed schedule's own event time (`ContactPlannerInput::committedPhaseStartTimes`), so the swing in flight ends at its
 executed touch-down and the double support is served out from there. Only the node each boundary is assigned to comes
 from the grid (`GaitPhase::endNode`): inside the window the node where the committed contacts change, after it the
-nearest node, assigned once. The contacts, the footholds and the ZMP follow those integer boundaries, so a foothold
-changes on exactly the node its contact does; the deadbeat step and the center of mass follow the continuous times.
+nearest node, assigned once. The contacts and the footholds follow those integer boundaries, so a foothold changes on
+exactly the node its contact does; the deadbeat step and the center of mass follow the continuous times. Between nodes
+the plan's center of mass is the roll-out itself, not an interpolation of its nodes: the plan carries the reduced model
+of every continuous phase (`ContactPlan::phaseZmp` - the stance foot of a single support, nothing for a double support,
+which moves at constant velocity), and `lipReferenceState()`, `comPositionAtTime()` and `comVelocityAtTime()` flow the
+node at or before a time through the phases up to it. The ZMP they report is the one that motion implies: the stance
+foot in single support and the center of mass itself in double support (a constant velocity is a LIP whose ZMP is the
+CoM). The per-interval `ContactPlan::zmp` is that ZMP at the interval's midpoint, for display; it used to hold the
+midpoint of the feet in double support, a ZMP inconsistent with the constant-velocity CoM published there.
 The mode schedule is built from the continuous times as well (`ContactPlan::phaseContacts` / `phaseStartTimes`, which
 `ContactPlan::toModeSchedule()` reads), so every executed single support lasts `hlip.ssp_duration` and every executed
 double support `hlip.dsp_duration` exactly - the durations the deadbeat gain `K = [1, T_dsp + coth(omega T_ssp) / omega]`
@@ -330,8 +337,8 @@ rather than handed to the whole-body MPC — and, as the row above says, the one
 reference plumbing rather than a heuristic.
 
 A plan costs microseconds instead of the mixed-integer planner's tens of milliseconds, so the node grid can be fine
-(`planner.dt: 0.025`); the mode schedule takes the H-LIP's continuous event times, and only the per-node contacts,
-footholds and ZMP are rounded to the nearest node.
+(`planner.dt: 0.025`); the mode schedule and the center-of-mass reference take the H-LIP's continuous event times, and
+only the per-node contacts and footholds are rounded to the nearest node.
 
 ## 6. Configuration
 
@@ -381,7 +388,7 @@ generic renderer exists to avoid. If the marking is wanted, it belongs in the sc
 `planner.type` in the `tuning` options of the blocks one planner reads, which the tab already renders as
 "not applicable".
 
-`shared.com_height` and `shared.gravity` are the pendulum's - a `com_height` left out, as both shipped robots write it,
+`shared.com_height` and the robot model's gravity are the pendulum's - a `com_height` left out, as both shipped robots write it,
 is the model's center of mass above its soles at `initial_state`, the same pendulum a `dcm_terminal_cost` without
 `com_height` resolves to; a positive value is an explicit override - and the per-term blocks and the `costs`, `soft_constraints`,
 `hard_constraints`, `logic_rules`, `assignment_costs` and `search` lists belong to `lip_miqp` and are ignored. Two

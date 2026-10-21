@@ -5,9 +5,11 @@ load("//bazel:copts.bzl", "FIRST_PARTY_COPTS")
 
 package(default_visibility = ["//visibility:public"])
 
-# Headers shared by the planner core and the rest of the library (types, the mode-number conventions and the
-# absl::Status propagation macros, header only).
+# Headers shared by the planner core and the rest of the library (types, the number of feet, the mode-number and the
+# contact term name conventions and the absl::Status propagation macros, header only).
 _COMMON_TYPES_HDRS = [
+    "include/humanoid_common_mpc/common/BipedFeet.h",
+    "include/humanoid_common_mpc/common/ContactTermNames.h",
     "include/humanoid_common_mpc/common/StatusMacros.h",
     "include/humanoid_common_mpc/common/Types.h",
     "include/humanoid_common_mpc/gait/MotionPhaseDefinition.h",
@@ -42,6 +44,7 @@ cc_library(
     deps = [
         ":humanoid_common_mpc_types",
         "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/functional:function_ref",
         "@abseil-cpp//absl/log",
         "@abseil-cpp//absl/status",
     ],
@@ -79,6 +82,7 @@ cc_library(
 _MRT_CONTROL_THREAD_HDRS = [
     "include/humanoid_common_mpc/mrt/ContactEstimateIntake.h",
     "include/humanoid_common_mpc/mrt/JointActionAccess.h",
+    "include/humanoid_common_mpc/mrt/JointActionBlend.h",
 ]
 
 cc_library(
@@ -97,6 +101,28 @@ cc_library(
         "@abseil-cpp//absl/strings",
         "@abseil-cpp//absl/strings:string_view",
         "@abseil-cpp//absl/types:span",
+    ],
+)
+
+# The policy in use evaluated for a command a lookahead after the measurement: the plan and the feedforward at the
+# lookahead, the feedback at the measurement (mrt/LookaheadPolicyEvaluator.h). A target of its own because it builds
+# on the realtime policy evaluator of //humanoid_nmpc/humanoid_mpc_ipc, which depends on this package.
+_LOOKAHEAD_POLICY_EVALUATOR_HDRS = [
+    "include/humanoid_common_mpc/mrt/LookaheadPolicyEvaluator.h",
+]
+
+cc_library(
+    name = "lookahead_policy_evaluator",
+    srcs = ["src/mrt/LookaheadPolicyEvaluator.cpp"],
+    hdrs = _LOOKAHEAD_POLICY_EVALUATOR_HDRS,
+    includes = ["include"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        "//humanoid_nmpc/humanoid_mpc_ipc:realtime_policy_evaluator",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_oc",
+        "@abseil-cpp//absl/base:nullability",
+        "@eigen",
     ],
 )
 
@@ -262,6 +288,7 @@ cc_library(
         "src/pinocchio_model/pinocchioUtils.cpp",
         "src/pinocchio_model/createPinocchioModel.cpp",
         "src/pinocchio_model/DynamicsHelperFunctions.cpp",
+        "src/pinocchio_model/RealtimeRigidBodyDynamics.cpp",
         "src/common/ContactInputParameterization.cpp",
         "src/common/ModelSettings.cpp",
         "src/common/MpcFormulationConfig.cpp",
@@ -291,7 +318,6 @@ cc_library(
         "src/cost/ExternalTorqueQuadraticCostAD.cpp",
         "src/command/TargetTrajectoriesCalculatorBase.cpp",
         "src/gait/GaitSchedule.cpp",
-        "src/gait/ModeSequenceTemplate.cpp",
         "src/gait/GaitScheduleUpdater.cpp",
         "src/swing_foot_planner/CubicSpline.cpp",
         "src/swing_foot_planner/SplineCpg.cpp",
@@ -311,6 +337,7 @@ cc_library(
         "src/locomotion_heuristics/foothold/TranslationalSteppingHeuristic.cpp",
         "src/locomotion_heuristics/wrench/CentripetalAccelerationHeuristic.cpp",
         "src/locomotion_heuristics/wrench/ImpulseScalingHeuristic.cpp",
+        "src/reference_manager/ArmSwing.cpp",
         "src/reference_manager/SwitchedModelReferenceManager.cpp",
         "src/reference_manager/ProceduralMpcMotionManager.cpp",
         "src/reference_manager/StrideMotionHistory.cpp",
@@ -343,6 +370,7 @@ cc_library(
     hdrs = glob(
         ["include/**"],
         exclude = _CONTACT_PLANNING_CORE_HDRS + _COMMON_TYPES_HDRS + _CONTROLLER_EVENT_HDRS + _MRT_CONTROL_THREAD_HDRS +
+                  _LOOKAHEAD_POLICY_EVALUATOR_HDRS +
                   _ORIENTATION_HDRS + _STATE_LAYOUT_HDRS + _WALKING_VELOCITY_COMMAND_HDRS + [
                       "include/humanoid_common_mpc/mrt/MpcResetSupervisor.h",
                   ],
@@ -372,6 +400,8 @@ cc_library(
         # The typed configuration schemas and their strict parser (humanoid_nmpc/humanoid_mpc_config).
         "//humanoid_nmpc/humanoid_mpc_config:config_cc_proto",
         "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
+        # The FNV-1a constants of the footprint fingerprint and the basis-library key.
+        "//tools/nproto:fnv1a64_constants",
         "//tools/nproto:nproto_runtime",
         # The nproto options the reload classes of the schemas read (config/ConfigReload.h).
         "//tools/nproto:options_cc_proto",
@@ -394,6 +424,7 @@ cc_library(
         "@abseil-cpp//absl/strings",
         "@abseil-cpp//absl/strings:string_view",
         "@abseil-cpp//absl/synchronization",
+        "@abseil-cpp//absl/time",
         "@abseil-cpp//absl/types:span",
         "@abseil-cpp//absl/memory",
         "@abseil-cpp//absl/base:no_destructor",
@@ -461,6 +492,7 @@ cc_test(
         "@abseil-cpp//absl/strings:string_view",
         "@googletest//:gtest_main",
         "@pinocchio",
+        ":status_test_macros",
     ],
 )
 
@@ -485,6 +517,56 @@ cc_test(
         ":humanoid_common_mpc",
         "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/log:scoped_mock_log",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The procedural arm swing on every shipped robot that names its arm joints, on the robots' own URDFs without CppAD: the
+# derived joint senses against a finite difference of the forward kinematics, the swing it produces, its independence of
+# the node's state, and the arm_swing block's conversion.
+cc_test(
+    name = "testArmSwing",
+    size = "small",
+    srcs = ["test/testArmSwing.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = [
+        "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+        "//robot_models/drc_atlas/drc_atlas_description",
+        "//robot_models/unitree_g1/g1_centroidal_mpc",
+        "//robot_models/unitree_g1/g1_description",
+        "//robot_models/unitree_g1/g1_wb_mpc",
+        "//robot_models/unitree_r1/unitree_r1_centroidal_mpc",
+        "//robot_models/unitree_r1/unitree_r1_description",
+    ],
+    deps = [
+        ":humanoid_common_mpc",
+        ":quaternion_layout_robot_model",
+        "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_pinocchio_interface",
+        "//robot_runtime/robot_core:resource_paths",
+        "@abseil-cpp//absl/base:no_destructor",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@eigen",
+        "@googletest//:gtest_main",
+        "@pinocchio",
+    ],
+)
+
+# The reference manager's seams into the locomotion heuristics, without a robot model: the foothold anchor keeps the
+# feet with the body under a sustained command, and the shaped attitude's angular velocity is its derivative.
+cc_test(
+    name = "testLocomotionHeuristicSeams",
+    size = "small",
+    srcs = ["test/testLocomotionHeuristicSeams.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":humanoid_common_mpc",
+        "@abseil-cpp//absl/status:statusor",
+        "@eigen",
         "@googletest//:gtest_main",
     ],
 )
@@ -566,6 +648,20 @@ cc_test(
 )
 
 cc_test(
+    name = "testContactWrenchConeRows",
+    size = "small",
+    srcs = ["test/testContactWrenchConeRows.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":humanoid_common_mpc",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/strings",
+        "@eigen",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
     name = "testBasisInputsCostTransform",
     size = "small",
     srcs = ["test/testBasisInputsCostTransform.cpp"],
@@ -599,8 +695,10 @@ cc_test(
     copts = FIRST_PARTY_COPTS,
     deps = [
         ":humanoid_common_mpc",
+        ":status_test_macros",
         "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
         "@googletest//:gtest_main",
     ],
 )
@@ -685,6 +783,49 @@ cc_test(
         "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/synchronization",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The lookahead evaluation of the policy: on a moving plan a measurement on it gets exactly the feedforward, and off it
+# the feedback is the gain at the measurement time times the error there.
+cc_test(
+    name = "testLookaheadPolicyEvaluator",
+    size = "small",
+    srcs = ["test/testLookaheadPolicyEvaluator.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":lookahead_policy_evaluator",
+        "//humanoid_nmpc/humanoid_mpc_ipc:realtime_policy_evaluator",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_oc",
+        "@abseil-cpp//absl/base:nullability",
+        "@googletest//:gtest_main",
+        ":status_test_macros",
+    ],
+)
+
+# The ramp from a held joint action into the MPC's: linear in the torque at every measurement.
+cc_test(
+    name = "testJointActionBlend",
+    size = "small",
+    srcs = ["test/testJointActionBlend.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":mrt_control_thread",
+        "//robot_runtime/robot_model",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The SAFETY decay never rises within a stay in the mode, whatever the clock and the time constant do.
+cc_test(
+    name = "testSafetyDecayLatch",
+    size = "small",
+    srcs = ["test/testSafetyDecayLatch.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":humanoid_common_mpc",
         "@googletest//:gtest_main",
     ],
 )
@@ -873,6 +1014,7 @@ cc_test(
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
         "@googletest//:gtest_main",
+        ":status_test_macros",
     ],
 )
 
@@ -896,6 +1038,7 @@ cc_test(
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
         "@googletest//:gtest_main",
+        ":status_test_macros",
     ],
 )
 
@@ -1028,6 +1171,19 @@ cc_test(
     ],
 )
 
+# sinc() (common/Sinc.h), the chord factor of the velocity command's arc and of the stride history: the quotient away from
+# zero, its series near it, and continuity across the threshold. Builds no model.
+cc_test(
+    name = "testSinc",
+    size = "small",
+    srcs = ["test/testSinc.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":humanoid_common_mpc",
+        "@googletest//:gtest_main",
+    ],
+)
+
 # The arc of a velocity command's knots against its closed form and an RK4 integration of the unicycle, and the yaw
 # subdivision that keeps them at most pi / 2 apart (design README section 2.9). Builds no model.
 cc_test(
@@ -1102,6 +1258,7 @@ cc_test(
     copts = FIRST_PARTY_COPTS,
     deps = [
         ":contact_planning_core",
+        ":status_test_macros",
         "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
@@ -1116,7 +1273,10 @@ cc_test(
     copts = FIRST_PARTY_COPTS,
     deps = [
         ":contact_planning_core",
+        ":status_test_macros",
         "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/log:absl_check",
+        "@abseil-cpp//absl/status:statusor",
         "@googletest//:gtest_main",
     ],
 )
@@ -1189,6 +1349,99 @@ cc_test(
     ],
 )
 
+# The orientation error of the end-effector kinematic costs (computeTaskSpaceErrors()): the world-axes rotation vector
+# against AngleAxis, its derivative against -Jr^-1 and central differences, and the generated tape. Compiles one small
+# CppAD library, so it runs alone.
+cc_test(
+    name = "testEndEffectorOrientationError",
+    size = "small",
+    srcs = ["test/testEndEffectorOrientationError.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    tags = ["exclusive"],
+    deps = [
+        ":humanoid_common_mpc",
+        "//lib/ocs2:ocs2_core",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The realtime rigid-body dynamics of the MRT joint controllers on the FreeFlyer twin of the MPC model, against the MPC
+# model's own passes and RNEA, and with no heap allocation.
+cc_test(
+    name = "testRealtimeRigidBodyDynamics",
+    size = "small",
+    srcs = ["test/testRealtimeRigidBodyDynamics.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = [
+        "//robot_models/unitree_g1/g1_centroidal_mpc",
+        "//robot_models/unitree_g1/g1_description",
+        "//robot_models/unitree_g1/g1_wb_mpc",
+    ],
+    linkstatic = True,
+    deps = [
+        ":humanoid_common_mpc",
+        "//robot_runtime/robot_core:resource_paths",
+        "//robot_runtime/robot_realtime:allocation_counter",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status:statusor",
+        "@googletest//:gtest_main",
+        "@pinocchio",
+    ],
+)
+
+# The tilt residual of the foot costs (tiltAngleToPlane()) against an independent construction and its tape against
+# central differences. It compiles one small library, so it runs alone.
+cc_test(
+    name = "testTiltAngleToPlane",
+    size = "small",
+    srcs = ["test/testTiltAngleToPlane.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    tags = ["exclusive"],
+    deps = [
+        ":humanoid_common_mpc",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_robotic_tools",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "testContactPolygon",
+    size = "small",
+    srcs = ["test/testContactPolygon.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":humanoid_common_mpc",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "testSplineCpg",
+    size = "small",
+    srcs = ["test/testSplineCpg.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":humanoid_common_mpc",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "testSwingTrajectoryContinuity",
+    size = "small",
+    srcs = ["test/testSwingTrajectoryContinuity.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = ["config/command/gait.textproto"],
+    deps = [
+        ":humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status:statusor",
+        "@googletest//:gtest_main",
+    ],
+)
+
 cc_test(
     name = "testSwingPitchReference",
     size = "small",
@@ -1221,6 +1474,9 @@ cc_test(
     deps = [
         ":contact_planning_core",
         "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/log:absl_check",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
         "@googletest//:gtest_main",
     ],
 )
@@ -1244,8 +1500,11 @@ cc_test(
     copts = FIRST_PARTY_COPTS,
     deps = [
         ":contact_planning_core",
+        ":status_test_macros",
         "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/log:absl_check",
         "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
         "@googletest//:gtest_main",
     ],
@@ -1258,7 +1517,9 @@ cc_test(
     copts = FIRST_PARTY_COPTS,
     deps = [
         ":contact_planning_core",
+        ":status_test_macros",
         "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
         "@googletest//:gtest_main",
     ],
@@ -1283,7 +1544,10 @@ cc_test(
     copts = FIRST_PARTY_COPTS,
     deps = [
         ":contact_planning_core",
+        ":status_test_macros",
         "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/log:absl_check",
+        "@abseil-cpp//absl/status:statusor",
         "@googletest//:gtest_main",
     ],
 )
@@ -1334,7 +1598,9 @@ cc_test(
     copts = FIRST_PARTY_COPTS,
     deps = [
         ":contact_planning_core",
+        ":status_test_macros",
         "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/log:absl_check",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
@@ -1349,7 +1615,10 @@ cc_test(
     copts = FIRST_PARTY_COPTS,
     deps = [
         ":contact_planning_core",
+        ":status_test_macros",
+        "//lib/ocs2:ocs2_robotic_tools",
         "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/log:absl_check",
         "@abseil-cpp//absl/log:check",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
@@ -1367,8 +1636,11 @@ cc_test(
     data = glob(["test/data/contact_planning/*.txt"], allow_empty = True),
     deps = [
         ":contact_planning_core",
+        ":status_test_macros",
         "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/log",
+        "@abseil-cpp//absl/log:absl_check",
+        "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
         "@googletest//:gtest_main",
     ],
@@ -1390,6 +1662,7 @@ cc_test(
         "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/strings",
         "@googletest//:gtest_main",
+        ":status_test_macros",
     ],
 )
 
@@ -1414,10 +1687,12 @@ cc_test(
         "//lib/ocs2:ocs2_core",
         "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/log",
+        "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
         "@abseil-cpp//absl/strings:string_view",
         "@googletest//:gtest_main",
+        ":status_test_macros",
     ],
 )
 
@@ -1439,6 +1714,7 @@ cc_test(
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
         "@googletest//:gtest_main",
+        ":status_test_macros",
     ],
 )
 
@@ -1505,6 +1781,7 @@ cc_test(
         "@abseil-cpp//absl/strings:string_view",
         "@googletest//:gtest_main",
         "@pinocchio",
+        ":status_test_macros",
     ],
 )
 
@@ -1711,6 +1988,22 @@ cc_library(
     ],
 )
 
+# The fatal test assertions on absl::Status and absl::StatusOr (test/support/StatusTestMacros.h), the checked
+# replacement of `.value()` in tests.
+cc_library(
+    name = "status_test_macros",
+    testonly = True,
+    hdrs = ["test/support/StatusTestMacros.h"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":humanoid_common_mpc_types",
+        "@abseil-cpp//absl/log:absl_check",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@googletest//:gtest",
+    ],
+)
+
 # The typed roots of the configuration on the shipped robots' files (test/config/testConfigRoots.cpp) and the other
 # tests of test/config/*.cpp.
 cc_test(
@@ -1749,6 +2042,7 @@ _CONFIG_TEST_DEPS = [
     ":state_layout",
     "//humanoid_nmpc/humanoid_mpc_config:config_cc_proto",
     "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
+    "//lib/ocs2:ocs2_pinocchio_interface",
     "//lib/ocs2:ocs2_sqp",
     "//tools/nproto:nproto_runtime",
     "@abseil-cpp//absl/base:nullability",
@@ -1759,8 +2053,10 @@ _CONFIG_TEST_DEPS = [
     "@abseil-cpp//absl/status:statusor",
     "@abseil-cpp//absl/strings",
     "@abseil-cpp//absl/strings:string_view",
+    "@abseil-cpp//absl/time",
     "@eigen",
     "@googletest//:gtest_main",
+    "@pinocchio",
 ]
 
 _CONFIG_AREAS = [
@@ -1822,6 +2118,7 @@ cc_test(
         "@abseil-cpp//absl/strings",
         "@abseil-cpp//absl/strings:string_view",
         "@abseil-cpp//absl/synchronization",
+        "@abseil-cpp//absl/time",
         "@abseil-cpp//absl/types:span",
         "@googletest//:gtest_main",
     ],

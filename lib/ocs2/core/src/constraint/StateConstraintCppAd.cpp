@@ -29,6 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <ocs2_core/constraint/StateConstraintCppAd.h>
 
+#include <memory>
+
 namespace ocs2 {
 
 /******************************************************************************************************/
@@ -36,13 +38,8 @@ namespace ocs2 {
 /******************************************************************************************************/
 void StateConstraintCppAd::initialize(size_t stateDim, size_t parameterDim, const std::string& modelName, const std::string& modelFolder,
                                       bool recompileLibraries, bool verbose) {
-  auto constraintAd = [=](const ad_vector_t& x, const ad_vector_t& p, ad_vector_t& y) {
-    assert(x.rows() == 1 + stateDim);
-    const ad_scalar_t time = x(0);
-    const ad_vector_t state = x.tail(stateDim);
-    y = this->constraintFunction(time, state, p);
-  };
-  adInterfacePtr_.reset(new ocs2::CppAdInterface(constraintAd, 1 + stateDim, parameterDim, modelName, modelFolder));
+  stateDim_ = stateDim;
+  adInterfacePtr_ = std::make_unique<CppAdInterface>(tapedFunction(), 1 + stateDim, parameterDim, modelName, modelFolder);
 
   ocs2::CppAdInterface::ApproximationOrder orderCppAd;
   if (getOrder() == ConstraintOrder::Linear) {
@@ -62,7 +59,22 @@ void StateConstraintCppAd::initialize(size_t stateDim, size_t parameterDim, cons
 /******************************************************************************************************/
 /******************************************************************************************************/
 StateConstraintCppAd::StateConstraintCppAd(const StateConstraintCppAd& rhs)
-    : StateConstraint(rhs), adInterfacePtr_(new ocs2::CppAdInterface(*rhs.adInterfacePtr_)) {}
+    : StateConstraint(rhs),
+      stateDim_(rhs.stateDim_),
+      adInterfacePtr_(std::make_unique<CppAdInterface>(*rhs.adInterfacePtr_, tapedFunction())) {}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+CppAdInterface::ad_parameterized_function_t StateConstraintCppAd::tapedFunction() const {
+  const size_t stateDim = stateDim_;
+  return [this, stateDim](const ad_vector_t& x, const ad_vector_t& p, ad_vector_t& y) {
+    assert(x.rows() == 1 + stateDim);
+    const ad_scalar_t time = x(0);
+    const ad_vector_t state = x.tail(stateDim);
+    y = this->constraintFunction(time, state, p);
+  };
+}
 
 /******************************************************************************************************/
 /******************************************************************************************************/
@@ -116,7 +128,7 @@ VectorFunctionQuadraticApproximation StateConstraintCppAd::getQuadraticApproxima
   constraint.dfdxx.resize(numConstraints);
   constraint.dfdux.resize(numConstraints);
   constraint.dfduu.resize(numConstraints);
-  for (int i = 0; i < numConstraints; i++) {
+  for (int i = 0; static_cast<size_t>(i) < numConstraints; i++) {
     const matrix_t H = adInterfacePtr_->getHessian(i, tapedTimeState, params);
     constraint.dfdxx[i] = H.bottomRightCorner(stateDim, stateDim);
   }

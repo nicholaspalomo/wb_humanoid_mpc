@@ -29,11 +29,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_nmpc/humanoid_common_mpc_app/robot/test/LoopbackNetwork.h"
 
-#include <arpa/inet.h>
-#include <netinet/in.h>
-#include <sys/socket.h>
-#include <unistd.h>
-
+#include <algorithm>
 #include <fstream>
 #include <functional>
 #include <memory>
@@ -47,29 +43,25 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/time/time.h"
 
 #include "robot_ipc/BusOptions.h"
+#include "robot_runtime/robot_ipc/test/TestNetwork.h"
 
 namespace ocs2::humanoid::test_support {
 
-int freeLoopbackPort() {
-  const int socketFd = ::socket(AF_INET, SOCK_STREAM, /*protocol=*/0);
-  CHECK_GE(socketFd, 0);
-  sockaddr_in address{};
-  address.sin_family = AF_INET;
-  address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-  address.sin_port = 0;
-  CHECK_EQ(::bind(socketFd, reinterpret_cast<sockaddr*>(&address), sizeof(address)), 0);
-  socklen_t length = sizeof(address);
-  CHECK_EQ(::getsockname(socketFd, reinterpret_cast<sockaddr*>(&address), &length), 0);
-  ::close(socketFd);
-  return ntohs(address.sin_port);
-}
-
 absl::StatusOr<robot::ipc::NetworkConfig> writeLoopbackNetworkFile(const std::string& path, const std::vector<std::string>& nodes) {
+  robot::ipc::NetworkConfig network = robot::ipc::isolatedTestNetwork(nodes);
+  // The shipped topics and their QoS, with the publishers among `nodes`, so that the writers of one-off messages exist
+  // from start-up as in production.
+  for (robot::ipc::TopicQos topic : robot::ipc::localhostNetworkConfig().topics) {
+    std::vector<std::string> publishers;
+    for (const std::string& publisher : topic.publishers) {
+      if (std::find(nodes.begin(), nodes.end(), publisher) != nodes.end()) publishers.push_back(publisher);
+    }
+    topic.publishers = std::move(publishers);
+    network.topics.push_back(std::move(topic));
+  }
   {
     std::ofstream file(path);
-    for (const std::string& node : nodes) {
-      file << "nodes { name: \"" << node << R"(" host: "127.0.0.1" port: )" << freeLoopbackPort() << " }\n";
-    }
+    file << robot::ipc::formatNetworkConfig(network);
   }
   return robot::ipc::loadNetworkConfig(path);
 }

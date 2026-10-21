@@ -37,6 +37,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <type_traits>
 #include <vector>
 
+#include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
@@ -101,6 +102,25 @@ TEST(EndEffectorKinematicsWeightsFromConfigTest, ANonFiniteWeightIsRefusedByItsP
   EXPECT_TRUE(absl::StrContains(refused.status().message(), "task_space_costs[name=torso].weights.orientation_y")) << refused.status();
 }
 
+TEST(EndEffectorKinematicsWeightsFromConfigTest, ANegativeWeightIsRefusedByItsPathAndZeroIsKept) {
+  // Every one of the twelve kinematics weights.
+  for (double mpc_config::TaskSpaceWeights::*absl_nonnull field :
+       {&mpc_config::TaskSpaceWeights::pos_x, &mpc_config::TaskSpaceWeights::pos_y, &mpc_config::TaskSpaceWeights::pos_z,
+        &mpc_config::TaskSpaceWeights::orientation_x, &mpc_config::TaskSpaceWeights::orientation_y,
+        &mpc_config::TaskSpaceWeights::orientation_z, &mpc_config::TaskSpaceWeights::lin_velocity_x,
+        &mpc_config::TaskSpaceWeights::lin_velocity_y, &mpc_config::TaskSpaceWeights::lin_velocity_z,
+        &mpc_config::TaskSpaceWeights::ang_velocity_x, &mpc_config::TaskSpaceWeights::ang_velocity_y,
+        &mpc_config::TaskSpaceWeights::ang_velocity_z}) {
+    mpc_config::TaskSpaceWeights weights;
+    weights.*field = -1.0;
+    const absl::StatusOr<EndEffectorKinematicsWeights> refused = endEffectorKinematicsWeightsFromConfig(weights, "w");
+    EXPECT_EQ(refused.status().code(), absl::StatusCode::kInvalidArgument);
+    EXPECT_TRUE(absl::StrContains(refused.status().message(), "is -1, but a weight must be finite and non-negative")) << refused.status();
+    weights.*field = 0.0;
+    EXPECT_TRUE(endEffectorKinematicsWeightsFromConfig(weights, "w").ok());
+  }
+}
+
 TEST(EndEffectorKinematicsWeightsFromConfigTest, AnAccelerationWeightIsRefusedAsUnused) {
   mpc_config::TaskSpaceWeights weights;
   weights.ang_acceleration_z = 0.5;
@@ -123,6 +143,27 @@ TEST(TaskSpaceFootCostFromConfigTest, CarriesTheWeightsAndTheActivePhases) {
   const absl::StatusOr<TaskSpaceFootCostSettings> absent = taskSpaceFootCostFromConfig(mpc_config::TaskSpaceCostConfig{});
   ASSERT_TRUE(absent.ok()) << absent.status();
   EXPECT_FALSE(absent->activeInStance) << "the default, a swing foot only";
+}
+
+TEST(TaskSpaceFootCostFromConfigTest, CarriesTheSwingVelocityReferenceWeight) {
+  // Absent, it is the sqrt weight 1.5 the cost hard-coded before the field existed.
+  const absl::StatusOr<TaskSpaceFootCostSettings> absent = taskSpaceFootCostFromConfig(mpc_config::TaskSpaceCostConfig{});
+  ASSERT_TRUE(absent.ok()) << absent.status();
+  EXPECT_EQ(absent->swingVelocityReferenceWeight, 1.5 * 1.5);
+  EXPECT_EQ(kDefaultSwingVelocityReferenceWeight, 1.5 * 1.5);
+  mpc_config::TaskSpaceCostConfig footCost;
+  footCost.swing_velocity_reference_weight = 7.0;
+  const absl::StatusOr<TaskSpaceFootCostSettings> settings = taskSpaceFootCostFromConfig(footCost);
+  ASSERT_TRUE(settings.ok()) << settings.status();
+  EXPECT_EQ(settings->swingVelocityReferenceWeight, 7.0);
+  footCost.swing_velocity_reference_weight = 0.0;
+  EXPECT_TRUE(taskSpaceFootCostFromConfig(footCost).ok()) << "0 switches the swing velocity reference off";
+  for (const double refusedWeight : {-1.0, std::numeric_limits<double>::infinity(), std::numeric_limits<double>::quiet_NaN()}) {
+    footCost.swing_velocity_reference_weight = refusedWeight;
+    const absl::StatusOr<TaskSpaceFootCostSettings> refused = taskSpaceFootCostFromConfig(footCost);
+    EXPECT_EQ(refused.status().code(), absl::StatusCode::kInvalidArgument) << refusedWeight;
+    EXPECT_TRUE(absl::StrContains(refused.status().message(), "task_space_foot_cost.swing_velocity_reference_weight")) << refused.status();
+  }
 }
 
 TEST(TaskSpaceFootCostFromConfigTest, EachActivePhasesNameIsTheBooleanItReplaced) {
@@ -188,6 +229,11 @@ TEST(TaskSpaceLinkCostsFromConfigTest, RefusesWhatACostCannotBeBuiltFrom) {
   const absl::StatusOr<std::vector<TaskSpaceLinkCostSettings>> refused = taskSpaceLinkCostsFromConfig({inStance});
   EXPECT_TRUE(absl::StrContains(refused.status().message(), "task_space_costs[name=torso] sets active_phases \"swing_and_stance\""))
       << refused.status();
+  mpc_config::TaskSpaceCostConfig swingVelocity = linkCost("torso", "utorso");
+  swingVelocity.swing_velocity_reference_weight = 4.0;
+  const absl::StatusOr<std::vector<TaskSpaceLinkCostSettings>> refusedWeight = taskSpaceLinkCostsFromConfig({swingVelocity});
+  EXPECT_TRUE(absl::StrContains(refusedWeight.status().message(), "task_space_costs[name=torso] sets swing_velocity_reference_weight"))
+      << refusedWeight.status();
 }
 
 TEST(TaskSpaceCostConfigTest, AWeightOutsideTheWeightsBlockIsAnsweredWithTheLayout) {

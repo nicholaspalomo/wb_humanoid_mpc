@@ -41,6 +41,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_join.h"
 #include "absl/strings/str_split.h"
 #include "absl/strings/string_view.h"
+#include "ocs2_core/Dimensions.h"
 
 namespace ocs2::humanoid::validation {
 namespace {
@@ -57,6 +58,14 @@ constexpr char kJointVelocities[] = "joint_velocities";
 constexpr char kContactFlags[] = "contact_flags";
 constexpr char kGuiCommand[] = "gui_command";
 // LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_validation/README.md:recorded_state_labels)
+
+// The columns of a recording's matrices, one row per record: the sizes of the RobotStateRecord fields they hold. The
+// contact flags have RobotStateRecord::kNumRecordedContacts columns, the joint vectors one per joint.
+constexpr int kPositionColumns = kPositionDim;               // (x, y, z)
+constexpr int kQuaternionColumns = kQuaternionCoefficients;  // (x, y, z, w)
+constexpr int kVelocityColumns = kPositionDim;               // a linear velocity, or an angular velocity of as many
+static_assert(kVelocityColumns == kRotationTangentDim, "a linear and an angular velocity have as many columns");
+constexpr int kGuiCommandColumns = 4;  // GuiVelocityCommand::message
 
 absl::StatusOr<const golden_matrix_t* absl_nonnull> requireMatrix(const GoldenFile& golden,
                                                                   absl::string_view label,
@@ -90,7 +99,9 @@ RobotStateRecord recordRobotState(const robot::model::RobotState& state,
     record.jointVelocities(static_cast<Eigen::Index>(i)) = state.getJointVelocity(joints[i]);
   }
   const std::vector<bool>& flags = state.getContactFlags();
-  for (size_t contact = 0; contact < 2 && contact < flags.size(); ++contact) record.contactFlags[contact] = flags[contact];
+  for (size_t contact = 0; contact < RobotStateRecord::kNumRecordedContacts && contact < flags.size(); ++contact) {
+    record.contactFlags[contact] = flags[contact];
+  }
   record.guiCommand = guiCommand;
   return record;
 }
@@ -117,7 +128,7 @@ absl::StatusOr<robot::model::RobotState> toRobotState(const RobotStateRecord& re
       return absl::InvalidArgumentError(absl::StrCat("[toRobotState] the joint '", name, "' is recorded twice"));
     }
   }
-  robot::model::RobotState state(description, /*contactSize=*/2);
+  robot::model::RobotState state(description, /*contactSize=*/RobotStateRecord::kNumRecordedContacts);
   state.setTime(record.time);
   state.setRootPositionInWorldFrame(record.basePosition);
   Eigen::Quaterniond rotation;
@@ -139,14 +150,14 @@ GoldenFile toGoldenFile(const RecordedRobotStates& states, GoldenProvenance prov
   const Eigen::Index rows = static_cast<Eigen::Index>(states.records.size());
   const Eigen::Index numJoints = static_cast<Eigen::Index>(states.jointNames.size());
   golden_matrix_t time(rows, 1);
-  golden_matrix_t position(rows, 3);
-  golden_matrix_t quaternion(rows, 4);
-  golden_matrix_t linearVelocity(rows, 3);
-  golden_matrix_t angularVelocity(rows, 3);
+  golden_matrix_t position(rows, kPositionColumns);
+  golden_matrix_t quaternion(rows, kQuaternionColumns);
+  golden_matrix_t linearVelocity(rows, kVelocityColumns);
+  golden_matrix_t angularVelocity(rows, kVelocityColumns);
   golden_matrix_t jointPositions(rows, numJoints);
   golden_matrix_t jointVelocities(rows, numJoints);
-  golden_matrix_t contactFlags(rows, 2);
-  golden_matrix_t guiCommand(rows, 4);
+  golden_matrix_t contactFlags(rows, RobotStateRecord::kNumRecordedContacts);
+  golden_matrix_t guiCommand(rows, kGuiCommandColumns);
   for (Eigen::Index row = 0; row < rows; ++row) {
     const RobotStateRecord& record = states.records[static_cast<size_t>(row)];
     time(row, /*col=*/0) = record.time;
@@ -189,14 +200,15 @@ absl::StatusOr<RecordedRobotStates> fromGoldenFile(const GoldenFile& golden) {
   if (time == nullptr || time->cols() != 1) return absl::InvalidArgumentError(absl::StrCat("[fromGoldenFile] no '", kTime, "' column"));
   const Eigen::Index rows = time->rows();
   const Eigen::Index numJoints = static_cast<Eigen::Index>(states.jointNames.size());
-  absl::StatusOr<const golden_matrix_t* absl_nonnull> position = requireMatrix(golden, kBasePosition, rows, /*cols=*/3);
-  absl::StatusOr<const golden_matrix_t* absl_nonnull> quaternion = requireMatrix(golden, kBaseQuaternion, rows, /*cols=*/4);
-  absl::StatusOr<const golden_matrix_t* absl_nonnull> linearVelocity = requireMatrix(golden, kBaseLinearVelocity, rows, /*cols=*/3);
-  absl::StatusOr<const golden_matrix_t* absl_nonnull> angularVelocity = requireMatrix(golden, kBaseAngularVelocity, rows, /*cols=*/3);
+  absl::StatusOr<const golden_matrix_t* absl_nonnull> position = requireMatrix(golden, kBasePosition, rows, kPositionColumns);
+  absl::StatusOr<const golden_matrix_t* absl_nonnull> quaternion = requireMatrix(golden, kBaseQuaternion, rows, kQuaternionColumns);
+  absl::StatusOr<const golden_matrix_t* absl_nonnull> linearVelocity = requireMatrix(golden, kBaseLinearVelocity, rows, kVelocityColumns);
+  absl::StatusOr<const golden_matrix_t* absl_nonnull> angularVelocity = requireMatrix(golden, kBaseAngularVelocity, rows, kVelocityColumns);
   absl::StatusOr<const golden_matrix_t* absl_nonnull> jointPositions = requireMatrix(golden, kJointPositions, rows, numJoints);
   absl::StatusOr<const golden_matrix_t* absl_nonnull> jointVelocities = requireMatrix(golden, kJointVelocities, rows, numJoints);
-  absl::StatusOr<const golden_matrix_t* absl_nonnull> contactFlags = requireMatrix(golden, kContactFlags, rows, /*cols=*/2);
-  absl::StatusOr<const golden_matrix_t* absl_nonnull> guiCommand = requireMatrix(golden, kGuiCommand, rows, /*cols=*/4);
+  absl::StatusOr<const golden_matrix_t* absl_nonnull> contactFlags =
+      requireMatrix(golden, kContactFlags, rows, RobotStateRecord::kNumRecordedContacts);
+  absl::StatusOr<const golden_matrix_t* absl_nonnull> guiCommand = requireMatrix(golden, kGuiCommand, rows, kGuiCommandColumns);
   for (const absl::StatusOr<const golden_matrix_t* absl_nonnull>* absl_nonnull matrix :
        {&position, &quaternion, &linearVelocity, &angularVelocity, &jointPositions, &jointVelocities, &contactFlags, &guiCommand}) {
     if (!matrix->ok()) return matrix->status();

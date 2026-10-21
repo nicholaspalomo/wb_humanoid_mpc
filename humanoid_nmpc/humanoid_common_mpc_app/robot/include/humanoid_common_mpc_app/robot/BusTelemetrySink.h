@@ -31,6 +31,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <cstdint>
 
+#include "absl/base/nullability.h"
 #include "absl/strings/string_view.h"
 
 #include "humanoid_common_mpc_app/robot/TelemetrySink.h"
@@ -45,7 +46,8 @@ namespace ocs2::humanoid {
  */
 class BusTelemetrySink final : public TelemetrySink {
  public:
-  explicit BusTelemetrySink(robot::ipc::Bus& bus) : bus_(bus) {}
+  /** Publishes on `bus`, which must outlive the sink. */
+  explicit BusTelemetrySink(robot::ipc::Bus* absl_nonnull bus) : bus_(bus) {}
 
   absl::string_view name() const override;
   void write(const humanoid_mpc_msgs::RobotStateSample& sample) override;
@@ -54,7 +56,7 @@ class BusTelemetrySink final : public TelemetrySink {
   uint64_t publishFailures() const { return publishFailures_; }
 
  private:
-  robot::ipc::Bus& bus_;
+  robot::ipc::Bus* absl_nonnull bus_;
   uint64_t publishFailures_ = 0;
 };
 

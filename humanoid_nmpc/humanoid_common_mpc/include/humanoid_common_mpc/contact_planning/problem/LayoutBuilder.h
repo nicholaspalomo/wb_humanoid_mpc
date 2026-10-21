@@ -35,9 +35,20 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-/** Collects the variables the model blocks declare, in order, and resolves the well-known indices. */
+/**
+ * Collects the variables the model blocks declare, in order, and resolves the well-known indices.
+ *
+ * Not thread-safe: one thread fills a builder.
+ */
 class LayoutBuilder {
  public:
+  LayoutBuilder() = default;
+  LayoutBuilder(const LayoutBuilder&) = default;
+  LayoutBuilder& operator=(const LayoutBuilder&) = default;
+  LayoutBuilder(LayoutBuilder&&) = default;
+  LayoutBuilder& operator=(LayoutBuilder&&) = default;
+  ~LayoutBuilder() = default;
+
   /**
    * Declares a state / input and returns its index. Each block declares its own names once and the formulation lists a
    * block at most once (ContactPlanningFormulation::validateStatus()), so a name declared twice is a programming error

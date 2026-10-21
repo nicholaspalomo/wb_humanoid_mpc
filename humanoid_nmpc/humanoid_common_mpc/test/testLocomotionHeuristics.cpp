@@ -293,6 +293,7 @@ TEST(LocomotionHeuristics, CapturePointIsZeroWhenTheCommandIsTracked) {
   // gets no offset however fast that is.
   FootholdHeuristicContext tracking = footholdContext();
   tracking.measuredVelocity = vector2_t(1.2, 0.3);
+  tracking.commandedVelocityAtMeasurement = vector2_t(1.2, 0.3);
   tracking.commandedVelocity = vector2_t(1.2, 0.3);
   EXPECT_TRUE((*layer)->footholdOffset(tracking).isZero(1.0e-12));
 
@@ -484,11 +485,12 @@ TEST(LocomotionHeuristics, CentripetalAccelerationPointsIntoTheTurnAndNeedsTheWo
   straight.commandedVelocity = vector2_t(2.0, 0.0);
   EXPECT_TRUE((*layer)->wrenchOffset(straight, kContactLeftIndex).isZero(1.0e-12));
 
-  // A foot cannot pull sideways harder than friction allows.
+  // The feet cannot pull sideways harder than friction allows: the TOTAL is clamped to 0.3 W, and the two stance feet
+  // share it, 0.15 W each.
   WrenchHeuristicContext extreme = wrenchContext();
   extreme.commandedVelocity = vector2_t(50.0, 0.0);
   extreme.commandedYawRate = 10.0;
-  EXPECT_NEAR((*layer)->wrenchOffset(extreme, kContactLeftIndex).norm(), 0.3 * extreme.totalWeight, 1.0e-6);
+  EXPECT_NEAR((*layer)->wrenchOffset(extreme, kContactLeftIndex).norm(), 0.3 * extreme.totalWeight / 2.0, 1.0e-6);
 }
 
 /*======================================= the rejected combinations =======================================*/

@@ -32,6 +32,7 @@ scene and status contracts are consistent.
 """
 
 import os
+import re
 import unittest
 
 from humanoid_rerun_viewer import palette
@@ -279,6 +280,58 @@ class ReadmeTest(unittest.TestCase):
         for kind in telemetry_contract.FRAME_KINDS:
             self.assert_tabulated(f"frames/{kind}/<frame>/<source>")
 
+    def match(self, pattern: str) -> tuple[int, ...]:
+        """The numbers `pattern`'s groups capture in the README; fails when it does not match."""
+        found = re.search(pattern, self.text)
+        self.assertIsNotNone(found, f"README.md has no match of {pattern!r}")
+        assert found is not None  # For mypy; assertIsNotNone failed otherwise.
+        return tuple(int(number) for number in found.groups())
+
+    def test_the_group_counts_are_the_contracts(self) -> None:
+        def total(frames: int) -> int:
+            return len(
+                telemetry_contract.all_groups(
+                    f"frame_{index}" for index in range(frames)
+                )
+            )
+
+        panel = len(telemetry_contract.PANEL_GROUPS)
+        panel_count, static_complete, per_frame = self.match(
+            r"(\d+) panel groups and (\d+) \+ (\d+) n complete groups"
+        )
+        self.assertEqual(panel_count, panel)
+        self.assertEqual(static_complete, len(telemetry_contract.STATIC_GROUPS) - panel)
+        self.assertEqual(per_frame, len(telemetry_contract.frame_groups(SAMPLE_FRAME)))
+        for frames, pattern in (
+            (4, r"with the four of [^,]+, (\d+) complete groups and (\d+) in all"),
+            (3, r"with the three of SA01's, (\d+) and (\d+)"),
+        ):
+            with self.subTest(frames=frames):
+                self.assertEqual(
+                    self.match(pattern), (total(frames) - panel, total(frames))
+                )
+        # The cost table's message.
+        groups, _, frames = self.match(
+            r"`TelemetrySeries`, (\d+) groups \((\d+) joints, (\d+) frames\)"
+        )
+        self.assertEqual(groups, total(frames))
+
+    def flag_row(self, flag: str) -> str:
+        """The row of `flag` in the README's table of the bridge's flags."""
+        for line in self.text.splitlines():
+            if line.startswith(f"| `{flag}`"):
+                return line
+        self.fail(f"README.md has no row of {flag}")
+
+    def test_the_flags_defaults_follow_the_plot_configuration(self) -> None:
+        # The shipped configuration, which every launch passes, turns the plots on and the terminal robots off.
+        plots = self.flag_row("--plots")
+        self.assertNotIn("off (`serve_web`) / on", plots)
+        self.assertIn("plot configuration", plots)
+        terminal_state = self.flag_row("--terminal_state")
+        self.assertNotRegex(terminal_state, r"\| on \|")
+        self.assertIn("draw_terminal_state", terminal_state)
+
     def test_every_marker_instance_and_status_entity_is_listed(self) -> None:
         for marker in scene_contract.MARKERS:
             self.assert_tabulated(
@@ -340,7 +393,7 @@ class SceneContractTest(unittest.TestCase):
         paths = [series.path for series in status_contract.STATUS_SERIES]
         self.assertEqual(len(paths), len(set(paths)))
         for path in paths:
-            self.assertTrue(path.startswith(scene_contract.STATUS_ROOT + "/"))
+            self.assertTrue(path.startswith(f"{scene_contract.STATUS_ROOT}/"))
 
 
 if __name__ == "__main__":

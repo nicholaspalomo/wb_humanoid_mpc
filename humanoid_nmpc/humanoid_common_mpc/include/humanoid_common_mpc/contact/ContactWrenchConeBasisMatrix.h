@@ -50,21 +50,19 @@ namespace ocs2::humanoid {
 // LINT.IfChange(basis_generator_set_names)
 /**
  * The N + 7 generators the basis-vector formulation has always shipped with (the default): N friction-pyramid edges,
- * one pure normal force and two torsion rays, all applied at the torsional patch point, and four normal forces at the
- * footprint corners. Every generator lies inside the wrench cone, so the set is SOUND, but it is a strongly
- * conservative INNER APPROXIMATION of the cone wrench mode enforces: each generator exercises only one of the three
- * limits, so friction, center-of-pressure excursion and torsion share one normal-force budget. It cannot represent a
- * tangential force together with a center of pressure away from the patch point, nor torsion together with either.
- * See humanoid_nmpc/docs/contact_basis_vectors/README.md.
+ * one pure normal force and two torsion rays at the cone's torsion limits, all applied at the patch point, and four
+ * normal forces at the footprint corners. Every generator lies inside the wrench cone, so the set is SOUND, but it is
+ * a strongly conservative INNER APPROXIMATION of the cone wrench mode enforces: each generator exercises only one of
+ * the three limits, so friction, center-of-pressure excursion and torsion share one normal-force budget. It cannot
+ * represent a tangential force together with a center of pressure away from the patch point, nor torsion together with
+ * either. See humanoid_nmpc/docs/contact_basis_vectors/README.md.
  */
 inline constexpr absl::string_view kConservativeInnerApproximationGeneratorSet = "conservative_inner_approximation";
 /**
- * The 8N extreme rays of the wrench cone ContactWrenchConeConstraint enforces in wrench mode (its V-representation):
- * every friction-pyramid edge, at every footprint corner, with the torsional limit of either sign about the patch
- * point. The conic hull of these columns IS that cone, neither larger nor smaller. With a positive torsional
- * coefficient and a footprint of positive area every column is an extreme ray, so 8N is the minimum number of
- * generators that achieves it; with torsionalFrictionCoefficient = 0 (or a footprint of zero width or length) some
- * columns coincide, which is harmless.
+ * The 4N extreme rays of the wrench cone ContactWrenchConeConstraint enforces in wrench mode (its V-representation,
+ * cornerContactWrenchGenerators()): every friction-pyramid edge at every footprint corner. The conic hull of these
+ * columns IS that cone, neither larger nor smaller, and with a footprint of positive area every column is an extreme
+ * ray, so 4N is the minimum number of generators that achieves it.
  */
 inline constexpr absl::string_view kExactWrenchConeGeneratorSet = "exact_wrench_cone";
 // clang-format off
@@ -105,26 +103,28 @@ absl::StatusOr<BasisGeneratorSetBuilder> getBasisGeneratorSetBuilder(absl::strin
  * Which part of the cone the columns SPAN depends on the generator set, chosen by name (basisGeneratorSetNames()):
  *
  *   conservative_inner_approximation (default, N + 7 columns, p_c the patch reference point)
- *     Columns 0..N-1   friction-pyramid edges at p_c: F = (r cos(theta_k), r sin(theta_k), 1),
- *                      theta_k = (k + 1/2) * 2 pi / N, r = mu / cos(pi / N)
+ *     Columns 0..N-1   friction-pyramid edges at p_c: F = (mu cos(theta_k), mu sin(theta_k), 1),
+ *                      theta_k = (k + 1/2) * 2 pi / N (frictionPyramidEdges)
  *     Column  N        a pure normal force at p_c
  *     Columns N+1..N+4 a unit normal force at each footprint corner (x_max,y_max), (x_max,y_min), (x_min,y_max),
  *                      (x_min,y_min)
- *     Columns N+5..N+6 a unit normal force at p_c with a torsion of +mu_t and -mu_t
+ *     Columns N+5..N+6 a unit normal force at p_c with the upper, then the lower torsion limit the cone allows there
+ *                      (torsionLimitsOfNormalForceAt)
  *     Its projection onto the force alone is exact, but with Fz normalized to one, friction use, center-of-pressure
- *     excursion from p_c and torsion use draw on one shared budget, where wrench mode bounds each of them separately.
- *     At the footprint's toe it admits no tangential force at all, and at the torsional limit none either.
+ *     excursion from p_c and torsion use draw on one shared budget. At the footprint's toe it admits no tangential
+ *     force at all, and at the torsional limit none either.
  *
- *   exact_wrench_cone (8N columns)
- *     Column (k * 4 + c) * 2 + s, for friction edge k, corner c (same order as above) and sign s (+mu_t, then -mu_t):
- *       [F_k; c_y; -c_x; s * mu_t + p_x * F_ky - p_y * F_kx]
- *     i.e. the edge force F_k applied at corner c with the torsion about p_c at its limit. The Fz = 1 slice of the
- *     cone is the friction polygon x the footprint x the torsion interval, whose vertices are exactly these products.
+ *   exact_wrench_cone (4N columns)
+ *     Column k * 4 + c, for friction edge k and corner c (same order as above): the edge force F_k applied at corner
+ *     c, [F_k; c x F_k]. The cone is DEFINED as the wrenches of such corner forces (Caron et al., ICRA 2015), so these
+ *     columns are its V-representation and buildLocalWrenchConeRows its H-representation.
  *
  * Every column of either set carries a unit local normal force, so sum(lambda) is the foot's normal force.
  *
  * Not representable by any set: `minNormalForce` and `gripperForce` are affine offsets of the cone (the `b` vector of
  * ContactWrenchConeRows), while a conic combination is homogeneous - lambda = 0 always yields the zero wrench.
+ *
+ * An immutable value after Create(): its const methods are safe to call concurrently.
  */
 class ContactWrenchConeBasisMatrix {
  public:
@@ -139,10 +139,16 @@ class ContactWrenchConeBasisMatrix {
                                                              const ContactRectangle& contactRectangle,
                                                              absl::string_view generatorSet = kDefaultBasisGeneratorSet);
 
+  ContactWrenchConeBasisMatrix(const ContactWrenchConeBasisMatrix&) = default;
+  ContactWrenchConeBasisMatrix& operator=(const ContactWrenchConeBasisMatrix&) = default;
+  ContactWrenchConeBasisMatrix(ContactWrenchConeBasisMatrix&&) = default;
+  ContactWrenchConeBasisMatrix& operator=(ContactWrenchConeBasisMatrix&&) = default;
+  ~ContactWrenchConeBasisMatrix() = default;
+
   /** Name of the generator set this basis was built from. */
   const std::string& generatorSet() const { return generatorSet_; }
 
-  /** Number of basis vectors (columns of B): N + 7 or 8N, depending on the generator set. */
+  /** Number of basis vectors (columns of B): N + 7 or 4N, depending on the generator set. */
   size_t numBasis() const { return static_cast<size_t>(B_local_.cols()); }
 
   /** The basis matrix B in R^{6 x numBasis}, expressed in the *local* contact frame. */

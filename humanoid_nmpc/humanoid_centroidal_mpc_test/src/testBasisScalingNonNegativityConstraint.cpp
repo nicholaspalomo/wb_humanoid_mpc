@@ -40,6 +40,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/constraint/BasisScalingNonNegativityConstraint.h"
 #include "humanoid_common_mpc/gait/GaitSchedule.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
+#include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
 
 namespace ocs2::humanoid {
 
@@ -97,9 +98,9 @@ class BasisScalingNonNegativityConstraintTest : public ::testing::Test {
     std::shared_ptr<GaitSchedule> gaitSchedule =
         std::make_shared<GaitSchedule>(doubleStanceModeSchedule, doubleStanceModeSequenceTemplate, /*phaseTransitionStanceTime=*/0.0);
 
-    referenceManager_ = std::make_unique<SwitchedModelReferenceManager>(gaitSchedule, /*swingTrajectoryPtr=*/nullptr,
-                                                                        testingModelInterface_->getPinocchioInterface(),
-                                                                        testingModelInterface_->getMpcRobotModel());
+    referenceManager_ = std::make_unique<SwitchedModelReferenceManager>(
+        gaitSchedule, std::make_unique<SwingTrajectoryPlanner>(SwingTrajectoryPlanner::Config(), kNumContacts),
+        testingModelInterface_->getPinocchioInterface(), testingModelInterface_->getMpcRobotModel());
 
     // Create constraints for left and right feet.
     leftFootConstraint_ = std::make_unique<BasisScalingNonNegativityConstraint>(*referenceManager_, kLeftFootIndex, kLeftLambdaStart,

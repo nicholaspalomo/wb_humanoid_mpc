@@ -30,12 +30,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <iostream>
 #include <map>
 #include <string>
 #include <utility>
 #include <vector>
 
+#include "absl/strings/str_format.h"
+#include "absl/strings/str_join.h"
 #include "ocs2_core/reference/ModeSchedule.h"
 
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
@@ -76,7 +77,11 @@ inline void swap(ModeSequenceTemplate& lh, ModeSequenceTemplate& rh) noexcept {
   lh.modeSequence.swap(rh.modeSequence);
 }
 
-/** Print the modesequence template */
-std::ostream& operator<<(std::ostream& stream, const ModeSequenceTemplate& modeSequenceTemplate);
+/** Formats the mode sequence template for absl::StrCat, absl::StrFormat("%v") and Abseil logging: two lines. */
+template <typename Sink>
+void AbslStringify(Sink& sink, const ModeSequenceTemplate& modeSequenceTemplate) {
+  absl::Format(&sink, "Template switching times: {%s}\nTemplate mode sequence:   {%s}\n",
+               absl::StrJoin(modeSequenceTemplate.switchingTimes, ", "), absl::StrJoin(modeSequenceTemplate.modeSequence, ", "));
+}
 
 }  // namespace ocs2::humanoid

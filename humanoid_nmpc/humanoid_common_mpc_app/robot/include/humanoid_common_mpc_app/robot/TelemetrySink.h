@@ -42,6 +42,10 @@ namespace ocs2::humanoid {
  */
 class TelemetrySink {
  public:
+  TelemetrySink() = default;
+  /** An interface: implementations are used through a pointer or reference, never copied or moved. */
+  TelemetrySink(const TelemetrySink&) = delete;
+  TelemetrySink& operator=(const TelemetrySink&) = delete;
   virtual ~TelemetrySink() = default;
 
   /** The registry name of this sink. */

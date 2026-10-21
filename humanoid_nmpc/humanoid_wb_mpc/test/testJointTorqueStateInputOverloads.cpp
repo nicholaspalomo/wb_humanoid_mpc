@@ -43,12 +43,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 #include "gtest/gtest.h"
+#include "pinocchio/algorithm/crba.hpp"
+#include "pinocchio/algorithm/frames.hpp"
 #include "pinocchio/algorithm/joint-configuration.hpp"
 #include "pinocchio/algorithm/rnea.hpp"
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
 #include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
+#include "humanoid_nmpc/humanoid_common_mpc/test/support/StatusTestMacros.h"
 #include "humanoid_wb_mpc/common/WBAccelMpcRobotModel.h"
 #include "humanoid_wb_mpc/dynamics/DynamicsHelperFunctions.h"
 
@@ -83,6 +86,44 @@ scalar_t maxAbs(const vector_t& v) {
   return v.cwiseAbs().maxCoeff();
 }
 
+/** RNEA at the base acceleration that balances its own base rows, the oracle of the floating-base dynamics. */
+struct RneaReference {
+  vector6_t baseAcceleration;
+  vector_t jointTorques;
+};
+
+/**
+ * Returns RNEA's base acceleration and joint torques for world-frame wrenches applied at the origins of `soleFrames`,
+ * passed to RNEA as external forces on the frames' parent joints - not through the frame Jacobians the code under test
+ * uses. RNEA is affine in the acceleration, so its unactuated base rows vanish at a_b = -M_bb^-1 tau_b(a_b = 0).
+ */
+RneaReference floatingBaseRnea(const pinocchio::Model& model,
+                               const vector_t& q,
+                               const vector_t& v,
+                               const vector_t& qddJoints,
+                               const std::array<vector6_t, 2>& wrenches,
+                               const feet_array_t<pinocchio::FrameIndex>& soleFrames) {
+  pinocchio::Data data(model);
+  pinocchio::framesForwardKinematics(model, data, q);
+  std::vector<pinocchio::Force> fext(static_cast<size_t>(model.njoints), pinocchio::Force::Zero());
+  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+    const pinocchio::JointIndex joint = model.frames[soleFrames[foot]].parentJoint;
+    const matrix3_t rotation = data.oMi[joint].rotation();
+    const vector3_t lever = data.oMf[soleFrames[foot]].translation() - data.oMi[joint].translation();
+    const vector3_t force = wrenches[foot].head<3>();
+    const vector3_t moment = wrenches[foot].tail<3>() + lever.cross(force);
+    fext[joint] += pinocchio::Force(rotation.transpose() * force, rotation.transpose() * moment);
+  }
+  vector_t a = vector_t::Zero(model.nv);
+  a.tail(qddJoints.size()) = qddJoints;
+  const vector6_t baseForceAtZeroBaseAcceleration = pinocchio::rnea(model, data, q, v, a, fext).head<6>();
+  pinocchio::crba(model, data, q);
+  const matrix6_t baseMassMatrix = data.M.topLeftCorner<6, 6>().selfadjointView<Eigen::Upper>();
+  a.head<6>() = -baseMassMatrix.ldlt().solve(baseForceAtZeroBaseAcceleration);
+  const vector_t tau = pinocchio::rnea(model, data, q, v, a, fext);
+  return {.baseAcceleration = a.head<6>(), .jointTorques = tau.tail(qddJoints.size())};
+}
+
 class JointTorqueStateInputOverloadsTest : public ::testing::Test {
  protected:
   void SetUp() override {
@@ -91,7 +132,9 @@ class JointTorqueStateInputOverloadsTest : public ::testing::Test {
     const std::string urdfFile = runfilePath("robot_models/unitree_g1/g1_description/urdf/g1_29dof.urdf");
     // LINT.ThenChange(//humanoid_nmpc/humanoid_wb_mpc/BUILD.bazel:joint_torque_overload_test_data)
     ASSERT_FALSE(taskFile.empty() || urdfFile.empty()) << "the G1 whole-body files are not in the runfiles";
-    modelSettings_ = std::make_unique<ModelSettings>(ModelSettings::Create(taskFile, urdfFile, "wb_mpc_", /*verbose=*/false).value());
+    taskFile_ = taskFile;
+    urdfFile_ = urdfFile;
+    modelSettings_ = std::make_unique<ModelSettings>(checkedValue(ModelSettings::Create(taskFile, urdfFile, "wb_mpc_", /*verbose=*/false)));
     absl::StatusOr<PinocchioInterface> pinocchioInterface = loadCustomPinocchioInterface(taskFile, urdfFile, *modelSettings_);
     ASSERT_TRUE(pinocchioInterface.ok()) << pinocchioInterface.status();
     pinocchioInterface_ = std::make_unique<PinocchioInterface>(*std::move(pinocchioInterface));
@@ -114,6 +157,7 @@ class JointTorqueStateInputOverloadsTest : public ::testing::Test {
     for (Eigen::Index i = 0; i < qddJoints_.size(); ++i) qddJoints_(i) = 3.0 * spread(i, /*phase=*/0.4);
     wrenches_[0] << 30.0, -12.0, 320.0, 4.0, -6.0, 1.5;
     wrenches_[1] << -18.0, 25.0, 210.0, -3.0, 5.0, -0.8;
+    for (size_t i = 0; i < kNumContacts; ++i) soleFrames_[i] = model.getFrameId(modelSettings_->contactNames[i]);
   }
 
   /** The whole-body MPC state [q, v] and input [W_left, W_right, qdd_j] that carry the given pieces. */
@@ -131,6 +175,8 @@ class JointTorqueStateInputOverloadsTest : public ::testing::Test {
     return {state, input};
   }
 
+  std::string taskFile_;
+  std::string urdfFile_;
   std::unique_ptr<ModelSettings> modelSettings_;
   std::unique_ptr<PinocchioInterface> pinocchioInterface_;
   std::unique_ptr<WBAccelMpcRobotModel<scalar_t>> model_;
@@ -138,6 +184,7 @@ class JointTorqueStateInputOverloadsTest : public ::testing::Test {
   vector_t v_;
   vector_t qddJoints_;
   std::array<vector6_t, 2> wrenches_;
+  feet_array_t<pinocchio::FrameIndex> soleFrames_{};
 };
 
 TEST_F(JointTorqueStateInputOverloadsTest, theOverloadsReadTheStateAndTheInputTheirPiecesCameFrom) {
@@ -148,19 +195,19 @@ TEST_F(JointTorqueStateInputOverloadsTest, theOverloadsReadTheStateAndTheInputTh
   PinocchioInterface overloadInterface = *pinocchioInterface_;
   PinocchioInterface directInterface = *pinocchioInterface_;
   const vector_t baseHeld = computeBaseHeldJointTorques<scalar_t>(stateInput.first, stateInput.second, overloadInterface, *model_);
-  const vector_t baseHeldDirect = computeBaseHeldJointTorques<scalar_t>(q_, v_, qddJoints_, wrenches_, directInterface);
+  const vector_t baseHeldDirect = computeBaseHeldJointTorques<scalar_t>(q_, v_, qddJoints_, wrenches_, soleFrames_, directInterface);
   const scalar_t scale = std::max(1.0, maxAbs(baseHeldDirect));
   EXPECT_LT(maxAbs(baseHeld - baseHeldDirect), 1.0e-12 * scale);
 
   const vector_t floating = computeJointTorques<scalar_t>(stateInput.first, stateInput.second, overloadInterface, *model_);
-  const vector_t floatingDirect = computeJointTorques<scalar_t>(q_, v_, qddJoints_, wrenches_, directInterface);
+  const vector_t floatingDirect = computeJointTorques<scalar_t>(q_, v_, qddJoints_, wrenches_, soleFrames_, directInterface);
   EXPECT_LT(maxAbs(floating - floatingDirect), 1.0e-12 * std::max(1.0, maxAbs(floatingDirect)));
 
   // Positive controls. The base-held overload is not the floating-base one: this sample accelerates the base.
   EXPECT_GT(maxAbs(baseHeld - floating), 1.0);
   // And the soles are told apart: the same wrenches under the other feet are other torques.
   const std::array<vector6_t, 2> exchanged = {wrenches_[1], wrenches_[0]};
-  EXPECT_GT(maxAbs(computeBaseHeldJointTorques<scalar_t>(q_, v_, qddJoints_, exchanged, directInterface) - baseHeld), 1.0);
+  EXPECT_GT(maxAbs(computeBaseHeldJointTorques<scalar_t>(q_, v_, qddJoints_, exchanged, soleFrames_, directInterface) - baseHeld), 1.0);
 }
 
 TEST_F(JointTorqueStateInputOverloadsTest, theBaseHeldTorqueOfARobotHangingAtRestIsItsGravityTorque) {
@@ -178,6 +225,41 @@ TEST_F(JointTorqueStateInputOverloadsTest, theBaseHeldTorqueOfARobotHangingAtRes
   EXPECT_LT(maxAbs(baseHeld - gravity), 1.0e-9 * maxAbs(gravity));
   // The floating base, by contrast, falls freely without a wrench, and gravity then loads no joint.
   EXPECT_GT(maxAbs(computeJointTorques<scalar_t>(stateInput.first, stateInput.second, pinocchioInterface, *model_) - gravity), 1.0);
+}
+
+TEST_F(JointTorqueStateInputOverloadsTest, theDynamicsApplyTheWrenchesAtTheConfiguredContactFramesWhateverTheirNames) {
+  // The base acceleration and the inverse dynamics used to look the soles up as "foot_l_contact" and "foot_r_contact".
+  // A robot whose model_settings.contact_names name other frames - here the G1's soles renamed - must have its wrenches
+  // applied at those frames: the RNEA oracle of the same frames.
+  absl::StatusOr<ModelSettings> created = ModelSettings::Create(taskFile_, urdfFile_, "wb_mpc_", /*verbose=*/false);
+  ASSERT_TRUE(created.ok()) << created.status();
+  ModelSettings renamedSettings = *std::move(created);
+  renamedSettings.contactNames = {"left_sole_renamed", "right_sole_renamed"};
+  pinocchio::Model renamedModel = pinocchioInterface_->getModel();
+  for (size_t i = 0; i < kNumContacts; ++i) {
+    renamedModel.frames[renamedModel.getFrameId(modelSettings_->contactNames[i])].name = renamedSettings.contactNames[i];
+  }
+  ASSERT_FALSE(renamedModel.existFrame(modelSettings_->contactNames[0]) || renamedModel.existFrame(modelSettings_->contactNames[1]));
+  ASSERT_TRUE(checkContactFramesExist(renamedModel, renamedSettings.contactNames).ok());
+  PinocchioInterface renamedInterface(renamedModel);
+  WBAccelMpcRobotModel<scalar_t> renamedMpcModel(renamedSettings);
+
+  const std::pair<vector_t, vector_t> stateInput = stateAndInput(q_, v_, qddJoints_, wrenches_);
+  const RneaReference reference = floatingBaseRnea(renamedModel, q_, v_, qddJoints_, wrenches_, soleFrames_);
+  ASSERT_GT(reference.baseAcceleration.norm(), 0.1) << "the sample accelerates the base";
+
+  const vector_t accelerations =
+      computeGeneralizedAccelerations<scalar_t>(stateInput.first, stateInput.second, renamedInterface, renamedMpcModel);
+  EXPECT_LT(maxAbs(accelerations.head<6>() - reference.baseAcceleration), 1.0e-9 * std::max(1.0, maxAbs(reference.baseAcceleration)));
+  EXPECT_LT(maxAbs(accelerations.tail(qddJoints_.size()) - qddJoints_), 1.0e-15);
+
+  const vector_t torques = computeJointTorques<scalar_t>(stateInput.first, stateInput.second, renamedInterface, renamedMpcModel);
+  EXPECT_LT(maxAbs(torques - reference.jointTorques), 1.0e-9 * std::max(1.0, maxAbs(reference.jointTorques)));
+
+  // Positive control: the oracle tells the frames apart - the same wrenches on the exchanged soles accelerate the base
+  // otherwise.
+  const RneaReference exchanged = floatingBaseRnea(renamedModel, q_, v_, qddJoints_, wrenches_, {soleFrames_[1], soleFrames_[0]});
+  EXPECT_GT(maxAbs(exchanged.baseAcceleration - reference.baseAcceleration), 1.0e-2);
 }
 
 }  // namespace

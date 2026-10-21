@@ -241,6 +241,16 @@ class TestXBoxControllerInterface(unittest.TestCase):
         assert command is not None
         self.assertEqual(command.desired_pelvis_height, controller.min_pelvis_height)
 
+    def test_initial_pelvis_height_sets_the_starting_target(self):
+        controller = xbox_controller_interface.XBoxControllerInterface(
+            RATE_HZ,
+            backend=FakeBackend(FakeJoystick()),
+            initial_pelvis_height=0.7405,
+        )
+        _, command = controller.get_walking_command_msg()
+        assert command is not None
+        self.assertAlmostEqual(command.desired_pelvis_height, 0.7405)
+
     def test_a_controller_that_goes_away_is_marked_disconnected(self):
         backend = FakeBackend(FakeJoystick())
         controller = xbox_controller_interface.XBoxControllerInterface(
@@ -311,7 +321,7 @@ class TestGamepadPoller(unittest.TestCase):
 
 
 class TestXBoxWalkingCommandPublisher(unittest.TestCase):
-    def test_it_publishes_the_controllers_command_and_nothing_without_one(self):
+    def test_it_publishes_the_controllers_command_and_stops_when_lost(self):
         backend = FakeBackend(
             FakeJoystick(axes={xbox_controller_interface.USB_LAYOUT.y_left: -1.0})
         )
@@ -331,9 +341,19 @@ class TestXBoxWalkingCommandPublisher(unittest.TestCase):
         self.assertAlmostEqual(message.linear_velocity_y, 1.0)
 
         backend.joystick = None
-        for _ in range(5):
+        node.tick()
+        self.assertEqual(publisher.publish_count, 2)
+        message = publisher.last_message
+        assert message is not None
+        self.assertEqual(message.linear_velocity_x, 0.0)
+        self.assertEqual(message.linear_velocity_y, 0.0)
+        self.assertEqual(message.angular_velocity_z, 0.0)
+        self.assertAlmostEqual(message.desired_pelvis_height, 0.8)
+
+        # After stop_ticks, nothing more is published.
+        for _ in range(node._stop_ticks):
             node.tick()
-        self.assertEqual(publisher.publish_count, 1)
+        self.assertEqual(publisher.publish_count, 1 + node._stop_ticks)
 
 
 if __name__ == "__main__":

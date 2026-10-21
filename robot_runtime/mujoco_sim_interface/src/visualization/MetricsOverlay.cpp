@@ -32,6 +32,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 
 #include "absl/strings/str_format.h"
+#include "ocs2_core/PhysicalConstants.h"
 
 namespace robot::mujoco_sim_interface {
 
@@ -47,7 +48,7 @@ std::string MetricsOverlay::text(const Metrics& metrics, double renderFps, doubl
       "Drift[ms]: %.3f\n"
       "Cumulative Drift[ms]: %.3f",
       static_cast<int>(renderFps), static_cast<int>(metrics.fpsSim), elapsedRealTime, simTime, metrics.rtfSmoothed,
-      metrics.driftTick * 1.0e3, metrics.driftCumulative * 1.0e3);
+      metrics.driftTick * ::ocs2::kMillisecondsPerSecond, metrics.driftCumulative * ::ocs2::kMillisecondsPerSecond);
 }
 
 void MetricsOverlay::renderOverlay(const VisualizationFrame& frame) {

@@ -37,12 +37,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/log/check.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
+#include "absl/strings/string_view.h"
+
+#include "humanoid_common_mpc/common/BipedFeet.h"
 
 namespace ocs2::humanoid {
 
 namespace var {
 std::string footLabel(size_t foot) {
-  if (kNumContacts == 2) return foot == 0 ? "L" : "R";
+  if (kNumContacts == kBipedFootCount) return foot == 0 ? "L" : "R";
   return std::to_string(foot);
 }
 std::string footX(size_t foot) {
@@ -72,26 +75,26 @@ std::string footYawDelta(size_t foot) {
 }  // namespace var
 
 namespace {
-int indexOf(const std::vector<std::string>& names, const std::string& name, const char* absl_nonnull what) {
+int indexOf(const std::vector<std::string>& names, absl::string_view name, const char* absl_nonnull what) {
   const std::vector<std::string>::const_iterator it = std::find(names.begin(), names.end(), name);
   CHECK(it != names.end()) << "[Layout] no " << what << " named '" << name << "'";
   return static_cast<int>(it - names.begin());
 }
 }  // namespace
 
-int Layout::state(const std::string& name) const {
+int Layout::state(absl::string_view name) const {
   return indexOf(stateNames, name, "state");
 }
 
-int Layout::input(const std::string& name) const {
+int Layout::input(absl::string_view name) const {
   return indexOf(inputNames, name, "input");
 }
 
-bool Layout::hasState(const std::string& name) const {
+bool Layout::hasState(absl::string_view name) const {
   return std::find(stateNames.begin(), stateNames.end(), name) != stateNames.end();
 }
 
-bool Layout::hasInput(const std::string& name) const {
+bool Layout::hasInput(absl::string_view name) const {
   return std::find(inputNames.begin(), inputNames.end(), name) != inputNames.end();
 }
 

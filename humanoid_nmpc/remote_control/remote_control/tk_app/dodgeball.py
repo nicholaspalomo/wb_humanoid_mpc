@@ -71,10 +71,11 @@ DEFAULT_BALL_MASS_KG = 0.45
 
 #: [m/s^2] Gravity the flight is computed under. The launch velocity is lifted so that the ball's BALLISTIC path
 #: passes through the base, rather than pointing straight at it and landing low - see `launch_velocity`. The simulator
-#: flies the ball, and times the fallback impulse, under the same value.
+#: flies the ball, and times the fallback impulse, under the scene's gravity, which every shipped scene keeps at
+#: this value (testShippedRobotGravity).
 # LINT.IfChange(dodgeball_gravity)
 GRAVITY = 9.81
-# LINT.ThenChange(//robot_runtime/mujoco_sim_interface/src/MujocoSimInterface.cpp:dodgeball_gravity)
+# LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_app/robot/test/testShippedRobotGravity.cpp:shipped_gravity)
 
 #: Inclusive slider ranges. They are here rather than in the tab so that the sampler and the tests agree with the
 #: widgets by construction.

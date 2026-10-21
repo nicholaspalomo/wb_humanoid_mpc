@@ -33,6 +33,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cmath>
 #include <string>
 
+#include "ocs2_core/Dimensions.h"
+
 namespace ocs2::humanoid {
 
 std::string FootholdRegularizationCost::describe() const {
@@ -44,7 +46,7 @@ void FootholdRegularizationCost::configure(const ContactPlanningConfig& config) 
 }
 
 void FootholdRegularizationCost::addToStage(const ContactPlanningContext& /*ctx*/, int /*node*/, StageAccumulator& stage) const {
-  for (int axis = 0; axis < 2; ++axis) {
+  for (int axis = 0; axis < kHorizontalPositionDim; ++axis) {
     for (size_t foot = 0; foot < kNumContacts; ++foot) {
       stage.addQuadraticResidual(/*xCoefficients=*/{}, {{idx_.footDelta[foot][axis], 1.0}}, /*offset=*/0.0, weight_);
     }

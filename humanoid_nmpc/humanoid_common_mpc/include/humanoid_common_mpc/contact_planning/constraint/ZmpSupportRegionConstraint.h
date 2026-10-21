@@ -42,6 +42,10 @@ namespace ocs2::humanoid {
  * half-width r_x around the midpoint of the feet, laterally the strip between the right foot minus and the left foot
  * plus r_y. Big-M disjunctions on the contact binaries.
  *
+ * Under the heading model a single-support box is the stance foot's footprint and is written in that foot's frame, at
+ * its nominal yaw (ContactPlanningContext::footAxes), not in the heading frame; the double-support rows stay in the
+ * heading frame. ZmpSupportRegionConstraint.cpp states the linearization and what it leaves out.
+ *
  * WHAT THE DOUBLE-SUPPORT REGION ACTUALLY IS, because this used to claim the opposite. The two rows above are each a
  * valid PROJECTION of the support hull onto one axis, but the set the solver sees is their INTERSECTION, and the
  * intersection of the projections of a convex set is that set's bounding box, not the set. The two agree only while
@@ -61,6 +65,8 @@ namespace ocs2::humanoid {
  * SOFT constraint the whole-body MPC re-solves anyway against the true wrench cone. That makes it a conservatism
  * decision to be validated in simulation, not a repair to be folded into a correctness pass - so it belongs behind
  * its own configuration key, defaulting to the present behavior, rather than being switched on here.
+ *
+ * Not thread-safe, like every ContactPlanningTerm: the planner that owns it configures and evaluates it from one thread at a time.
  */
 class ZmpSupportRegionConstraint final : public LipConstraintBase {
  public:

@@ -66,11 +66,11 @@ class VisualizationConfigTest : public ::testing::Test {
     robot_ = nullptr;
   }
 
-  /** `text` written to a task file of its own in the test's temporary directory; its path. */
+  /** `text`, below the header that names the schema, written to a task file of its own in the test's temporary directory; its path. */
   static std::string writeTaskFile(const std::string& text) {
     const char* absl_nullable directory = std::getenv("TEST_TMPDIR");
     const std::string file = absl::StrCat(directory != nullptr ? directory : "/tmp", "/visualization_task.textproto");
-    std::ofstream(file, std::ios::trunc) << text;
+    std::ofstream(file, std::ios::trunc) << "# proto-message: humanoid_mpc_config.TaskFile\n" << text;
     return file;
   }
 
@@ -93,7 +93,7 @@ class VisualizationConfigTest : public ::testing::Test {
     const absl::StatusOr<VisualizationConfig> config = load(text);
     ASSERT_FALSE(config.ok()) << text;
     EXPECT_EQ(config.status().code(), absl::StatusCode::kInvalidArgument) << text;
-    EXPECT_TRUE(absl::StrContains(config.status().message(), absl::StrCat(writeTaskFile(text), ":1:"))) << config.status();
+    EXPECT_TRUE(absl::StrContains(config.status().message(), absl::StrCat(writeTaskFile(text), ":2:"))) << config.status();
   }
 
   static test::TestRobot* absl_nullable robot_;

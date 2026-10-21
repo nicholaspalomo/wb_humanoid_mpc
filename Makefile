@@ -30,7 +30,7 @@ bazel_indexed := cd $(current_path) && $(bazel_indexed_in_repo)
         lint-tidy lint-tidy-fix \
         test-pinocchio-model-atlas test-pinocchio-model-r1 test-pinocchio-model-sa01 \
         start-vnc stop-vnc kill-sims check-zombies \
-        deploy-robot robot-images rerun-viewer rerun-web ipc-list ipc-echo ipc-hz \
+        deploy-robot robot-images udp-buffers rerun-viewer rerun-web ipc-list ipc-echo ipc-hz \
         closed-loop-metrics benchmark-mpc-solve compare-closed-loop \
         run-ocs2-tests run-mpc-tests test-rl train-rl train-cartpole train-cartpole-vnc train-bc export-rollouts lock-rl-deps echo-packages update-submodules install-hooks train-acom-jupyter
 # The launch targets are declared .PHONY where the robot table below generates them.
@@ -328,10 +328,7 @@ VNC_GL_ENV := export DISPLAY=:99 && \
 	export GALLIUM_DRIVER=llvmpipe && \
 	export MESA_GL_VERSION_OVERRIDE=3.3 && \
 	export MESA_LOADER_DRIVER_OVERRIDE=llvmpipe
-# Printed right before a -vnc target launches, so the URLs are not buried under the build output.
-vnc_urls := echo "🖥️  noVNC: http://localhost:6080/vnc.html (operator GUI; the MuJoCo window with VIEWER=glfw)" && \
-	echo "🌐 Rerun: http://localhost:9090/?url=rerun+http://localhost:9876/proxy (host browser; set RERUN_SINK=spawn to view in noVNC)"
-# LINT.ThenChange(//.devcontainer/start_vnc.sh:vnc_ports, //docker-compose.bridge.yaml:vnc_ports, //.devcontainer/devcontainer.json:vnc_ports, //.devcontainer/README.md:vnc_ports)
+# LINT.ThenChange(//.devcontainer/start_vnc.sh:vnc_ports, //docker-compose.bridge.yaml:vnc_ports, //.devcontainer/devcontainer.json:vnc_ports, //.devcontainer/README.md:vnc_ports, //tools/deploy/session.sh:views_urls)
 
 
 ############################################################
@@ -344,23 +341,33 @@ vnc_urls := echo "🖥️  noVNC: http://localhost:6080/vnc.html (operator GUI; 
 # process. The robot side needs the host's Docker, so `make launch-<robot>-sim` runs on the host (Linux), or in a dev
 # container that can reach Docker; the laptop side and the Bazel builds then run in the dev container DEV_CONTAINER.
 #
-#   make launch-drc-atlas-sim                 # the viewer and the GUI on this shell's DISPLAY (default :99)
-#   make launch-drc-atlas-sim-vnc             # ... on the VNC desktop :99, started first
+#   make launch-drc-atlas-sim                 # three browser tabs: MuJoCo, Rerun and the GUI through noVNC (VIEWS)
+#   make launch-drc-atlas-sim-vnc             # ... all three on the VNC desktop :99 instead (VIEWS=vnc)
 #   make launch-drc-atlas-sim NETEM="delay 3ms 1ms loss 0.5%"    # the bus over a lossy, delayed link (tc netem)
 #   make launch-drc-atlas-dummy-sim           # the MPC against the dummy simulator (the MPC model's rollout)
 #   make deploy-robot ROBOT=drc_atlas HOST=<robot> NETWORK=<file> [SERVICE=enable]   # the robot's computer
 #   make launch-drc-atlas-robot HOST=<robot>  # the deployed robot side, in the foreground over ssh
-#   make launch-drc-atlas-mpc NETWORK=<file>  # the laptop side against it
+#   make launch-drc-atlas-mpc NETWORK=<file>  # the laptop side against it (launch-drc-atlas-mpc-vnc: VIEWS=vnc)
 #   make launch-drc-atlas-sandbox             # the URDF in Rerun, with a slider per joint
 #
 # A launch target's variables:
-#   RERUN_SINK=serve_web|spawn|connect|save   the Rerun bridge's sink (default serve_web: the
-#                                             web viewer at http://localhost:9090; spawn: the native viewer; save: to RRD_PATH=<file>.rrd)
+#   VIEWS=browser|vnc|display                 where the three views go, by name (default browser); the URLs are printed
+#                                             right before the laptop side starts (.devcontainer/README.md, "Ports"):
+#                                             browser: browser tabs - MuJoCo's web viewer (http://localhost:6090), Rerun's
+#                                               web viewer (http://localhost:9090) and the Tk operator GUI on the VNC
+#                                               desktop :99 through noVNC (http://localhost:6080/vnc.html), started first;
+#                                             vnc: all three on the VNC desktop :99 (MuJoCo glfw, Rerun's native viewer),
+#                                               started first: one noVNC tab (the -vnc targets);
+#                                             display: native windows on this shell's DISPLAY, which must answer (the
+#                                               target fails with a hint otherwise)
+#   RERUN_SINK=serve_web|spawn|connect|save   the Rerun bridge's sink (default: the view's - serve_web, the web viewer
+#                                             at http://localhost:9090, or spawn, the native viewer; save: to RRD_PATH=<file>.rrd)
 #   NETEM="<netem parameters>"                -sim: tc netem on the bus's packets on lo (default: none)
-#   VIEWER=glfw|web|none                      -sim: the robot process's MuJoCo viewer by name (default: the
-#                                             mujoco_viewer of PLOT_CONFIG, the shipped one's web: a page at
-#                                             http://localhost:6090, whose address the target prints); glfw is the
-#                                             window on DISPLAY, and a list such as web,none falls back in order
+#   VIEWER=glfw|web|none                      -sim: the robot process's MuJoCo viewer by name (default: the view's when
+#                                             VIEWS= is named, or a -vnc target's glfw; otherwise the mujoco_viewer of
+#                                             PLOT_CONFIG, the shipped one's web: a page at http://localhost:6090, whose
+#                                             address the target prints); glfw is the window on DISPLAY, and a list such
+#                                             as web,none falls back in order
 #   NETWORK=<network file>                    -mpc: the network file with the robot's address (required); a path
 #                                             inside the checkout, relative to it or absolute: deploy-robot reads it on
 #                                             the host, the launch targets in the dev container, which sees the checkout
@@ -369,7 +376,7 @@ vnc_urls := echo "🖥️  noVNC: http://localhost:6080/vnc.html (operator GUI; 
 #   DEV_CONTAINER=<name>                      the dev container, when make runs on the host (default devcontainer-app-1)
 #   PLOT_CONFIG=<file>                        the plot configuration: the Rerun bridge's plots and, for -sim, the robot
 #                                             process's MuJoCo viewer without VIEWER= (its mujoco_viewer); a file of
-#                                             the checkout (default:
+#                                             the checkout, relative to it or absolute inside it (default:
 #                                             humanoid_nmpc/humanoid_rerun_viewer/config/plot_config.textproto)
 #
 # The sandbox: the model sandbox publishes the URDF's link poses at the nominal joint positions, or at those of its Tk
@@ -378,21 +385,46 @@ vnc_urls := echo "🖥️  noVNC: http://localhost:6080/vnc.html (operator GUI; 
 
 DEV_CONTAINER ?= devcontainer-app-1
 export WB_DEV_CONTAINER := $(DEV_CONTAINER)
-RERUN_SINK ?= serve_web
+# The Rerun bridge's sink; empty: the view's (views_rerun_sink_<view>).
+RERUN_SINK ?=
 NETEM ?=
+# Where the views go, by name: the MuJoCo viewer and the Rerun sink of each view, which VIEWER= and RERUN_SINK= override.
+# The VNC desktop's display and the URL banner are session.sh's (--views).
+# LINT.IfChange(views)
+VIEWS ?= browser
+VIEWS_NAMES := browser vnc display
+views_viewer_browser := web
+views_viewer_vnc := glfw
+views_viewer_display := glfw
+views_rerun_sink_browser := serve_web
+views_rerun_sink_vnc := spawn
+views_rerun_sink_display := spawn
+# LINT.ThenChange(//tools/deploy/session.sh:views, //tools/deploy/test_deploy_files.py:views, //.devcontainer/README.md:views, //README.md:views)
+# The VNC desktop's resolution, for the views that start it (session.sh).
+export WB_VNC_RESOLUTION := $(RESOLUTION)
+# Whether VIEWS was named (on the command line, in the environment, or by a -vnc target): only then does its MuJoCo
+# viewer override PLOT_CONFIG's mujoco_viewer. $(call views_checked,<view>) is the view, or an error listing them.
+views_named = $(filter command line environment override,$(origin VIEWS))
+views_checked = $(if $(filter $(VIEWS_NAMES),$(1)),$(1),$(error VIEWS=$(1) is not a view; the views are: $(VIEWS_NAMES)))
+# The session's view and the bridge's sink, and for -sim the robot's MuJoCo viewer: VIEWER=, else the named view's.
+view_sets = --views $(call views_checked,$(VIEWS)) --set rerun_sink=$(or $(RERUN_SINK),$(views_rerun_sink_$(VIEWS)))
+sim_viewer = $(if $(or $(VIEWER),$(views_named)),--viewer "$(or $(VIEWER),$(views_viewer_$(VIEWS)))")
 # LINT.IfChange(viewer_variable)
 # The robot process's MuJoCo viewer, by name (robot_runtime/mujoco_sim_interface/README.md); empty: the mujoco_viewer of
 # PLOT_CONFIG, web unless it names another. web serves http://localhost:6090 (session.sh prints it).
 VIEWER ?=
-# LINT.ThenChange(//robot_runtime/mujoco_sim_interface/include/mujoco_sim_interface/viewer/ViewerNames.h:viewer_names, //humanoid_nmpc/humanoid_common_mpc_app/robot/src/RobotAppFlags.cpp:web_viewer_port)
+# LINT.ThenChange(//robot_runtime/mujoco_sim_interface/include/mujoco_sim_interface/viewer/ViewerNames.h:viewer_names, //robot_runtime/web_viewer/include/web_viewer/WebViewerServerOptions.h:web_viewer_port)
 NETWORK ?=
 JOINT_SOURCE ?= sliders
 RRD_PATH ?=
 # LINT.IfChange(plot_config_variable)
 PLOT_CONFIG ?= humanoid_nmpc/humanoid_rerun_viewer/config/plot_config.textproto
 # LINT.ThenChange(//tools/deploy/session.sh:default_plot_config, //humanoid_nmpc/humanoid_rerun_viewer/python/humanoid_rerun_viewer/cli.py:default_plot_config, //docker-compose.robot.sim.yaml:sim_plot_config_mount)
-# The Rerun bridge's sink, and the recording of RERUN_SINK=save (relative to the checkout, where the bridge runs).
-rerun_sets = --set rerun_sink=$(RERUN_SINK) $(if $(RRD_PATH),--set rrd_path=$(RRD_PATH)) $(if $(PLOT_CONFIG),--set plot_config=$(PLOT_CONFIG))
+# The Rerun bridge's sink, and the recording of RERUN_SINK=save: relative to the checkout, where the bridge runs, or
+# absolute inside it, which is made relative; an absolute path outside it is the dev container's own (/tmp/walk.rrd is
+# in the dev container's filesystem when make runs on the host). PLOT_CONFIG is a file of the checkout (checkout_relative).
+rerun_sets = $(view_sets) $(if $(RRD_PATH),--set rrd_path=$(call relative_inside_checkout,$(RRD_PATH))) \
+	$(if $(PLOT_CONFIG),--set plot_config=$(call checkout_relative,PLOT_CONFIG,$(PLOT_CONFIG)))
 # deploy-robot and launch-<robot>-robot
 ROBOT ?=
 HOST ?= localhost
@@ -409,16 +441,25 @@ CONFIG_SEED ?=
 NETEM_INTERFACE ?= lo
 DEPLOY_DIR ?= wb-humanoid-robot
 
-# NETWORK= is a path relative to the checkout, where deploy_robot.sh (on the host) and the launcher (in the dev
-# container) both resolve it, or an absolute path inside the checkout, which is made relative. One outside it is refused:
-# the dev container sees nothing else of the host.
+# NETWORK= and PLOT_CONFIG= are paths relative to the checkout, where deploy_robot.sh (on the host) and the launcher (in
+# the dev container) both resolve them, or absolute paths inside the checkout, which are made relative. One outside it
+# is refused: the dev container sees nothing else of the host. $(call checkout_relative,<variable>,<path>).
 checkout_root := $(abspath $(current_path))
-network_file = $(if $(filter /%,$(NETWORK)),$(if $(filter $(checkout_root)/%,$(NETWORK)),$(patsubst $(checkout_root)/%,%,$(NETWORK)),$(error NETWORK=$(NETWORK) is outside the checkout $(checkout_root): the dev container sees only the checkout, so copy the file into it, e.g. config/ipc/my_network.textproto)),$(NETWORK))
+# LINT.IfChange(checkout_relative)
+relative_inside_checkout = $(if $(filter $(checkout_root)/%,$(1)),$(patsubst $(checkout_root)/%,%,$(1)),$(1))
+checkout_relative = $(if $(filter /%,$(2)),$(if $(filter $(checkout_root)/%,$(2)),$(patsubst $(checkout_root)/%,%,$(2)),$(error $(1)=$(2) is outside the checkout $(checkout_root): the dev container sees only the checkout, so copy the file into it)),$(2))
+# LINT.ThenChange(//tools/deploy/session.sh:checkout_relative_plot_config)
+network_file = $(call checkout_relative,NETWORK,$(NETWORK))
 
 # A shell command in the dev container's checkout: here inside it, through docker exec from the host.
 dev_run := $(current_path)tools/deploy/in_dev_container.sh
 session := $(current_path)tools/deploy/session.sh
 deploy_robot := $(current_path)tools/deploy/deploy_robot.sh
+# Raises a machine's net.core.rmem_max / wmem_max to the socket buffers its network file asks the DDS bus for, and keeps
+# them in /etc/sysctl.d (sudo, only when a limit is below the request): $(call udp_buffers,<network file>,<host>).
+# The launch and deployment targets run it first; it never fails them (tools/deploy/udp_buffers.sh).
+shipped_network := config/ipc/network.textproto
+udp_buffers = $(current_path)tools/deploy/udp_buffers.sh --network $(current_path)$(1) --host $(2)
 deploy_flags = --host $(HOST) --deploy_dir $(DEPLOY_DIR) \
 	$(if $(NETWORK),--network $(network_file)) $(if $(REGISTRY),--registry $(REGISTRY)) \
 	$(if $(PLATFORM),--platform $(PLATFORM)) $(if $(CPUSET),--cpuset $(CPUSET)) \
@@ -455,41 +496,41 @@ field = $(word $(2),$(subst :, ,$(1)))
 
 # LINT.IfChange(launch_targets)
 # The launch targets of one robot configuration ($(1) is its entry of ROBOT_CONFIGURATIONS): the launch files of its
-# MPC package's launch/ directory (robot.textproto, mpc.textproto, dummy_sim.textproto).
+# MPC package's launch/ directory (robot.textproto, mpc.textproto, dummy_sim.textproto). A -vnc target is the target
+# without the suffix with VIEWS=vnc (named, so its MuJoCo viewer is glfw): target-specific variables reach the
+# prerequisite, whose recipe runs.
 define robot_launch_targets
 .PHONY: launch-$(call field,$(1),1)-sim launch-$(call field,$(1),1)-sim-vnc launch-$(call field,$(1),1)-dummy-sim \
-	launch-$(call field,$(1),1)-dummy-sim-vnc launch-$(call field,$(1),1)-robot launch-$(call field,$(1),1)-mpc
+	launch-$(call field,$(1),1)-dummy-sim-vnc launch-$(call field,$(1),1)-robot launch-$(call field,$(1),1)-mpc \
+	launch-$(call field,$(1),1)-mpc-vnc
 
 launch-$(call field,$(1),1)-sim: kill-sims
+	@$(call udp_buffers,$(shipped_network),localhost)
 	@$(session) sim --robot $(call field,$(1),2) --launch_file $(call field,$(1),3)/launch/mpc.textproto \
 		--build "$(mpc_binaries_$(call field,$(1),4)) $(laptop_binaries)" $$(rerun_sets) \
-		$$(if $$(NETEM),--netem "$$(NETEM)") $$(if $$(VIEWER),--viewer "$$(VIEWER)") \
-		$$(if $$(PLOT_CONFIG),--plot_config "$$(PLOT_CONFIG)")
-
-launch-$(call field,$(1),1)-sim-vnc: kill-sims start-vnc
-	@$$(vnc_urls)
-	@DISPLAY=:99 $(session) sim --robot $(call field,$(1),2) --launch_file $(call field,$(1),3)/launch/mpc.textproto \
-		--build "$(mpc_binaries_$(call field,$(1),4)) $(laptop_binaries)" $$(rerun_sets) \
-		$$(if $$(NETEM),--netem "$$(NETEM)") $$(if $$(VIEWER),--viewer "$$(VIEWER)") \
+		$$(if $$(NETEM),--netem "$$(NETEM)") $$(sim_viewer) \
 		$$(if $$(PLOT_CONFIG),--plot_config "$$(PLOT_CONFIG)")
 
 launch-$(call field,$(1),1)-dummy-sim: kill-sims
+	@$(call udp_buffers,$(shipped_network),localhost)
 	@$(session) laptop --launch_file $(call field,$(1),3)/launch/dummy_sim.textproto \
 		--build "$(dummy_binaries_$(call field,$(1),4)) $(laptop_binaries)" $$(rerun_sets)
 
-launch-$(call field,$(1),1)-dummy-sim-vnc: kill-sims start-vnc
-	@$$(vnc_urls)
-	@DISPLAY=:99 $(session) laptop --launch_file $(call field,$(1),3)/launch/dummy_sim.textproto \
-		--build "$(dummy_binaries_$(call field,$(1),4)) $(laptop_binaries)" $$(rerun_sets)
-
 launch-$(call field,$(1),1)-robot:
+	@$$(call udp_buffers,$$(or $$(network_file),$(shipped_network)),$$(HOST))
 	@$(deploy_robot) up --robot $(call field,$(1),2) --host $$(HOST) --deploy_dir $$(DEPLOY_DIR)
 
 launch-$(call field,$(1),1)-mpc: kill-sims
 	@$$(if $$(NETWORK),,$$(error launch-$(call field,$(1),1)-mpc needs NETWORK=<network file> with the robot's address, e.g. a copy of config/ipc/two_machine.example.textproto))
+	@$$(call udp_buffers,$$(network_file),localhost)
 	@$(session) laptop --launch_file $(call field,$(1),3)/launch/mpc.textproto \
 		--build "$(mpc_binaries_$(call field,$(1),4)) $(laptop_binaries)" $$(rerun_sets) \
 		--set network_file=$$(network_file)
+
+launch-$(call field,$(1),1)-sim-vnc launch-$(call field,$(1),1)-dummy-sim-vnc launch-$(call field,$(1),1)-mpc-vnc: override VIEWS = vnc
+launch-$(call field,$(1),1)-sim-vnc: launch-$(call field,$(1),1)-sim
+launch-$(call field,$(1),1)-dummy-sim-vnc: launch-$(call field,$(1),1)-dummy-sim
+launch-$(call field,$(1),1)-mpc-vnc: launch-$(call field,$(1),1)-mpc
 endef
 
 # The sandbox of one robot description ($(1) is its entry of ROBOT_CONFIGURATIONS): launch/sandbox.textproto of it.
@@ -500,10 +541,8 @@ launch-$(call field,$(1),1)-sandbox: kill-sims
 	@$(session) laptop --launch_file $(call field,$(1),5)/launch/sandbox.textproto --build "$(sandbox_binaries)" \
 		$$(rerun_sets) --set joint_source=$$(JOINT_SOURCE)
 
-launch-$(call field,$(1),1)-sandbox-vnc: kill-sims start-vnc
-	@$$(vnc_urls)
-	@DISPLAY=:99 $(session) laptop --launch_file $(call field,$(1),5)/launch/sandbox.textproto \
-		--build "$(sandbox_binaries)" $$(rerun_sets) --set joint_source=$$(JOINT_SOURCE)
+launch-$(call field,$(1),1)-sandbox-vnc: override VIEWS = vnc
+launch-$(call field,$(1),1)-sandbox-vnc: launch-$(call field,$(1),1)-sandbox
 endef
 
 $(foreach configuration,$(ROBOT_CONFIGURATIONS),$(eval $(call robot_launch_targets,$(configuration))))
@@ -517,7 +556,14 @@ $(foreach configuration,$(filter $(addsuffix :%,$(SANDBOX_ROBOTS)),$(ROBOT_CONFI
 ## (tools/deploy/README.md). A deployment that runs already is restarted on the new image.
 deploy-robot:
 	@$(if $(ROBOT),,$(error deploy-robot needs ROBOT=<robot configuration>: drc_atlas, engineai_sa01, unitree_g1, unitree_g1_wb or unitree_r1))
+	@$(call udp_buffers,$(or $(network_file),$(shipped_network)),$(HOST))
 	@$(deploy_robot) deploy --robot $(ROBOT) --service $(SERVICE) $(deploy_flags)
+
+## Raise this machine's (or HOST='s, over ssh) kernel limits on UDP socket buffers to what the network file asks the DDS
+## bus for, and keep them across reboots: make udp-buffers [NETWORK=<file>] [HOST=<ssh host>]. The launch and deploy
+## targets do this first; sudo asks only while a limit is below the request (tools/deploy/udp_buffers.sh).
+udp-buffers:
+	@$(call udp_buffers,$(or $(network_file),$(shipped_network)),$(HOST))
 
 ## Build the robot bundle and the robot-runtime and robot-sim images, without deploying them
 robot-images:
@@ -556,15 +602,19 @@ help:
 	@echo "Launch targets, for <robot> in $(foreach c,$(ROBOT_CONFIGURATIONS),$(call field,$(c),1)):"
 	@echo "  launch-<robot>-sim[-vnc]        robot side in the robot-sim container + MPC, GUI and Rerun bridge in the dev"
 	@echo "                                  container, over the bus (NETEM=, VIEWER=glfw|web|none, RERUN_SINK=,"
-	@echo "                                  PLOT_CONFIG=); the MuJoCo viewer is the plot configuration's, by default"
-	@echo "                                  web at http://localhost:6090"
+	@echo "                                  PLOT_CONFIG=)"
 	@echo "  launch-<robot>-dummy-sim[-vnc]  the MPC against the dummy simulator, with the GUI and the Rerun bridge"
 	@echo "  launch-<robot>-robot HOST=      the deployed robot side, in the foreground (ssh to HOST, or localhost)"
-	@echo "  launch-<robot>-mpc NETWORK=     the laptop side against the robot of the network file"
+	@echo "  launch-<robot>-mpc[-vnc] NETWORK=  the laptop side against the robot of the network file"
+	@echo "  VIEWS=browser|vnc|display       where the views go (default browser): browser tabs for MuJoCo (:6090),"
+	@echo "                                  Rerun (:9090) and the GUI through noVNC (:6080); vnc (the -vnc targets): all"
+	@echo "                                  on the VNC desktop :99; display: native windows on DISPLAY, checked"
 	@echo "  launch-<robot>-sandbox[-vnc]    for <robot> in $(SANDBOX_ROBOTS): the URDF in Rerun at its nominal pose or"
 	@echo "                                  at a slider per joint (JOINT_SOURCE=sliders|nominal)"
 	@echo "Deployment: deploy-robot ROBOT= HOST= NETWORK= [SERVICE=install|enable] [REGISTRY=] [PLATFORM=] [BACKEND=]"
 	@echo "            [MEMORY_LIMIT=], robot-images"
+	@echo "            udp-buffers [NETWORK=] [HOST=]: the kernel's UDP buffer limits the network file asks for (sudo,"
+	@echo "            once per machine; the launch and deploy targets run it first)"
 	@echo "Viewers and the bus: rerun-viewer, rerun-web [ROBOT=] [NETWORK=], ipc-list, ipc-echo TOPIC=, ipc-hz TOPIC="
 	@echo "Validation (humanoid_nmpc/humanoid_mpc_validation): closed-loop-metrics ROBOT= LABEL= [SCENARIO=] [BASELINE=]"
 	@echo "            [RECORD_STATES=1] [VALIDATION_CONTAINER_IMAGE=], benchmark-mpc-solve ROBOT= LABEL= [STATES=] [BASELINE=],"

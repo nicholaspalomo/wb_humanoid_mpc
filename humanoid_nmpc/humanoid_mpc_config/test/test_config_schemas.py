@@ -44,6 +44,7 @@ from humanoid_mpc_config import config_registries_pb2
 from humanoid_mpc_config import contact_planning_file_pb2
 from humanoid_mpc_config import gait_file_pb2
 from humanoid_mpc_config import joint_pd_gains_file_pb2
+from humanoid_mpc_config import joint_pd_gains_update_pb2
 from humanoid_mpc_config import joint_value_pb2
 from humanoid_mpc_config import mpc_parameter_update_pb2
 from humanoid_mpc_config import reference_file_pb2
@@ -68,6 +69,7 @@ ROOTS = (
     contact_planning_file_pb2.ContactPlanningFile,
     gait_file_pb2.GaitFile,
     mpc_parameter_update_pb2.MpcParameterUpdate,
+    joint_pd_gains_update_pb2.JointPdGainsUpdate,
     config_registries_pb2.ConfigRegistries,
     tuning_options_pb2.TuningOptions,
     tuning_group_options_pb2.TuningGroupOptions,

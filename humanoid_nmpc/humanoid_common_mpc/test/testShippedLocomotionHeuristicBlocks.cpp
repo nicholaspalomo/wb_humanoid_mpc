@@ -371,6 +371,9 @@ TEST_P(ShippedLocomotionHeuristicBlockTest, EveryParameterOfTheSchemaIsWrittenIn
     const google::protobuf::Message& parameterBlock = reflection->GetMessage(block, heuristic);
     for (int j = 0; j < parameterBlock.GetDescriptor()->field_count(); ++j) {
       const google::protobuf::FieldDescriptor* absl_nonnull parameter = parameterBlock.GetDescriptor()->field(j);
+      // A parameter without a default (capture_point.com_height_override, centripetal_acceleration.maximum_force) may
+      // be left out: its absence is a setting of its own, and the file says which in a comment.
+      if (parameter->has_presence() && !parameter->has_default_value()) continue;
       EXPECT_TRUE(parameterBlock.GetReflection()->HasField(parameterBlock, parameter))
           << kBlockKey << "." << heuristic->name() << "." << parameter->name() << " is not written in " << taskFile_;
       ++parameters;

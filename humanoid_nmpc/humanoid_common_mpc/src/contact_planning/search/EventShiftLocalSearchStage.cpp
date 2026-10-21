@@ -45,6 +45,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
+namespace {
+// A candidate whose admissible stretch falls short of the incumbent's by more than this does not admit it.
+constexpr scalar_t kAdmissibleStretchTolerance = 1.0e-9;
+// A candidate replaces the incumbent only when it lowers the objective by more than this.
+constexpr scalar_t kMinObjectiveImprovement = 1.0e-6;
+}  // namespace
+
 std::string EventShiftLocalSearchStage::describe() const {
   return absl::StrCat("shift every contact event of the incumbent by one node while it improves, ", params_.iterations, " rounds, ",
                       params_.maxTime, " s");
@@ -93,7 +100,8 @@ absl::Status EventShiftLocalSearchStage::afterSearch(SearchRun& run) const {
           // chosenDt per node. A candidate that moves a touch-down one node later is then legal in nodes and too long
           // in seconds (a five-node swing at dt 0.1 against a 0.5 s maximum passes propagation and executes for
           // 0.625 s at a stretch of 1.25), so the candidate has to admit the stretch the incumbent was emitted with.
-          if (stretch > 1.0 && CadenceStretchStage::admissibleStretch(*run.config, candidate, N, stretch, run.input) < stretch - 1.0e-9) {
+          if (stretch > 1.0 && CadenceStretchStage::admissibleStretch(*run.config, candidate, N, stretch, run.input) <
+                                   stretch - kAdmissibleStretchTolerance) {
             continue;
           }
           if (!evaluated.insert(candidate).second) continue;
@@ -106,7 +114,7 @@ absl::Status EventShiftLocalSearchStage::afterSearch(SearchRun& run) const {
                                                                    *run.assignmentCost, solution, objective));
           if (!solved) continue;
           statistics.totalQpIterations += solution.iterations;
-          if (objective < result.incumbentObjective - 1.0e-6) {
+          if (objective < result.incumbentObjective - kMinObjectiveImprovement) {
             result.incumbentObjective = objective;
             result.solution = solution;
             result.assignment = candidate;

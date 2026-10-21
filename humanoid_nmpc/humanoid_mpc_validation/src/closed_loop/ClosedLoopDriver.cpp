@@ -65,6 +65,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_mpc_config/task_file.nproto.h"
 #include "humanoid_mpc_msgs/walking_velocity_command.pb.h"
 #include "humanoid_mpc_validation/closed_loop/DriverSettingsFromConfig.h"
+#include "humanoid_mpc_validation/closed_loop/SqpStepDiagnostics.h"
 #include "mujoco_sim_interface/CheaterSimContactEstimator.h"
 #include "mujoco_sim_interface/viewer/ViewerNames.h"
 
@@ -85,7 +86,13 @@ std::optional<double> maxQuaternionNormDeviationOf(const vector_array_t& states,
   if (states.empty()) return std::nullopt;
   const Eigen::Index start = static_cast<Eigen::Index>(orientationStartIndex);
   double deviation = 0.0;
-  for (const vector_t& state : states) deviation = std::max(deviation, std::abs(state.segment<4>(start).norm() - 1.0));
+  for (const vector_t& state : states) {
+    const double d = std::abs(state.segment<4>(start).norm() - 1.0);
+    if (std::isnan(d)) {
+      return d;
+    }
+    deviation = std::max(deviation, d);
+  }
   return deviation;
 }
 
@@ -144,6 +151,10 @@ DriverSolveOutcome ClosedLoopDriver::solve() {
     outcome.solveQpMs = benchmarks.solveQpTime;
     outcome.linesearchMs = benchmarks.linesearchTime;
     outcome.computeControllerMs = benchmarks.computeControllerTime;
+    const SqpSolver& solver = *mpc_->getSolverPtr();
+    if (!solver.getIterationRecords().empty()) {
+      outcome.sqpStep = sqpStepSampleOf(solver.getIterationRecords().back(), solver.getSolutionMetrics(), normalVelocityTerms_);
+    }
   }
   return outcome;
 }
@@ -178,7 +189,7 @@ std::array<Eigen::Vector3d, 2> ClosedLoopDriver::contactPositions(const SystemOb
 absl::Status ClosedLoopDriver::connectSimulator(const robot::mujoco_sim_interface::MujocoSimInterface& sim) {
   // The backend's estimators next to the built-in ones (MujocoRobotBackend::registerContactEstimators()).
   if (!contactEstimators_.has(robot::mujoco_sim_interface::kCheaterSimContactEstimatorName)) {
-    robot::mujoco_sim_interface::registerCheaterSimContactEstimator(contactEstimators_, sim);
+    robot::mujoco_sim_interface::registerCheaterSimContactEstimator(contactEstimators_, &sim);
   }
   // The controller writes the simulator's joint action at its own joint indices without a check.
   RETURN_IF_ERROR(checkControllerRobot(*robotController_, sim.getRobotDescription()));
@@ -286,6 +297,7 @@ absl::Status ClosedLoopDriver::initializeShared(const RobotConfiguration& config
   solverThreads_ = settings.nThreads;
   mpc_ = std::make_unique<SqpMpc>(mpcSettings, settings, problem, initializer);
   mpc_->getSolverPtr()->setReferenceManager(std::move(referenceManager));
+  normalVelocityTerms_ = normalVelocityTermIndices(*problem.equalityConstraintPtr, modelSettings.contactNames);
 
   // The configuration the observation describes, for the contact positions.
   measurementModel_.reset(robotModel.clone());

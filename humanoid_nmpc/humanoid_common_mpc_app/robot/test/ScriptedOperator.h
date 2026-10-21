@@ -85,8 +85,8 @@ class ScriptedOperator {
   uint64_t scenesReceived() const;
 
   /**
-   * Sends the FSM command `command` with the next sequence number, again every 50 ms (the first messages of a fresh
-   * ZeroMQ connection can be lost; the robot drops the repeats by their sequence), until the robot's FSM state
+   * Sends the FSM command `command` with the next sequence number, again every 50 ms (a sample written before DDS
+   * discovery matched the writers is not delivered; the robot drops the repeats by their sequence), until the robot's FSM state
    * satisfies `reached`; false when it does not within `timeout`.
    */
   bool sendFsmCommand(const std::string& command,

@@ -46,6 +46,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc/contact/ContactRectangle.h"
 #include "humanoid_common_mpc/contact/ContactWrenchMapper.h"
 #include "humanoid_common_mpc_app/visualization/PolicySnapshot.h"
 #include "humanoid_common_mpc_app/visualization/VisualizationConfig.h"
@@ -84,8 +85,9 @@ struct SceneInputs {
  *     state-aware world-frame accessors, so that they are right for every input parameterization, and not the
  *     observation's input, which the MuJoCo simulations leave zero. A stance foot whose normal force
  *     is below kMinNormalForceForCop has its center of pressure at its contact frame rather than NaN;
- *   - the plan: the paths of the task file's rerun_plan_frames, of the base and of the CoM projected to the ground, and
- *     the footholds where a foot lands within the horizon.
+ *   - the plan: the paths of the task file's rerun_plan_frames, of the base and of the whole-body CoM at its height
+ *     (pinocchio::centerOfMass() of every node's state, not projected to the ground), and the footholds where a foot
+ *     lands within the horizon.
  *
  * Every scene carries every marker path, empty when there is nothing to draw, so that what is no longer true
  * disappears. Not thread-safe: one thread builds the scenes (the visualization thread).
@@ -115,6 +117,9 @@ class SceneBuilder {
   const std::vector<std::string>& mpcLinkNames() const { return mpcLinkNames_; }
 
  private:
+  /** The corners of a foot's contact rectangle: the planned wrench of a stance foot is drawn as a force at each. */
+  static constexpr int kFootCorners = ContactRectangle::kNumCorners;
+
   struct CollisionSphere {
     pinocchio::FrameIndex frame;
     scalar_t radius;
@@ -133,16 +138,17 @@ class SceneBuilder {
   absl::Status initialize(const VisualizationModel& model, const VisualizationConfig& config);
 
   void writeMeasuredFromSample(const msgs::RobotStateSample& sample, humanoid_mpc_msgs::RobotModelInstance* absl_nonnull instance);
-  void updateGroundHeight(size_t mode);
   void writeObservationMarkers(const SystemObservation& observation,
                                const PolicySnapshot* absl_nullable policy,
                                humanoid_mpc_msgs::VisualizationScene* absl_nonnull scene);
   void computePlan(const PolicySnapshot& policy);
   void clearPlan();
 
+  /** The settings of robotModel_, which is never null. */
+  const ModelSettings& modelSettings() const { return robotModel_->modelSettings; }
+
   PinocchioInterface pinocchioInterface_;
   std::unique_ptr<MpcRobotModelBase<scalar_t>> robotModel_;
-  const ModelSettings& modelSettings_;
   // VisualizationModel::stateManifold, retained (Create() refuses a null one).
   const StateManifold* absl_nonnull stateManifold_;
 
@@ -159,13 +165,10 @@ class SceneBuilder {
   std::vector<std::string> mpcLinkNames_;
 
   feet_array_t<pinocchio::FrameIndex> contactFrames_{};
-  feet_array_t<std::array<pinocchio::FrameIndex, 4>> cornerFrames_{};
-  std::vector<ContactWrenchMapper<4>> cornerForceMappers_;
+  feet_array_t<std::array<pinocchio::FrameIndex, kFootCorners>> cornerFrames_{};
+  std::vector<ContactWrenchMapper<kFootCorners>> cornerForceMappers_;
   std::vector<CollisionSphere> collisionSpheres_;
   std::vector<pinocchio::FrameIndex> planFrames_;
-
-  /** [m] The height the planned CoM is projected to: the stance feet's mean height at the last observation. */
-  scalar_t groundHeight_ = 0.0;
 
   // The plan of the policy of planVersion_.
   bool hasPlan_ = false;

@@ -182,7 +182,7 @@ TEST(CentroidalMpcResetTarget, IsWhatTheControllerHandsItsMpcLink) {
   const robot::model::RobotDescription& description = *descriptionOrStatus;
   CapturingFactory capturing(stack.mpc());
   absl::StatusOr<std::unique_ptr<CentroidalMpcMrtJointController>> controllerOrStatus = CentroidalMpcMrtJointController::Create(
-      description, stack.modelSettings(), stack.model(), capturing.factory(), stack.pinocchioInterface());
+      description, stack.modelSettings(), stack.model(), capturing.factory(), stack.pinocchioInterface(), stack.pdGainsFile());
   // The controller, which owns the link the factory captured, lives in controllerOrStatus for the whole test.
   ASSERT_TRUE(controllerOrStatus.ok()) << controllerOrStatus.status();
   ASSERT_TRUE(capturing.resetTarget());
@@ -217,7 +217,7 @@ TEST(CentroidalMpcResetTarget, IsWhatTheInProcessLinkResetsTheMpcTo) {
     absl::StatusOr<std::unique_ptr<CentroidalMpcMrtJointController>> controllerOrStatus =
         CentroidalMpcMrtJointController::Create(description, stack.modelSettings(), stack.model(), mpc,
                                                 /*solverObservationObserver=*/nullptr, stack.pinocchioInterface(),
-                                                /*mpcDesiredFrequency=*/100.0);
+                                                /*mpcDesiredFrequency=*/100.0, stack.pdGainsFile());
     ASSERT_TRUE(controllerOrStatus.ok()) << controllerOrStatus.status();
     CentroidalMpcMrtJointController& controller = **controllerOrStatus;
     controller.startMpcThread(robotState);

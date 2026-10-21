@@ -31,7 +31,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_centroidal_mpc_app/CentroidalMpcNode.h"
 
+#include <filesystem>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -43,10 +45,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_centroidal_mpc/mrt/CentroidalMpcParameterUpdater.h"
 #include "humanoid_centroidal_mpc/mrt/CentroidalMpcResetTarget.h"
+#include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/config/ConfigFiles.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlannerModule.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningReferenceManager.h"
+#include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_common_mpc/parameter_update/CommandLimitsReloaders.h"
 #include "humanoid_mpc_config/mpc_parameter_update.nproto.h"
 
@@ -55,6 +59,10 @@ namespace ocs2::humanoid {
 absl::StatusOr<std::unique_ptr<CentroidalMpcNode>> CentroidalMpcNode::Create(const node::MpcFiles& files,
                                                                              std::unique_ptr<robot::ipc::Bus> bus,
                                                                              Options options) {
+  const std::optional<std::filesystem::file_time_type> taskFileReadAt = lastWriteTime(files.taskFile);
+  const std::optional<std::filesystem::file_time_type> referenceFileReadAt = lastWriteTime(files.referenceFile);
+  const std::optional<std::filesystem::file_time_type> contactPlanningFileReadAt = lastWriteTime(contactPlanningFileBeside(files.taskFile));
+
   std::unique_ptr<CentroidalMpcNode> node = absl::WrapUnique(new CentroidalMpcNode());
   ASSIGN_OR_RETURN(node->interface_, CentroidalMpcInterface::Create(files.taskFile, files.urdfFile, files.referenceFile));
   CentroidalMpcInterface& interface = *node->interface_;
@@ -102,7 +110,8 @@ absl::StatusOr<std::unique_ptr<CentroidalMpcNode>> CentroidalMpcNode::Create(con
   // Limits tab of the remote control changes them on the running node.
   ASSIGN_OR_RETURN(node->parameterUpdater_,
                    makeCentroidalMpcParameterUpdater(node->mpc_.get(), interface, files.taskFile, files.referenceFile,
-                                                     makeCommandLimitsReloaders(calculator, node->motionManager_)));
+                                                     makeCommandLimitsReloaders(calculator, node->motionManager_), taskFileReadAt,
+                                                     referenceFileReadAt, contactPlanningFileReadAt));
   solver.addSynchronizedModule(node->parameterUpdater_);
   // clang-format off
   // LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_validation/src/closed_loop/CentroidalClosedLoopDriver.cpp:centroidal_mpc_node_wiring, //humanoid_nmpc/humanoid_mpc_validation/src/closed_loop/ClosedLoopDriver.cpp:command_path)
@@ -125,13 +134,17 @@ absl::StatusOr<std::unique_ptr<CentroidalMpcNode>> CentroidalMpcNode::Create(con
       std::dynamic_pointer_cast<const ContactPlanningReferenceManager>(interface.getReferenceManagerPtr());
   // The visualization publisher, on the node's bus: the MPC's own models (the effective one, whose inputs the policies
   // carry), copied before the solver thread runs, and the state manifold the problem, the rollout and the policies share,
-  // along which it interpolates the policies' states (retained: interface_ outlives visualization_).
+  // along which it interpolates the policies' states (retained: interface_ outlives visualization_), the nominal
+  // state of the DCM's pendulum, and the solver's own problem, whose terms the post-solve observer evaluates on the
+  // solver thread (retained: mpc_ outlives visualization_).
   components.attachVisualization = visualization::VisualizationPublisher::MakeBusAttacher(
       visualization::VisualizationModel{.taskFile = files.taskFile,
                                         .urdfFile = files.urdfFile,
                                         .pinocchioInterface = &interface.getPinocchioInterface(),
                                         .mpcRobotModel = &effectiveModel,
-                                        .stateManifold = interface.getStateManifold().get()},
+                                        .stateManifold = interface.getStateManifold().get(),
+                                        .nominalState = interface.getInitialState(),
+                                        .solverProblem = &node->mpc_->getSolverPtr()->getOcpDefinitions().front()},
       std::move(options.visualization), &node->visualization_);
 
   node::MpcNodeRuntime::Config config;
@@ -142,6 +155,9 @@ absl::StatusOr<std::unique_ptr<CentroidalMpcNode>> CentroidalMpcNode::Create(con
   config.taskFileIdentity = configFileIdentity(files.taskFile);
   config.mpcDesiredFrequency = interface.mpcSettings().mpcDesiredFrequency_;
   config.solverThread = std::move(options.solverThread);
+  config.walkingCommandTimeout = options.walkingCommandTimeout;
+  // An observation of another layout (equal dimensions, other joints) is refused and not solved.
+  config.modelFingerprint = modelLayoutFingerprint(interface.modelSettings());
   ASSIGN_OR_RETURN(node->runtime_, node::MpcNodeRuntime::Create(std::move(bus), std::move(components), std::move(config)));
   const ipc::ModelDimensions dimensions = node->dimensions();
   LOG(INFO) << "[CentroidalMpcNode] The centroidal MPC is built (" << dimensions.stateDim << " states, " << dimensions.inputDim
@@ -171,7 +187,7 @@ TargetTrajectories CentroidalMpcNode::resetTargetTrajectories(const SystemObserv
 
 ipc::ModelDimensions CentroidalMpcNode::dimensions() const {
   const MpcRobotModelBase<scalar_t>& effectiveModel = interface_->getEffectiveMpcRobotModel();
-  return {.stateDim = effectiveModel.getStateDim(), .inputDim = effectiveModel.getInputDim(), .numModes = node::kNumHumanoidModes};
+  return {.stateDim = effectiveModel.getStateDim(), .inputDim = effectiveModel.getInputDim(), .numModes = kNumModeNumbers};
 }
 
 }  // namespace ocs2::humanoid

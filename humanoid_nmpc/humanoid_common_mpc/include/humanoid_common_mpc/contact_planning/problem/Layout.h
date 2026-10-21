@@ -32,6 +32,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <vector>
 
+#include "absl/strings/string_view.h"
+
 #include "humanoid_common_mpc/common/Types.h"
 
 namespace ocs2::humanoid {
@@ -98,10 +100,10 @@ struct Layout {
    * it requires, which ContactPlanningProblem::finalize() has checked, so an unknown name is a programming error and
    * CHECK-fails with the name. Use hasState() / hasInput() for a variable that may be absent.
    */
-  int state(const std::string& name) const;
-  int input(const std::string& name) const;
-  bool hasState(const std::string& name) const;
-  bool hasInput(const std::string& name) const;
+  int state(absl::string_view name) const;
+  int input(absl::string_view name) const;
+  bool hasState(absl::string_view name) const;
+  bool hasInput(absl::string_view name) const;
 
   /** One line: x = [...] (nx), u = [...] (nu). */
   std::string describe() const;

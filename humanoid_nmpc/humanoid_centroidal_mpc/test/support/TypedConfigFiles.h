@@ -99,7 +99,7 @@ absl::StatusOr<CentroidalModelInfo> centroidalModelInfoOf(const CentroidalMpcCon
                                                           const PinocchioInterface& pinocchioInterface,
                                                           const ModelSettings& modelSettings);
 
-/** The textprotos of the typed files, as the strict parser reads them back (nproto::WriteTextproto()). */
+/** The textprotos of the typed files, headers included, as the strict file parser reads them back (nproto::WriteTextprotoFile()). */
 std::string taskFileText(const mpc_config::TaskFile& task);
 std::string referenceFileText(const mpc_config::ReferenceFile& reference);
 std::string contactPlanningFileText(const mpc_config::ContactPlanningFile& contactPlanning);

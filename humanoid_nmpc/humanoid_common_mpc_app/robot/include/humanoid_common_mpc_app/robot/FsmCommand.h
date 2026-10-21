@@ -30,6 +30,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 
@@ -50,9 +51,12 @@ enum class FsmCommandKind : uint8_t {
 
 /** One FSM command as the realtime thread receives it: plain data, for an SPSC queue. */
 struct FsmCommandEvent {
+  /** The characters `name` holds, its NUL terminator included. */
+  static constexpr size_t kNameCapacity = 24;
+
   FsmCommandKind kind = FsmCommandKind::kZeroTorque;
   /** The command as the operator sent it, NUL-terminated (for the log line of the realtime thread's report). */
-  std::array<char, 24> name{};
+  std::array<char, kNameCapacity> name{};
 };
 
 /**

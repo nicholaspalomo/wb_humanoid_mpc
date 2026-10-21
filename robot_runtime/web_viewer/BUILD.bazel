@@ -53,6 +53,16 @@ cc_library(
     includes = ["include"],
 )
 
+# How the server binds and whom it serves (include/web_viewer/WebViewerServerOptions.h), apart from the server so that
+# the MuJoCo viewer's options take its defaults (//robot_runtime/mujoco_sim_interface:viewer_settings).
+cc_library(
+    name = "web_viewer_server_options",
+    hdrs = ["include/web_viewer/WebViewerServerOptions.h"],
+    copts = FIRST_PARTY_COPTS,
+    includes = ["include"],
+    deps = [":viewer_thread_priority"],
+)
+
 cc_library(
     name = "web_viewer",
     srcs = [
@@ -71,12 +81,15 @@ cc_library(
         exclude = [
             "include/web_viewer/JpegDecoder.h",
             "include/web_viewer/ViewerThreadPriority.h",
+            "include/web_viewer/WebViewerServerOptions.h",
         ],
     ),
     copts = FIRST_PARTY_COPTS,
     includes = ["include"],
     deps = [
         ":viewer_thread_priority",
+        ":web_viewer_server_options",
+        "//lib/ocs2:ocs2_dimensions",
         "@abseil-cpp//absl/base:core_headers",
         "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/cleanup",
@@ -213,6 +226,7 @@ cc_test(
     copts = FIRST_PARTY_COPTS,
     deps = [
         ":web_viewer",
+        "@abseil-cpp//absl/strings",
         "@abseil-cpp//absl/synchronization",
         "@abseil-cpp//absl/time",
         "@googletest//:gtest_main",
@@ -258,6 +272,7 @@ cc_test(
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
         "@abseil-cpp//absl/time",
         "@googletest//:gtest_main",
     ],
@@ -278,6 +293,27 @@ cc_test(
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
         "@abseil-cpp//absl/time",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# Create() when a request thread cannot start: a binary of its own, since it interposes pthread_create.
+cc_test(
+    name = "web_viewer_server_thread_failure_test",
+    size = "small",
+    srcs = [
+        "test/PthreadCreateInterposer.cpp",
+        "test/PthreadCreateInterposer.h",
+        "test/testWebViewerServerThreadFailure.cpp",
+    ],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":web_viewer",
+        ":web_viewer_test_support",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
         "@googletest//:gtest_main",
     ],
 )
@@ -313,4 +349,17 @@ py_test(
     data = ["page/index.html"],
     main = "test/test_embed_page.py",
     deps = [":embed_page_lib"],
+)
+
+# The page's script under node (the nodejs package of dependencies.txt) with a stub DOM, fetch and clock: its input
+# order, status line, HUD, settings controls and marker rows.
+py_test(
+    name = "page_script_test",
+    size = "small",
+    srcs = ["test/test_page_script.py"],
+    data = [
+        "page/index.html",
+        "test/page_script_harness.js",
+    ],
+    main = "test/test_page_script.py",
 )

@@ -34,14 +34,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <memory>
 #include <vector>
 
+#include "absl/base/nullability.h"
 #include "absl/log/log.h"
 
 #include "mujoco_sim_interface/MujocoSimInterface.h"
+#include "mujoco_sim_interface/MujocoUtils.h"
 
 namespace robot::mujoco_sim_interface {
 
-CheaterSimContactEstimator::CheaterSimContactEstimator(const MujocoSimInterface& sim) : sim_(sim) {
-  if (!sim_.hasContactDetection()) {
+CheaterSimContactEstimator::CheaterSimContactEstimator(const MujocoSimInterface* absl_nonnull sim) : sim_(sim) {
+  if (!sim_->hasContactDetection()) {
     LOG(INFO) << "[CheaterSimContactEstimator] the simulator has no contact detection (no contact frame names were configured); every "
                  "contact point is reported as touching.";
   }
@@ -61,20 +63,20 @@ void CheaterSimContactEstimator::writeFlagsFromMasks(
   flags.assign(numContactPoints, true);
   if (numDetectedContacts == 0) return;
   const uint32_t touching = groundTruthMask | unresolvedMask;
-  for (size_t i = 0; i < numContactPoints && i < numDetectedContacts && i < 32; ++i) {
+  for (size_t i = 0; i < numContactPoints && i < numDetectedContacts && i < kContactMaskCapacity; ++i) {
     flags[i] = ((touching >> i) & 1u) != 0u;
   }
 }
 
 void CheaterSimContactEstimator::estimateContactFlags(const robot::model::RobotState& robotState, std::vector<bool>& flags) {
-  writeFlagsFromMasks(sim_.getGroundTruthContactMask(), sim_.getUnresolvedContactMask(), sim_.getNumDetectedContactPoints(),
+  writeFlagsFromMasks(sim_->getGroundTruthContactMask(), sim_->getUnresolvedContactMask(), sim_->getNumDetectedContactPoints(),
                       robotState.getContactFlags().size(), flags);
 }
 
 // LINT.IfChange(cheater_sim_contact_estimator_name)
-void registerCheaterSimContactEstimator(robot::model::ContactEstimatorRegistry& registry, const MujocoSimInterface& sim) {
+void registerCheaterSimContactEstimator(robot::model::ContactEstimatorRegistry& registry, const MujocoSimInterface* absl_nonnull sim) {
   registry.add(kCheaterSimContactEstimatorName, "the ground truth of the MuJoCo physics (normal force above contactForceThreshold)",
-               [&sim] { return std::make_shared<CheaterSimContactEstimator>(sim); });
+               [sim] { return std::make_shared<CheaterSimContactEstimator>(sim); });
 }
 // clang-format off
 // LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.textproto:contact_estimator, //robot_models/unitree_g1/g1_centroidal_mpc/config/mpc/task.textproto:contact_estimator, //robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.textproto:contact_estimator, //robot_models/unitree_r1/unitree_r1_centroidal_mpc/config/mpc/task.textproto:contact_estimator, //robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/task.textproto:contact_estimator, //humanoid_nmpc/humanoid_mpc_config/task_file.proto:contact_estimator)

@@ -89,11 +89,11 @@ whatever solves: the MPC node behind the remote link in every simulation and on 
 <!-- LINT.IfChange(controller_reset_events) -->
 | Event | Reset | Until a policy of the new epoch is in use |
 | --- | --- | --- |
-| Entry into `WB_MPC` from a passive mode | yes, from the observation at that moment | the passive mode's action is held (JOINT_PD for ZERO_TORQUE), then ramped into the MPC action over `mpc_entry_blend_time` (0: at once) |
+| Entry into `WB_MPC` from a passive mode | yes, from the observation at that moment | the passive mode's action is held (JOINT_PD for ZERO_TORQUE and SAFETY: SAFETY's own hold decays to zero torque and cannot carry the robot through the reset), then ramped into the MPC action over `mpc_entry_blend_time` (0: at once), the torque of every joint moving linearly from the held action's to the MPC action's at every measured state (`blendJointActionLinearInTorque()`) |
 | A discontinuity reported by the sim loop (`requestMpcResetAndHold()`) | yes | held, as above |
-| The observation clock running backwards | yes, one | held, as above; the SAFETY decay keeps the time it has decayed for |
+| The observation clock running backwards | yes, one | held, as above; the SAFETY decay keeps the time it has decayed for and the posture it holds, also when the clock runs back past its entry, and its factor is latched: it never rises within a stay in SAFETY (`safety_decay::latchedFactor()`), whatever the clock or the time constant does |
 | Gantry unlocked (`requestMpcReset()`) | yes | the policy in use carries the robot |
-| Divergence of the policy (`|q_des - q| > 0.5 rad`) | of the solver alone (`resetMpcSolver()`), at most one per post-reset policy and per 0.5 s | the policy in use, clamped |
+| Divergence of the policy (`|q_des - q| >` the gains file's `max_policy_joint_error`, 0.5 rad by default) | of the solver alone (`resetMpcSolver()`), at most one per post-reset policy and per 0.5 s | the policy in use, clamped to `diverged_policy_joint_target_bound` (0.2 rad by default) about the measured joints |
 | A failed solve | of the solver alone, before the next attempt | the policy in use; after `maxConsecutiveFailures` (3) failures in a row the reset becomes a full one and the MPC is **unhealthy**: `WB_MPC` holds the robot with the JOINT_PD action, the attempts back off from 0.1 s to 2 s, and one error says so and how to recover (switch to JOINT_PD and back to WB_MPC to retry at once). The first solve that succeeds ends it, and its policy is ramped in like an entry. |
 <!-- LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/mrt/MpcResetSupervisor.h:reset_supervisor_defaults, //humanoid_nmpc/humanoid_centroidal_mpc/include/humanoid_centroidal_mpc/mrt/CentroidalMpcMrtJointController.h:divergence_reset_interval) -->
 
@@ -124,7 +124,7 @@ process with the MuJoCo backend, after the operator's commands:
    discontinuity ──▶ JOINT_PD (torques on), the loop calls requestMpcResetAndHold() and publishControllerReset(), which
                      counts the reset in the FSM state it publishes (the remote control re-centers its joysticks on
                      every counted reset, every new lock and every transition into a passive mode)
-   caught after a fall, sim_gantry_catch_lift > 0 ──▶ settle sequence:
+   caught after a fall, sim_gantry_catch_lift given ──▶ settle sequence:
 
         lift the gantry by sim_gantry_catch_lift ──▶ wait until at rest ──▶ lower to the height of the catch ──▶ wait until at rest
         (0.25 m/s)                                (tilt < 0.05 rad, base < 0.05 m/s and 0.2 rad/s, the MPC joints within 0.15 rad
@@ -144,8 +144,8 @@ Task file fields (`config/mpc/task.textproto`, simulation only, read by the robo
 <!-- LINT.IfChange(sim_fall_recovery_keys) -->
 | Field | Meaning |
 | --- | --- |
-| `sim_max_base_tilt_angle` | [rad] tilt past which the robot is caught; 0 disables the catch |
-| `sim_gantry_catch_lift` | [m] how far the gantry lifts a caught robot to settle it; 0 skips the sequence and accepts WB_MPC at once. Every robot ships 0.15. |
+| `sim_max_base_tilt_angle` | [rad] tilt past which the robot is caught, positive; absent disables the catch |
+| `sim_gantry_catch_lift` | [m] how far the gantry lifts a caught robot to settle it, positive; absent skips the sequence and accepts WB_MPC at once. Every robot ships 0.15. |
 <!-- LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_config/task_file.proto:sim_fall_recovery_keys) -->
 
 Rest is judged on joint positions, not joint velocities: with the shipped DRC Atlas JOINT_PD gains an unloaded ankle
@@ -156,15 +156,20 @@ which the control loop samples as a large constant velocity while the joint hold
 
 `CentroidalMpcEndEffectorFootCost` tracks a planned foot yaw with its third orientation residual. The residual is now
 
-$$e = 2 \arctan\frac{s}{1 + c},\qquad s = \mathbf{h} \times \mathbf{r},\quad c = \mathbf{h} \cdot \mathbf{r},$$
+$$e = 2 \arctan\frac{s}{1 + c},\qquad s = \mathbf{r} \times \mathbf{h} = r_x h_y - r_y h_x,\quad c = \mathbf{h} \cdot \mathbf{r},$$
 
 with $\mathbf{h} = (R_{00}, R_{10}) / \|(R_{00}, R_{10})\|$ the foot's heading and $\mathbf{r}$ the reference heading,
 $(\cos\psi_{ref}, \sin\psi_{ref})$ when a yaw reference is tracked and $\mathbf{h}$ itself when not. It equals the old
 $\operatorname{atan2}(\sin(\psi - \psi_{ref}), \cos(\psi - \psi_{ref}))$ for every error short of $\pi$ and is exactly
-zero when masked. CppAD's `atan2` evaluates both branches, one of which divides by its first argument; the generated
+zero when masked. The order of the cross product is the sign of the residual: with $\mathbf{h} = (\cos\psi, \sin\psi)$
+and $\mathbf{r} = (\cos\psi_{ref}, \sin\psi_{ref})$, $\mathbf{r} \times \mathbf{h} = \sin(\psi - \psi_{ref})$ and
+$\mathbf{h} \cdot \mathbf{r} = \cos(\psi - \psi_{ref})$, so $e = \psi - \psi_{ref}$ wrapped to $(-\pi, \pi)$, positive when the
+foot has turned past its reference (`testFootYawResidual` pins the sign against that difference). CppAD's `atan2` evaluates both branches, one of which divides by its first argument; the generated
 derivative code does not skip the unselected one, so at $R_{10} = 0$ the old residual's derivative was $0 \cdot \infty$,
-and the mask made it $0 \cdot \mathrm{NaN}$. The CppAD library name carries the new version (`_yawRefHalfAngle`), so a
-cached library of the old residual is never loaded in its place.
+and the mask made it $0 \cdot \mathrm{NaN}$. The CppAD library name carries the residual's version
+(`CentroidalMpcEndEffectorFootCost::kLibraryVersionSuffix`: `_yawRefHalfAngle` for this fix, `_tiltAngle` since the tilt
+residual became the angle $\theta\,\mathbf{u}$ of `tiltAngleToPlane()` in place of its half-angle sine), so a cached
+library of an older residual is never loaded in its place.
 
 ## 6. The whole-body controller
 

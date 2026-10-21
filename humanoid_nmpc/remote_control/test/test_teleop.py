@@ -29,9 +29,17 @@
 
 import argparse
 import math
+import os
+import tempfile
 import threading
 import unittest
 
+from humanoid_mpc_config import reference_file_pb2
+
+from humanoid_mpc_ipc import topics
+import nproto_textproto
+import operator_test_support
+from remote_control import config_files
 from remote_control import operator_bus
 from remote_control import teleop
 
@@ -116,6 +124,98 @@ class TestBusFlags(unittest.TestCase):
         )
         self.assertEqual(
             (args.network_config, args.ipc_node), ("/tmp/n.textproto", "teleop2")
+        )
+
+
+def _walking_publisher() -> operator_test_support.RecordingPublisher:
+    return operator_test_support.RecordingPublisher(
+        topics.OPERATOR_WALKING_VELOCITY_COMMAND
+    )
+
+
+class TestStopCommand(unittest.TestCase):
+    def test_close_after_stop_sends_the_stop_command_before_it_closes(self):
+        publisher = _walking_publisher()
+        self.assertTrue(
+            teleop.close_after_stop(publisher, pelvis_height=0.74, grace_period=0.0)
+        )
+        self.assertEqual(publisher.publish_count, 1)
+        stop = publisher.last_message
+        assert stop is not None
+        self.assertEqual(stop.linear_velocity_x, 0.0)
+        self.assertEqual(stop.linear_velocity_y, 0.0)
+        self.assertEqual(stop.angular_velocity_z, 0.0)
+        self.assertAlmostEqual(stop.desired_pelvis_height, 0.74)
+        self.assertTrue(publisher.bus.closed)
+        # The stop command went out before the bus closed.
+        self.assertEqual(publisher.bus.published_at_close, 1)
+
+    def test_close_after_stop_without_a_height_sends_nothing_and_closes(self):
+        publisher = _walking_publisher()
+        self.assertFalse(teleop.close_after_stop(publisher, pelvis_height=None))
+        self.assertEqual(publisher.publish_count, 0)
+        self.assertTrue(publisher.bus.closed)
+
+    def test_the_loop_ends_with_the_stop_command(self):
+        publisher = _walking_publisher()
+        moving = operator_bus.walking_velocity_command(0.5, 0.0, 0.0, 0.81)
+
+        def tick() -> None:
+            publisher.publish(moving)
+
+        ticks = teleop.publish_until_stopped(
+            publisher,
+            tick,
+            threading.Event(),
+            lambda: 0.81,
+            max_ticks=2,
+        )
+        self.assertEqual(ticks, 2)
+        self.assertEqual(publisher.publish_count, 3)
+        stop = publisher.last_message
+        assert stop is not None
+        self.assertEqual(stop.linear_velocity_x, 0.0)
+        self.assertAlmostEqual(stop.desired_pelvis_height, 0.81)
+        self.assertEqual(publisher.bus.published_at_close, 3)
+
+    def test_a_tick_that_raises_still_sends_the_stop_command(self):
+        publisher = _walking_publisher()
+
+        def tick() -> None:
+            raise RuntimeError("the terminal went away")
+
+        with self.assertRaises(RuntimeError):
+            teleop.publish_until_stopped(
+                publisher, tick, threading.Event(), lambda: 0.8
+            )
+        self.assertEqual(publisher.publish_count, 1)
+        self.assertTrue(publisher.bus.closed)
+
+
+class TestInitialPelvisHeight(unittest.TestCase):
+    def test_it_is_the_reference_files_default_base_height(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "reference.textproto")
+            with open(path, "w", encoding="utf-8") as handle:
+                handle.write(
+                    nproto_textproto.file_text(
+                        reference_file_pb2.ReferenceFile(default_base_height=0.7405)
+                    )
+                )
+            self.assertAlmostEqual(teleop.initial_pelvis_height(path), 0.7405)
+
+    def test_without_a_reference_file_it_is_the_fallback(self):
+        self.assertEqual(
+            teleop.initial_pelvis_height(""), config_files.DEFAULT_PELVIS_HEIGHT
+        )
+
+    def test_the_flag_defaults_to_no_file(self):
+        parser = argparse.ArgumentParser()
+        teleop.add_reference_file_flag(parser)
+        self.assertEqual(parser.parse_args([]).reference_file, "")
+        self.assertEqual(
+            parser.parse_args(["--reference_file=r.textproto"]).reference_file,
+            "r.textproto",
         )
 
 

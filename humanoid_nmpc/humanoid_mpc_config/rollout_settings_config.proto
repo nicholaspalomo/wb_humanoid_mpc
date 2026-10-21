@@ -35,12 +35,12 @@ message RolloutSettingsConfig {
   // use_trajectory_spreading_controller and root_finder_type. All four tuned the state-triggered rollout.
   reserved 8 to 11;
 
-  // The absolute and the relative error tolerance of the adaptive ODE solvers.
+  // The absolute and the relative error tolerance of the adaptive ODE solvers, both positive.
   double abs_tol_ode = 1 [default = 1e-9, (humanoid_mpc_config.tuning) = { log_scale: true }];
   double rel_tol_ode = 2 [default = 1e-6, (humanoid_mpc_config.tuning) = { log_scale: true }];
   // The most integration steps per second of the ODE solvers, at least 0.
   int32 max_num_steps_per_second = 3 [default = 10000];
-  // [s] The time step of the fixed-step integrators.
+  // [s] The time step of the fixed-step integrators, positive.
   double time_step = 4 [default = 0.01, (humanoid_mpc_config.tuning) = { unit: "s" }];
   // LINT.IfChange(integrator_names)
   // The integration scheme: "EULER", "ODE45", "ODE45_OCS2", "MODIFIED_MIDPOINT" or "RK4" (OCS2's IntegratorType, by

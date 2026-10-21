@@ -41,6 +41,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_centroidal_mpc/CentroidalMpcConfig.h"
 #include "humanoid_centroidal_mpc/common/CentroidalMpcRobotModel.h"
 #include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
+#include "humanoid_nmpc/humanoid_common_mpc/test/support/StatusTestMacros.h"
 #include "support/TypedConfigFiles.h"
 
 namespace ocs2::humanoid {
@@ -75,13 +76,13 @@ struct CentroidalTestingModelInterface {
     taskFile = files.taskFile;
     urdfFile = files.urdfFile;
     referenceFile = files.referenceFile;
-    config = loadConfigOf(files).value();
+    config = checkedValue(loadConfigOf(files));
 
     modelSettingsPtr = std::make_unique<ModelSettings>(
-        ModelSettings::Create(config.task, urdfFile, "centroidal_testing_interfce", /*verbose=*/false).value());
+        checkedValue(ModelSettings::Create(config.task, urdfFile, "centroidal_testing_interfce", /*verbose=*/false)));
 
     pinocchioInterfacePtr = std::make_unique<PinocchioInterface>(
-        loadCustomPinocchioInterface(config.task, urdfFile, *modelSettingsPtr, /*scaleTotalMass=*/false).value());
+        checkedValue(loadCustomPinocchioInterface(config.task, urdfFile, *modelSettingsPtr, /*scaleTotalMass=*/false)));
     mpcRobotModelPtr_ =
         std::make_unique<CentroidalMpcRobotModel<scalar_t>>(*modelSettingsPtr, *pinocchioInterfacePtr, getCentroidalModelInfo());
     mpcRobotModelADPtr_ = std::make_unique<CentroidalMpcRobotModel<ad_scalar_t>>(*modelSettingsPtr, (*pinocchioInterfacePtr).toCppAd(),
@@ -97,7 +98,7 @@ struct CentroidalTestingModelInterface {
 
   /** The centroidal model info of the configuration, as CentroidalMpcInterface builds it (centroidalModelInfoOf()). */
   CentroidalModelInfo getCentroidalModelInfo() const {
-    return centroidalModelInfoOf(config, *pinocchioInterfacePtr, *modelSettingsPtr).value();
+    return checkedValue(centroidalModelInfoOf(config, *pinocchioInterfacePtr, *modelSettingsPtr));
   }
 };
 

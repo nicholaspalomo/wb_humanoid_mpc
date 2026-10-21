@@ -43,6 +43,8 @@ namespace ocs2::humanoid {
 /**
  * A block of the reduced model: the variables it adds to the layout, their dynamics x_{k+1} = A x_k + B u_k + b, the
  * per-node input bounds, the initial state, and how its part of the solution is decoded into the plan.
+ *
+ * Not thread-safe, like every ContactPlanningTerm: the planner that owns it configures and evaluates it from one thread at a time.
  */
 class LipModelBlock : public ContactPlanningTerm {
  public:

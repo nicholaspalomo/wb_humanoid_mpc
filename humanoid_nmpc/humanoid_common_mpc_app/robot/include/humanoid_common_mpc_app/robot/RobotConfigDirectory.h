@@ -133,6 +133,8 @@ class RobotConfigDirectory {
   std::string identity(msgs::ConfigFileKind kind) const;
   /** identity(kTask). */
   std::string taskFileIdentity() const { return identity(msgs::ConfigFileKind::kTask); }
+  /** identity(kJointPdGains). */
+  std::string pdGainsFileIdentity() const { return identity(msgs::ConfigFileKind::kJointPdGains); }
   /** The persistent copy of `kind`'s file; empty without a usable store and for kUnspecified. */
   std::string storedPath(msgs::ConfigFileKind kind) const;
   /** The file of `kind` the robot reads (files()): the stored copy, or the seed without a usable store; "" for kUnspecified. */

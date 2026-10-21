@@ -77,16 +77,16 @@
     // LINT.ThenChange(//docker-compose.bridge.yaml:rerun_ports, //.devcontainer/README.md:rerun_ports)
     // LINT.IfChange(web_viewer_port)
     6090,
-    // LINT.ThenChange(//docker-compose.bridge.yaml:web_viewer_port, //.devcontainer/README.md:web_viewer_port, //humanoid_nmpc/humanoid_common_mpc_app/robot/src/RobotAppFlags.cpp:web_viewer_port)
+    // LINT.ThenChange(//docker-compose.bridge.yaml:web_viewer_port, //.devcontainer/README.md:web_viewer_port, //robot_runtime/web_viewer/include/web_viewer/WebViewerServerOptions.h:web_viewer_port)
     8888
   ],
   // On Linux the container runs on the host's network (docker-compose.yaml), where these ports already answer on the
-  // host; the IDE forwards them for a remote host. The ZeroMQ bus ports (5600-5629) are not forwarded: forwardPorts
-  // takes single ports, not a range (docker-compose.bridge.yaml publishes them on Docker Desktop). Every forwarded port
+  // host; the IDE forwards them for a remote host. The DDS bus ports (UDP 7410-7449) are not forwarded: forwardPorts
+  // forwards TCP, and takes single ports, not a range (docker-compose.bridge.yaml publishes them on Docker Desktop). Every forwarded port
   // has its entry below (//tools/dev_container:test_dev_container).
   "portsAttributes": {
     "6080": {
-      "label": "noVNC (MuJoCo viewer, operator GUI)",
+      "label": "noVNC (operator GUI; MuJoCo with VIEWER=glfw)",
       "onAutoForward": "notify"
     },
     "5901": {
@@ -94,7 +94,7 @@
       "onAutoForward": "silent"
     },
     "6090": {
-      "label": "MuJoCo web viewer",
+      "label": "MuJoCo web viewer (Open in Browser)",
       "onAutoForward": "notify"
     },
     "9090": {

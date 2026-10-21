@@ -138,21 +138,29 @@ class RemoteMpcLinkTest : public ::testing::Test {
              bool observationsThroughRelay = false) {
     mpc_ = test_support::makeScriptedMpc();
     mpc_->getSolverPtr()->addSynchronizedModule(module_);
-    robotBus_ = test_support::createNodeBus("robot");
-    mpcBus_ = test_support::createNodeBus("mpc");
+    // Through the relay, the robot and the MPC are on two DDS domains of their own: the observations reach the MPC only
+    // through the relay, which may lose them, and the MPC's policies and status are forwarded back unchanged.
+    constexpr int kRobotDomain = 0;
+    const int mpcDomain = observationsThroughRelay ? 1 : kRobotDomain;
+    robotBus_ = test_support::createNodeBus("robot", kRobotDomain);
+    mpcBus_ = test_support::createNodeBus("mpc", mpcDomain);
     if (observationsThroughRelay) {
-      relayOut_ = test_support::createNodeBus("relay");
-      CHECK_OK(robotBus_->connect(mpcBus_->boundEndpoint()));
-      CHECK_OK(mpcBus_->connect(relayOut_->boundEndpoint()));
-      relayIn_ = test_support::createSubscriberBus("robot", robotBus_->boundPort());
+      relayOut_ = test_support::createNodeBus("relay", mpcDomain);
+      relayIn_ = test_support::createSubscriberBus(kRobotDomain);
       CHECK_OK(relayIn_->subscribe<humanoid_mpc_msgs::MpcObservation>(
           topics::kRobotMpcObservation, robot::ipc::Delivery::kAll,
           [this](const humanoid_mpc_msgs::MpcObservation& message) { relay_.onObservation(message, *relayOut_); }));
-    } else {
-      test_support::connectBoth(*robotBus_, *mpcBus_);
+      backOut_ = test_support::createNodeBus("relay", kRobotDomain);
+      backIn_ = test_support::createSubscriberBus(mpcDomain);
+      for (const absl::string_view topic : {topics::kMpcPolicy, topics::kMpcStatus}) {
+        CHECK_OK(
+            backIn_->subscribeRaw(topic, robot::ipc::Delivery::kAll, [this, topic](absl::string_view typeName, absl::string_view payload) {
+              CHECK_OK(backOut_->publishRaw(topic, typeName, payload));
+            }));
+      }
     }
 
-    absl::StatusOr<std::unique_ptr<RemoteMpcLink>> link = RemoteMpcLink::Create(*robotBus_, robotSupervisor_, std::move(linkConfig));
+    absl::StatusOr<std::unique_ptr<RemoteMpcLink>> link = RemoteMpcLink::Create(robotBus_.get(), &robotSupervisor_, std::move(linkConfig));
     CHECK_OK(link.status());
     link_ = std::move(*link);
     MpcServer::Hooks hooks;
@@ -163,7 +171,7 @@ class RemoteMpcLinkTest : public ::testing::Test {
       return absl::OkStatus();
     };
     absl::StatusOr<std::unique_ptr<MpcServer>> server =
-        MpcServer::Create(*mpcBus_, *mpc_, resetTargetsFor, std::move(serverConfig), std::move(hooks));
+        MpcServer::Create(mpcBus_.get(), mpc_.get(), resetTargetsFor, std::move(serverConfig), std::move(hooks));
     CHECK_OK(server.status());
     server_ = std::move(*server);
 
@@ -172,6 +180,8 @@ class RemoteMpcLinkTest : public ::testing::Test {
     if (relayOut_ != nullptr) {
       CHECK_OK(relayOut_->start());
       CHECK_OK(relayIn_->start());
+      CHECK_OK(backOut_->start());
+      CHECK_OK(backIn_->start());
     }
     CHECK_OK(server_->start());
   }
@@ -184,8 +194,8 @@ class RemoteMpcLinkTest : public ::testing::Test {
   /**
    * Writes the observation at robot time `time` until a policy solved from it is in the link's buffer: several of the
    * same time and state, because the first ones may go out before the subscriptions of the other side have reached the
-   * publisher (ZeroMQ's "slow joiner"). Then one cycle at time + kSettleStep that waits for its own policy, after which
-   * nothing is in flight any more, and swaps that in.
+   * publisher (DDS discovery has matched the writers and readers). Then one cycle at time + kSettleStep that waits for its own policy,
+   * after which nothing is in flight any more, and swaps that in.
    */
   void warmUp(scalar_t time = 1.0, scalar_t value = 1.0) {
     ASSERT_TRUE(waitFor([&]() {
@@ -239,6 +249,9 @@ class RemoteMpcLinkTest : public ::testing::Test {
   std::unique_ptr<robot::ipc::Bus> mpcBus_;
   std::unique_ptr<robot::ipc::Bus> relayOut_;
   std::unique_ptr<robot::ipc::Bus> relayIn_;
+  // MPC -> robot through the relay: the policies and the status, unchanged.
+  std::unique_ptr<robot::ipc::Bus> backOut_;
+  std::unique_ptr<robot::ipc::Bus> backIn_;
   std::unique_ptr<RemoteMpcLink> link_;
   std::unique_ptr<MpcServer> server_;
 };

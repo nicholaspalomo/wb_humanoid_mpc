@@ -1,13 +1,16 @@
 #!/bin/sh
-# Delays and drops the ZeroMQ bus's packets with tc-netem, to test the remote MPC link over a link like the robot's:
+# Delays and drops the DDS bus's UDP packets with tc-netem, to test the remote MPC link over a link like the robot's:
 #
 #   netem.sh apply <interface> <netem parameters...>   # e.g. netem.sh apply lo delay 3ms 1ms loss 0.5%
 #   netem.sh clear <interface>                         # remove it again (only what `apply` installed)
 #   netem.sh show <interface>
 #
-# Only TCP packets (IPv4 or IPv6) from or to the bus's ports (5600-5631, which holds every node of
-# config/ipc/network.textproto) are affected: `apply` replaces the interface's root qdisc with a prio qdisc whose fourth
-# band is netem, and u32 filters on the TCP protocol and the ports send the bus's packets to that band; everything else keeps the prio qdisc's default bands. `clear` deletes that root
+# Only UDP packets (IPv4 or IPv6) from or to the bus's ports (7168-7679, which hold the DDS ports of domains 0 and 1,
+# 7400 + 250 * domain_id + 10..49, and so every process of config/ipc/network.textproto, discovery and data alike) are
+# affected: `apply` replaces the interface's root qdisc with a prio qdisc whose fourth band is netem, and u32 filters on
+# the UDP protocol and the ports send the bus's packets to that band; everything else keeps the prio qdisc's default
+# bands. A lost packet costs the bus a DDS fragment: the reliable profiles send it again, `latest` waits for the next
+# sample. `clear` deletes that root
 # qdisc, and the kernel puts the interface's default back. On `lo` both directions of every connection pass the netem
 # band; on a network interface only the packets this machine sends do (apply it on both machines, or use an ifb for
 # the incoming side). Needs CAP_NET_ADMIN; the robot images run it from robot_entrypoint.sh when NETEM is set.
@@ -16,10 +19,10 @@
 set -eu
 
 # LINT.IfChange(bus_ports)
-# 5600-5631: robot 5600, mpc 5610, operator 5620, teleop 5621, config_push 5622.
-BUS_PORT=5600
-BUS_PORT_MASK=0xffe0
-# LINT.ThenChange(//config/ipc/network.textproto:localhost_nodes, //config/ipc/two_machine.example.textproto:two_machine_nodes)
+# 7168-7679 (0x1c00 under the mask 0xfe00): the DDS unicast ports of domain 0 (7410-7449) and of domain 1.
+BUS_PORT=7168
+BUS_PORT_MASK=0xfe00
+# LINT.ThenChange(//config/ipc/network.textproto:dds_ports, //config/ipc/two_machine.example.textproto:dds_ports)
 # Distinctive handles (hexadecimal), so that `clear` removes this script's qdisc and nobody else's.
 ROOT_HANDLE=5600:
 NETEM_HANDLE=5601:
@@ -49,15 +52,15 @@ apply_netem() {
     tc qdisc replace dev "${interface}" root handle "${ROOT_HANDLE}" prio bands 4 \
         priomap 1 2 2 2 1 2 0 0 1 1 1 1 1 1 1 1
     tc qdisc add dev "${interface}" parent "${ROOT_HANDLE}4" handle "${NETEM_HANDLE}" netem "$@"
-    # TCP only (IP protocol 6): the u32 port match reads the bytes at the transport header's port offsets of any
-    # protocol. IPv4 and IPv6 (whose `ip6 protocol` is the first next header, which TCP is without extension headers).
+    # UDP only (IP protocol 17): the u32 port match reads the bytes at the transport header's port offsets of any
+    # protocol. IPv4 and IPv6 (whose `ip6 protocol` is the first next header, which UDP is without extension headers).
     for direction in sport dport; do
         tc filter add dev "${interface}" parent "${ROOT_HANDLE}" protocol ip prio 1 u32 \
-            match ip protocol 6 0xff match ip "${direction}" "${BUS_PORT}" "${BUS_PORT_MASK}" flowid "${ROOT_HANDLE}4"
+            match ip protocol 17 0xff match ip "${direction}" "${BUS_PORT}" "${BUS_PORT_MASK}" flowid "${ROOT_HANDLE}4"
         tc filter add dev "${interface}" parent "${ROOT_HANDLE}" protocol ipv6 prio 2 u32 \
-            match ip6 protocol 6 0xff match ip6 "${direction}" "${BUS_PORT}" "${BUS_PORT_MASK}" flowid "${ROOT_HANDLE}4"
+            match ip6 protocol 17 0xff match ip6 "${direction}" "${BUS_PORT}" "${BUS_PORT_MASK}" flowid "${ROOT_HANDLE}4"
     done
-    echo "netem.sh: the bus's TCP packets (ports ${BUS_PORT}/${BUS_PORT_MASK}, IPv4 and IPv6) on ${interface}: netem $*"
+    echo "netem.sh: the bus's UDP packets (ports ${BUS_PORT}/${BUS_PORT_MASK}, IPv4 and IPv6) on ${interface}: netem $*"
 }
 
 [ "$#" -ge 2 ] || usage

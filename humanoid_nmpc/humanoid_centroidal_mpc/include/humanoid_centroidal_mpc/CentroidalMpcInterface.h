@@ -82,6 +82,8 @@ namespace ocs2::humanoid {
  */
 std::string cppAdModelFolderKey(CentroidalModelType centroidalModelType, absl::string_view inputParameterizationKey);
 
+class HumanoidCostConstraintFactory;
+
 /**
  * The centroidal MPC of a humanoid, built from its typed configuration (CentroidalMpcConfig: the task file, the reference
  * file and the contact planner's file) and a URDF: the model and solver settings, the Pinocchio and centroidal robot
@@ -125,6 +127,10 @@ class CentroidalMpcInterface final : public RobotInterface {
                                                                                         const std::string& urdfFile);
 
   ~CentroidalMpcInterface() override = default;
+  CentroidalMpcInterface(const CentroidalMpcInterface&) = delete;
+  CentroidalMpcInterface& operator=(const CentroidalMpcInterface&) = delete;
+  CentroidalMpcInterface(CentroidalMpcInterface&&) = delete;
+  CentroidalMpcInterface& operator=(CentroidalMpcInterface&&) = delete;
 
   /** False for an interface of CreateControllerModels(). */
   bool hasOptimalControlProblem() const { return problemPtr_ != nullptr; }
@@ -302,6 +308,32 @@ class CentroidalMpcInterface final : public RobotInterface {
   absl::Status setupLocomotionHeuristics();
 
   absl::Status setupOptimalControlProblem();
+
+  // The parts of setupOptimalControlProblem(), in the order it calls them.
+
+  /** Warns when the contact planner runs but no cost weighs the footholds it plans. */
+  absl::Status warnIfPlannedFootholdsCarryNoWeight(const MpcFormulationTasks& formulationTasks) const;
+  /** Builds the dynamics of the input parameterization, and hands `factory` the basis-space input cost transform. */
+  absl::Status setupDynamics(const MpcFormulationTasks& formulationTasks, HumanoidCostConstraintFactory& factory);
+  /** Adds the running and terminal costs that are not per contact. */
+  absl::Status addCostTerms(const MpcFormulationTasks& formulationTasks, const HumanoidCostConstraintFactory& factory);
+
+  /** What every contact's terms are built from (defined in the .cpp). */
+  struct ContactTermInputs;
+  /** Adds the terms of contact `i`: its kinematics, then the three groups below. */
+  absl::Status addContactTerms(size_t i, const ContactTermInputs& inputs);
+  /** The contact cones, the basis scalings' barrier and the soft zero-velocity constraint; `eeKinematicsPtr` may be null. */
+  absl::Status addContactConeTerms(size_t i,
+                                   const ContactTermInputs& inputs,
+                                   const EndEffectorKinematics<scalar_t>* absl_nullable eeKinematicsPtr);
+  /** The relaxed complementarity terms of the contact-implicit formulation; `eeKinematicsPtr` may be null. */
+  absl::Status addContactImplicitTerms(size_t i,
+                                       const ContactTermInputs& inputs,
+                                       const EndEffectorKinematics<scalar_t>* absl_nullable eeKinematicsPtr);
+  /** The hard constraints, the knee mimic and the per-foot costs; `eeKinematicsPtr` may be null. */
+  absl::Status addContactHardConstraintsAndFootCosts(size_t i,
+                                                     const ContactTermInputs& inputs,
+                                                     const EndEffectorKinematics<scalar_t>* absl_nullable eeKinematicsPtr);
 
   std::unique_ptr<StateInputConstraint> getStanceFootConstraint(const EndEffectorKinematics<scalar_t>& eeKinematics,
                                                                 size_t contactPointIndex);

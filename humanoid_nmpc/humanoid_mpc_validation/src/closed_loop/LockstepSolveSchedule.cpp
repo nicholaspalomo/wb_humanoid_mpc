@@ -29,7 +29,20 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_mpc_validation/closed_loop/LockstepSolveSchedule.h"
 
+#include <cmath>
+
 namespace ocs2::humanoid::validation {
+
+double firstPeriodicTimeAfter(double scheduled, double period, double time) {
+  if (scheduled > time) return scheduled;
+  // floor((time - scheduled) / period) periods reach at most `time`; one more passes it. Rounding of the quotient can
+  // leave the result a period short or long of that, which the two corrections below undo.
+  const double periods = std::floor((time - scheduled) / period) + 1.0;
+  double next = scheduled + periods * period;
+  if (next <= time) next += period;
+  if (periods > 1.0 && next - period > time) next -= period;
+  return next;
+}
 
 LockstepSolveSchedule::LockstepSolveSchedule(double firstSolveTime, double period, double timeTolerance)
     : period_(period), timeTolerance_(timeTolerance), nextSolveTime_(firstSolveTime) {}
@@ -46,9 +59,7 @@ void LockstepSolveSchedule::onSolve(double time, double retryDelay) {
     nextSolveTime_ = time;
   }
   // Without a period every cycle solves, as the solver thread runs back to back without a frequency.
-  if (period_ > 0.0) {
-    while (nextSolveTime_ <= time + timeTolerance_) nextSolveTime_ += period_;
-  }
+  if (period_ > 0.0) nextSolveTime_ = firstPeriodicTimeAfter(nextSolveTime_, period_, time + timeTolerance_);
   if (retryDelay > 0.0) retryUntil_ = time + retryDelay;
 }
 

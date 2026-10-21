@@ -28,7 +28,7 @@
 """The Joint PD Gains tab on the bus: a change is published as the whole edited file, and only Save writes it.
 
 The tab is given the GUI's publisher of operator/pd_gains over a bus that records, so the tests assert on the
-humanoid_mpc_config.JointPdGainsFile that would have gone out. The tab works on a copy of the DRC Atlas file. The
+humanoid_mpc_config.JointPdGainsUpdate that would have gone out. The tab works on a copy of the DRC Atlas file. The
 widget tests need a display; the schema checks do not.
 """
 
@@ -40,10 +40,13 @@ from typing import Any
 import unittest
 
 from humanoid_mpc_config import joint_pd_gains_file_pb2
+from humanoid_mpc_config import joint_pd_gains_update_pb2
 
 from humanoid_mpc_ipc import topics
+import nproto_schema
 import nproto_textproto
 import operator_test_support
+from remote_control import robot_config_save
 from remote_control.tk_app import joint_pd_tab
 from remote_control.tk_app import slider_row
 
@@ -115,9 +118,11 @@ class TestPdGainsTopicPublishing(unittest.TestCase):
             tab.after_cancel(tab._debounce_publish_id)
         tab._publish_to_topic()
 
-    def _published(self) -> joint_pd_gains_file_pb2.JointPdGainsFile:
+    def _published(self) -> joint_pd_gains_update_pb2.JointPdGainsUpdate:
         message = self.publisher.last_message
-        assert isinstance(message, joint_pd_gains_file_pb2.JointPdGainsFile), message
+        assert isinstance(
+            message, joint_pd_gains_update_pb2.JointPdGainsUpdate
+        ), message
         return message
 
     def test_every_gain_has_a_row_and_no_torque_limit_does(self):
@@ -142,7 +147,17 @@ class TestPdGainsTopicPublishing(unittest.TestCase):
         next(
             entry for entry in expected.joint_gains if entry.joint == "l_leg_kny"
         ).kp = row.get_value()
-        self.assertEqual(published, expected)
+        self.assertEqual(published.gains, expected)
+        self.assertEqual(
+            published.config_path,
+            robot_config_save.config_path_of(self.gains_file),
+        )
+        self.assertEqual(
+            published.schema_fingerprint,
+            nproto_schema.schema_fingerprint(
+                joint_pd_gains_file_pb2.JointPdGainsFile.DESCRIPTOR
+            ),
+        )
         self.assertEqual(self._read(), self.original)
 
     def test_save_writes_the_change_and_keeps_every_other_line(self):
@@ -159,7 +174,8 @@ class TestPdGainsTopicPublishing(unittest.TestCase):
         ]
         self.assertEqual(len(changed), 1, changed)
         self.assertIn('joint: "l_leg_kny"', changed[0])
-        self.assertTrue(os.path.exists(self.gains_file + ".bak"))
+        self.assertTrue(os.path.exists(f"{self.gains_file}.bak"))
+        row = self._slider(tab, KNEE_KP)
         self.assertFalse(row.is_modified())
 
     def test_the_scale_buttons_scale_every_kp_from_its_saved_value(self):
@@ -168,7 +184,7 @@ class TestPdGainsTopicPublishing(unittest.TestCase):
         saved = {
             path: tab.gains.saved_value(path)
             for path in tab.slider_rows
-            if path.endswith("." + joint_pd_tab.KP_FIELD)
+            if path.endswith(f".{joint_pd_tab.KP_FIELD}")
         }
         tab._scale_all(joint_pd_tab.KP_FIELD, 0.5)
         for path, value in saved.items():
@@ -178,7 +194,7 @@ class TestPdGainsTopicPublishing(unittest.TestCase):
         self._flush(tab)
         published = self._published()
         self.assertAlmostEqual(
-            published.default_gains.kp, saved["default_gains.kp"] * 0.5
+            published.gains.default_gains.kp, saved["default_gains.kp"] * 0.5
         )
 
     def test_a_joint_that_inherits_a_gain_keeps_inheriting_it_through_the_scale_buttons(
@@ -200,12 +216,12 @@ class TestPdGainsTopicPublishing(unittest.TestCase):
         published = self._published()
         entry = next(
             entry
-            for entry in published.joint_gains
+            for entry in published.gains.joint_gains
             if entry.joint == "inheriting_joint"
         )
         self.assertFalse(entry.HasField("kp"))
         self.assertEqual(entry.kd, 12.0)
-        self.assertAlmostEqual(published.default_gains.kp, default_kp * 2.0)
+        self.assertAlmostEqual(published.gains.default_gains.kp, default_kp * 2.0)
 
     def test_reload_drops_the_changes_and_publishes_the_file(self):
         tab = self._tab()
@@ -213,7 +229,7 @@ class TestPdGainsTopicPublishing(unittest.TestCase):
         row.set_value(row.get_value() * 2.0)
         self._flush(tab)
         self.assertNotEqual(
-            self._published(),
+            self._published().gains,
             nproto_textproto.load_textproto(
                 self.gains_file, joint_pd_gains_file_pb2.JointPdGainsFile
             ),
@@ -221,7 +237,7 @@ class TestPdGainsTopicPublishing(unittest.TestCase):
         tab.reload_file()
         # The robot runs what it was last sent; Reload sends the file, so that it runs what the rows show.
         self.assertEqual(
-            self._published(),
+            self._published().gains,
             nproto_textproto.load_textproto(
                 self.gains_file, joint_pd_gains_file_pb2.JointPdGainsFile
             ),
@@ -238,7 +254,7 @@ class TestPdGainsTopicPublishing(unittest.TestCase):
         self.assertEqual(tab.gains.changes(), {})
         self._flush(tab)
         self.assertEqual(
-            self._published(),
+            self._published().gains,
             nproto_textproto.load_textproto(
                 self.gains_file, joint_pd_gains_file_pb2.JointPdGainsFile
             ),
@@ -253,7 +269,7 @@ class TestPdGainsTopicPublishing(unittest.TestCase):
         self.assertEqual(row.get_value(), original)
         self._flush(tab)
         self.assertEqual(
-            self._published(),
+            self._published().gains,
             nproto_textproto.load_textproto(
                 self.gains_file, joint_pd_gains_file_pb2.JointPdGainsFile
             ),
@@ -287,6 +303,104 @@ class TestPdGainsTopicPublishing(unittest.TestCase):
         ]
         self.assertEqual(shown[0], joint_pd_tab.DEFAULT_GAINS_SECTION)
         self.assertIn("Left Leg", shown)
+
+    def test_a_typed_negative_gain_is_clamped_to_zero_and_published_non_negative(self):
+        tab = self._tab()
+        default_kp = self._slider(tab, "default_gains.kp")
+        default_kp.entry_var.set("-5")
+        default_kp._on_entry_submit()
+        self.assertEqual(default_kp.get_value(), 0.0)
+
+        knee_kd = self._slider(tab, "joint_gains[joint=l_leg_kny].kd")
+        knee_kd.entry_var.set("-1")
+        knee_kd._on_entry_submit()
+        self.assertEqual(knee_kd.get_value(), 0.0)
+
+        self._flush(tab)
+        published = self._published()
+        self.assertEqual(published.gains.default_gains.kp, 0.0)
+        knee_entry = next(
+            entry for entry in published.gains.joint_gains if entry.joint == "l_leg_kny"
+        )
+        self.assertEqual(knee_entry.kd, 0.0)
+
+    def test_hand_edit_on_disk_merges_with_operator_change_and_republishes(self):
+        tab = self._tab()
+        knee_row = self._slider(tab, KNEE_KP)
+        knee_val = knee_row.get_value()
+        knee_row.set_value(knee_val + 25.0)
+
+        gains_msg = nproto_textproto.load_textproto(
+            self.gains_file, joint_pd_gains_file_pb2.JointPdGainsFile
+        )
+        new_kd = gains_msg.default_gains.kd + 10.0
+        gains_msg.default_gains.kd = new_kd
+        with open(self.gains_file, "w", encoding="utf-8") as handle:
+            handle.write(nproto_textproto.file_text(gains_msg))
+
+        tab.poll_files()
+        rebuilt_knee = self._slider(tab, KNEE_KP)
+        rebuilt_default_kd = self._slider(tab, DEFAULT_KD)
+
+        self.assertEqual(rebuilt_knee.get_value(), knee_val + 25.0)
+        self.assertTrue(rebuilt_knee.is_modified())
+
+        self.assertEqual(rebuilt_default_kd.get_value(), new_kd)
+        self.assertFalse(rebuilt_default_kd.is_modified())
+
+        self._flush(tab)
+        published = self._published()
+        self.assertEqual(published.gains.default_gains.kd, new_kd)
+        knee_entry = next(
+            entry for entry in published.gains.joint_gains if entry.joint == "l_leg_kny"
+        )
+        self.assertEqual(knee_entry.kp, knee_val + 25.0)
+
+    def test_a_publish_before_the_tick_carries_the_hand_edit_and_shows_it(self):
+        tab = self._tab()
+        gains_msg = nproto_textproto.load_textproto(
+            self.gains_file, joint_pd_gains_file_pb2.JointPdGainsFile
+        )
+        new_kd = gains_msg.default_gains.kd + 10.0
+        gains_msg.default_gains.kd = new_kd
+        with open(self.gains_file, "w", encoding="utf-8") as handle:
+            handle.write(nproto_textproto.file_text(gains_msg))
+        knee_row = self._slider(tab, KNEE_KP)
+        knee_val = knee_row.get_value()
+        knee_row.set_value(knee_val + 25.0)
+        self._flush(tab)
+        self.assertEqual(self._published().gains.default_gains.kd, new_kd)
+        self.assertEqual(self._slider(tab, DEFAULT_KD).get_value(), new_kd)
+        self.assertEqual(self._slider(tab, KNEE_KP).get_value(), knee_val + 25.0)
+
+    def test_reset_and_scaling_respect_disk_reloaded_values(self):
+        tab = self._tab()
+        gains_msg = nproto_textproto.load_textproto(
+            self.gains_file, joint_pd_gains_file_pb2.JointPdGainsFile
+        )
+        new_kd = gains_msg.default_gains.kd + 5.0
+        gains_msg.default_gains.kd = new_kd
+        with open(self.gains_file, "w", encoding="utf-8") as handle:
+            handle.write(nproto_textproto.file_text(gains_msg))
+
+        tab.poll_files()
+        kd_row = self._slider(tab, DEFAULT_KD)
+        self.assertEqual(kd_row.default_value, new_kd)
+
+        kd_row.set_value(new_kd + 20.0)
+        self.assertTrue(kd_row.is_modified())
+        kd_row.reset_to_default()
+        self.assertEqual(kd_row.get_value(), new_kd)
+        self.assertFalse(kd_row.is_modified())
+
+        kd_row.set_value(new_kd + 30.0)
+        tab.reset_all_defaults()
+        kd_row = self._slider(tab, DEFAULT_KD)
+        self.assertEqual(kd_row.get_value(), new_kd)
+
+        tab._scale_all(joint_pd_tab.KD_FIELD, 2.0)
+        scaled_kd = self._slider(tab, DEFAULT_KD)
+        self.assertAlmostEqual(scaled_kd.get_value(), new_kd * 2.0)
 
 
 if __name__ == "__main__":

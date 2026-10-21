@@ -35,6 +35,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
+#include "ocs2_core/PhysicalConstants.h"
 
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicFormulation.h"
@@ -56,12 +57,15 @@ namespace ocs2::humanoid {
  * `pitchPerForwardVelocity`, which is also the sign of Bledt's own fitted value (+0.0725 rad per m/s, equation 4.12).
  */
 struct OrientationCompensationParameters {
+  /** [rad] The default of maximumTilt. */
+  static constexpr scalar_t kDefaultMaximumTilt = 0.35;
+
   scalar_t rollPerLateralVelocity = 0.0;   // a1 [rad s/m]
   scalar_t rollOffset = 0.0;               // a0 [rad]
   scalar_t pitchPerForwardVelocity = 0.0;  // a1 [rad s/m]
   scalar_t pitchOffset = 0.0;              // a0 [rad]
   /** [rad] the summed roll and pitch offsets are each clamped to +/- this, so a command spike cannot tip the reference over. */
-  scalar_t maximumTilt = 0.35;
+  scalar_t maximumTilt = kDefaultMaximumTilt;
 };
 
 /**
@@ -80,12 +84,16 @@ struct OrientationCompensationParameters {
  * foot in CONTACT. That is what `phaseOffset` is measured against.
  */
 struct PeriodicOrientationParameters {
-  scalar_t rollAmplitude = 0.0;          // b1 [rad]
-  scalar_t rollPhaseRate = 2.0 * M_PI;   // c1 [rad per unit phase]; 2 pi = one period per gait cycle
-  scalar_t rollPhaseOffset = 0.0;        // d1 [rad]
-  scalar_t pitchAmplitude = 0.0;         // b1 [rad]
-  scalar_t pitchPhaseRate = 4.0 * M_PI;  // c1 [rad per unit phase]; 4 pi = one period per step
-  scalar_t pitchPhaseOffset = 0.0;       // d1 [rad]
+  /** [rad per unit phase] The defaults of the phase rates: one period per gait cycle, and one per step (two per cycle). */
+  static constexpr scalar_t kDefaultRollPhaseRate = 2.0 * M_PI;
+  static constexpr scalar_t kDefaultPitchPhaseRate = 4.0 * M_PI;
+
+  scalar_t rollAmplitude = 0.0;                      // b1 [rad]
+  scalar_t rollPhaseRate = kDefaultRollPhaseRate;    // c1 [rad per unit phase]; 2 pi = one period per gait cycle
+  scalar_t rollPhaseOffset = 0.0;                    // d1 [rad]
+  scalar_t pitchAmplitude = 0.0;                     // b1 [rad]
+  scalar_t pitchPhaseRate = kDefaultPitchPhaseRate;  // c1 [rad per unit phase]; 4 pi = one period per step
+  scalar_t pitchPhaseOffset = 0.0;                   // d1 [rad]
 };
 
 /**
@@ -99,11 +107,14 @@ struct PeriodicOrientationParameters {
  * crouching to walk forwards and rising to walk backwards is not a thing any legged system does.
  */
 struct HeightCompensationParameters {
+  /** [m] The default of maximumHeightOffset. */
+  static constexpr scalar_t kDefaultMaximumHeightOffset = 0.05;
+
   scalar_t heightPerSpeedSquared = 0.0;  // a2 [m s^2/m^2]
   scalar_t heightPerSpeed = 0.0;         // a1 [m s/m]; expect negative, i.e. lower with speed
   scalar_t heightOffset = 0.0;           // a0 [m]
   /** [m] the result is clamped to +/- this. A velocity spike must not be able to drop the base into its own knees. */
-  scalar_t maximumHeightOffset = 0.05;
+  scalar_t maximumHeightOffset = kDefaultMaximumHeightOffset;
 };
 
 /**
@@ -128,19 +139,22 @@ struct HipCenteredSteppingParameters {
 };
 
 /**
- * H_r(pdot, Phi) = gain sqrt(p_z / g) (pdot - pdot_d), Table C.1: the capture point of the VELOCITY ERROR.
+ * H_r(pdot, Phi) = gain sqrt(p_z / g) (pdot - pdot_d), Table C.1: the capture point of the VELOCITY ERROR. g is the
+ * robot model's gravity (LocomotionHeuristicModelParameters::gravity), not a parameter.
  *
  * The one heuristic in the family that reacts to a disturbance rather than to a command: it is zero whenever the
  * robot is going as fast as it was asked to, and steps into the error when it is not. `gain` of 1 is the textbook
  * capture point of a linear inverted pendulum of height `p_z`.
  */
 struct CapturePointParameters {
+  /** [m] The default of maximumOffset. */
+  static constexpr scalar_t kDefaultMaximumOffset = 0.25;
+
   scalar_t gain = 1.0;
   /** [m] 0: use the center-of-mass height measured at each solve. Positive: use this fixed height instead. */
   scalar_t comHeightOverride = 0.0;
-  scalar_t gravity = 9.81;  // [m/s^2]
   /** [m] the offset is clamped to this magnitude, so a bad velocity estimate cannot throw the landing target out of reach. */
-  scalar_t maximumOffset = 0.25;
+  scalar_t maximumOffset = kDefaultMaximumOffset;
 };
 
 /**
@@ -214,9 +228,13 @@ struct HighSpeedTurningParameters {
  * unbounded there.
  */
 struct ImpulseScalingParameters {
-  scalar_t scale = 1.0;              // scales the analytic 1/beta correction; 0 disables it
-  scalar_t minimumDutyFactor = 0.2;  // beta is clamped up to this before the reciprocal is taken
-  scalar_t maximumForceRatio = 2.0;  // the scaled reference is clamped to this many times weight compensation
+  /** The defaults of minimumDutyFactor and maximumForceRatio. */
+  static constexpr scalar_t kDefaultMinimumDutyFactor = 0.2;
+  static constexpr scalar_t kDefaultMaximumForceRatio = 2.0;
+
+  scalar_t scale = 1.0;                                    // scales the analytic 1/beta correction; 0 disables it
+  scalar_t minimumDutyFactor = kDefaultMinimumDutyFactor;  // beta is clamped up to this before the reciprocal is taken
+  scalar_t maximumForceRatio = kDefaultMaximumForceRatio;  // the scaled reference is clamped to this many times weight compensation
 };
 
 /**
@@ -238,12 +256,19 @@ struct ImpulseScalingParameters {
  * simulation whether it earns its place.
  */
 struct CentripetalAccelerationParameters {
+  /** The default of maximumForceRatioOfWeight. */
+  static constexpr scalar_t kDefaultMaximumForceRatioOfWeight = 0.3;
+
   scalar_t scale = 1.0;  // scales m omega x v; 0 disables it
-  /** [N] the horizontal force per foot is clamped to this magnitude; 0 uses `maximumForceRatioOfWeight` instead. */
+  /**
+   * [N] the TOTAL horizontal force, before it is shared over the stance feet, is clamped to this magnitude; 0 uses
+   * `maximumForceRatioOfWeight` instead. A total rather than a per-foot clamp, because the feet share the normal load as
+   * they share this force: it is the same fraction of each foot's friction budget in single and in double support.
+   */
   scalar_t maximumForce = 0.0;
-  /** Used when `maximumForce` is 0: the clamp as a fraction of the robot's weight. A foot cannot pull sideways harder
-   *  than friction allows, and the friction coefficient of the wrench cone is around 0.5 on these robots. */
-  scalar_t maximumForceRatioOfWeight = 0.3;
+  /** Used when `maximumForce` is 0: the clamp on the total as a fraction of the robot's weight. The feet cannot pull
+   *  sideways harder than friction allows, mu W in total, and the friction coefficient of the cone is 0.4 to 0.5 here. */
+  scalar_t maximumForceRatioOfWeight = kDefaultMaximumForceRatioOfWeight;
 };
 
 /**

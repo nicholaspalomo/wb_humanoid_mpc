@@ -38,7 +38,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-/** Base of the costs with one weight: the bound LIP indices and the weight. */
+/**
+ * Base of the costs with one weight: the bound LIP indices and the weight.
+ *
+ * Not thread-safe, like every ContactPlanningTerm: the planner that owns it configures and evaluates it from one thread at a time.
+ */
 class LipWeightedCost : public LipCost {
  public:
   void bind(const Layout& layout) override { idx_.bind(layout); }

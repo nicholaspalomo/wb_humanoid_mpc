@@ -45,6 +45,9 @@ namespace ocs2::humanoid {
  * Constructs the member EndEffectorKinematicsLinearVelConstraint object with number of constraints of 1.
  *
  * See also EndEffectorKinematicsLinearVelConstraint for the underlying computation.
+ *
+ * Not thread-safe: its end-effector kinematics evaluate on the Pinocchio data of one worker's PreComputation, so the
+ * solver gives each worker thread its own clone().
  */
 class NormalVelocityConstraintCppAd final : public StateInputConstraint {
  public:

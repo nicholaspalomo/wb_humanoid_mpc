@@ -34,6 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <utility>
 
 #include "absl/strings/str_cat.h"
+#include "ocs2_core/Dimensions.h"
 
 namespace ocs2::humanoid {
 
@@ -49,11 +50,11 @@ void ReachabilityConstraint::configure(const ContactPlanningConfig& config) {
 }
 
 void ReachabilityConstraint::addRows(const ContactPlanningContext& ctx, int node, RowBuilder& rows) const {
-  const std::array<vector2_t, 2>& axes = ctx.axesAt(node);
+  const std::array<vector2_t, kHorizontalPositionDim>& axes = ctx.axesAt(node);
   for (size_t foot = 0; foot < kNumContacts; ++foot) {
-    for (int axis = 0; axis < 2; ++axis) {
+    for (int axis = 0; axis < kHorizontalPositionDim; ++axis) {
       Coefficients xc;
-      for (int w = 0; w < 2; ++w) {
+      for (int w = 0; w < kHorizontalPositionDim; ++w) {
         xc.emplace_back(idx_.foot[foot][w], axes[static_cast<size_t>(axis)](w));
         xc.emplace_back(idx_.com[w], -axes[static_cast<size_t>(axis)](w));
       }
@@ -72,9 +73,9 @@ void ReachabilityConstraint::addRows(const ContactPlanningContext& ctx, int node
       const vector2_t dNominal =
           ctx.hasHeading() ? vector2_t(ctx.nominal->feet[static_cast<size_t>(node)][foot] - ctx.nominal->com[static_cast<size_t>(node)])
                            : vector2_t(vector2_t::Zero());
-      const std::pair<scalar_t, scalar_t> frameTerm = ctx.frameTerm(node, axis, dNominal);
-      const scalar_t g = frameTerm.first;
-      const scalar_t offset = frameTerm.second;
+      const ContactPlanningContext::HeadingFrameTerm frameTerm = ctx.frameTerm(node, axis, dNominal);
+      const scalar_t g = frameTerm.gain;
+      const scalar_t offset = frameTerm.offset;
       if (ctx.hasHeading()) xc.emplace_back(idx_.heading, g);
       rows.addSoft(xc, /*uCoefficients=*/{}, lower - offset, upper - offset, penalty_);
     }

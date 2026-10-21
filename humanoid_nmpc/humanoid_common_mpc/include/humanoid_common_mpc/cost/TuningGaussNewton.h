@@ -64,9 +64,11 @@ vector_t tuningGradient(const TuningDeviationApproximation& approximation, const
 matrix_t tuningHessian(const TuningDeviationApproximation& approximation, const matrix_t& stateWeights, size_t stateDim);
 
 /**
- * OK when `weights` can weigh a quadratic cost of `dimension` rows: `dimension` square, finite, and symmetric to
+ * OK when `weights` can weigh a quadratic cost of `dimension` rows: `dimension` square, finite, symmetric to
  * kQuadraticWeightsSymmetryTolerance of its largest entry (a basis-space R, M' R_wrench M, is symmetric only to
- * round-off). Otherwise InvalidArgument naming `name` and what is wrong.
+ * round-off), and positive semidefinite to the same relative tolerance (a negative weight makes the cost indefinite).
+ * Otherwise InvalidArgument naming `name` and what is wrong. Computes the eigenvalues: O(dimension^3), for set-up and
+ * reloads, not for the realtime path.
  */
 absl::Status validateQuadraticWeights(const matrix_t& weights, size_t dimension, absl::string_view name);
 

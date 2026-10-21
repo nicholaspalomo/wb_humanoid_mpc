@@ -159,6 +159,20 @@ class MRT_BASE {
   bool updatePolicy();
 
   /**
+   * The failed try-locks of the policy buffer in updatePolicy() since its last successful one: updatePolicy() never
+   * waits for the buffer, so while the thread that fills it holds the lock no newer policy is taken into use. Written
+   * by the thread that calls updatePolicy(), which does not log (a log line can allocate or block); any thread may read
+   * it and report it, as the MRT joint controllers do once it passes kPolicyUpdateLockContentionThreshold.
+   */
+  size_t getConsecutiveFailedPolicyUpdateLocks() const { return consecutiveFailedPolicyUpdateLocks_.load(std::memory_order_relaxed); }
+
+  /** The failed try-locks of the policy buffer in updatePolicy() over the lifetime of this MRT. Any thread. */
+  size_t getFailedPolicyUpdateLocks() const { return failedPolicyUpdateLocks_.load(std::memory_order_relaxed); }
+
+  /** The consecutive failed try-locks past which getConsecutiveFailedPolicyUpdateLocks() is worth reporting. */
+  static constexpr size_t kPolicyUpdateLockContentionThreshold = 5;
+
+  /**
    * Drops a policy that is waiting in the buffer and starts a new policy epoch, so that no policy solved before this
    * call can be swapped in by updatePolicy() afterwards. The policy in use is left alone: it is read by the thread that
    * calls updatePolicy() without a lock, so only that thread may replace it, and it does so with the first policy moved
@@ -166,8 +180,12 @@ class MRT_BASE {
    *
    * Call it from the thread that fills the buffer (the one running the MPC) when the MPC is reset. Thread-safe with
    * respect to updatePolicy().
+   *
+   * @return True when it dropped a policy that updatePolicy() never took; false when the buffer held none, because the
+   *         last policy moved to it was swapped in (or none was moved since the last discard). Read in the same critical
+   *         section as the drop, so a caller can tell which policy may be in use without racing the swap.
    */
-  void discardBufferedPolicy();
+  bool discardBufferedPolicy();
 
   /**
    * True when the policy in use was moved to the buffer after the last discardBufferedPolicy(), i.e. it was solved
@@ -176,9 +194,22 @@ class MRT_BASE {
   bool isActivePolicyCurrent() const { return activePrimalSolutionPtr_ != nullptr && activePolicyEpoch_ == policyEpoch_.load(); }
 
  protected:
-  void moveToBuffer(std::unique_ptr<CommandData> commandDataPtr,
+  /**
+   * Puts a policy in the buffer, for updatePolicy() to swap in.
+   *
+   * @return True when it replaced a policy that updatePolicy() never took; false when the buffer held none (the policy
+   *         moved before was swapped in, discarded, or there was none). Read in the same critical section as the move.
+   */
+  bool moveToBuffer(std::unique_ptr<CommandData> commandDataPtr,
                     std::unique_ptr<PrimalSolution> primalSolutionPtr,
                     std::unique_ptr<PerformanceIndex> performanceIndicesPtr);
+
+  /**
+   * Holds the lock of the policy buffer that updatePolicy() try-locks, for as long as the returned lock lives: for a
+   * deriving class that must keep the buffer still across several steps, and for the tests of the try-lock counters.
+   * Never call it from the thread that calls updatePolicy().
+   */
+  std::unique_lock<std::mutex> lockPolicyBuffer() const { return std::unique_lock<std::mutex>(bufferMutex_); }
 
  private:
   // flags on state of the class
@@ -201,8 +232,10 @@ class MRT_BASE {
 
   // thread safety
   mutable std::mutex bufferMutex_;  // for policy variables with the prefix (buffer*)
-  const size_t mrtTrylockWarningThreshold_ = 5;
-  size_t mrtTrylockWarningCount_;
+  // The failed try-locks of bufferMutex_ in updatePolicy(): since its last successful one, and in all. Written only by
+  // the thread that calls updatePolicy(); atomics so that any thread may read them.
+  std::atomic<size_t> consecutiveFailedPolicyUpdateLocks_{0};
+  std::atomic<size_t> failedPolicyUpdateLocks_{0};
 
   // variables needed for policy evaluation
   std::unique_ptr<RolloutBase> rolloutPtr_;

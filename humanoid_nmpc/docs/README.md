@@ -75,7 +75,7 @@ One covers how both MPCs represent the attitude of the floating base:
 And the last covers how the controller runs as processes:
 
 * [distributed_runtime](distributed_runtime/README.md) — the robot process, the MPC node and the operator tools as
-  processes on a ZeroMQ bus with Protocol Buffers messages: the realtime thread, the MPC link and its resets, the
+  processes on a Cyclone DDS bus with Protocol Buffers messages: the realtime thread, the MPC link and its resets, the
   visualization with Rerun, the launch files and the deployment of the robot side.
 
 ---
@@ -150,8 +150,11 @@ one definition of the pendulum length that the contact planner's `shared` block 
 heuristics resolve too, so they cannot disagree). `DcmTerminalCost::Create` is given that height by
 `CentroidalMpcInterface` and resolves the absent height to it there and on every hot reload of the block; the interface
 logs the height and $\omega$ at start-up (1.0805 m and 3.01 rad/s on the DRC Atlas, 0.6124 m and 4.00 rad/s on the
-SA01). A positive `com_height` is an explicit override. A `com_height` of 0 or less (0 meant "the model's" before the
-field was optional), a non-positive `gravity` and a negative weight are refused with a Status naming the field, at
+SA01). A positive `com_height` is an explicit override. $g$ is not a key: the cost, the contact planner and the
+locomotion heuristics take it from the robot model (the magnitude of the Pinocchio model's gravity, which
+`testShippedRobotGravity` pins to the dynamics' `kGravitationalAcceleration` and to every MuJoCo scene's
+`opt.gravity`), so no pendulum can run on another gravity than the dynamics. A `com_height` of 0 or less (0 meant "the model's" before the
+field was optional) and a negative weight are refused with a Status naming the field, at
 start-up and on a reload, which then keeps the running cost.
 
 ```textproto
@@ -159,7 +162,6 @@ costs: "state_quadratic_cost"  # ... the other entries of the list
 costs: "dcm_terminal_cost"     # in place of terminal_cost; start-up refuses a list that names both
 dcm_terminal_cost {
   # com_height [m]: z_c for omega; left out, the model's center of mass above its feet at initial_state
-  gravity: 9.81
   weight_x: 400                # W = diag(weight_x, weight_y)
   weight_y: 400
   velocity_offset_factor: 1.0  # beta
@@ -257,6 +259,13 @@ The ZMP must lie in the support region. In single support that is a box of half-
 *only* contact:
 
 $$\pm \mathbf{e}_j^\top(\mathbf{z}_k - \mathbf{p}_{i,k}) \le r_j + M(1 - c_{i,k}) + M c_{\bar i,k}.$$
+
+Under the heading model the box is the stance foot's footprint and $\mathbf{e}_j$ are the axes at that foot's yaw
+$\psi_i$, not at the heading. $\psi_i$ is a decision variable, so the rows take the axes at its nominal $\psi_{i,n}$:
+the linearization of $\mathbf{e}_j(\psi_i)^\top(\mathbf{z} - \mathbf{p}_i)$ about $(\psi_{i,n}, \mathbf{z} - \mathbf{p}_i = 0)$,
+whose first-order term in $\psi_i$ vanishes; what it leaves out is at most $|\mathbf{z} - \mathbf{p}_i|\,|\psi_i - \psi_{i,n}|$,
+zero for the foot standing at planning time (its yaw is pinned at the measured one) and driven to zero by the heading
+re-linearization. The double-support rows below stay in the heading frame.
 
 In double support the region is the convex hull of the two boxes. Laterally the feet never cross, so the hull is exactly
 $\mathbf{e}_y^\top(\mathbf{p}_{R,k}) - r_y \le \mathbf{e}_y^\top \mathbf{z}_k \le \mathbf{e}_y^\top(\mathbf{p}_{L,k}) + r_y$, both rows
@@ -412,7 +421,10 @@ $\Delta t = 0.1$ s.)
    (`event_shift_local_search.iterations`, `.max_time`). This refines the timing at a few QPs per round.
 5. `cadence_stretch` (listed in neither shipped file, and a no-op while `cadence_stretch.samples` is 0) re-solves the
    incumbent's contact pattern on a grid of node duration $s\,\Delta t$ for `samples` stretches up to
-   `cadence_stretch.max_stretch` and keeps the best, recovering the cadences the grid's quantization cannot express. The
+   `cadence_stretch.max_stretch` and keeps the best, recovering the cadences the grid's quantization cannot express.
+   The candidates' objectives are compared as they stand: every grid has the same N nodes of equal duration, so a running
+   cost summed over them is N times its time average over the candidate's own horizon, a per-unit-time score (a
+   duration-weighted sum would charge the longer horizon for its length). The
    stretch is bounded so that no phase exceeds the gait limits (the elapsed part of the phase in flight included) and
    so that the last committed node is still the one live at the commit boundary: the boundary is not stretched, and on
    a grid stretched further an earlier committed node, sampled before the boundary, was live at the merge and landed a
@@ -752,9 +764,13 @@ Per node, appended to the LIP block so that the contact binaries keep their plac
 omega_{k+1} = omega_k + dt (tau_L + tau_R) / I_zz
 theta_{k+1} = theta_k + dt omega_k + dt^2 (tau_L + tau_R) / (2 I_zz)     exact zero-order hold of the double integrator
 psi_{i,k+1} = psi_{i,k} + dpsi_{i,k}                    foot yaw, one per foot
-|tau_i| <= T_t c_i + (T_c - T_t) (c_L + c_R - 1) / 2    T_t alone, (T_t + T_c) / 2 per foot in double support
+|tau_i| <= B(c_i, c_other)                              T_t alone, D = (T_t + T_c) / 2 per foot in double support,
+                                                        0 swinging or in flight: the concave envelope
+                                                        T_t c_i + (D - T_t) min(c_i, c_other) for D >= T_t,
+                                                        T_t c_i + (D - T_t) max(0, c_i + c_other - 1) otherwise
 |dpsi_i| <= 2 pi (1 - c_i)                              a foot's yaw is pinned while it is in contact
-lower_i <= psi_i - theta <= upper_i                     hip range (soft, hip_yaw_range, per foot from the model)
+lower_i + delta <= psi_i - theta <= upper_i + delta     hip range (soft, hip_yaw_range, per foot from the model), measured
+                                                        from the pelvis: delta = base yaw - heading at planning time
 ```
 
 The heading is driven only by the ground: a point mass's horizontal contact force acts through the ZMP and produces no
@@ -800,8 +816,9 @@ and when the feet go and how fast the heading may change for the ground to carry
 
 **Parameters from the model.** The quantities that are properties of the robot and of the ground rather than tuning
 are not task-file fields: the yaw inertia (composite inertia about the vertical through the center of mass, at every
-plan), `torsionalFrictionTorque` (the torsional friction coefficient of the wrench cone times the weight),
-`doubleSupportYawCouple` (the friction coefficient times half the weight times `step_width.nominal_step_width`) and the
+plan), `torsionalFrictionTorque` (`torsional_friction_coefficient`, capped at the wrench cone's torsion limit for a
+normal force at the footprint center, times the weight), `doubleSupportYawCouple` (the friction the inscribed pyramid
+admits in every direction, `mu cos(pi/N)`, times half the weight times `step_width.nominal_step_width`) and the
 foot yaw bounds of `hip_yaw_range` (the hip yaw joint limits of every leg, found by walking the kinematic tree up from
 the joint that carries the contact frame to the first revolute joint whose axis is vertical in the world frame at the
 neutral configuration, and mirrored when that axis points down, since the foot yaw is then minus the joint angle; per

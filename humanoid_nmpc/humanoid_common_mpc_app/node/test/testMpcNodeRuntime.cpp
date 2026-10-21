@@ -166,12 +166,16 @@ class Harness {
 
   MpcNodeRuntime::Config config() const {
     MpcNodeRuntime::Config config;
-    config.dimensions = {.stateDim = stack_.model().getStateDim(), .inputDim = stack_.model().getInputDim(), .numModes = kNumHumanoidModes};
+    config.dimensions = {.stateDim = stack_.model().getStateDim(), .inputDim = stack_.model().getInputDim(), .numModes = kNumModeNumbers};
     config.solverThread = defaultSolverThreadConfig(/*realtimePriority=*/0);
     config.robotName = robotName_;
     config.taskFileIdentity = taskFileIdentity_;
+    config.walkingCommandTimeout = walkingCommandTimeout_;
     return config;
   }
+
+  /** Config::walkingCommandTimeout; zero by default: off. */
+  void setWalkingCommandTimeout(absl::Duration timeout) { walkingCommandTimeout_ = timeout; }
 
   /** The robot the runtime is created for (MpcNodeRuntime::Config::robotName); empty by default: not checked. */
   void setRobotName(std::string robotName) { robotName_ = std::move(robotName); }
@@ -181,7 +185,6 @@ class Harness {
   /** Creates the runtime on a loopback bus connected to the scripted robot and operator, and starts everything. */
   absl::Status create(MpcNodeRuntime::Components components) {
     std::unique_ptr<robot::ipc::Bus> mpcBus = ipc::test_support::createNodeBus("mpc");
-    robot_.connect(*mpcBus);
     absl::StatusOr<std::unique_ptr<MpcNodeRuntime>> runtime = MpcNodeRuntime::Create(std::move(mpcBus), std::move(components), config());
     if (!runtime.ok()) return runtime.status();
     runtime_ = *std::move(runtime);
@@ -220,6 +223,7 @@ class Harness {
   std::unique_ptr<MpcNodeRuntime> runtime_;
   std::string robotName_;
   std::string taskFileIdentity_;
+  absl::Duration walkingCommandTimeout_ = absl::ZeroDuration();
 };
 
 humanoid_mpc_msgs::WalkingVelocityCommand velocityCommand(double vx, double vy, double height, double yawRate) {
@@ -330,6 +334,47 @@ TEST(MpcNodeRuntime, AVelocityCommandThatIsNotFiniteIsRefusedAndChangesNothing) 
   const WalkingVelocityCommand after = motionManager.getScaledWalkingVelocityCommand();
   EXPECT_EQ(after.linear_velocity_x, before.linear_velocity_x);
   EXPECT_EQ(after.angular_velocity_z, before.angular_velocity_z);
+}
+
+TEST(MpcNodeRuntime, WithATimeoutAWalkingCommandThatIsNotRenewedIsReplacedByTheStopCommand) {
+  Harness harness;
+  harness.setWalkingCommandTimeout(absl::Milliseconds(200));
+  ASSERT_TRUE(harness.create().ok());
+  ProceduralMpcMotionManager& motionManager = harness.stack().motionManager();
+  ASSERT_TRUE(harness.sendAsOperator(topics::kOperatorWalkingVelocityCommand,
+                                     velocityCommand(/*vx=*/0.5, /*vy=*/0.2, /*height=*/0.8, /*yawRate=*/-0.25),
+                                     [&]() { return motionManager.getScaledWalkingVelocityCommand().linear_velocity_x != 0.0; }));
+  const scalar_t walkingHeight = motionManager.getScaledWalkingVelocityCommand().desired_pelvis_height;
+
+  // The publisher went away: within the timeout and a check period, the robot is commanded to stand, at its height.
+  const absl::Time deadline = absl::Now() + absl::Seconds(5);
+  while (harness.runtime().statistics().walkingCommandTimeouts == 0 && absl::Now() < deadline) absl::SleepFor(absl::Milliseconds(5));
+  EXPECT_EQ(harness.runtime().statistics().walkingCommandTimeouts, 1u);
+  const WalkingVelocityCommand stopped = motionManager.getScaledWalkingVelocityCommand();
+  EXPECT_EQ(stopped.linear_velocity_x, 0.0);
+  EXPECT_EQ(stopped.linear_velocity_y, 0.0);
+  EXPECT_EQ(stopped.angular_velocity_z, 0.0);
+  EXPECT_DOUBLE_EQ(stopped.desired_pelvis_height, walkingHeight);
+  // Once per lost command, not on every check.
+  absl::SleepFor(absl::Milliseconds(400));
+  EXPECT_EQ(harness.runtime().statistics().walkingCommandTimeouts, 1u);
+
+  // A new command walks again.
+  ASSERT_TRUE(harness.sendAsOperator(topics::kOperatorWalkingVelocityCommand,
+                                     velocityCommand(/*vx=*/0.4, /*vy=*/0.0, /*height=*/0.8, /*yawRate=*/0.0),
+                                     [&]() { return motionManager.getScaledWalkingVelocityCommand().linear_velocity_x != 0.0; }));
+}
+
+TEST(MpcNodeRuntime, WithoutATimeoutTheLastWalkingCommandStays) {
+  Harness harness;
+  ASSERT_TRUE(harness.create().ok());
+  ProceduralMpcMotionManager& motionManager = harness.stack().motionManager();
+  ASSERT_TRUE(harness.sendAsOperator(topics::kOperatorWalkingVelocityCommand,
+                                     velocityCommand(/*vx=*/0.5, /*vy=*/0.0, /*height=*/0.8, /*yawRate=*/0.0),
+                                     [&]() { return motionManager.getScaledWalkingVelocityCommand().linear_velocity_x != 0.0; }));
+  absl::SleepFor(absl::Milliseconds(400));
+  EXPECT_NE(motionManager.getScaledWalkingVelocityCommand().linear_velocity_x, 0.0);
+  EXPECT_EQ(harness.runtime().statistics().walkingCommandTimeouts, 0u);
 }
 
 TEST(ApplyWalkingVelocityCommand, ScalesAConvertedCommandIntoTheMotionManagerAndRefusesOneThatIsNotFinite) {

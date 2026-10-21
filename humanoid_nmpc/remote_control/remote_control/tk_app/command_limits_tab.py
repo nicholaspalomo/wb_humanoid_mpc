@@ -48,6 +48,11 @@ _STATUS_COLOR = "#3c9a3c"
 _PROBLEM_COLOR = "#e74c3c"
 
 
+def _disabled_banner(reason: str) -> str:
+    """The banner of a tab whose online tuning is off, for `reason` (empty: the task file's enable_online_tuning)."""
+    return f"🔒 Online Tuning Disabled ({reason or 'enable_online_tuning: false in the task file'})"
+
+
 class CommandLimitsTab(ttk.Frame):
     """The parameters of the reference file: the command limits, the command ramps and the reference defaults.
 
@@ -66,6 +71,7 @@ class CommandLimitsTab(ttk.Frame):
     Args:
         parent: the notebook the tab is added to.
         reference_file: the robot's reference file; None: the tab says it found none.
+        enable_online_tuning: whether the rows and saving are enabled.
         robot_saver: the GUI's saver of the robot's copies (robot_config_save.RobotConfigSaver); None: Save writes
             the laptop's file only, and says so.
         on_saved: called after the laptop's file was saved, before it is sent to the robot (the GUI follows the file's
@@ -77,12 +83,14 @@ class CommandLimitsTab(ttk.Frame):
         self,
         parent: tk.Misc,
         reference_file: str | None = None,
+        enable_online_tuning: bool = True,
         robot_saver: robot_config_save.RobotConfigSaver | None = None,
         on_saved: Callable[[], None] | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(parent, **kwargs)
         self._on_saved = on_saved
+        self.enable_online_tuning = enable_online_tuning
         self.reference_file = (
             os.path.abspath(reference_file) if reference_file else None
         )
@@ -116,9 +124,17 @@ class CommandLimitsTab(ttk.Frame):
             anchor="w"
         )
 
+        self.warning_banner = ttk.Label(
+            self,
+            text=_disabled_banner(""),
+            font=("Helvetica", 9, "bold"),
+            foreground="#e67e22",
+        )
+
         buttons = ttk.Frame(self)
         buttons.pack(fill="x", padx=8, pady=4)
-        ttk.Button(buttons, text="💾 Save", command=self.save).pack(side="left")
+        self.save_btn = ttk.Button(buttons, text="💾 Save", command=self.save)
+        self.save_btn.pack(side="left")
         ttk.Button(buttons, text="↩ Reload", command=self.reload).pack(
             side="left", padx=6
         )
@@ -126,6 +142,10 @@ class CommandLimitsTab(ttk.Frame):
             buttons, textvariable=self.status_var, foreground=_STATUS_COLOR
         )
         self.status_label.pack(side="left", padx=10)
+
+        if not self.enable_online_tuning:
+            self.warning_banner.pack(anchor="w", padx=8, pady=(0, 2))
+            self.save_btn.configure(state="disabled")
 
         self.scroll_container = scrollable_frame.ScrollableFrame(self)
         self.scroll_container.pack(fill="both", expand=True, padx=8, pady=8)
@@ -160,6 +180,17 @@ class CommandLimitsTab(ttk.Frame):
         self._render(self.reference)
         self.status_var.set("")
 
+    def poll_files(self) -> None:
+        """Polls the reference file for disk modifications, re-rendering if changed."""
+        if self.reference is None:
+            return
+        changed = self.reference.refresh()
+        if changed is not None:
+            for child in self.scroll_container.scrollable_content.winfo_children():
+                child.destroy()
+            self.slider_rows.clear()
+            self._render(self.reference)
+
     def _render(self, reference: tuned_file.TunedFile) -> None:
         """A row for every rendered parameter of the file, grouped by the block that holds it."""
         frames: dict[str, ttk.LabelFrame] = {}
@@ -168,7 +199,7 @@ class CommandLimitsTab(ttk.Frame):
             frame = frames.get(group)
             if frame is None:
                 frame = ttk.LabelFrame(
-                    self.scroll_container.scrollable_content, text="• " + group
+                    self.scroll_container.scrollable_content, text=f"• {group}"
                 )
                 frame.pack(fill="x", padx=6, pady=4)
                 frames[group] = frame
@@ -188,6 +219,22 @@ class CommandLimitsTab(ttk.Frame):
                 self.scroll_container.scrollable_content,
                 text="The reference file carries no tunable parameters.",
             ).pack(anchor="w", padx=6, pady=4)
+        if not self.enable_online_tuning:
+            for row in self.slider_rows.values():
+                row.set_state("disabled")
+
+    def set_online_tuning_enabled(self, enabled: bool, reason: str = "") -> None:
+        """Enables or disables online tuning; `reason` is why it is off, for the banner (empty: the task file says so)."""
+        self.enable_online_tuning = bool(enabled)
+        state = "normal" if self.enable_online_tuning else "disabled"
+        if not self.enable_online_tuning:
+            self.warning_banner.configure(text=_disabled_banner(reason))
+            self.warning_banner.pack(anchor="w", padx=8, pady=(0, 2))
+        else:
+            self.warning_banner.pack_forget()
+        self.save_btn.configure(state=state)
+        for row in self.slider_rows.values():
+            row.set_state(state)
 
     def _on_change(self, path: str, label: str, value: Any) -> None:
         del label  # Unused: for display only.
@@ -211,6 +258,9 @@ class CommandLimitsTab(ttk.Frame):
         Returns:
             Whether the laptop's file was saved.
         """
+        if not self.enable_online_tuning:
+            self._show_status("Online tuning is disabled.", error=True)
+            return False
         if self.reference is None:
             return False
         try:
@@ -218,8 +268,10 @@ class CommandLimitsTab(ttk.Frame):
         except (OSError, tuned_file.TunedFileError) as error:
             self._show_status(f"save failed: {error}", error=True)
             return False
-        for row in self.slider_rows.values():
-            row.mark_saved()
+        for child in self.scroll_container.scrollable_content.winfo_children():
+            child.destroy()
+        self.slider_rows.clear()
+        self._render(self.reference)
         if self._on_saved is not None:
             self._on_saved()
         self.robot_save.send(

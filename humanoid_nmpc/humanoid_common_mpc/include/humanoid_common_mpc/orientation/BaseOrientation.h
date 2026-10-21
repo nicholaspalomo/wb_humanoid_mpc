@@ -30,6 +30,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include "Eigen/Core"
+#include "ocs2_core/Dimensions.h"
 #include "ocs2_core/manifold/UnitQuaternionMath.h"
 
 #include "humanoid_common_mpc/common/Types.h"
@@ -113,7 +114,7 @@ ad_vector4_t safelyNormalizedQuaternion(const ad_vector4_t& xi);
  * radial part, and J_t E^+ is exactly that gradient. On the unit sphere E^+ = 2 G^T(xi). It is zero, not NaN, at the
  * zero quaternion. ocs2::quaternionTangentMapPseudoInverse, which the manifold solver's pull-backs use.
  */
-Eigen::Matrix<scalar_t, 3, 4> configurationTangentLift(const vector4_t& xi);
+Eigen::Matrix<scalar_t, kRotationTangentDim, kQuaternionCoefficients> configurationTangentLift(const vector4_t& xi);
 
 /******************************************************************************************************/
 /* Heading and tilt (design section 2.8.1)                                                            */

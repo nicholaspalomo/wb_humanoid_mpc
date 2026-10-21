@@ -35,7 +35,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-/** `regularization`: diagonal regularization of Q (every node) and R (running nodes), so that the QPs stay strictly convex. */
+/**
+ * `regularization`: diagonal regularization of Q (every node) and R (running nodes), so that the QPs stay strictly convex.
+ *
+ * Not thread-safe, like every ContactPlanningTerm: the planner that owns it configures and evaluates it from one thread at a time.
+ */
 class RegularizationCost final : public LipCost {
  public:
   std::string describe() const override;

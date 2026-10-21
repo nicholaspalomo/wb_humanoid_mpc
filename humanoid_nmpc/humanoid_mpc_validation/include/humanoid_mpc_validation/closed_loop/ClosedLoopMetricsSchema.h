@@ -39,8 +39,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid::validation {
 
-/** The `schema` member of every closed-loop metrics document; a change of the fields below is a new version. */
-inline constexpr absl::string_view kClosedLoopMetricsSchemaName = "humanoid_mpc_validation.closed_loop_metrics.v1";
+/**
+ * The `schema` member of every closed-loop metrics document; a change of the fields below is a new version. v2 added
+ * the `sqp_step` group; a v1 document has none of it, and the comparison of two labels compares only what both have.
+ */
+inline constexpr absl::string_view kClosedLoopMetricsSchemaName = "humanoid_mpc_validation.closed_loop_metrics.v2";
 
 /** What a schema field holds. */
 enum class JsonFieldKind {

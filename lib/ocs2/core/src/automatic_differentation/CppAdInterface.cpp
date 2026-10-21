@@ -61,6 +61,9 @@ LibraryObserverSlot& libraryObserverSlot() {
 constexpr char kGeneratorStampExtension[] = ".generator";
 // LINT.ThenChange(//lib/ocs2/core/test/automatic_differentiation/testCppAdGeneratorStamp.cpp:library_paths)
 
+/** The number of distinct clock readings in a temporary name (getUniqueTemporaryName()), whose clock ticks are taken modulo it. */
+constexpr int kTemporaryNameClockModulus = 1000;
+
 }  // namespace
 
 /******************************************************************************************************/
@@ -95,11 +98,11 @@ CppAdInterface::CppAdInterface(ad_parameterized_function_t adFunction,
                                std::string folderName,
                                std::vector<std::string> compileFlags)
     : adFunction_(std::move(adFunction)),
+      compileFlags_(std::move(compileFlags)),
       variableDim_(variableDim),
       parameterDim_(parameterDim),
       modelName_(std::move(modelName)),
-      folderName_(std::move(folderName)),
-      compileFlags_(std::move(compileFlags)) {
+      folderName_(std::move(folderName)) {
   setFolderNames();
 }
 
@@ -121,6 +124,23 @@ CppAdInterface::CppAdInterface(const CppAdInterface& rhs)
     loadModels(false);
   }
 }
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+CppAdInterface::CppAdInterface(const CppAdInterface& rhs, ad_parameterized_function_t adFunction) : CppAdInterface(rhs) {
+  // Only now: the copy constructor has run on the function of rhs, which is alive, while the owner of adFunction is not
+  // yet constructed.
+  adFunction_ = std::move(adFunction);
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+CppAdInterface::CppAdInterface(const CppAdInterface& rhs, ad_function_t adFunction)
+    : CppAdInterface(rhs, [adFunction = std::move(adFunction)](const ad_vector_t& x, const ad_vector_t& /*p*/, ad_vector_t& y) {
+        adFunction(x, y);
+      }) {}
 
 /******************************************************************************************************/
 /******************************************************************************************************/
@@ -485,7 +505,7 @@ void CppAdInterface::createFolderStructure() const {
 /******************************************************************************************************/
 std::string CppAdInterface::getUniqueTemporaryName() const {
   // Random string should be unique for each process and time of calling.
-  int randomFromClock = std::chrono::high_resolution_clock::now().time_since_epoch().count() % 1000;
+  int randomFromClock = std::chrono::high_resolution_clock::now().time_since_epoch().count() % kTemporaryNameClockModulus;
   return std::string("cppadcg_tmp") + std::to_string(randomFromClock) + std::to_string(getpid());
 }
 

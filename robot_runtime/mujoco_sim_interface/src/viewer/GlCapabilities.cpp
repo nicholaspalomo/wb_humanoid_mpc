@@ -45,6 +45,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace robot::mujoco_sim_interface {
 namespace {
 
+// GL_VERSION's number has a major and a minor version, and maybe a release.
+constexpr int kMinVersionNumberParts = 2;
+// The oldest OpenGL MuJoCo's offscreen rendering runs on, given GL_ARB_framebuffer_object.
+constexpr int kMinGlMajorVersion = 1;
+constexpr int kMinGlMinorVersion = 5;
+// The first OpenGL with framebuffer objects in its core.
+constexpr int kFramebufferObjectGlMajorVersion = 3;
+constexpr int kFramebufferObjectGlMinorVersion = 0;
+
 /** An OpenGL version as GL_VERSION begins with it: "major.minor[.release] [vendor information]". */
 struct GlVersionNumber {
   int major = 0;
@@ -57,7 +66,9 @@ GlVersionNumber parseGlVersionNumber(absl::string_view version) {
   const absl::string_view number = stripped.substr(0, stripped.find(' '));
   const std::vector<absl::string_view> parts = absl::StrSplit(number, '.');
   GlVersionNumber parsed;
-  if (parts.size() < 2 || !absl::SimpleAtoi(parts[0], &parsed.major) || !absl::SimpleAtoi(parts[1], &parsed.minor)) return {};
+  if (parts.size() < kMinVersionNumberParts || !absl::SimpleAtoi(parts[0], &parsed.major) || !absl::SimpleAtoi(parts[1], &parsed.minor)) {
+    return {};
+  }
   return parsed;
 }
 
@@ -91,11 +102,12 @@ absl::Status checkRenderbufferSide(absl::string_view option, int pixels, const G
 
 absl::Status checkGlCapabilities(const GlCapabilities& capabilities, const WebViewerOptions& options) {
   const GlVersionNumber version = parseGlVersionNumber(capabilities.version);
-  if (!atLeast(version, /*major=*/1, /*minor=*/5)) {
+  if (!atLeast(version, kMinGlMajorVersion, kMinGlMinorVersion)) {
     return absl::FailedPreconditionError(absl::StrCat("MuJoCo's offscreen rendering needs OpenGL 1.5 or newer, and the context offers ",
                                                       version.major, ".", version.minor, refusalSuffix(capabilities)));
   }
-  if (!atLeast(version, /*major=*/3, /*minor=*/0) && !hasExtension(capabilities.extensions, "GL_ARB_framebuffer_object")) {
+  if (!atLeast(version, kFramebufferObjectGlMajorVersion, kFramebufferObjectGlMinorVersion) &&
+      !hasExtension(capabilities.extensions, "GL_ARB_framebuffer_object")) {
     return absl::FailedPreconditionError(
         absl::StrCat("MuJoCo's offscreen rendering needs framebuffer objects (OpenGL 3.0, or GL_ARB_framebuffer_object), and the "
                      "context has neither",
@@ -111,6 +123,12 @@ absl::Status checkGlCapabilities(const GlCapabilities& capabilities, const WebVi
     return absl::FailedPreconditionError(absl::StrCat("the web viewer's msaaSamples of ", options.msaaSamples,
                                                       " exceeds the context's GL_MAX_SAMPLES of ", capabilities.maxSamples, "; lower it",
                                                       refusalSuffix(capabilities)));
+  }
+  // MuJoCo skips the shadow map for a size of 0.
+  if (options.shadowSize > 0 && options.shadowSize > capabilities.maxTextureSize) {
+    return absl::FailedPreconditionError(absl::StrCat("the web viewer's shadowSize of ", options.shadowSize,
+                                                      " px exceeds the context's GL_MAX_TEXTURE_SIZE of ", capabilities.maxTextureSize,
+                                                      " px; lower it or set it to 0 to turn shadows off", refusalSuffix(capabilities)));
   }
   return absl::OkStatus();
 }

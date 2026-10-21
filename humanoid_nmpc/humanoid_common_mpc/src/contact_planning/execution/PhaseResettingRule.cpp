@@ -35,12 +35,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/strings/str_cat.h"
 
-namespace ocs2::humanoid {
+#include "humanoid_common_mpc/contact_planning/ContactScheduleAdaptation.h"
 
-namespace {
-constexpr scalar_t kSameSwingTolerance = 1.0e-6;  // [s] lift-off times closer than this identify the same swing
-constexpr scalar_t kMinTimeShift = 1.0e-6;        // [s] smaller event shifts are not applied
-}  // namespace
+namespace ocs2::humanoid {
 
 std::string PhaseResettingRule::describe() const {
   return absl::StrCat("early touch-down after ", params_.earlyTouchdownMinSwingRatio, " of the swing, debounced ",
@@ -126,7 +123,7 @@ std::optional<GroundSearchRequest> PhaseResettingRule::groundSearch(const Execut
   // is the planned swing's, continued past the planned touch-down as a straight descent at the search velocity, so that
   // the foot keeps moving down instead of hovering, and the reference never rises when the swing is extended again.
   if (!latch.active || latch.lateExtension <= 0.0) return std::nullopt;
-  const std::optional<std::pair<size_t, size_t>> range = swingPhaseIndexRange(schedule, foot, ctx.time);
+  const std::optional<PhaseIndexRange> range = swingPhaseIndexRange(schedule, foot, ctx.time);
   if (!range.has_value() || range->first == 0) return std::nullopt;
   if (std::abs(schedule.eventTimes[range->first - 1] - latch.liftOffTime) > kSameSwingTolerance) return std::nullopt;
   return GroundSearchRequest{.liftOffTime = latch.liftOffTime,

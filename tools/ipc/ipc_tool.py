@@ -33,9 +33,9 @@
     bazel run //tools/ipc:ipc_tool -- hz robot/mpc_observation      # rate, period jitter, payload size
 
 Every subcommand takes --network_config (default config/ipc/network.textproto, relative to the directory the tool was
-started from or the repository root). The tool only receives: it connects one SUB socket to every node of the network
-file (humanoid_nmpc/docs/distributed_runtime/README.md), so it sees every topic whichever process publishes it, and
-decodes payloads by the type name of their second frame with the default descriptor pool, into which it imports every
+started from or the repository root). The tool only receives: it joins the network file's DDS domain as a subscriber
+(humanoid_nmpc/docs/distributed_runtime/README.md), so it sees every topic whichever process publishes it, and decodes
+payloads by the type name their envelope carries with the default descriptor pool, into which it imports every
 humanoid_mpc_msgs and humanoid_mpc_config module.
 
 Exit status: 0 on success, 1 when the expected messages did not arrive, 2 for a usage or configuration error.
@@ -52,6 +52,7 @@ from google.protobuf import message
 
 import bus_listener
 import message_decoding
+import robot_ipc
 import topic_statistics
 
 EXIT_OK = 0
@@ -69,6 +70,30 @@ def _remaining(deadline: float | None) -> float:
     return math.inf if deadline is None else deadline - time.monotonic()
 
 
+def next_report_time(scheduled: float, period: float, now: float) -> float:
+    """Returns the first time of the grid `scheduled` + k `period` (k = 0, 1, ...) after `now`.
+
+    Computed at once rather than one period at a time, whose cost grows with the time a slow report skipped; one period
+    ahead is `scheduled + period`, the sum the step-by-step addition makes.
+
+    Args:
+      scheduled: A time on the grid, in seconds.
+      period: The grid's period, in seconds; positive.
+      now: The time to pass, in seconds.
+    """
+    if scheduled > now:
+        return scheduled
+    # floor((now - scheduled) / period) periods reach at most `now`; one more passes it. The two corrections undo a
+    # rounding of the quotient that leaves the result a period short or long of that.
+    periods = math.floor((now - scheduled) / period) + 1
+    following = scheduled + periods * period
+    if following <= now:
+        following += period
+    if periods > 1 and following - period > now:
+        following -= period
+    return following
+
+
 def _receive_until(
     listener: bus_listener.BusListener, deadline: float | None
 ) -> bus_listener.BusMessage | None:
@@ -78,8 +103,8 @@ def _receive_until(
 def _warn_malformed(listener: bus_listener.BusListener, err: TextIO) -> None:
     if listener.malformed_messages:
         err.write(
-            f"ipc_tool: dropped {listener.malformed_messages} message(s) that were not "
-            f"[topic][type name][payload]\n"
+            f"ipc_tool: dropped {listener.malformed_messages} message(s) of another wire protocol version "
+            "or that did not parse\n"
         )
 
 
@@ -164,6 +189,14 @@ def run_echo(
             received = _receive_until(listener, deadline)
             if received is None:
                 continue
+            # A large topic (mpc/policy) arrives faster than it is formatted: print the newest of what waits, so that the
+            # output stays current and the backlog does not pile up in this process.
+            pending = listener.receive_pending()
+            if pending:
+                err.write(
+                    f"# skipped {len(pending)} message(s) on {listener.topic} to keep up\n"
+                )
+                received = pending[-1]
             try:
                 text = render_message(received, fields, output_format)
             except message_decoding.FieldPathError as error:
@@ -238,8 +271,9 @@ def run_hz(
             if time.monotonic() >= next_report:
                 report()
                 # On schedule, without a burst of reports to catch up after a slow one.
-                while next_report <= time.monotonic():
-                    next_report += report_period_s
+                next_report = next_report_time(
+                    next_report, report_period_s, time.monotonic()
+                )
     except KeyboardInterrupt:
         pass
     # The messages since the last periodic report, so that a short --duration still prints a rate.
@@ -294,7 +328,7 @@ def build_parser() -> argparse.ArgumentParser:
     common.add_argument(
         "--network_config",
         default=bus_listener.DEFAULT_NETWORK_CONFIG,
-        help="the network file naming the endpoints of the bus (default: %(default)s)",
+        help="the network file of the bus: its DDS domain and nodes (default: %(default)s)",
     )
 
     parser = argparse.ArgumentParser(
@@ -381,7 +415,7 @@ def main(
         err.write("ipc_tool: the topic must not be empty\n")
         return EXIT_USAGE
     try:
-        nodes = bus_listener.load_network_config(
+        network = bus_listener.load_network_config(
             bus_listener.resolve_input_path(args.network_config)
         )
     except bus_listener.NetworkConfigError as error:
@@ -390,7 +424,12 @@ def main(
 
     if args.command == "echo":
         message_decoding.import_message_modules()
-    with bus_listener.BusListener.from_nodes(nodes, topic=topic) as listener:
+    try:
+        listener = bus_listener.BusListener(network, topic=topic)
+    except (ValueError, OSError, robot_ipc.BusError) as error:
+        err.write(f"ipc_tool: {error}\n")
+        return EXIT_USAGE
+    with listener:
         if args.command == "list":
             return run_list(listener, args.duration, out, err)
         if args.command == "echo":

@@ -29,6 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc_app/robot/config/robot/RobotProcessSettingsFromConfig.h"
 
+#include <cmath>
+#include <optional>
 #include <utility>
 
 #include "absl/status/status.h"
@@ -37,6 +39,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_join.h"
 #include "absl/strings/string_view.h"
 
+#include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/config/robot/ControllerSideSettingsFromConfig.h"
 #include "humanoid_common_mpc/contact/ContactWrenchGate.h"
 #include "humanoid_common_mpc_app/robot/RobotProcessSettings.h"
@@ -57,7 +60,33 @@ absl::StatusOr<WbMpcFeedforward> wbMpcFeedforwardFromName(absl::string_view name
                                                  kGravityCompensationFeedforwardName, "."));
 }
 
+/** 0 (off) for an absent `value` of the task file's `field`; the value when it is finite and positive; InvalidArgument otherwise. */
+absl::StatusOr<double> absentOrPositive(absl::string_view field, std::optional<double> value) {
+  if (!value.has_value()) return 0.0;
+  // Negated, so that NaN is refused too.
+  if (!std::isfinite(*value) || !(*value > 0.0)) {
+    return absl::InvalidArgumentError(absl::StrCat(field, " is ", *value, "; it must be positive, or absent to switch it off."));
+  }
+  return *value;
+}
+
 }  // namespace
+
+estimation::KalmanBaseEstimator::Config kalmanBaseEstimatorConfigFromConfig(const mpc_config::KalmanStateEstimatorConfig& config) {
+  // LINT.IfChange(kalman_state_estimator_fields)
+  return estimation::KalmanBaseEstimator::Config{
+      .imuAccelerationNoise = config.imu_acceleration_noise,
+      .baseVelocityRandomWalk = config.base_velocity_random_walk,
+      .basePositionRandomWalk = config.base_position_random_walk,
+      .stanceContactRandomWalk = config.stance_contact_random_walk,
+      .swingContactRandomWalk = config.swing_contact_random_walk,
+      .kinematicPositionNoise = config.kinematic_position_noise,
+      .kinematicVelocityNoise = config.kinematic_velocity_noise,
+      .contactHeightNoise = config.contact_height_noise,
+      .contactHeight = config.contact_height,
+  };
+  // LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_config/kalman_state_estimator_config.proto:kalman_state_estimator_defaults)
+}
 
 absl::StatusOr<RobotProcessSettings> robotProcessSettingsFromConfig(const mpc_config::TaskFile& task) {
   RobotProcessSettings settings;
@@ -74,8 +103,11 @@ absl::StatusOr<RobotProcessSettings> robotProcessSettingsFromConfig(const mpc_co
   settings.simulator.visualizations = task.sim_visualizations;
   settings.simulator.gantryHold = task.gantry_hold;
   settings.simulator.projectile = task.sim_projectile;
-  settings.fallRecovery.maxBaseTiltAngle = task.sim_max_base_tilt_angle;
-  settings.fallRecovery.catchLift = task.sim_gantry_catch_lift;
+  settings.simulator.ragdollJointDamping = task.sim_ragdoll_joint_damping;
+  settings.simulator.autoResetBaseHeight = task.sim_auto_reset_base_height;
+  // The schema has no sentinel: an absent field is off, which the fall recovery's config spells 0.
+  ASSIGN_OR_RETURN(settings.fallRecovery.maxBaseTiltAngle, absentOrPositive("sim_max_base_tilt_angle", task.sim_max_base_tilt_angle));
+  ASSIGN_OR_RETURN(settings.fallRecovery.catchLift, absentOrPositive("sim_gantry_catch_lift", task.sim_gantry_catch_lift));
   settings.mpcEntryBlendTime = task.mpc_entry_blend_time;
   settings.safetyDecayTimeConstant = task.safety_decay_time_constant;
   const absl::StatusOr<WbMpcFeedforward> feedforward = wbMpcFeedforwardFromName(task.wb_mpc_feedforward);
@@ -86,6 +118,8 @@ absl::StatusOr<RobotProcessSettings> robotProcessSettingsFromConfig(const mpc_co
   settings.telemetrySinks = task.telemetry_sinks;
   settings.telemetryFrequency = task.telemetry_frequency;
   settings.mpcLinkPolicyTimeout = task.mpc_link.policy_timeout;
+  settings.stateEstimator = task.state_estimator;
+  settings.kalmanStateEstimator = kalmanBaseEstimatorConfigFromConfig(task.kalman_state_estimator);
 
   if (settings.telemetryFrequency.has_value() && !(*settings.telemetryFrequency > 0.0)) {
     return absl::InvalidArgumentError(absl::StrCat("telemetry_frequency must be positive [Hz], got ", *settings.telemetryFrequency,

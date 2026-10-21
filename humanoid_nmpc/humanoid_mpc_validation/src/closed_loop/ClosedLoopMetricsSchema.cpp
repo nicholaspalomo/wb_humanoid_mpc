@@ -78,10 +78,25 @@ std::vector<JsonSchemaField> makeSchema() {
   fields.push_back({"initial_state_gap.max_rotation_time_s", JsonFieldKind::kNullableNumber});
   fields.push_back({"initial_state_gap.max_norm", JsonFieldKind::kNullableNumber});
   fields.push_back({"quaternion_norm.max_deviation", JsonFieldKind::kNullableNumber});
+  fields.push_back({"quaternion_norm.non_finite_solves", JsonFieldKind::kNumber});
   fields.push_back({"non_finite_values", JsonFieldKind::kNumber});
   for (const std::string& phase : phases) {
     for (const std::string& statistic : {std::string("mean"), std::string("p50"), std::string("p99"), std::string("max")}) {
       fields.push_back({absl::StrCat("solve_time_ms.", phase, ".", statistic), JsonFieldKind::kNullableNumber});
+    }
+  }
+  fields.push_back({"sqp_step.steps", JsonFieldKind::kNumber});
+  fields.push_back({"sqp_step.full_steps", JsonFieldKind::kNumber});
+  fields.push_back({"sqp_step.reduced_steps", JsonFieldKind::kNumber});
+  fields.push_back({"sqp_step.zero_steps", JsonFieldKind::kNumber});
+  fields.push_back({"sqp_step.full_steps_refused_above_g_max", JsonFieldKind::kNumber});
+  fields.push_back({"sqp_step.accepted_by.constraint", JsonFieldKind::kNumber});
+  fields.push_back({"sqp_step.accepted_by.dual", JsonFieldKind::kNumber});
+  fields.push_back({"sqp_step.accepted_by.cost", JsonFieldKind::kNumber});
+  fields.push_back({"sqp_step.longest_violation_growth", JsonFieldKind::kNumber});
+  for (const std::string& sample : {std::string("constraint_violation"), std::string("swing_normal_velocity_residual")}) {
+    for (const std::string& statistic : {std::string("mean"), std::string("p50"), std::string("p99"), std::string("max")}) {
+      fields.push_back({absl::StrCat("sqp_step.", sample, ".", statistic), JsonFieldKind::kNullableNumber});
     }
   }
   fields.push_back({"failures.failed_solves", JsonFieldKind::kNumber});

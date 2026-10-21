@@ -107,11 +107,12 @@ class ControllerHarness {
       config.solverObservationObserver = observeInTheMotionManager();
       controller_ = CentroidalMpcMrtJointController::Create(description_, stack_.modelSettings(), stack_.model(),
                                                             InProcessMpcLink::factory(stack_.mpc(), std::move(config), &link_),
-                                                            stack_.pinocchioInterface())
+                                                            stack_.pinocchioInterface(), stack_.pdGainsFile())
                         .value();
     } else {
       controller_ = CentroidalMpcMrtJointController::Create(description_, stack_.modelSettings(), stack_.model(), stack_.mpc(),
-                                                            observeInTheMotionManager(), stack_.pinocchioInterface(), kMpcFrequency)
+                                                            observeInTheMotionManager(), stack_.pinocchioInterface(), kMpcFrequency,
+                                                            stack_.pdGainsFile())
                         .value();
     }
     mpcJointIndices_ = description_.getJointIndices(stack_.modelSettings().mpcModelJointNames);
@@ -189,7 +190,8 @@ class ControllerHarness {
   robot::model::RobotJointAction jointPdActionHere() {
     const std::unique_ptr<CentroidalMpcMrtJointController> referencePtr =
         CentroidalMpcMrtJointController::Create(description_, stack_.modelSettings(), stack_.model(), stack_.mpc(),
-                                                observeInTheMotionManager(), stack_.pinocchioInterface(), kMpcFrequency)
+                                                observeInTheMotionManager(), stack_.pinocchioInterface(), kMpcFrequency,
+                                                stack_.pdGainsFile())
             .value();
     CentroidalMpcMrtJointController& reference = *referencePtr;
     reference.setNominalJointPositions(nominal_);
@@ -240,7 +242,7 @@ class FixedContactEstimator final : public ::robot::model::ContactEstimator {
  public:
   explicit FixedContactEstimator(std::vector<bool> flags) : flags_(std::move(flags)) {}
   void estimateContactFlags(const robot::model::RobotState& /*robotState*/, std::vector<bool>& flags) override { flags = flags_; }
-  std::string getName() const override { return "FixedContactEstimator"; }
+  absl::string_view getName() const override { return "FixedContactEstimator"; }
 
  private:
   std::vector<bool> flags_;
@@ -263,8 +265,8 @@ TEST(MrtJointControllerReset, CreateRefusesALinkFactoryThatMakesNoLink) {
   ASSERT_TRUE(descriptionOrStatus.ok()) << descriptionOrStatus.status();
   const robot::model::RobotDescription& description = *descriptionOrStatus;
   const MpcLinkFactory noLink = [](const MpcLink::ResetTargetFunction& /*resetTarget*/) { return std::unique_ptr<MpcLink>(); };
-  const absl::StatusOr<std::unique_ptr<CentroidalMpcMrtJointController>> created =
-      CentroidalMpcMrtJointController::Create(description, stack.modelSettings(), stack.model(), noLink, stack.pinocchioInterface());
+  const absl::StatusOr<std::unique_ptr<CentroidalMpcMrtJointController>> created = CentroidalMpcMrtJointController::Create(
+      description, stack.modelSettings(), stack.model(), noLink, stack.pinocchioInterface(), stack.pdGainsFile());
   ASSERT_FALSE(created.ok()) << "Create() built a controller without an MPC link";
   EXPECT_EQ(created.status().code(), absl::StatusCode::kInvalidArgument) << created.status();
   EXPECT_TRUE(absl::StrContains(created.status().message(), "made no link")) << created.status();

@@ -72,6 +72,11 @@ scalar_t EuclideanStateManifold::getMaximumRotationAngle(const vector_t& dx) con
   return 0.0;
 }
 
+bool EuclideanStateManifold::hasRepresentableRotations(const vector_t& x) const {
+  CHECK_EQ(static_cast<size_t>(x.size()), dimension_);
+  return true;
+}
+
 void EuclideanStateManifold::pullBackStateColumns(const vector_t& x, matrix_t& J) const {
   CHECK_EQ(static_cast<size_t>(J.cols()), dimension_);
 }

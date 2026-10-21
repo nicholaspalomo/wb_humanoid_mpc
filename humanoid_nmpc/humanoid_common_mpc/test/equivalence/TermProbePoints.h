@@ -34,6 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <array>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -54,8 +55,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * inside the bands of the piecewise polynomial barriers, which the shared points leave at zero (barrierBandPoints()); the
  * precomputation requests that precede every evaluation of a term; the sorted term names of a collection; the coverage
  * checks that every term of the collections a test covers was checked, and checked where its checked quantity is not
- * zero (termLabels(), coverageFindings(), nonZeroFindings()); the ICP weight of the problem copies they test
- * (weighUnweightedIcpCost()) and the bounded extrapolation of their differences (extrapolate()).
+ * zero (termLabels(), coverageFindings(), nonZeroFindings()); the soft stance-foot constraint of the problem copies
+ * they test (addSoftStanceFootConstraint(), which the first-order test adds)
+ * and the bounded extrapolation of their differences (extrapolate()).
  */
 
 namespace ocs2::humanoid {
@@ -115,16 +117,17 @@ std::vector<TargetedProbePoint> barrierBandPoints(OptimalControlProblem& problem
                                                   absl::Span<const TermProbePoint> points);
 
 /**
- * Whether the term `label` may report a state Jacobian that is a documented approximation, by the suffix of its name,
- * that of the stance feet's zero-velocity constraints, hard or soft: the centroidal MPC's ZeroVelocityConstraintCppAd
- * evaluates an EndEffectorKinematicsTwistConstraint, which holds its map M from the foot's angular velocity to the rate
- * of its orientation residual constant at the linearization point, so its state Jacobian is the derivative only where
- * the feet do not turn. The suffix also names the whole body's ZeroAccelerationConstraintCppAd, whose Jacobian is
- * exact, so the classification is conservative there. testQuaternionRootTermHessians.cpp holds the state blocks of such
- * a soft constraint at the points at rest only; testQuaternionRootTermDerivatives.cpp does not use it, and holds every
- * state Jacobian at every point, the twist constraint's with the dropped term Av_ang (dM/dx) omega added.
+ * Whether the term `label` of `mpc`'s problem may report a state Jacobian that is a documented approximation: a stance
+ * foot's zero-velocity constraint, hard or soft, by the suffix of its name, of the centroidal MPC, whose
+ * ZeroVelocityConstraintCppAd evaluates an EndEffectorKinematicsTwistConstraint, which holds its map M from the foot's
+ * angular velocity to the rate of its orientation residual constant at the linearization point, so its state Jacobian is
+ * the derivative only where the feet do not turn. The whole body's ZeroAccelerationConstraintCppAd, under the same
+ * suffix, tapes the rates exactly (humanoid_wb_mpc/end_effector/OrientationErrorWrtPlaneRates.h) and is not
+ * classified. testQuaternionRootTermHessians.cpp holds the state blocks of such a soft constraint at the points at rest
+ * only; testQuaternionRootTermDerivatives.cpp does not use it, and holds every state Jacobian at every point, the twist
+ * constraint's with the dropped term Av_ang (dM/dx) omega added.
  */
-bool hasFrozenStateJacobian(absl::string_view label);
+bool hasFrozenStateJacobian(const MpcEquivalenceFixture& mpc, absl::string_view label);
 
 /** The steps of one bounded extrapolation (extrapolate()), in units of the step h: central differences at h, h/2 and h/4. */
 inline constexpr std::array<scalar_t, 6> kStepFractions = {1.0, -1.0, 0.5, -0.5, 0.25, -0.25};
@@ -224,15 +227,18 @@ std::vector<std::string> nonZeroFindings(absl::Span<const std::string> expected,
                                          absl::Span<const TermExemption> exemptions,
                                          absl::string_view quantity);
 
-/** The weight the term tests give the ICP cost where it ships unweighted, of the order of its other costs' weights. */
-inline constexpr scalar_t kIcpTestWeight = 100.0;
-
 /**
- * Weighs `problem`'s ICP cost (kIcpCostTerm) with kIcpTestWeight on both rows where it ships unweighted:
- * icp_error_weight is 0 on every shipped robot, which would leave a term test of the cost nothing to check but zeros.
- * The weights are parameters of the cost's library, as on a live reload, so the library under test is the shipped one.
- * Returns whether it weighed the cost; a problem without an ICP cost, or with a weighted one, is left as it is.
+ * Adds to `problem` the soft form of the first stance foot's zero-velocity constraint it holds as a hard equality
+ * constraint (`<foot>_zeroVelocity`: the centroidal MPC's ZeroVelocityConstraintCppAd, the whole body's
+ * ZeroAccelerationConstraintCppAd), wrapped as the MPC interfaces wrap it under the zero_velocity soft constraint: a
+ * StateInputSoftConstraint of a copy of the constraint with a QuadraticPenalty of `softConstraintWeight` (the foot
+ * constraint's soft_constraint_weight). No shipped robot lists the soft form, which would leave the first-order test's
+ * checks of it unexercised: the twist constraint's dropped term contracted with the penalty's slope, and the whole
+ * body's soft gradient. Returns the soft term's label (`softConstraint.<foot>_zeroVelocity`), or nullopt when `problem`
+ * holds no hard zero-velocity constraint or already holds the soft form.
  */
-bool weighUnweightedIcpCost(OptimalControlProblem& problem);
+std::optional<std::string> addSoftStanceFootConstraint(OptimalControlProblem& problem,
+                                                       absl::Span<const std::string> contactNames,
+                                                       scalar_t softConstraintWeight);
 
 }  // namespace ocs2::humanoid

@@ -8,24 +8,37 @@ keyboard and Xbox teleoperation publishers. They run on the laptop, under Bazel'
 ```bash
 bazel run //humanoid_nmpc/remote_control:base_velocity_controller_gui -- \
     --task_file=robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.textproto
-bazel run //humanoid_nmpc/remote_control:xbox_velocity_publisher
-bazel run //humanoid_nmpc/remote_control:keyboard_velocity_publisher
+bazel run //humanoid_nmpc/remote_control:xbox_velocity_publisher -- \
+    --reference_file=robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/command/reference.textproto
+bazel run //humanoid_nmpc/remote_control:keyboard_velocity_publisher -- \
+    --reference_file=robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/command/reference.textproto
 bazel run //humanoid_nmpc/remote_control:push_robot_config -- \
     robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.textproto
 ```
 
 The launch files of every robot start the GUI with that robot's files, next to the MPC node and the Rerun bridge
 (`robot_models/<robot>/<package>/launch/mpc.textproto` and `dummy_sim.textproto`; `make launch-<robot>-sim`,
-`-dummy-sim` and `-mpc`). It publishes the walking command at 25 Hz whenever it runs, so a second publisher of
-`operator/walking_velocity_command` (a script, the keyboard teleop) competes with its sticks: close the GUI, or use its
-sticks.
+`-dummy-sim` and `-mpc`). It publishes the walking command at 25 Hz while it runs, so a second publisher of
+`operator/walking_velocity_command` (a script, the keyboard or Xbox teleop) competes with its sticks, and the MPC
+alternates between the two. To drive the robot from a teleoperation publisher and keep the GUI's FSM and tuning tabs,
+hand the topic over:
+
+<!-- LINT.IfChange(walking_commands) -->
+- `--walking_commands=off` starts the GUI without publishing walking commands (`publish`, the default, publishes them);
+  the launch files pass their variable `gui_walking_commands` (`--set gui_walking_commands=off`);
+- the Base Controller tab's **Publish walking commands** checkbox does the same while the GUI runs. Unticking it sends
+  one last command with the sticks centered and the height kept, since the MPC keeps the last command it received.
+<!-- LINT.ThenChange(//humanoid_nmpc/remote_control/remote_control/base_velocity_controller_gui.py:walking_commands) -->
 
 | Binary | Node | Flags |
 |---|---|---|
-| `base_velocity_controller_gui` | `operator` | `--task_file`, `--reference_file`, `--pd_gains_file`, `--urdf_file`, `--default_pelvis_height`, `--network_config`, `--ipc_node` |
-| `xbox_velocity_publisher` | `teleop` | `--network_config`, `--ipc_node` |
-| `keyboard_velocity_publisher` | `teleop` | `--network_config`, `--ipc_node` |
+| `base_velocity_controller_gui` | `operator` | `--task_file`, `--reference_file`, `--pd_gains_file`, `--urdf_file`, `--default_pelvis_height`, `--walking_commands`, `--network_config`, `--ipc_node` |
+| `xbox_velocity_publisher` | `teleop` | `--reference_file`, `--network_config`, `--ipc_node` |
+| `keyboard_velocity_publisher` | `teleop` | `--reference_file`, `--network_config`, `--ipc_node` |
 | `push_robot_config` | `config_push` | the file; `--network_config`, `--ipc_node` |
+
+The teleoperation publishers start the pelvis height at `--reference_file`'s `default_base_height`, as the GUI's height
+slider does; without one they start at 0.8 m, whatever the robot, and say so.
 
 `--network_config` defaults to `config/ipc/network.textproto`. A relative path is looked up in the directory the
 binary was started from and then in the checkout. The GUI edits the configuration files of the checkout, not Bazel's
@@ -42,10 +55,10 @@ of the README's topic table. `remote_control/operator_bus.py` lists the rows the
 
 | Topic | Message | What |
 |---|---|---|
-| `operator/walking_velocity_command` | `WalkingVelocityCommand` | the sticks and the height slider (or the Xbox controller), at 25 Hz, always: the height slider moves the gantry in simulation |
+| `operator/walking_velocity_command` | `WalkingVelocityCommand` | the sticks and the height slider (or the Xbox controller), at 25 Hz, always unless handed to a teleoperation publisher (above): the height slider moves the gantry in simulation |
 | `operator/fsm_command` | `FsmCommand` | the FSM mode selector and the gantry checkbox; `sequence` starts at the wall clock in nanoseconds and rises by one per command, so a restarted GUI still counts up |
 | `operator/mpc_parameters` | `humanoid_mpc_config.MpcParameterUpdate` | the MPC Parameters tab: the whole task file and, for a robot with a contact planner, the whole contact-planning file, with the operator's values, and the task file's identity (`config_path`) |
-| `operator/pd_gains` | `humanoid_mpc_config.JointPdGainsFile` | the Joint PD Gains tab: the whole PD gains file with the operator's values |
+| `operator/pd_gains` | `humanoid_mpc_config.JointPdGainsUpdate` | the Joint PD Gains tab: the whole PD gains file with the operator's values, paired with its configuration path (`config_path`) and schema fingerprint |
 | `operator/joint_targets` | `JointTargets` | the Joint Targets tab, by joint name, in JOINT_PD only |
 | `operator/dodgeball_throw` | `DodgeballThrow` | the Dodgeball tab's throw (`tk_app/dodgeball.py` `throw_message`) |
 | `operator/config_save` | `ConfigFileSave` | a tuning tab's Save: the exact text of the saved task, reference or PD gains file, for the robot's store (below); also `push_robot_config` |
@@ -55,10 +68,10 @@ of the README's topic table. `remote_control/operator_bus.py` lists the rows the
 The tuning payloads are the files, typed (humanoid_nmpc/humanoid_mpc_config/README.md, "Live updates"): a block the
 update does not carry means its defaults, as at start-up, so the tabs publish the whole of each file. A receiver built
 from another commit that still subscribes with another type drops the message, and the bus logs the mismatch; one with
-the same type refuses a payload of another schema version (a field it does not know, or, for the MPC parameters,
-another `schema_fingerprint`, which `operator_bus.mpc_parameter_update()` stamps) and an MPC parameter update of
-another robot or of another configuration (its `config_path`, the task file's path from `robot_models/` on: the
-centroidal and the whole-body G1 share the robot name "g1"), and logs and counts it
+the same type refuses a payload of another schema version (a field it does not know, or, for the MPC parameters and PD
+gains, another `schema_fingerprint`, which `operator_bus.mpc_parameter_update()` and `operator_bus.joint_pd_gains_update()`
+stamp) and an update of another robot or of another configuration (its `config_path`, the file's path from `robot_models/`
+on: the centroidal and the whole-body G1 share the robot name "g1" and the same joints), and logs and counts it
 (humanoid_nmpc/humanoid_mpc_config/README.md, "Version skew").
 
 The tabs know nothing of the bus: each is given a publisher (`operator_bus.TopicPublisher`, anything with
@@ -66,10 +79,18 @@ The tabs know nothing of the bus: each is given a publisher (`operator_bus.Topic
 the bus: every tick, on Tk's thread, it applies the FSM states the bus's receive thread left in a mailbox, and publishes
 one walking command. Tk is never called from another thread, and `Bus.publish()` never waits for the network.
 
-The **Open Rerun viewer** button starts the Rerun bridge,
-`.bazel/bin/humanoid_nmpc/humanoid_rerun_viewer/humanoid_rerun_viewer --network_config=<the GUI's> [--urdf=<--urdf_file>]`,
-which opens the native viewer (without `--urdf_file` it draws no robot); the GUI stops it when it closes. It does not build it: when the binary is missing, the button says to
-run `bazel build //humanoid_nmpc/humanoid_rerun_viewer`.
+<!-- LINT.IfChange(gui_viewer_port) -->
+The **Open Rerun viewer** button starts a Rerun bridge of its own,
+`.bazel/bin/humanoid_nmpc/humanoid_rerun_viewer/humanoid_rerun_viewer --network_config=<the GUI's> --rerun_sink=spawn --grpc_port=9877 [--urdf=<--urdf_file>]`,
+which opens a native viewer on port 9877 (without `--urdf_file` it draws no robot); the GUI stops it when it closes.
+The launch files' bridge serves the web viewer and holds the bridge's default gRPC port, 9876; rerun-sdk's spawn takes
+whatever listens on its port for a viewer, so on 9876 the button would open no window and stream a second recording
+into the web viewer. The viewer runs next to the button's bridge, which reaches it on 127.0.0.1, so 9877 is not
+published. When that viewer's window is closed (or the viewer never started), the bridge sees its port go quiet and
+exits within a few seconds, so the button opens a new bridge and viewer. The button does not build the bridge: when the
+binary is missing, it says to run
+`bazel build //humanoid_nmpc/humanoid_rerun_viewer`.
+<!-- LINT.ThenChange(//humanoid_nmpc/remote_control/remote_control/rerun_viewer.py:gui_viewer_port) -->
 
 ## Tuning the configuration
 
@@ -101,8 +122,10 @@ only and has no tab.
    does not read (its schema option `formulations`) is labeled "not applicable: the whole-body MPC does not read it"
    (or the centroidal MPC).
 3. **Save** writes the changes into the laptop's file and sends the same text to the robot's persistent store (below).
-   The MPC watches the laptop's files and the robot its stored copies (roughly once a second), so a saved value
-   reaches a stack that missed the publish too, and the next start reads it. The Command Limits tab publishes nothing:
+   The MPC watches the laptop's files and the robot its stored copies (about once a second), so a saved value
+   reaches a stack that missed the publish too, and the next start reads it. A watcher applies a file and a publish in
+   the order they were made, not the order it noticed them: a file saved before a later publish (Save, then more
+   tuning within the watch period) does not undo that publish. The Command Limits tab publishes nothing:
    saving is how its changes reach the MPC. **Reset All** returns every value to the file as loaded or last saved
    (and a publishing tab publishes that).
 
@@ -112,7 +135,9 @@ reported with its line and column, and its tab stays empty until the file is fix
 
 The files can also be edited by hand, in any editor: the stack reads them as the GUI writes them, and a file the
 stack cannot parse is refused with its file, line and column. An editor's save reaches the laptop's MPC through its
-file watcher; it reaches the robot's copy at the robot's next start (from the deployed bundle, by its seed policy) or
+file watcher, and the open tab takes it too: before its next publish, and on its once-a-second check, it re-reads a
+file changed on disk, shows its values and keeps the operator's changes over it, so that a publish never sends the file
+as it was loaded. The edit reaches the robot's copy at the robot's next start (from the deployed bundle, by its seed policy) or
 at once with `push_robot_config` (below). `bazel test //humanoid_nmpc/remote_control:test_config_schema` parses every
 shipped file strictly.
 
@@ -217,8 +242,9 @@ for a field that neither renders nor states why not, or that does not say who ap
 
 `remote_control/tuned_file.py` holds a file while it is tuned (`TunedFile`), without Tk: a slider moved is a change of
 it, the edited file is made from the changes on demand, and only `save()` writes. The Joint Targets tab takes the
-joints of the PD gains file and their defaults from the reference file's `default_joint_state`; the MPC tab's contact
-estimator is the Base Controller tab's "Contact estimator" drop-down too.
+joints of the PD gains file and their defaults from the reference file's `default_joint_state`; every task-file choice whose
+schema names a `base_controller_label` (the contact estimator's "Contact estimator") is a drop-down of the Base
+Controller tab too, built from the schema and showing the MPC tab's value, the default included.
 
 ## The FSM state and the joysticks
 
@@ -240,15 +266,29 @@ A stick left forward would otherwise keep commanding a walk, and re-entering `WB
 slider is not touched: it is the gantry height while the gantry is locked. A connected Xbox controller writes its own
 stick positions every cycle, so the release applies to the on-screen sticks only.
 
+The MPC keeps the last walking command it received, so the GUI never lets a command outlive its source: when the Xbox
+controller is lost (unplugged, out of battery), the on-screen sticks it moved are centered, the height kept, and that
+command goes out on the same tick. A controller that connects starts its pelvis height target from the height slider,
+and follows the default pelvis height when the reference file moves it.
+
 ## Teleoperation
 
 The Xbox controller (`xbox_controller_interface.py`) drives the GUI's sticks when it is connected, or publishes on its
 own with `xbox_velocity_publisher`: the left stick walks, the right stick turns, RT and LT raise and lower the pelvis
-height target. Nothing is published without a controller. On Linux, install the xpad driver:
-https://github.com/paroj/xpad
+height target. When the controller goes away, and when the publisher ends, it publishes the stop command (zero
+velocities, the pelvis height kept) for a second; then nothing until a controller is found again. On Linux, install the
+xpad driver: https://github.com/paroj/xpad
 
 `keyboard_velocity_publisher` reads the terminal it runs in: the arrow keys walk, `a` and `d` turn, `w` and `s` raise
-and lower the pelvis height target by 1 cm per tick, and releasing every key stops the robot.
+and lower the pelvis height target by 1 cm per tick, and releasing every key stops the robot. Ctrl-C sends the stop
+command before it ends.
+
+Neither may run next to a GUI that publishes walking commands: start the GUI with `--walking_commands=off`, or untick its
+checkbox (above). The MPC keeps the last command it received, so each publisher ends with the stop command, and waits
+for the bus to write it before closing (`teleop.close_after_stop()`): the walking command is a BEST_EFFORT DDS topic
+(`latest`), so a sample still queued when the bus closes is lost. A publisher killed with SIGKILL, or a laptop cut off from the robot, sends nothing, and
+the task file's `interface.walking_command_timeout`, which the MPC node reads, is the guard against that
+(humanoid_nmpc/docs/distributed_runtime/README.md).
 
 ## Tests
 

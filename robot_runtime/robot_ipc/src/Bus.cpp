@@ -29,20 +29,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "robot_ipc/Bus.h"
 
-#include <sys/eventfd.h>
-#include <unistd.h>
-
 #include <algorithm>
 #include <array>
 #include <atomic>
-#include <cerrno>
 #include <chrono>
 #include <climits>
 #include <cstdint>
-#include <cstring>
 #include <exception>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <system_error>
 #include <thread>
@@ -53,15 +49,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/base/thread_annotations.h"
 #include "absl/log/log.h"
 #include "absl/memory/memory.h"
-#include "absl/strings/match.h"
-#include "absl/strings/numbers.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
 #include "absl/synchronization/mutex.h"
-#include "zmq.h"    // NOLINT(build/include_subdir): libzmq installs its header in no directory
-#include "zmq.hpp"  // NOLINT(build/include_subdir): cppzmq installs its header in no directory
+#include "dds/dds.h"
 
-#include "robot_ipc/NodeEndpoint.h"
+#include "robot_ipc/DomainConfig.h"
+#include "robot_ipc/QosProfile.h"
+#include "robot_ipc/WireProtocol.h"
+#include "robot_runtime/robot_ipc/idl/Envelope.h"
+#include "robot_runtime/robot_ipc/src/DomainRegistry.h"
 #include "robot_runtime/robot_ipc/src/StatusMacros.h"
 
 namespace robot::ipc {
@@ -69,66 +66,78 @@ namespace {
 
 using Clock = std::chrono::steady_clock;
 
-// The Python bus sets the same socket options.
-// LINT.IfChange(socket_options)
-// LINGER 0: closing a socket discards what it has not sent, so a process exits at once.
-constexpr int kLingerMs = 0;
-// TCP keepalive notices a peer whose machine vanished (cable pulled, power lost) at the transport level, next to the
-// ZMTP heartbeats of BusOptions.
-constexpr int kTcpKeepaliveOn = 1;
-constexpr int kTcpKeepaliveIdleSeconds = 2;
-constexpr int kTcpKeepaliveIntervalSeconds = 1;
-constexpr int kTcpKeepaliveProbes = 3;
-// ZMQ_HEARTBEAT_TTL is carried in deciseconds in a 16-bit field.
-constexpr int kMaxHeartbeatTtlMs = 6553599;
-// LINT.ThenChange(//robot_runtime/robot_ipc/python/robot_ipc/bus.py:socket_options)
-constexpr unsigned int kWakeCounterStart = 0;
 // The IO thread logs a recurring problem at most this often.
 constexpr int kLogPeriodSeconds = 5;
-constexpr std::chrono::milliseconds kPollFailureBackoff(10);
+constexpr std::chrono::milliseconds kWaitFailureBackoff(10);
 // What one counted event adds to its counter.
 constexpr uint64_t kOneEvent = 1;
-
-int toMilliseconds(absl::Duration duration) {
-  return static_cast<int>(std::clamp<int64_t>(absl::ToInt64Milliseconds(duration), 0, INT_MAX));
-}
-
-absl::string_view frameView(const zmq::message_t& frame) {
-  return absl::string_view(static_cast<const char*>(frame.data()), frame.size());
-}
+// The samples a drain may hold before it dispatches, before the vector that holds them grows (it keeps its capacity).
+constexpr size_t kInitialPendingCapacity = 256;
+// The name of the DDS participant of a bus that only subscribes.
+constexpr absl::string_view kSubscriberParticipantName = "robot_ipc_subscriber";
+// A reliable write never waits for acknowledgments: at the writer's unacknowledged-bytes limit it fails at once and
+// is counted as sendDropped.
+constexpr dds_duration_t kReliableWriteBlockingTime = 0;
+// The data representation of every writer, and the ones a reader accepts (a Python writer may pick either).
+constexpr dds_data_representation_id_t kWriterRepresentation = DDS_DATA_REPRESENTATION_XCDR2;
+constexpr std::array<dds_data_representation_id_t, 2> kReaderRepresentations = {DDS_DATA_REPRESENTATION_XCDR1,
+                                                                                DDS_DATA_REPRESENTATION_XCDR2};
 
 // The counters of one topic. Written by the IO thread (and by publish() for sendDropped), read by any thread.
 struct TopicCounters {
-  std::atomic<uint64_t> sent{0};
-  std::atomic<uint64_t> sendDropped{0};
-  std::atomic<uint64_t> received{0};
-  std::atomic<uint64_t> delivered{0};
-  std::atomic<uint64_t> superseded{0};
-  std::atomic<uint64_t> rejected{0};
-  std::atomic<uint64_t> handlerErrors{0};
+  std::atomic<uint64_t> written = 0;
+  std::atomic<uint64_t> sendDropped = 0;
+  std::atomic<uint64_t> received = 0;
+  std::atomic<uint64_t> delivered = 0;
+  std::atomic<uint64_t> superseded = 0;
+  std::atomic<uint64_t> rejected = 0;
+  std::atomic<uint64_t> handlerErrors = 0;
+  std::atomic<uint64_t> missed = 0;
+  // The DDS status of the topic's reader and writer, as the IO thread last read it.
+  std::atomic<uint64_t> sampleLost = 0;
+  std::atomic<uint64_t> sampleRejected = 0;
+  std::atomic<uint64_t> requestedIncompatibleQos = 0;
+  std::atomic<uint64_t> offeredIncompatibleQos = 0;
+  std::atomic<uint64_t> matchedReaders = 0;
+  std::atomic<uint64_t> matchedWriters = 0;
 
   TopicStatistics snapshot() const {
     TopicStatistics statistics;
-    statistics.sent = sent.load(std::memory_order_relaxed);
+    statistics.written = written.load(std::memory_order_relaxed);
     statistics.sendDropped = sendDropped.load(std::memory_order_relaxed);
     statistics.received = received.load(std::memory_order_relaxed);
     statistics.delivered = delivered.load(std::memory_order_relaxed);
     statistics.superseded = superseded.load(std::memory_order_relaxed);
     statistics.rejected = rejected.load(std::memory_order_relaxed);
     statistics.handlerErrors = handlerErrors.load(std::memory_order_relaxed);
+    statistics.missed = missed.load(std::memory_order_relaxed);
+    statistics.sampleLost = sampleLost.load(std::memory_order_relaxed);
+    statistics.sampleRejected = sampleRejected.load(std::memory_order_relaxed);
+    statistics.incompatibleQos =
+        requestedIncompatibleQos.load(std::memory_order_relaxed) + offeredIncompatibleQos.load(std::memory_order_relaxed);
+    statistics.matchedReaders = matchedReaders.load(std::memory_order_relaxed);
+    statistics.matchedWriters = matchedWriters.load(std::memory_order_relaxed);
     return statistics;
   }
 };
 
-void increment(std::atomic<uint64_t>& counter) {
-  counter.fetch_add(kOneEvent, std::memory_order_relaxed);
+void increment(std::atomic<uint64_t>& counter, uint64_t count = kOneEvent) {
+  counter.fetch_add(count, std::memory_order_relaxed);
 }
 
-// The three frames of one message, serialized on the publishing thread.
+// One message, serialized on the publishing thread.
 struct OutgoingMessage {
-  zmq::message_t topic;
-  zmq::message_t typeName;
-  zmq::message_t payload;
+  std::string topic;
+  std::string typeName;
+  std::string payload;
+  TopicCounters* absl_nullable counters = nullptr;
+};
+
+// The DDS writer of one topic. The IO thread's own, once it runs.
+struct TopicWriter {
+  dds_entity_t writer = 0;
+  // The sequence number of the last sample written; the next one is one more.
+  uint64_t lastSequence = 0;
   TopicCounters* absl_nullable counters = nullptr;
 };
 
@@ -142,10 +151,26 @@ struct Subscription {
   Bus::MessageHandler messageHandler;
   Bus::RawHandler rawHandler;
   TopicCounters* absl_nullable counters = nullptr;
-  // Delivery::kLatest: the newest message of the current drain, not yet parsed.
-  bool hasLatest = false;
-  zmq::message_t latestTypeName;
-  zmq::message_t latestPayload;
+  dds_entity_t reader = 0;
+  dds_entity_t readCondition = 0;
+  // The loans of the current drain: dds_take() fills `samples` with pointers into the reader's cache, and the drain
+  // returns them (dds_return_loan) once it has dispatched. Sized to the reader's history depth.
+  std::vector<void* absl_nullable> samples;
+  std::vector<dds_sample_info_t> infos;
+  size_t taken = 0;
+  // The last sequence number of each writer (its publication handle) this reader took a sample of.
+  absl::flat_hash_map<dds_instance_handle_t, uint64_t> lastSequenceByWriter;
+  // Delivery::kLatest: the index, in the drain's pending samples, of the newest sample of this subscription so far.
+  std::optional<size_t> latestPending;
+};
+
+// A sample a drain has taken and will dispatch once it has taken the rest, in the order the samples were written.
+struct PendingMessage {
+  Subscription* absl_nonnull subscription;
+  dds_time_t sourceTimestamp = 0;
+  const robot_ipc_Envelope* absl_nonnull envelope;
+  // Delivery::kLatest: a newer sample of the same topic is in the same drain; this one is not dispatched.
+  bool superseded = false;
 };
 
 struct PeriodicCallback {
@@ -154,11 +179,8 @@ struct PeriodicCallback {
   std::function<void()> callback;
 };
 
-absl::Status validateTopic(absl::string_view topic) {
-  if (topic.empty()) {
-    return absl::InvalidArgumentError("the topic is empty (ZeroMQ would match every topic with it)");
-  }
-  return absl::OkStatus();
+absl::Status ddsError(absl::string_view what, dds_return_t code) {
+  return absl::InternalError(absl::StrCat("robot_ipc: ", what, ": ", dds_strretcode(code)));
 }
 
 absl::Status validateOptions(const BusOptions& options) {
@@ -173,41 +195,30 @@ absl::Status validateOptions(const BusOptions& options) {
   if (options.ioPollPeriod <= absl::ZeroDuration()) {
     return absl::InvalidArgumentError("BusOptions.ioPollPeriod must be positive");
   }
-  if (options.sendHighWaterMark < 0 || options.receiveHighWaterMark < 0) {
-    return absl::InvalidArgumentError("BusOptions.sendHighWaterMark and receiveHighWaterMark must be >= 0 (0: no limit)");
-  }
   if (options.publishQueueCapacity == 0) {
     return absl::InvalidArgumentError("BusOptions.publishQueueCapacity must be positive");
   }
   if (options.maxMessagesPerDrain == 0) {
     return absl::InvalidArgumentError("BusOptions.maxMessagesPerDrain must be positive");
   }
-  if (options.heartbeatInterval < absl::ZeroDuration() || options.heartbeatTimeout < absl::ZeroDuration()) {
-    return absl::InvalidArgumentError("BusOptions.heartbeatInterval and heartbeatTimeout must be >= 0 (0: no heartbeats)");
-  }
-  if (options.reconnectInterval <= absl::ZeroDuration() || options.reconnectIntervalMax < absl::ZeroDuration()) {
-    return absl::InvalidArgumentError("BusOptions.reconnectInterval must be positive and reconnectIntervalMax >= 0");
+  if (options.latestDeliveryHistoryDepth <= 0 || options.allDeliveryHistoryDepth <= 0) {
+    return absl::InvalidArgumentError("BusOptions.latestDeliveryHistoryDepth and allDeliveryHistoryDepth must be positive");
   }
   return absl::OkStatus();
 }
 
-int portOf(absl::string_view endpoint) {
-  const size_t colon = endpoint.rfind(':');
-  int port = kEphemeralPort;
-  if (colon == absl::string_view::npos || !absl::SimpleAtoi(endpoint.substr(colon + 1), &port)) {
-    return kEphemeralPort;
+// The QoS of a reader or writer of `profile` with a KEEP_LAST history of `depth`. The caller deletes it.
+dds_qos_t* absl_nonnull createQos(QosProfile profile, int depth) {
+  dds_qos_t* absl_nonnull qos = dds_create_qos();
+  const QosPolicy policy = qosPolicy(profile);
+  if (policy.reliability == Reliability::kReliable) {
+    dds_qset_reliability(qos, DDS_RELIABILITY_RELIABLE, kReliableWriteBlockingTime);
+  } else {
+    dds_qset_reliability(qos, DDS_RELIABILITY_BEST_EFFORT, /*max_blocking_time=*/0);
   }
-  return port;
-}
-
-// The endpoint this process's own SUB socket connects to: the bound one, over loopback if it is bound to every
-// interface.
-std::string selfConnectEndpoint(absl::string_view boundEndpoint) {
-  constexpr absl::string_view kWildcardPrefix = "tcp://0.0.0.0:";
-  if (absl::StartsWith(boundEndpoint, kWildcardPrefix)) {
-    return absl::StrCat("tcp://127.0.0.1:", boundEndpoint.substr(kWildcardPrefix.size()));
-  }
-  return std::string(boundEndpoint);
+  dds_qset_history(qos, DDS_HISTORY_KEEP_LAST, depth);
+  dds_qset_durability(qos, DDS_DURABILITY_VOLATILE);
+  return qos;
 }
 
 }  // namespace
@@ -221,8 +232,15 @@ class Bus::Impl {
       LOG(FATAL) << "robot_ipc: a Bus was destroyed from its own IO thread (a handler or a periodic callback)";
     }
     stop();
-    if (wakeFd_ >= 0) {
-      ::close(wakeFd_);
+    if (participant_ > 0) {
+      // Deletes the readers, writers, topics, the waitset and the guard condition with it.
+      const dds_return_t deleted = dds_delete(participant_);
+      if (deleted < 0) {
+        LOG(ERROR) << "robot_ipc: deleting the DDS participant failed: " << dds_strretcode(deleted);
+      }
+    }
+    if (domainAcquired_) {
+      domainRegistry().release(options_.network.domainId);
     }
   }
 
@@ -232,62 +250,76 @@ class Bus::Impl {
   absl::Status initialize();
   absl::Status addSubscription(std::unique_ptr<Subscription> subscription);
   absl::Status addPeriodicCallback(absl::Duration period, std::function<void()> callback);
-  absl::Status connect(absl::string_view endpoint);
   absl::Status start();
   void stop();
   bool isRunning() const { return running_.load() && !stopRequested_.load(); }
   absl::Status publish(absl::string_view topic, const google::protobuf::Message& message);
+  absl::Status publishRaw(absl::string_view topic, absl::string_view typeName, absl::string_view payload);
   absl::Status publishFromIoThread(absl::string_view topic, const google::protobuf::Message& message);
   bool isIoThread() const { return ioThreadId_.load() == std::this_thread::get_id(); }
 
   const std::string& nodeName() const { return options_.nodeName; }
-  const std::string& boundEndpoint() const { return boundEndpoint_; }
-  int boundPort() const { return boundPort_; }
-  std::vector<std::string> subscriberEndpoints() const;
+  int domainId() const { return options_.network.domainId; }
+  const std::vector<std::string>& discoveryPeers() const { return discoveryPeers_; }
+  const std::string& domainConfig() const { return domainConfig_; }
   TopicStatistics topicStatistics(absl::string_view topic) const;
   absl::flat_hash_map<std::string, TopicStatistics> statistics() const;
   uint64_t periodicCallbackErrors() const { return periodicCallbackErrors_.load(); }
 
  private:
-  void configureSocket(zmq::socket_t& socket) const;
   absl::Status checkCanPublish(absl::string_view topic) const;
   absl::StatusOr<OutgoingMessage> serialize(absl::string_view topic, const google::protobuf::Message& message);
   TopicCounters& countersFor(absl::string_view topic);
+  absl::StatusOr<dds_entity_t> topicFor(const std::string& name);
+  absl::StatusOr<TopicWriter* absl_nonnull> writerFor(const std::string& topic);
+  absl::Status createReader(Subscription& subscription);
   void wake() const;
-  void clearWake() const;
+  absl::Status enqueue(OutgoingMessage outgoing);
 
   // The IO thread.
   void runIoLoop();
-  int pollTimeoutMs(Clock::time_point now) const;
+  dds_duration_t waitTimeout(Clock::time_point now) const;
   void sendQueued();
   void send(OutgoingMessage& message);
-  void drainSubscriber();
-  void dispatch(Subscription& subscription, const zmq::message_t& typeName, const zmq::message_t& payload);
+  dds_time_t nextSourceTimestamp();
+  void drain();
+  size_t take(Subscription& subscription, size_t budget);
+  bool accepts(Subscription& subscription, const robot_ipc_Envelope& envelope) const;
+  void trackSequence(Subscription& subscription, dds_instance_handle_t writer, uint64_t sequence);
+  void coalesceLatest();
+  void dispatch(Subscription& subscription, const robot_ipc_Envelope& envelope);
+  void refreshStatusIfDue(Clock::time_point now);
   void runDueCallbacks(Clock::time_point now);
 
   const BusOptions options_;
-  // Declared before the sockets, so that the sockets close before the context terminates.
-  zmq::context_t context_;
-  // No socket on a bus that only subscribes.
-  zmq::socket_t publisher_;
-  zmq::socket_t subscriber_;
-  int wakeFd_ = -1;
-  std::string boundEndpoint_;
-  int boundPort_ = kEphemeralPort;
+  std::string domainConfig_;
+  std::vector<std::string> discoveryPeers_;
+  bool domainAcquired_ = false;
+  // 0 until initialize() created them; the participant owns the others.
+  dds_entity_t participant_ = 0;
+  dds_entity_t waitset_ = 0;
+  dds_entity_t wakeCondition_ = 0;
 
-  // Serializes the configuration calls, start() and stop(). The IO thread never takes it.
+  // Serializes the configuration calls, start() and stop(), which hold it across the join of the IO thread. The IO
+  // thread never takes it: every call that does refuses on the IO thread before it locks.
   mutable absl::Mutex lifecycleMutex_;
   std::thread ioThread_ ABSL_GUARDED_BY(lifecycleMutex_);
-  std::vector<std::string> subscriberEndpoints_ ABSL_GUARDED_BY(lifecycleMutex_);
-  std::atomic<bool> running_{false};
-  std::atomic<bool> stopRequested_{false};
-  std::atomic<std::thread::id> ioThreadId_{};
+  std::atomic<bool> running_ = false;
+  std::atomic<bool> stopRequested_ = false;
+  std::atomic<std::thread::id> ioThreadId_;
 
-  // Changed only while no IO thread runs (under lifecycleMutex_), and used by the IO thread only while it runs; the
-  // thread's start and join order the two.
+  // Changed only while no IO thread runs (under lifecycleMutex_, or in initialize()), and used by the IO thread only
+  // while it runs; the thread's start and join order the two. writers_ also grows on the IO thread (a topic published
+  // for the first time).
+  absl::flat_hash_map<std::string, dds_entity_t> topics_;
+  absl::flat_hash_map<std::string, TopicWriter> writers_;
   absl::flat_hash_map<std::string, std::unique_ptr<Subscription>> subscriptions_;
-  std::vector<Subscription* absl_nonnull> latestSubscriptions_;
+  // The samples of the current drain, in the order they were written (the IO thread's own; it keeps its capacity).
+  std::vector<PendingMessage> pending_;
   std::vector<PeriodicCallback> periodicCallbacks_;
+  // The source timestamp of the last sample written: every next one is later, across topics (IO thread).
+  dds_time_t lastSourceTimestamp_ = 0;
+  Clock::time_point nextStatusRefresh_;
 
   // publish() -> IO thread. The IO thread holds the mutex only to swap the vector with sending_.
   absl::Mutex queueMutex_;
@@ -296,79 +328,110 @@ class Bus::Impl {
 
   mutable absl::Mutex countersMutex_;
   absl::flat_hash_map<std::string, std::unique_ptr<TopicCounters>> counters_ ABSL_GUARDED_BY(countersMutex_);
-  std::atomic<uint64_t> periodicCallbackErrors_{0};
+  std::atomic<uint64_t> periodicCallbackErrors_ = 0;
 };
 
-void Bus::Impl::configureSocket(zmq::socket_t& socket) const {
-  socket.set(zmq::sockopt::linger, kLingerMs);
-  socket.set(zmq::sockopt::heartbeat_ivl, toMilliseconds(options_.heartbeatInterval));
-  socket.set(zmq::sockopt::heartbeat_timeout, toMilliseconds(options_.heartbeatTimeout));
-  socket.set(zmq::sockopt::heartbeat_ttl, std::min(toMilliseconds(options_.heartbeatTimeout), kMaxHeartbeatTtlMs));
-  socket.set(zmq::sockopt::tcp_keepalive, kTcpKeepaliveOn);
-  socket.set(zmq::sockopt::tcp_keepalive_idle, kTcpKeepaliveIdleSeconds);
-  socket.set(zmq::sockopt::tcp_keepalive_intvl, kTcpKeepaliveIntervalSeconds);
-  socket.set(zmq::sockopt::tcp_keepalive_cnt, kTcpKeepaliveProbes);
-  socket.set(zmq::sockopt::reconnect_ivl, toMilliseconds(options_.reconnectInterval));
-  socket.set(zmq::sockopt::reconnect_ivl_max, toMilliseconds(options_.reconnectIntervalMax));
-}
-
 absl::Status Bus::Impl::initialize() {
-  wakeFd_ = ::eventfd(kWakeCounterStart, EFD_NONBLOCK | EFD_CLOEXEC);
-  if (wakeFd_ < 0) {
-    return absl::InternalError(absl::StrCat("robot_ipc: eventfd() failed: ", std::strerror(errno)));
-  }
   queue_.reserve(options_.publishQueueCapacity);
   sending_.reserve(options_.publishQueueCapacity);
+  pending_.reserve(std::min(options_.maxMessagesPerDrain, kInitialPendingCapacity));
+  discoveryPeers_ = options_.network.peerHosts();
+  ROBOT_IPC_ASSIGN_OR_RETURN(domainConfig_, cycloneDomainConfig(options_.network, options_.nodeName));
+  ROBOT_IPC_RETURN_IF_ERROR(domainRegistry().acquire(options_.network.domainId, domainConfig_));
+  domainAcquired_ = true;
 
-  const NodeEndpoint* absl_nullable node = options_.nodeName.empty() ? nullptr : options_.network.find(options_.nodeName);
-  try {  // NOLINT(exceptions): cppzmq throws zmq::error_t; converted at once
-    if (node != nullptr) {
-      publisher_ = zmq::socket_t(context_, zmq::socket_type::pub);
-      configureSocket(publisher_);
-      publisher_.set(zmq::sockopt::sndhwm, options_.sendHighWaterMark);
-      const std::string endpoint = node->bindEndpoint();
-      try {  // NOLINT(exceptions): cppzmq throws zmq::error_t; converted at once
-        publisher_.bind(endpoint);
-      } catch (const zmq::error_t& error) {  // NOLINT(exceptions): cppzmq throws zmq::error_t; converted at once
-        return absl::UnavailableError(absl::StrCat("robot_ipc: cannot bind node '", node->name, "' at ", endpoint, ": ", error.what()));
-      }
-      boundEndpoint_ = publisher_.get(zmq::sockopt::last_endpoint);
-      boundPort_ = portOf(boundEndpoint_);
+  dds_qos_t* absl_nonnull qos = dds_create_qos();
+  const std::string participantName = options_.nodeName.empty() ? std::string(kSubscriberParticipantName) : options_.nodeName;
+  dds_qset_entity_name(qos, participantName.c_str());
+  participant_ = dds_create_participant(options_.network.domainId, qos, /*listener=*/nullptr);
+  dds_delete_qos(qos);
+  if (participant_ < 0) {
+    const dds_return_t code = participant_;
+    participant_ = 0;
+    return ddsError(absl::StrCat("cannot join DDS domain ", options_.network.domainId), code);
+  }
+  waitset_ = dds_create_waitset(participant_);
+  if (waitset_ < 0) return ddsError("cannot create the waitset", waitset_);
+  wakeCondition_ = dds_create_guardcondition(participant_);
+  if (wakeCondition_ < 0) return ddsError("cannot create the wake-up condition", wakeCondition_);
+  const dds_return_t attached = dds_waitset_attach(waitset_, wakeCondition_, /*x=*/0);
+  if (attached < 0) return ddsError("cannot attach the wake-up condition", attached);
+
+  // The writers of the topics this node publishes exist from the start, so that the subscribers have discovered them
+  // before the first sample (a VOLATILE reader gets only what is written after it matched).
+  if (!options_.nodeName.empty()) {
+    for (const std::string& topic : options_.network.topicsPublishedBy(options_.nodeName)) {
+      ROBOT_IPC_RETURN_IF_ERROR(writerFor(topic).status());
     }
-
-    subscriber_ = zmq::socket_t(context_, zmq::socket_type::sub);
-    configureSocket(subscriber_);
-    subscriber_.set(zmq::sockopt::rcvhwm, options_.receiveHighWaterMark);
-    // No pipe for a node that is not up: the subscriptions go out on the connection, when it completes.
-    subscriber_.set(zmq::sockopt::immediate, /*val=*/true);
-
-    absl::MutexLock lock(lifecycleMutex_);
-    for (const NodeEndpoint& peer : options_.network.nodes) {
-      std::string endpoint;
-      if (node != nullptr && peer.name == node->name) {
-        endpoint = selfConnectEndpoint(boundEndpoint_);
-      } else if (peer.port == kEphemeralPort) {
-        // Bound wherever its kernel chose; reachable through connect() only.
-        continue;
-      } else {
-        endpoint = peer.connectEndpoint();
-      }
-      try {  // NOLINT(exceptions): cppzmq throws zmq::error_t; converted at once
-        subscriber_.connect(endpoint);
-      } catch (const zmq::error_t& error) {  // NOLINT(exceptions): cppzmq throws zmq::error_t; converted at once
-        return absl::InvalidArgumentError(
-            absl::StrCat("robot_ipc: cannot connect to node '", peer.name, "' at ", endpoint, ": ", error.what()));
-      }
-      subscriberEndpoints_.push_back(endpoint);
-    }
-  } catch (const zmq::error_t& error) {  // NOLINT(exceptions): cppzmq throws zmq::error_t; converted at once
-    return absl::InternalError(absl::StrCat("robot_ipc: cannot set up the ZeroMQ sockets: ", error.what()));
   }
   return absl::OkStatus();
 }
 
+absl::StatusOr<dds_entity_t> Bus::Impl::topicFor(const std::string& name) {
+  const absl::flat_hash_map<std::string, dds_entity_t>::const_iterator it = topics_.find(name);
+  if (it != topics_.end()) {
+    return it->second;
+  }
+  ROBOT_IPC_RETURN_IF_ERROR(validateTopicName(name));
+  const dds_entity_t topic = dds_create_topic(participant_, &robot_ipc_Envelope_desc, name.c_str(), /*qos=*/nullptr, /*listener=*/nullptr);
+  if (topic < 0) {
+    return ddsError(absl::StrCat("cannot create the DDS topic '", name, "'"), topic);
+  }
+  topics_.emplace(name, topic);
+  return topic;
+}
+
+absl::StatusOr<TopicWriter* absl_nonnull> Bus::Impl::writerFor(const std::string& topic) {
+  const absl::flat_hash_map<std::string, TopicWriter>::iterator it = writers_.find(topic);
+  if (it != writers_.end()) {
+    return &it->second;
+  }
+  ROBOT_IPC_ASSIGN_OR_RETURN(const dds_entity_t ddsTopic, topicFor(topic));
+  const QosProfile profile = options_.network.qosProfileOf(topic);
+  dds_qos_t* absl_nonnull qos = createQos(profile, qosPolicy(profile).writerHistoryDepth);
+  dds_qset_data_representation(qos, /*n=*/1, &kWriterRepresentation);
+  dds_qset_entity_name(qos, options_.nodeName.c_str());
+  const dds_entity_t writer = dds_create_writer(participant_, ddsTopic, qos, /*listener=*/nullptr);
+  dds_delete_qos(qos);
+  if (writer < 0) {
+    return ddsError(absl::StrCat("cannot create the DDS writer of '", topic, "'"), writer);
+  }
+  TopicWriter& entry = writers_[topic];
+  entry.writer = writer;
+  entry.counters = &countersFor(topic);
+  return &entry;
+}
+
+absl::Status Bus::Impl::createReader(Subscription& subscription) {
+  ROBOT_IPC_ASSIGN_OR_RETURN(const dds_entity_t ddsTopic, topicFor(subscription.topic));
+  const int depth = subscription.delivery == Delivery::kAll ? options_.allDeliveryHistoryDepth : options_.latestDeliveryHistoryDepth;
+  dds_qos_t* absl_nonnull qos = createQos(options_.network.qosProfileOf(subscription.topic), depth);
+  dds_qset_data_representation(qos, static_cast<uint32_t>(kReaderRepresentations.size()), kReaderRepresentations.data());
+  const dds_entity_t reader = dds_create_reader(participant_, ddsTopic, qos, /*listener=*/nullptr);
+  dds_delete_qos(qos);
+  if (reader < 0) {
+    return ddsError(absl::StrCat("cannot create the DDS reader of '", subscription.topic, "'"), reader);
+  }
+  const dds_entity_t condition = dds_create_readcondition(reader, DDS_ANY_STATE);
+  if (condition < 0) {
+    dds_delete(reader);
+    return ddsError(absl::StrCat("cannot create the read condition of '", subscription.topic, "'"), condition);
+  }
+  const dds_return_t attached = dds_waitset_attach(waitset_, condition, /*x=*/reader);
+  if (attached < 0) {
+    dds_delete(reader);
+    return ddsError(absl::StrCat("cannot attach the reader of '", subscription.topic, "'"), attached);
+  }
+  subscription.reader = reader;
+  subscription.readCondition = condition;
+  const size_t capacity = std::min(static_cast<size_t>(depth), options_.maxMessagesPerDrain);
+  subscription.samples.assign(capacity, nullptr);
+  subscription.infos.resize(capacity);
+  return absl::OkStatus();
+}
+
 absl::Status Bus::Impl::addSubscription(std::unique_ptr<Subscription> subscription) {
-  ROBOT_IPC_RETURN_IF_ERROR(validateTopic(subscription->topic));
+  ROBOT_IPC_RETURN_IF_ERROR(validateTopicName(subscription->topic));
   if (isIoThread()) {
     return absl::FailedPreconditionError("robot_ipc: subscribe() from a handler; subscribe before start()");
   }
@@ -380,15 +443,8 @@ absl::Status Bus::Impl::addSubscription(std::unique_ptr<Subscription> subscripti
   if (subscriptions_.contains(subscription->topic)) {
     return absl::AlreadyExistsError(absl::StrCat("robot_ipc: the topic '", subscription->topic, "' already has a subscription"));
   }
-  try {  // NOLINT(exceptions): cppzmq throws zmq::error_t; converted at once
-    subscriber_.set(zmq::sockopt::subscribe, subscription->topic);
-  } catch (const zmq::error_t& error) {  // NOLINT(exceptions): cppzmq throws zmq::error_t; converted at once
-    return absl::InternalError(absl::StrCat("robot_ipc: cannot subscribe to '", subscription->topic, "': ", error.what()));
-  }
+  ROBOT_IPC_RETURN_IF_ERROR(createReader(*subscription));
   subscription->counters = &countersFor(subscription->topic);
-  if (subscription->delivery == Delivery::kLatest) {
-    latestSubscriptions_.push_back(subscription.get());
-  }
   const std::string topic = subscription->topic;
   subscriptions_.emplace(topic, std::move(subscription));
   return absl::OkStatus();
@@ -416,24 +472,6 @@ absl::Status Bus::Impl::addPeriodicCallback(absl::Duration period, std::function
   return absl::OkStatus();
 }
 
-absl::Status Bus::Impl::connect(absl::string_view endpoint) {
-  if (isIoThread()) {
-    return absl::FailedPreconditionError("robot_ipc: connect() from a handler; connect before start()");
-  }
-  absl::MutexLock lock(lifecycleMutex_);
-  if (ioThread_.joinable()) {
-    return absl::FailedPreconditionError("robot_ipc: cannot connect while the bus runs; connect before start() or after stop()");
-  }
-  const std::string address(endpoint);
-  try {  // NOLINT(exceptions): cppzmq throws zmq::error_t; converted at once
-    subscriber_.connect(address);
-  } catch (const zmq::error_t& error) {  // NOLINT(exceptions): cppzmq throws zmq::error_t; converted at once
-    return absl::InvalidArgumentError(absl::StrCat("robot_ipc: cannot connect to '", address, "': ", error.what()));
-  }
-  subscriberEndpoints_.push_back(address);
-  return absl::OkStatus();
-}
-
 absl::Status Bus::Impl::start() {
   if (isIoThread()) {
     return absl::OkStatus();
@@ -451,6 +489,7 @@ absl::Status Bus::Impl::start() {
   for (PeriodicCallback& periodic : periodicCallbacks_) {
     periodic.nextDeadline = now + periodic.period;
   }
+  nextStatusRefresh_ = now;
   running_.store(true);
   try {  // NOLINT(exceptions): std::thread throws std::system_error; converted to a Status at once
     ioThread_ = std::thread([this] { runIoLoop(); });
@@ -481,21 +520,15 @@ absl::Status Bus::Impl::checkCanPublish(absl::string_view topic) const {
   if (options_.nodeName.empty()) {
     return absl::FailedPreconditionError("robot_ipc: this bus has no node name, so it only subscribes and cannot publish");
   }
-  return validateTopic(topic);
+  return validateTopicName(topic);
 }
 
 absl::StatusOr<OutgoingMessage> Bus::Impl::serialize(absl::string_view topic, const google::protobuf::Message& message) {
   const absl::string_view typeName = message.GetDescriptor()->full_name();
-  const size_t size = message.ByteSizeLong();
-  if (size > static_cast<size_t>(INT_MAX)) {
-    return absl::InvalidArgumentError(
-        absl::StrCat("robot_ipc: a ", typeName, " of ", size, " bytes is larger than protobuf can serialize"));
-  }
   OutgoingMessage outgoing;
-  outgoing.topic.rebuild(topic.data(), topic.size());
-  outgoing.typeName.rebuild(typeName.data(), typeName.size());
-  outgoing.payload.rebuild(size);
-  if (!message.SerializeToArray(outgoing.payload.data(), static_cast<int>(size))) {
+  outgoing.topic = std::string(topic);
+  outgoing.typeName = std::string(typeName);
+  if (!message.SerializeToString(&outgoing.payload)) {
     return absl::InternalError(absl::StrCat("robot_ipc: cannot serialize a ", typeName, " for '", topic, "'"));
   }
   outgoing.counters = &countersFor(topic);
@@ -505,13 +538,23 @@ absl::StatusOr<OutgoingMessage> Bus::Impl::serialize(absl::string_view topic, co
 absl::Status Bus::Impl::publish(absl::string_view topic, const google::protobuf::Message& message) {
   ROBOT_IPC_RETURN_IF_ERROR(checkCanPublish(topic));
   ROBOT_IPC_ASSIGN_OR_RETURN(OutgoingMessage outgoing, serialize(topic, message));
+  return enqueue(std::move(outgoing));
+}
+
+absl::Status Bus::Impl::publishRaw(absl::string_view topic, absl::string_view typeName, absl::string_view payload) {
+  ROBOT_IPC_RETURN_IF_ERROR(checkCanPublish(topic));
+  return enqueue(OutgoingMessage{
+      .topic = std::string(topic), .typeName = std::string(typeName), .payload = std::string(payload), .counters = &countersFor(topic)});
+}
+
+absl::Status Bus::Impl::enqueue(OutgoingMessage outgoing) {
   bool wasEmpty = false;
   {
     absl::MutexLock lock(queueMutex_);
     if (queue_.size() >= options_.publishQueueCapacity) {
       increment(outgoing.counters->sendDropped);
       return absl::ResourceExhaustedError(absl::StrCat("robot_ipc: the publish queue is full (", options_.publishQueueCapacity,
-                                                       " messages); dropped one on '", topic, "'"));
+                                                       " messages); dropped one on '", outgoing.topic, "'"));
     }
     wasEmpty = queue_.empty();
     queue_.push_back(std::move(outgoing));
@@ -544,11 +587,6 @@ TopicCounters& Bus::Impl::countersFor(absl::string_view topic) {
   return *it->second;
 }
 
-std::vector<std::string> Bus::Impl::subscriberEndpoints() const {
-  absl::MutexLock lock(lifecycleMutex_);
-  return subscriberEndpoints_;
-}
-
 TopicStatistics Bus::Impl::topicStatistics(absl::string_view topic) const {
   absl::MutexLock lock(countersMutex_);
   const absl::flat_hash_map<std::string, std::unique_ptr<TopicCounters>>::const_iterator it = counters_.find(topic);
@@ -566,64 +604,40 @@ absl::flat_hash_map<std::string, TopicStatistics> Bus::Impl::statistics() const 
 }
 
 void Bus::Impl::wake() const {
-  const uint64_t one = 1;
-  // Fails only when the counter would overflow, and then the IO thread is due to wake anyway.
-  const ssize_t written = ::write(wakeFd_, &one, sizeof(one));
-  static_cast<void>(written);
-}
-
-void Bus::Impl::clearWake() const {
-  uint64_t count = 0;
-  const ssize_t consumed = ::read(wakeFd_, &count, sizeof(count));
-  static_cast<void>(consumed);
+  // Fails only for a deleted condition, i.e. a bus being destroyed, whose IO thread has stopped already.
+  static_cast<void>(dds_set_guardcondition(wakeCondition_, /*triggered=*/true));
 }
 
 void Bus::Impl::runIoLoop() {
   ioThreadId_.store(std::this_thread::get_id());
-  std::array<zmq_pollitem_t, 2> items = {
-      zmq_pollitem_t{subscriber_.handle(), 0, ZMQ_POLLIN, 0},
-      zmq_pollitem_t{nullptr, wakeFd_, ZMQ_POLLIN, 0},
-  };
   while (!stopRequested_.load(std::memory_order_acquire)) {
-    try {  // NOLINT(exceptions): the IO thread's outermost loop: what escapes cppzmq or a handler is logged
-      items[0].revents = 0;
-      items[1].revents = 0;
-      const int ready = zmq_poll(items.data(), static_cast<int>(items.size()), pollTimeoutMs(Clock::now()));
-      if (ready < 0) {
-        const int error = zmq_errno();
-        if (error == ETERM) {
-          break;
-        }
-        if (error != EINTR) {
-          LOG_EVERY_N_SEC(ERROR, kLogPeriodSeconds) << "robot_ipc: zmq_poll() failed: " << zmq_strerror(error);
-          std::this_thread::sleep_for(kPollFailureBackoff);
-        }
+    try {  // NOLINT(exceptions): the IO thread's outermost loop: what escapes a handler is logged
+      const dds_return_t waited = dds_waitset_wait(waitset_, /*xs=*/nullptr, /*nxs=*/0, waitTimeout(Clock::now()));
+      if (waited < 0) {
+        LOG_EVERY_N_SEC(ERROR, kLogPeriodSeconds) << "robot_ipc: dds_waitset_wait() failed: " << dds_strretcode(waited);
+        std::this_thread::sleep_for(kWaitFailureBackoff);
         continue;
       }
-      if ((items[1].revents & ZMQ_POLLIN) != 0) {
-        clearWake();
-      }
+      bool woken = false;
+      static_cast<void>(dds_take_guardcondition(wakeCondition_, &woken));
       sendQueued();
-      if ((items[0].revents & ZMQ_POLLIN) != 0) {
-        drainSubscriber();
-      }
-      runDueCallbacks(Clock::now());
-      // NOLINTNEXTLINE(exceptions): the IO thread's outermost loop: what escapes cppzmq or a handler is logged
+      drain();
+      const Clock::time_point now = Clock::now();
+      refreshStatusIfDue(now);
+      runDueCallbacks(now);
+      // NOLINTNEXTLINE(exceptions): the IO thread's outermost loop: what escapes a handler is logged
     } catch (const std::exception& exception) {
       LOG_EVERY_N_SEC(ERROR, kLogPeriodSeconds) << "robot_ipc: the IO thread caught an exception: " << exception.what();
-    } catch (...) {  // NOLINT(exceptions): the IO thread's outermost loop: what escapes cppzmq or a handler is logged
+    } catch (...) {  // NOLINT(exceptions): the IO thread's outermost loop: what escapes a handler is logged
       LOG_EVERY_N_SEC(ERROR, kLogPeriodSeconds) << "robot_ipc: the IO thread caught an exception of unknown type";
     }
   }
-  try {  // NOLINT(exceptions): cppzmq throws zmq::error_t; the last sends at stop() are logged
-    sendQueued();
-  } catch (const std::exception& exception) {  // NOLINT(exceptions): cppzmq throws zmq::error_t; the last sends at stop() are logged
-    LOG(ERROR) << "robot_ipc: sending the queued messages at stop() failed: " << exception.what();
-  }
+  sendQueued();
+  refreshStatusIfDue(Clock::now());
   ioThreadId_.store(std::thread::id());
 }
 
-int Bus::Impl::pollTimeoutMs(Clock::time_point now) const {
+dds_duration_t Bus::Impl::waitTimeout(Clock::time_point now) const {
   Clock::duration wait = std::chrono::duration_cast<Clock::duration>(absl::ToChronoNanoseconds(options_.ioPollPeriod));
   for (const PeriodicCallback& periodic : periodicCallbacks_) {
     wait = std::min(wait, periodic.nextDeadline - now);
@@ -631,8 +645,7 @@ int Bus::Impl::pollTimeoutMs(Clock::time_point now) const {
   if (wait <= Clock::duration::zero()) {
     return 0;
   }
-  // Rounded up, so that the thread does not wake just before a deadline and spin until it.
-  return static_cast<int>(std::min<int64_t>(std::chrono::ceil<std::chrono::milliseconds>(wait).count(), INT_MAX));
+  return static_cast<dds_duration_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(wait).count());
 }
 
 void Bus::Impl::sendQueued() {
@@ -650,93 +663,164 @@ void Bus::Impl::sendQueued() {
   sending_.clear();
 }
 
+dds_time_t Bus::Impl::nextSourceTimestamp() {
+  lastSourceTimestamp_ = std::max(dds_time(), lastSourceTimestamp_ + 1);
+  return lastSourceTimestamp_;
+}
+
 void Bus::Impl::send(OutgoingMessage& message) {
-  try {  // NOLINT(exceptions): cppzmq throws zmq::error_t; converted at once
-    // A PUB socket never blocks: at a subscriber's high-water mark ZeroMQ drops the message for that subscriber.
-    const bool sent = publisher_.send(message.topic, zmq::send_flags::sndmore | zmq::send_flags::dontwait).has_value() &&
-                      publisher_.send(message.typeName, zmq::send_flags::sndmore | zmq::send_flags::dontwait).has_value() &&
-                      publisher_.send(message.payload, zmq::send_flags::dontwait).has_value();
-    increment(sent ? message.counters->sent : message.counters->sendDropped);
-  } catch (const zmq::error_t& error) {  // NOLINT(exceptions): cppzmq throws zmq::error_t; converted at once
+  const absl::StatusOr<TopicWriter* absl_nonnull> writer = writerFor(message.topic);
+  if (!writer.ok()) {
     increment(message.counters->sendDropped);
-    LOG_EVERY_N_SEC(ERROR, kLogPeriodSeconds) << "robot_ipc: sending on '" << frameView(message.topic) << "' failed: " << error.what();
-  }
-}
-
-void Bus::Impl::drainSubscriber() {
-  for (size_t count = 0; count < options_.maxMessagesPerDrain; ++count) {
-    zmq::message_t topic;
-    if (!subscriber_.recv(topic, zmq::recv_flags::dontwait).has_value()) {
-      break;
-    }
-    // A message arrives whole, so its other frames are there already.
-    zmq::message_t typeName;
-    zmq::message_t payload;
-    size_t frames = 1;
-    bool more = topic.more();
-    if (more && subscriber_.recv(typeName, zmq::recv_flags::dontwait).has_value()) {
-      ++frames;
-      more = typeName.more();
-    }
-    if (more && subscriber_.recv(payload, zmq::recv_flags::dontwait).has_value()) {
-      ++frames;
-      more = payload.more();
-    }
-    while (more) {
-      zmq::message_t extra;
-      if (!subscriber_.recv(extra, zmq::recv_flags::dontwait).has_value()) {
-        break;
-      }
-      ++frames;
-      more = extra.more();
-    }
-
-    // ZeroMQ matched a prefix; the topic must match whole.
-    const absl::flat_hash_map<std::string, std::unique_ptr<Subscription>>::iterator it = subscriptions_.find(frameView(topic));
-    if (it == subscriptions_.end()) {
-      continue;
-    }
-    Subscription& subscription = *it->second;
-    increment(subscription.counters->received);
-    if (frames != 3) {
-      increment(subscription.counters->rejected);
-      LOG_EVERY_N_SEC(WARNING, kLogPeriodSeconds) << "robot_ipc: a message on '" << subscription.topic << "' has " << frames
-                                                  << " frames instead of three (topic, type name, payload)";
-      continue;
-    }
-    if (subscription.delivery == Delivery::kAll) {
-      dispatch(subscription, typeName, payload);
-      continue;
-    }
-    if (subscription.hasLatest) {
-      increment(subscription.counters->superseded);
-    }
-    subscription.latestTypeName = std::move(typeName);
-    subscription.latestPayload = std::move(payload);
-    subscription.hasLatest = true;
-  }
-
-  for (Subscription* absl_nonnull subscription : latestSubscriptions_) {
-    if (subscription->hasLatest) {
-      subscription->hasLatest = false;
-      dispatch(*subscription, subscription->latestTypeName, subscription->latestPayload);
-    }
-  }
-}
-
-void Bus::Impl::dispatch(Subscription& subscription, const zmq::message_t& typeName, const zmq::message_t& payload) {
-  TopicCounters& counters = *subscription.counters;
-  const absl::string_view type = frameView(typeName);
-  if (!subscription.expectedTypeName.empty() && type != subscription.expectedTypeName) {
-    increment(counters.rejected);
-    LOG_EVERY_N_SEC(WARNING, kLogPeriodSeconds) << "robot_ipc: '" << subscription.topic << "' carries a " << type
-                                                << ", but its subscription takes a " << subscription.expectedTypeName;
+    LOG_EVERY_N_SEC(ERROR, kLogPeriodSeconds) << writer.status();
     return;
   }
+  TopicWriter& entry = **writer;
+  if (message.payload.size() > static_cast<size_t>(UINT32_MAX)) {
+    increment(message.counters->sendDropped);
+    LOG_EVERY_N_SEC(ERROR, kLogPeriodSeconds) << "robot_ipc: a message of " << message.payload.size() << " bytes on '" << message.topic
+                                              << "' is larger than a DDS sequence holds";
+    return;
+  }
+  robot_ipc_Envelope envelope{};
+  envelope.protocol_version = kWireProtocolVersion;
+  envelope.sequence_number = entry.lastSequence + 1;
+  // dds_write() serializes the sample and changes nothing in it.
+  envelope.type_name = message.typeName.data();
+  envelope.payload._buffer = reinterpret_cast<uint8_t*>(message.payload.data());
+  envelope.payload._length = static_cast<uint32_t>(message.payload.size());
+  envelope.payload._maximum = envelope.payload._length;
+  envelope.payload._release = false;
+  const dds_return_t written = dds_write_ts(entry.writer, &envelope, nextSourceTimestamp());
+  if (written < 0) {
+    increment(message.counters->sendDropped);
+    LOG_EVERY_N_SEC(WARNING, kLogPeriodSeconds) << "robot_ipc: writing on '" << message.topic << "' failed: " << dds_strretcode(written);
+    return;
+  }
+  entry.lastSequence = envelope.sequence_number;
+  increment(message.counters->written);
+}
+
+void Bus::Impl::drain() {
+  // Empty unless the previous drain was cut short by an exception; its loans are returned below as usual.
+  pending_.clear();
+  size_t budget = options_.maxMessagesPerDrain;
+  for (std::pair<const std::string, std::unique_ptr<Subscription>>& entry : subscriptions_) {
+    if (budget == 0) {
+      break;
+    }
+    budget -= take(*entry.second, budget);
+  }
+  // In the order the samples were written: each bus's source timestamps increase strictly across its topics.
+  std::stable_sort(pending_.begin(), pending_.end(), [](const PendingMessage& first, const PendingMessage& second) {
+    return first.sourceTimestamp < second.sourceTimestamp;
+  });
+  coalesceLatest();
+  for (PendingMessage& message : pending_) {
+    if (!message.superseded) {
+      dispatch(*message.subscription, *message.envelope);
+    }
+  }
+  pending_.clear();
+  for (std::pair<const std::string, std::unique_ptr<Subscription>>& entry : subscriptions_) {
+    Subscription& subscription = *entry.second;
+    if (subscription.taken > 0) {
+      const dds_return_t returned =
+          dds_return_loan(subscription.reader, subscription.samples.data(), static_cast<int32_t>(subscription.taken));
+      if (returned < 0) {
+        LOG_EVERY_N_SEC(ERROR, kLogPeriodSeconds)
+            << "robot_ipc: returning the samples of '" << subscription.topic << "' failed: " << dds_strretcode(returned);
+      }
+      subscription.taken = 0;
+    }
+  }
+}
+
+size_t Bus::Impl::take(Subscription& subscription, size_t budget) {
+  const size_t capacity = std::min(subscription.samples.size(), budget);
+  // Null pointers ask dds_take() to lend the samples of the reader's cache instead of copying them.
+  std::fill(subscription.samples.begin(), subscription.samples.end(), nullptr);
+  const dds_return_t taken =
+      dds_take(subscription.reader, subscription.samples.data(), subscription.infos.data(), capacity, static_cast<uint32_t>(capacity));
+  if (taken < 0) {
+    LOG_EVERY_N_SEC(ERROR, kLogPeriodSeconds) << "robot_ipc: taking the samples of '" << subscription.topic
+                                              << "' failed: " << dds_strretcode(taken);
+    return 0;
+  }
+  subscription.taken = static_cast<size_t>(taken);
+  for (size_t index = 0; index < subscription.taken; ++index) {
+    const dds_sample_info_t& info = subscription.infos[index];
+    // A writer's disposal or unregistration carries no sample.
+    if (!info.valid_data || subscription.samples[index] == nullptr) {
+      continue;
+    }
+    const robot_ipc_Envelope& envelope = *static_cast<const robot_ipc_Envelope*>(subscription.samples[index]);
+    increment(subscription.counters->received);
+    trackSequence(subscription, info.publication_handle, envelope.sequence_number);
+    if (!accepts(subscription, envelope)) {
+      increment(subscription.counters->rejected);
+      continue;
+    }
+    pending_.push_back(PendingMessage{
+        .subscription = &subscription, .sourceTimestamp = info.source_timestamp, .envelope = &envelope, .superseded = false});
+  }
+  return subscription.taken;
+}
+
+void Bus::Impl::trackSequence(Subscription& subscription, dds_instance_handle_t writer, uint64_t sequence) {
+  const std::pair<absl::flat_hash_map<dds_instance_handle_t, uint64_t>::iterator, bool> inserted =
+      subscription.lastSequenceByWriter.try_emplace(writer, sequence);
+  if (inserted.second) {
+    return;
+  }
+  uint64_t& last = inserted.first->second;
+  if (sequence > last + 1) {
+    increment(subscription.counters->missed, sequence - last - 1);
+  }
+  last = std::max(last, sequence);
+}
+
+bool Bus::Impl::accepts(Subscription& subscription, const robot_ipc_Envelope& envelope) const {
+  if (envelope.protocol_version != kWireProtocolVersion) {
+    LOG_EVERY_N_SEC(WARNING, kLogPeriodSeconds)
+        << "robot_ipc: a sample on '" << subscription.topic << "' speaks wire protocol " << envelope.protocol_version
+        << ", but this bus speaks " << kWireProtocolVersion << "; rebuild both from the same checkout";
+    return false;
+  }
+  const absl::string_view type = envelope.type_name == nullptr ? absl::string_view() : absl::string_view(envelope.type_name);
+  if (!subscription.expectedTypeName.empty() && type != subscription.expectedTypeName) {
+    LOG_EVERY_N_SEC(WARNING, kLogPeriodSeconds) << "robot_ipc: '" << subscription.topic << "' carries a " << type
+                                                << ", but its subscription takes a " << subscription.expectedTypeName;
+    return false;
+  }
+  return true;
+}
+
+void Bus::Impl::coalesceLatest() {
+  for (std::pair<const std::string, std::unique_ptr<Subscription>>& entry : subscriptions_) {
+    entry.second->latestPending.reset();
+  }
+  for (size_t index = 0; index < pending_.size(); ++index) {
+    Subscription& subscription = *pending_[index].subscription;
+    if (subscription.delivery != Delivery::kLatest) {
+      continue;
+    }
+    if (subscription.latestPending.has_value()) {
+      pending_[*subscription.latestPending].superseded = true;
+      increment(subscription.counters->superseded);
+    }
+    subscription.latestPending = index;
+  }
+}
+
+void Bus::Impl::dispatch(Subscription& subscription, const robot_ipc_Envelope& envelope) {
+  TopicCounters& counters = *subscription.counters;
+  const absl::string_view type = envelope.type_name == nullptr ? absl::string_view() : absl::string_view(envelope.type_name);
+  const absl::string_view payload(reinterpret_cast<const char*>(envelope.payload._buffer), envelope.payload._length);
   if (subscription.message != nullptr && (payload.size() > static_cast<size_t>(INT_MAX) ||
                                           !subscription.message->ParseFromArray(payload.data(), static_cast<int>(payload.size())))) {
     increment(counters.rejected);
-    LOG_EVERY_N_SEC(WARNING, kLogPeriodSeconds) << "robot_ipc: a message on '" << subscription.topic << "' does not parse as a " << type;
+    LOG_EVERY_N_SEC(WARNING, kLogPeriodSeconds) << "robot_ipc: a sample on '" << subscription.topic << "' does not parse as a " << type;
     return;
   }
   increment(counters.delivered);
@@ -744,7 +828,7 @@ void Bus::Impl::dispatch(Subscription& subscription, const zmq::message_t& typeN
     if (subscription.message != nullptr) {
       subscription.messageHandler(*subscription.message);
     } else {
-      subscription.rawHandler(type, frameView(payload));
+      subscription.rawHandler(type, payload);
     }
   } catch (const std::exception& exception) {  // NOLINT(exceptions): a handler's exception is counted and logged, not let end the IO thread
     increment(counters.handlerErrors);
@@ -753,6 +837,44 @@ void Bus::Impl::dispatch(Subscription& subscription, const zmq::message_t& typeN
     increment(counters.handlerErrors);
     LOG_EVERY_N_SEC(ERROR, kLogPeriodSeconds) << "robot_ipc: the handler of '" << subscription.topic
                                               << "' threw an exception of unknown type";
+  }
+}
+
+void Bus::Impl::refreshStatusIfDue(Clock::time_point now) {
+  if (now < nextStatusRefresh_) {
+    return;
+  }
+  nextStatusRefresh_ = now + std::chrono::duration_cast<Clock::duration>(absl::ToChronoNanoseconds(options_.ioPollPeriod));
+  for (std::pair<const std::string, std::unique_ptr<Subscription>>& entry : subscriptions_) {
+    Subscription& subscription = *entry.second;
+    TopicCounters& counters = *subscription.counters;
+    dds_sample_lost_status_t lost{};
+    if (dds_get_sample_lost_status(subscription.reader, &lost) == DDS_RETCODE_OK) {
+      counters.sampleLost.store(lost.total_count, std::memory_order_relaxed);
+    }
+    dds_sample_rejected_status_t rejected{};
+    if (dds_get_sample_rejected_status(subscription.reader, &rejected) == DDS_RETCODE_OK) {
+      counters.sampleRejected.store(rejected.total_count, std::memory_order_relaxed);
+    }
+    dds_requested_incompatible_qos_status_t incompatible{};
+    if (dds_get_requested_incompatible_qos_status(subscription.reader, &incompatible) == DDS_RETCODE_OK) {
+      counters.requestedIncompatibleQos.store(incompatible.total_count, std::memory_order_relaxed);
+    }
+    dds_subscription_matched_status_t matched{};
+    if (dds_get_subscription_matched_status(subscription.reader, &matched) == DDS_RETCODE_OK) {
+      counters.matchedWriters.store(matched.current_count, std::memory_order_relaxed);
+    }
+  }
+  for (std::pair<const std::string, TopicWriter>& entry : writers_) {
+    TopicWriter& writer = entry.second;
+    dds_offered_incompatible_qos_status_t incompatible{};
+    if (dds_get_offered_incompatible_qos_status(writer.writer, &incompatible) == DDS_RETCODE_OK) {
+      writer.counters->offeredIncompatibleQos.store(incompatible.total_count, std::memory_order_relaxed);
+    }
+    dds_publication_matched_status_t matched{};
+    if (dds_get_publication_matched_status(writer.writer, &matched) == DDS_RETCODE_OK) {
+      writer.counters->matchedReaders.store(matched.current_count, std::memory_order_relaxed);
+    }
   }
 }
 
@@ -771,10 +893,13 @@ void Bus::Impl::runDueCallbacks(Clock::time_point now) {
       periodicCallbackErrors_.fetch_add(kOneEvent);
       LOG_EVERY_N_SEC(ERROR, kLogPeriodSeconds) << "robot_ipc: a periodic callback threw an exception of unknown type";
     }
+    // Against the time the callback returned, not `now`: a callback that overran its period must not be called again
+    // at once for the deadline it overran. A missed deadline is skipped, to the first one still ahead on the grid of
+    // start(), instead of bursting through the missed calls.
+    const Clock::time_point after = Clock::now();
     periodic.nextDeadline += periodic.period;
-    if (periodic.nextDeadline <= now) {
-      // A whole period late: skip the missed calls instead of bursting through them.
-      periodic.nextDeadline = now + periodic.period;
+    if (periodic.nextDeadline <= after) {
+      periodic.nextDeadline += ((after - periodic.nextDeadline) / periodic.period + 1) * periodic.period;
     }
   }
 }
@@ -785,12 +910,7 @@ void Bus::Impl::runDueCallbacks(Clock::time_point now) {
 
 absl::StatusOr<std::unique_ptr<Bus>> Bus::Create(BusOptions options) {
   ROBOT_IPC_RETURN_IF_ERROR(validateOptions(options));
-  std::unique_ptr<Impl> impl;
-  try {  // NOLINT(exceptions): cppzmq throws zmq::error_t; converted at once
-    impl = std::make_unique<Impl>(std::move(options));
-  } catch (const zmq::error_t& error) {  // NOLINT(exceptions): cppzmq throws zmq::error_t; converted at once
-    return absl::InternalError(absl::StrCat("robot_ipc: cannot create a ZeroMQ context: ", error.what()));
-  }
+  std::unique_ptr<Impl> impl = std::make_unique<Impl>(std::move(options));
   ROBOT_IPC_RETURN_IF_ERROR(impl->initialize());
   return absl::WrapUnique(new Bus(std::move(impl)));
 }
@@ -827,10 +947,6 @@ absl::Status Bus::addPeriodicCallback(absl::Duration period, std::function<void(
   return impl_->addPeriodicCallback(period, std::move(callback));
 }
 
-absl::Status Bus::connect(absl::string_view endpoint) {
-  return impl_->connect(endpoint);
-}
-
 absl::Status Bus::start() {
   return impl_->start();
 }
@@ -847,6 +963,10 @@ absl::Status Bus::publish(absl::string_view topic, const google::protobuf::Messa
   return impl_->publish(topic, message);
 }
 
+absl::Status Bus::publishRaw(absl::string_view topic, absl::string_view typeName, absl::string_view payload) {
+  return impl_->publishRaw(topic, typeName, payload);
+}
+
 absl::Status Bus::publishFromIoThread(absl::string_view topic, const google::protobuf::Message& message) {
   return impl_->publishFromIoThread(topic, message);
 }
@@ -859,16 +979,16 @@ const std::string& Bus::nodeName() const {
   return impl_->nodeName();
 }
 
-const std::string& Bus::boundEndpoint() const {
-  return impl_->boundEndpoint();
+int Bus::domainId() const {
+  return impl_->domainId();
 }
 
-int Bus::boundPort() const {
-  return impl_->boundPort();
+const std::vector<std::string>& Bus::discoveryPeers() const {
+  return impl_->discoveryPeers();
 }
 
-std::vector<std::string> Bus::subscriberEndpoints() const {
-  return impl_->subscriberEndpoints();
+const std::string& Bus::domainConfig() const {
+  return impl_->domainConfig();
 }
 
 TopicStatistics Bus::topicStatistics(absl::string_view topic) const {

@@ -220,19 +220,45 @@ TEST(LocomotionHeuristicsFromConfigTest, TheListsAreCopiedAsWritten) {
 }
 
 TEST(LocomotionHeuristicsFromConfigTest, TheLayersOwnChecksStillApply) {
-  const std::array<std::pair<absl::string_view, absl::string_view>, 6> refused = {{
+  const std::array<std::pair<absl::string_view, absl::string_view>, 5> refused = {{
       {"foothold: \"lean_forward\"", "unknown foothold heuristic 'lean_forward'"},
       {"foothold: \"periodic_orientation\"", "is a base_pose heuristic"},
       {"wrench: \"impulse_scaling\"\nwrench: \"impulseScaling\"", "listed more than once"},
       {"foothold: \"\"", "unknown foothold heuristic ''"},
-      {"capture_point { gravity: 0 }", "capture_point.gravity must be positive"},
-      {"centripetal_acceleration { maximum_force: 0 maximum_force_ratio_of_weight: 0 }", "needs a force clamp"},
+      {"centripetal_acceleration { maximum_force_ratio_of_weight: 0 }", "needs a force clamp"},
   }};
   for (const std::pair<absl::string_view, absl::string_view>& entry : refused) {
     const absl::StatusOr<LocomotionHeuristicConfig> heuristics = convertText(entry.first);
     ASSERT_EQ(heuristics.status().code(), absl::StatusCode::kInvalidArgument) << entry.first;
     EXPECT_TRUE(absl::StrContains(heuristics.status().message(), entry.second)) << heuristics.status();
   }
+}
+
+TEST(LocomotionHeuristicsFromConfigTest, AnOptionalParameterIsAbsentOrPositive) {
+  // Absent is the parameter struct's "not set" (the measured CoM height; the ratio-of-weight clamp); a present value is
+  // positive, so that the schema has no 0 sentinel.
+  const absl::StatusOr<LocomotionHeuristicConfig> absent = convertText("");
+  ASSERT_TRUE(absent.ok()) << absent.status();
+  EXPECT_EQ(absent->capturePoint.comHeightOverride, LocomotionHeuristicConfig{}.capturePoint.comHeightOverride);
+  EXPECT_EQ(absent->centripetalAcceleration.maximumForce, LocomotionHeuristicConfig{}.centripetalAcceleration.maximumForce);
+  const absl::StatusOr<LocomotionHeuristicConfig> present =
+      convertText("capture_point { com_height_override: 0.9 }\ncentripetal_acceleration { maximum_force: 40 }");
+  ASSERT_TRUE(present.ok()) << present.status();
+  EXPECT_EQ(present->capturePoint.comHeightOverride, 0.9);
+  EXPECT_EQ(present->centripetalAcceleration.maximumForce, 40.0);
+  for (const absl::string_view text : {"capture_point { com_height_override: 0 }", "capture_point { com_height_override: -1 }",
+                                       "centripetal_acceleration { maximum_force: 0 }", "centripetal_acceleration { maximum_force: -5 }"}) {
+    const absl::StatusOr<LocomotionHeuristicConfig> refused = convertText(text);
+    EXPECT_EQ(refused.status().code(), absl::StatusCode::kInvalidArgument) << text;
+    EXPECT_TRUE(absl::StrContains(refused.status().message(), "must be finite and positive; leave it out")) << refused.status();
+  }
+}
+
+TEST(LocomotionHeuristicsFromConfigTest, TheCapturePointGravityIsRetiredForTheModels) {
+  const absl::StatusOr<LocomotionHeuristicConfig> heuristics = convertText("capture_point { gravity: 9.81 }");
+  EXPECT_FALSE(heuristics.ok());
+  EXPECT_TRUE(absl::StrContains(heuristics.status().message(), "'gravity' is retired: the capture point's gravity is the robot model's"))
+      << heuristics.status();
 }
 
 TEST(LocomotionHeuristicsFromConfigTest, AParameterThatIsNotFiniteIsRefusedByName) {

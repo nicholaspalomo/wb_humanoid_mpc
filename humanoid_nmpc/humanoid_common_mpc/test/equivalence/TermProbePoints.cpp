@@ -33,6 +33,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <array>
 #include <cmath>
+#include <memory>
 #include <optional>
 #include <random>
 #include <string>
@@ -47,10 +48,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/types/span.h"
 #include "ocs2_core/ComputationRequest.h"
 #include "ocs2_core/constraint/StateConstraint.h"
+#include "ocs2_core/constraint/StateInputConstraint.h"
 #include "ocs2_core/penalties/penalties/PieceWisePolynomialBarrierPenalty.h"
+#include "ocs2_core/penalties/penalties/QuadraticPenalty.h"
+#include "ocs2_core/soft_constraint/StateInputSoftConstraint.h"
 #include "ocs2_core/soft_constraint/StateSoftConstraint.h"
 
-#include "humanoid_centroidal_mpc/cost/ICPCost.h"
 #include "humanoid_common_mpc/common/CostTermNames.h"
 #include "humanoid_common_mpc/constraint/BasisScalingNonNegativityConstraint.h"
 #include "humanoid_common_mpc/constraint/JointLimitsSoftConstraint.h"
@@ -208,14 +211,12 @@ TargetedProbePoint barrierBandPoint(OptimalControlProblem& problem, const MpcEqu
     const JointLimitsSoftConstraint* absl_nullable limits =
         dynamic_cast<const JointLimitsSoftConstraint*>(&problem.stateSoftConstraintPtr->get(name));
     if (limits == nullptr) continue;
-    scalar_t mu = 0.0;
-    scalar_t delta = 0.0;
-    limits->getGains(mu, delta);
-    const std::pair<vector_t, vector_t> bounds = readPinocchioJointLimits(mpc.pinocchioInterface(), mpc.modelSettings(), /*verbose=*/false);
+    const scalar_t delta = limits->getGains().delta;
+    const JointPositionLimits bounds = readPinocchioJointLimits(mpc.pinocchioInterface(), mpc.modelSettings(), Verbosity::kQuiet);
     vector_t joints = model.getJointAngles(point.state);
     for (Eigen::Index joint = 0; joint < joints.size(); ++joint) {
-      const scalar_t lower = bounds.first(joint);
-      const scalar_t upper = bounds.second(joint);
+      const scalar_t lower = bounds.lower(joint);
+      const scalar_t upper = bounds.upper(joint);
       if (!std::isfinite(lower) || !std::isfinite(upper) || upper - lower < 2.0 * delta) continue;
       joints(joint) = joints(joint) - lower < upper - joints(joint) ? lower + 0.5 * delta : upper - 0.5 * delta;
     }
@@ -357,8 +358,8 @@ std::vector<TargetedProbePoint> barrierBandPoints(OptimalControlProblem& problem
   return bands;
 }
 
-bool hasFrozenStateJacobian(absl::string_view label) {
-  return absl::EndsWith(label, kZeroVelocityTermSuffix);
+bool hasFrozenStateJacobian(const MpcEquivalenceFixture& mpc, absl::string_view label) {
+  return !mpc.isWholeBody() && absl::EndsWith(label, kZeroVelocityTermSuffix);
 }
 
 Differenced extrapolate(const std::array<vector_t, kStepFractions.size()>& samples, scalar_t step, scalar_t evaluationRelativeError) {
@@ -447,15 +448,21 @@ std::vector<std::string> nonZeroFindings(absl::Span<const std::string> expected,
   return findings;
 }
 
-bool weighUnweightedIcpCost(OptimalControlProblem& problem) {
-  size_t index = 0;
-  if (!problem.costPtr->getTermIndex(kIcpCostTerm, index)) return false;
-  ICPCost& icp = problem.costPtr->get<ICPCost>(kIcpCostTerm);
-  vector2_t weights = vector2_t::Zero();
-  icp.getWeights(weights);
-  if (!weights.isZero(/*prec=*/0.0)) return false;
-  icp.setWeights(vector2_t::Constant(kIcpTestWeight));
-  return true;
+std::optional<std::string> addSoftStanceFootConstraint(OptimalControlProblem& problem,
+                                                       absl::Span<const std::string> contactNames,
+                                                       scalar_t softConstraintWeight) {
+  for (const std::string& contact : contactNames) {
+    const std::string name = zeroVelocityTermName(contact);
+    size_t index = 0;
+    if (!problem.equalityConstraintPtr->getTermIndex(name, index)) continue;
+    if (problem.softConstraintPtr->getTermIndex(name, index)) return std::nullopt;
+    const StateInputConstraint& hard = problem.equalityConstraintPtr->get(name);
+    problem.softConstraintPtr->add(name,
+                                   std::make_unique<StateInputSoftConstraint>(std::unique_ptr<StateInputConstraint>(hard.clone()),
+                                                                              std::make_unique<QuadraticPenalty>(softConstraintWeight)));
+    return absl::StrCat("softConstraint.", name);
+  }
+  return std::nullopt;
 }
 
 }  // namespace ocs2::humanoid

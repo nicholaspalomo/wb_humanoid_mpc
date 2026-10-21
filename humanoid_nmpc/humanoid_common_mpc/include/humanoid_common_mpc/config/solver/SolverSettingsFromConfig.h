@@ -33,6 +33,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 #include "absl/status/statusor.h"
+#include "absl/time/time.h"
 #include "ocs2_mpc/MPC_Settings.h"
 #include "ocs2_oc/rollout/RolloutSettings.h"
 #include "ocs2_sqp/SqpSettings.h"
@@ -56,6 +57,18 @@ struct SolverSettings {
   bool verbose = false;
 };
 
+/**
+ * The settings of an MPC node's runtime that its task file holds: one priority for every thread of the solver (the
+ * node's solver thread and the SQP solver's worker threads), and the walking command timeout.
+ */
+struct MpcNodeSettings {
+  // multiple_shooting.thread_priority: SCHED_FIFO priority 1-99 of the solver threads; 0 keeps them on the time-sharing
+  // scheduler.
+  int solverThreadPriority = 0;
+  // interface.walking_command_timeout, positive.
+  absl::Duration walkingCommandTimeout = absl::ZeroDuration();
+};
+
 /** Every name multiple_shooting.integrator_type accepts: the SQP solver's sensitivity integrators, by OCS2's names. */
 std::vector<std::string> sensitivityIntegratorNames();
 
@@ -69,7 +82,12 @@ std::vector<std::string> rolloutIntegratorNames();
  *
  * @param config The block.
  * @return InvalidArgument naming the field (multiple_shooting.<field>) when integrator_type names no sensitivity
- *         integrator (the message lists them), or when sqp_iteration, log_size or n_threads is negative.
+ *         integrator (the message lists them), when sqp_iteration, log_size or n_threads is negative, when
+ *         thread_priority is outside 0-99 (SCHED_FIFO's 1-99, or 0 for the time-sharing scheduler), or when a real
+ *         field is out of the range the SQP solver terminates with (NaN included): dt, delta_tol, cost_tol and g_max
+ *         positive, alpha_decay in (0, 1), alpha_min in (0, 1], 0 <= g_min <= g_max, armijo_factor and gamma_c in
+ *         [0, 1). The parameter updater applies the hot fields through this conversion, so a refused reload keeps the
+ *         running settings.
  */
 absl::StatusOr<sqp::Settings> toSqpSettings(const mpc_config::SqpSettingsConfig& config);
 
@@ -78,12 +96,21 @@ absl::StatusOr<sqp::Settings> toSqpSettings(const mpc_config::SqpSettingsConfig&
  *
  * @param config The block.
  * @return InvalidArgument naming the field (rollout.<field>) when integrator_type names no integrator (the message
- *         lists them), or when max_num_steps_per_second is negative.
+ *         lists them), when max_num_steps_per_second is negative, or when abs_tol_ode, rel_tol_ode or time_step is not
+ *         a finite positive number.
  */
 absl::StatusOr<rollout::Settings> toRolloutSettings(const mpc_config::RolloutSettingsConfig& config);
 
-/** The MPC settings of a task file's mpc block, with the defaults of mpc::Settings for what it leaves out. */
-mpc::Settings toMpcSettings(const mpc_config::MpcSettingsConfig& config);
+/**
+ * The MPC settings of a task file's mpc block, with the defaults of mpc::Settings for what it leaves out. An absent
+ * solution_time_window or mpc_desired_frequency becomes OCS2's negative sentinel (the whole horizon; one solve per new
+ * observation, as fast as they come).
+ *
+ * @param config The block.
+ * @return InvalidArgument naming the field (mpc.<field>) when time_horizon, mrt_desired_frequency, or a present
+ *         solution_time_window or mpc_desired_frequency is not a finite positive number.
+ */
+absl::StatusOr<mpc::Settings> toMpcSettings(const mpc_config::MpcSettingsConfig& config);
 
 /**
  * The solver settings of a task file: toSqpSettings(), toRolloutSettings() and toMpcSettings() of its blocks, and its
@@ -93,5 +120,14 @@ mpc::Settings toMpcSettings(const mpc_config::MpcSettingsConfig& config);
  * @return The first error of the conversions.
  */
 absl::StatusOr<SolverSettings> solverSettingsFromConfig(const mpc_config::TaskFile& task);
+
+/**
+ * The MPC node's settings of a task file: multiple_shooting.thread_priority, which the SQP solver's worker threads run at
+ * too (toSqpSettings()), and interface.walking_command_timeout.
+ *
+ * @return InvalidArgument naming the field when the priority is outside 0-99 or the timeout is not a finite positive
+ *         number of seconds.
+ */
+absl::StatusOr<MpcNodeSettings> mpcNodeSettingsFromConfig(const mpc_config::TaskFile& task);
 
 }  // namespace ocs2::humanoid

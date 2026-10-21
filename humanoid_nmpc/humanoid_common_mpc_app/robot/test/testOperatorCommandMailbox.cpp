@@ -29,6 +29,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <chrono>
 #include <cmath>
+#include <filesystem>
 #include <limits>
 #include <memory>
 #include <optional>
@@ -49,6 +50,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc_app/robot/OperatorCommandMailbox.h"
 #include "humanoid_mpc_config/joint_pd_gains_file.nproto.h"
 #include "humanoid_mpc_config/joint_pd_gains_file.pb.h"
+#include "humanoid_mpc_config/joint_pd_gains_update.pb.h"
 #include "humanoid_mpc_config/mpc_parameter_update.pb.h"
 #include "humanoid_mpc_config/task_file.nproto.h"
 #include "humanoid_mpc_config/task_file.pb.h"
@@ -82,15 +84,26 @@ class OperatorCommandMailboxTest : public ::testing::Test {
   OperatorCommandMailboxTest() : description_(robot_test::atlasDescription()) {}
 
   std::unique_ptr<OperatorCommandMailbox> makeMailbox(OperatorCommandMailbox::Hooks hooks = OperatorCommandMailbox::Hooks(),
-                                                      const std::string& robotName = "") {
+                                                      const std::string& robotName = "",
+                                                      const std::string& pdGainsFileIdentity = "") {
     OperatorCommandMailbox::Config config;
     config.jointNames = jointNamesByIndex(description_);
     config.robotName = robotName;
+    config.pdGainsFileIdentity = pdGainsFileIdentity;
     config.initialNominalPositions.assign(description_.getNumJoints(), 0.25);
     config.commandQueueCapacity = 4;
-    absl::StatusOr<std::unique_ptr<OperatorCommandMailbox>> mailbox = OperatorCommandMailbox::Create(config, registry_, std::move(hooks));
+    absl::StatusOr<std::unique_ptr<OperatorCommandMailbox>> mailbox = OperatorCommandMailbox::Create(config, &registry_, std::move(hooks));
     EXPECT_TRUE(mailbox.ok()) << mailbox.status();
     return *std::move(mailbox);
+  }
+
+  static humanoid_mpc_config::JointPdGainsUpdate pdGainsUpdate(const humanoid_mpc_config::JointPdGainsFile& gains,
+                                                               const std::string& configPath = "") {
+    humanoid_mpc_config::JointPdGainsUpdate update;
+    *update.mutable_gains() = gains;
+    update.set_config_path(configPath);
+    update.set_schema_fingerprint(jointPdGainsFileSchemaFingerprint());
+    return update;
   }
 
   static humanoid_mpc_msgs::FsmCommand fsmCommand(const std::string& command, uint64_t sequence) {
@@ -342,7 +355,7 @@ TEST_F(OperatorCommandMailboxTest, PdGainsGoToTheController) {
   humanoid_mpc_config::JointPdGainsFile::JointGains& joint = *message.add_joint_gains();
   joint.set_joint(description_.getJointName(0));
   joint.set_kp(20.0);
-  mailbox->onPdGains(message);
+  mailbox->onPdGains(pdGainsUpdate(message));
   ASSERT_EQ(received.size(), 1u);
   EXPECT_EQ(received[0].default_gains.kp, 10.0);
   EXPECT_EQ(received[0].default_gains.kd, 1.0);
@@ -364,10 +377,10 @@ TEST_F(OperatorCommandMailboxTest, APayloadOfAnotherSchemaVersionIsRefusedWhole)
 
   humanoid_mpc_config::JointPdGainsFile gains;
   gains.mutable_default_gains()->set_kp(10.0);
-  mailbox->onPdGains(withUnknownField(gains));
+  mailbox->onPdGains(withUnknownField(pdGainsUpdate(gains)));
   EXPECT_EQ(pdGains, 0) << "a gains file with a field this build does not know reached the controller";
   EXPECT_EQ(mailbox->statistics().pdGainsRejected, 1u);
-  mailbox->onPdGains(gains);
+  mailbox->onPdGains(pdGainsUpdate(gains));
   EXPECT_EQ(pdGains, 1);
 
   mailbox->onMpcParameters(withUnknownField(parameters("contact_estimator: \"robot_state\"\n")));
@@ -392,27 +405,88 @@ TEST_F(OperatorCommandMailboxTest, AnUpdateOfAnotherRobotIsRefusedWhole) {
   EXPECT_EQ(takeAll(*mailbox).size(), 1u);
 }
 
+TEST_F(OperatorCommandMailboxTest, TheArrivalOfTheNewestAcceptedMpcParametersIsKeptForTheTaskFileWatcher) {
+  std::unique_ptr<OperatorCommandMailbox> mailbox = makeMailbox(OperatorCommandMailbox::Hooks(), /*robotName=*/"unitree_r1");
+  EXPECT_FALSE(mailbox->lastMpcParametersArrival().has_value()) << "no update has arrived";
+  const std::filesystem::file_time_type before = std::filesystem::file_time_type::clock::now();
+  mailbox->onMpcParameters(parameters("model_settings { robot_name: \"unitree_r1\" }\ncontact_estimator: \"robot_state\"\n"));
+  const std::optional<std::filesystem::file_time_type> arrival = mailbox->lastMpcParametersArrival();
+  ASSERT_TRUE(arrival.has_value());
+  // value_or: clang-tidy's optional-access analysis does not follow the ASSERT above; the oldest time fails the check.
+  EXPECT_GE(arrival.value_or(std::filesystem::file_time_type::min()), before);
+  // A refused update supersedes no file: it changed nothing.
+  mailbox->onMpcParameters(parameters("model_settings { robot_name: \"drc_atlas\" }\ncontact_estimator: \"robot_state\"\n"));
+  EXPECT_EQ(mailbox->lastMpcParametersArrival(), arrival);
+}
+
 TEST_F(OperatorCommandMailboxTest, GainsTheControllerRefusesAreCounted) {
   OperatorCommandMailbox::Hooks hooks;
   hooks.pdGains = [](const mpc_config::JointPdGainsFile& /*gains*/) { return absl::InvalidArgumentError("another robot's joints"); };
   std::unique_ptr<OperatorCommandMailbox> mailbox = makeMailbox(std::move(hooks));
-  mailbox->onPdGains(humanoid_mpc_config::JointPdGainsFile());
+  mailbox->onPdGains(pdGainsUpdate(humanoid_mpc_config::JointPdGainsFile()));
   EXPECT_EQ(mailbox->statistics().pdGainsDocuments, 1u);
   EXPECT_EQ(mailbox->statistics().pdGainsRejected, 1u);
+}
+
+TEST_F(OperatorCommandMailboxTest, APdGainsUpdateOfAnotherConfigurationOrFingerprintIsRefused) {
+  constexpr char kWholeBodyG1[] = "robot_models/unitree_g1/g1_wb_mpc/config/controller/joint_pd_gains.textproto";
+  constexpr char kCentroidalG1[] = "robot_models/unitree_g1/g1_centroidal_mpc/config/controller/joint_pd_gains.textproto";
+
+  int pdGainsApplied = 0;
+  OperatorCommandMailbox::Hooks hooks;
+  hooks.pdGains = [&pdGainsApplied](const mpc_config::JointPdGainsFile& /*gains*/) {
+    ++pdGainsApplied;
+    return absl::OkStatus();
+  };
+  std::unique_ptr<OperatorCommandMailbox> mailbox = makeMailbox(std::move(hooks), /*robotName=*/"", /*pdGainsFileIdentity=*/kWholeBodyG1);
+
+  humanoid_mpc_config::JointPdGainsFile gains;
+  gains.mutable_default_gains()->set_kp(10.0);
+
+  // 1. Refused because config_path is of the centroidal G1 configuration.
+  humanoid_mpc_config::JointPdGainsUpdate otherConfig = pdGainsUpdate(gains, kCentroidalG1);
+  mailbox->onPdGains(otherConfig);
+  EXPECT_EQ(pdGainsApplied, 0);
+  EXPECT_EQ(mailbox->statistics().pdGainsRejected, 1u);
+
+  // 2. Refused because config_path is empty while receiver has an identity.
+  humanoid_mpc_config::JointPdGainsUpdate noPath = pdGainsUpdate(gains, /*configPath=*/"");
+  mailbox->onPdGains(noPath);
+  EXPECT_EQ(pdGainsApplied, 0);
+  EXPECT_EQ(mailbox->statistics().pdGainsRejected, 2u);
+
+  // 3. Refused because schema_fingerprint is wrong or empty.
+  humanoid_mpc_config::JointPdGainsUpdate wrongFingerprint = pdGainsUpdate(gains, kWholeBodyG1);
+  wrongFingerprint.set_schema_fingerprint("0123456789abcdef");
+  mailbox->onPdGains(wrongFingerprint);
+  EXPECT_EQ(pdGainsApplied, 0);
+  EXPECT_EQ(mailbox->statistics().pdGainsRejected, 3u);
+
+  humanoid_mpc_config::JointPdGainsUpdate emptyFingerprint = pdGainsUpdate(gains, kWholeBodyG1);
+  emptyFingerprint.clear_schema_fingerprint();
+  mailbox->onPdGains(emptyFingerprint);
+  EXPECT_EQ(pdGainsApplied, 0);
+  EXPECT_EQ(mailbox->statistics().pdGainsRejected, 4u);
+
+  // 4. The matching path and fingerprint are applied.
+  humanoid_mpc_config::JointPdGainsUpdate own = pdGainsUpdate(gains, kWholeBodyG1);
+  mailbox->onPdGains(own);
+  EXPECT_EQ(pdGainsApplied, 1);
+  EXPECT_EQ(mailbox->statistics().pdGainsRejected, 4u);
+  EXPECT_EQ(mailbox->statistics().pdGainsDocuments, 5u);
 }
 
 TEST_F(OperatorCommandMailboxTest, ThePostureMustMatchTheJoints) {
   OperatorCommandMailbox::Config config;
   config.jointNames = jointNamesByIndex(description_);
   config.initialNominalPositions = {0.0};
-  EXPECT_EQ(OperatorCommandMailbox::Create(config, registry_).status().code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_EQ(OperatorCommandMailbox::Create(config, &registry_).status().code(), absl::StatusCode::kInvalidArgument);
 }
 
 TEST_F(OperatorCommandMailboxTest, TheHandlersAreTheBusesSubscriptions) {
   std::unique_ptr<OperatorCommandMailbox> mailbox = makeMailbox();
   std::unique_ptr<robot::ipc::Bus> robotBus = robot_test::createLoopbackBus("robot");
   std::unique_ptr<robot::ipc::Bus> operatorBus = robot_test::createLoopbackBus("operator");
-  robot_test::connectBoth(*robotBus, *operatorBus);
   ASSERT_TRUE(mailbox->registerOnBus(*robotBus).ok());
   ASSERT_TRUE(robotBus->start().ok());
   ASSERT_TRUE(operatorBus->start().ok());
@@ -455,8 +529,9 @@ TEST_F(OperatorCommandMailboxTest, TheHandlersAreTheBusesSubscriptions) {
   EXPECT_DOUBLE_EQ(throwCommand.mass, golden.mass());
   humanoid_mpc_config::JointPdGainsFile gains;
   gains.mutable_default_gains()->set_kp(10.0);
+  const humanoid_mpc_config::JointPdGainsUpdate gainsUpdate = pdGainsUpdate(gains);
   EXPECT_TRUE(robot_test::waitFor([&]() {
-    operatorBus->publish(ipc::topics::kOperatorPdGains, gains).IgnoreError();
+    operatorBus->publish(ipc::topics::kOperatorPdGains, gainsUpdate).IgnoreError();
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
     return mailbox->statistics().pdGainsDocuments > 0;
   }));

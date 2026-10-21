@@ -32,6 +32,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <functional>
 #include <string>
 
+#include "absl/functional/function_ref.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/time/time.h"
@@ -86,6 +87,6 @@ absl::StatusOr<RobotStack> bringUpRobot(RobotConfigDirectory& directory, const R
  *
  * @return The start's error (bringUpRobot()), or the run's (the realtime loop's fault).
  */
-absl::Status runRobot(const RobotAppOptions& options, const RobotSetUp& setUpRobot, const std::function<bool()>& shutdownRequested);
+absl::Status runRobot(const RobotAppOptions& options, const RobotSetUp& setUpRobot, absl::FunctionRef<bool()> shutdownRequested);
 
 }  // namespace ocs2::humanoid

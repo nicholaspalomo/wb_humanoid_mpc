@@ -32,8 +32,9 @@
         --task_file=robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.textproto
 
 App is the Tk window; OperatorGui runs it against the IPC bus (operator_bus.OperatorBus): every 25 Hz tick it
-publishes the walking command (always, so that the height slider reaches the gantry in simulation), applies the FSM
-states the robot published, and reads the Xbox controller when one is connected. A tuning tab's Save writes the
+publishes the walking command (always, so that the height slider reaches the gantry in simulation, unless
+--walking_commands=off or the "Publish walking commands" checkbox hands the topic to a teleoperation publisher), applies
+the FSM states the robot published, and reads the Xbox controller when one is connected. A tuning tab's Save writes the
 laptop's file and sends its text to the robot's store through one robot_config_save.RobotConfigSaver, which the tabs
 poll for the robot's answers. Everything runs on Tk's thread except the bus's own receive thread, which only fills the
 mailboxes of the FSM state and of the robot's answers.
@@ -41,6 +42,9 @@ mailboxes of the FSM state and of the robot's answers.
 
 import argparse
 from collections.abc import Callable
+import dataclasses
+import enum
+import functools
 import logging
 import os
 import signal
@@ -75,6 +79,19 @@ import robot_ipc
 _LOGGER = logging.getLogger(__name__)
 
 
+@dataclasses.dataclass(frozen=True)
+class SchemaChoice:
+    """The drop-down of one task-file choice on the Base Controller tab (TuningOptions.base_controller_label).
+
+    Attributes:
+      var: The selected name.
+      combobox: The drop-down.
+    """
+
+    var: tk.StringVar
+    combobox: ttk.Combobox
+
+
 class App(tk.Tk):
     """The GUI window, which knows nothing of the bus.
 
@@ -85,7 +102,8 @@ class App(tk.Tk):
         pd_gains_file: the joint PD gains file of the Joint PD Gains and Joint Targets tabs.
         task_file: the task file of the MPC Parameters tab.
         reference_file: the reference file of the Joint Targets and Command Limits tabs.
-        enable_online_tuning: whether the tuning tabs publish and save (the task file's enable_online_tuning).
+        enable_online_tuning: whether the tuning tabs publish and save; False locks the tuning tabs whatever file is
+            loaded later; True lets the MPC tab follow each loaded task file's enable_online_tuning.
         online_tuning_reason: why they do not, for their banners (config_files.OnlineTuning.reason); empty: the task
             file says so.
         param_publisher: the publisher of operator/mpc_parameters.
@@ -257,7 +275,7 @@ class App(tk.Tk):
         self.mpc_params_tab = mpc_params_tab.MpcParamsTab(
             tab_mpc,
             task_file=self.task_file,
-            enable_online_tuning=self.enable_online_tuning,
+            enable_online_tuning=None if self.enable_online_tuning else False,
             param_publisher=self.param_publisher,
             robot_saver=robot_saver,
         )
@@ -286,11 +304,16 @@ class App(tk.Tk):
         self.command_limits_tab = command_limits_tab.CommandLimitsTab(
             tab_limits,
             reference_file=self.reference_file,
+            enable_online_tuning=self.enable_online_tuning,
             robot_saver=robot_saver,
             # The tab's Save may move default_base_height, which the height slider centers on.
             on_saved=self.poll_reference_file,
         )
         self.command_limits_tab.pack(fill="both", expand=True)
+        if not self.enable_online_tuning and online_tuning_reason:
+            self.command_limits_tab.set_online_tuning_enabled(
+                False, online_tuning_reason
+            )
 
         # Tab 6: Dodgeball. A disturbance generator for push-recovery testing: the throw is computed here and applied
         # by the MuJoCo simulator, so the tab does nothing on hardware or against the dummy sim.
@@ -423,7 +446,17 @@ class App(tk.Tk):
         )
         self.auto_center_checkbox.pack(side="left")
 
-        # Starts the Rerun bridge, which opens the native Rerun viewer (rerun_viewer.py).
+        # Unticked, the GUI leaves operator/walking_velocity_command to a teleoperation publisher (keyboard, Xbox) and
+        # keeps its FSM and tuning tabs; OperatorGui reads it every tick (--walking_commands sets it at start).
+        self.walking_commands_var = tk.BooleanVar(value=True)
+        self.walking_commands_checkbox = ttk.Checkbutton(
+            control_frame,
+            text="Publish walking commands",
+            variable=self.walking_commands_var,
+        )
+        self.walking_commands_checkbox.pack(side="left", padx=10)
+
+        # Starts a Rerun bridge of its own, which opens a native Rerun viewer on the GUI's port (rerun_viewer.py).
         self.rerun_viewer_btn = ttk.Button(
             control_frame,
             text="📊 Open Rerun viewer",
@@ -433,32 +466,17 @@ class App(tk.Tk):
             self.rerun_viewer_btn.configure(state="disabled")
         self.rerun_viewer_btn.pack(side="left", padx=10)
 
-        # --- Simulation row: measured contact state of the controller ---
-        # The task file selects the contact estimator by name (contact_estimator, robot_model/ContactEstimatorRegistry.h);
-        # the drop-down offers the names of its registry, the MuJoCo ground truth (cheater_sim) and every contact point
-        # touching (always_in_contact) among them. The MPC Parameters tab owns the selection and publishes it on the
-        # parameter topic.
-        sim_frame = ttk.Frame(main_frame)
-        sim_frame.grid(row=2, column=0, columnspan=5, pady=(8, 0))
-        ttk.Label(sim_frame, text="Contact estimator:").pack(side="left", padx=(10, 4))
-        self.contact_estimator_var = tk.StringVar(value="")
-        self.contact_estimator_combobox = ttk.Combobox(
-            sim_frame,
-            textvariable=self.contact_estimator_var,
-            state="readonly",
-            width=20,
+        # --- Schema row: the task file's choices the schema offers here (TuningOptions.base_controller_label) ---
+        # Such as the controller's contact estimator (contact_estimator): one drop-down per field, of its choices, built
+        # from the schema. The MPC Parameters tab owns each value and publishes it on the parameter topic.
+        self.schema_choice_frame = ttk.Frame(main_frame)
+        self.schema_choice_frame.grid(row=2, column=0, columnspan=5, pady=(8, 0))
+        # The drop-downs on screen, by the field's path, in schema order.
+        self.schema_choices: dict[str, SchemaChoice] = {}
+        self.mpc_params_tab.on_base_controller_fields_changed = (
+            self._sync_schema_choices
         )
-        self.contact_estimator_combobox.bind(
-            "<<ComboboxSelected>>", self._on_contact_estimator_selected
-        )
-        self.contact_estimator_combobox.bind(
-            "<Button-1>", combobox.open_dropdown_on_click
-        )
-        self.contact_estimator_combobox.pack(side="left", padx=(0, 10))
-        self.mpc_params_tab.on_contact_estimator_changed = (
-            self._sync_contact_estimator_combobox
-        )
-        self._sync_contact_estimator_combobox()
+        self._sync_schema_choices()
 
         main_frame.rowconfigure(0, weight=1)
         main_frame.columnconfigure(0, weight=1)
@@ -490,20 +508,54 @@ class App(tk.Tk):
         # Notify Joint Targets tab of mode change
         self.joint_targets_tab.on_mode_changed()
 
-    def _on_contact_estimator_selected(self, event: tk.Event | None = None) -> None:
-        """Selects the contact estimator through the MPC Parameters tab, which publishes it live."""
-        del event  # Unused.
-        self.mpc_params_tab.set_contact_estimator(self.contact_estimator_var.get())
+    def _on_schema_choice_selected(self, path: str) -> None:
+        """Sets the field `path` to its drop-down's value through the MPC Parameters tab, which publishes it live."""
+        choice = self.schema_choices.get(path)
+        if choice is not None:
+            self.mpc_params_tab.set_base_controller_value(path, choice.var.get())
 
-    def _sync_contact_estimator_combobox(self) -> None:
-        """Mirrors the tab's selection (file load, reset, save) and disables the drop-down when it cannot apply."""
+    def _sync_schema_choices(self) -> None:
+        """Mirrors the tab's fields and values (file load, reset, save); disables the drop-downs when they cannot apply.
+
+        The drop-downs are built again when the loaded task file offers other fields.
+        """
         tab = self.mpc_params_tab
-        self.contact_estimator_combobox.configure(values=tab.contact_estimator_names())
-        self.contact_estimator_var.set(tab.selected_contact_estimator() or "")
-        usable = tab.enable_online_tuning and tab.has_contact_estimator_selection()
-        self.contact_estimator_combobox.configure(
-            state="readonly" if usable else "disabled"
+        specs = tab.base_controller_fields()
+        if tuple(spec.path for spec in specs) != tuple(self.schema_choices):
+            for frame in self.schema_choice_frame.winfo_children():
+                frame.destroy()
+            self.schema_choices = {
+                spec.path: self._build_schema_choice(
+                    spec.path, spec.tuning.base_controller_label
+                )
+                for spec in specs
+            }
+        state = "readonly" if tab.can_set_base_controller_fields() else "disabled"
+        for path, choice in self.schema_choices.items():
+            choice.combobox.configure(values=tab.base_controller_choices(path))
+            choice.var.set(tab.base_controller_value(path) or "")
+            choice.combobox.configure(state=state)
+
+    def _build_schema_choice(self, path: str, label: str) -> SchemaChoice:
+        """A labeled drop-down for the field `path` in the schema row."""
+        ttk.Label(self.schema_choice_frame, text=f"{label}:").pack(
+            side="left", padx=(10, 4)
         )
+        var = tk.StringVar(value="")
+        box = ttk.Combobox(
+            self.schema_choice_frame, textvariable=var, state="readonly", width=20
+        )
+        box.bind(
+            "<<ComboboxSelected>>",
+            functools.partial(self._on_schema_choice_event, path),
+        )
+        box.bind("<Button-1>", combobox.open_dropdown_on_click)
+        box.pack(side="left", padx=(0, 10))
+        return SchemaChoice(var=var, combobox=box)
+
+    def _on_schema_choice_event(self, path: str, event: tk.Event) -> None:
+        del event  # Unused.
+        self._on_schema_choice_selected(path)
 
     def _on_gantry_toggle(self) -> None:
         """Handle gantry lock checkbox toggle."""
@@ -598,6 +650,19 @@ class App(tk.Tk):
         self.joystick_right.set_position()
         self.slider.set(self.slider_default_value)
 
+    def center_velocity_sticks(self) -> None:
+        """Centers the two velocity sticks and keeps the height slider: the command of a robot that stands still."""
+        self.joystick_left.set_position()
+        self.joystick_right.set_position()
+
+    def publishes_walking_commands(self) -> bool:
+        """Whether the GUI publishes the walking command (the "Publish walking commands" checkbox)."""
+        return bool(self.walking_commands_var.get())
+
+    def set_publishes_walking_commands(self, publishes: bool) -> None:
+        """Ticks or unticks the "Publish walking commands" checkbox."""
+        self.walking_commands_var.set(publishes)
+
     def set_default_pelvis_height(self, height: float) -> None:
         """Centers the height slider on `height` [m] and moves it there."""
         self.default_pelvis_height = height
@@ -645,6 +710,12 @@ class App(tk.Tk):
         )
         if height != self.default_pelvis_height:
             self.move_default_pelvis_height(height)
+
+    def poll_tuning_files(self) -> None:
+        """Polls the tuning tabs' files for disk modifications, re-rendering and republishing if changed."""
+        self.mpc_params_tab.poll_files()
+        self.joint_pd_tab.poll_files()
+        self.command_limits_tab.poll_files()
 
     def set_knob_positions(
         self, msg: walking_velocity_command_pb2.WalkingVelocityCommand
@@ -730,13 +801,31 @@ def _restore_signal_handlers(handlers: dict[int, Any]) -> None:
         signal.signal(signum, handler)
 
 
+# LINT.IfChange(walking_commands)
+class WalkingCommands(str, enum.Enum):
+    """Whether the GUI publishes operator/walking_velocity_command (--walking_commands)."""
+
+    # Every tick: the Xbox controller's command, or the on-screen sticks' and the height slider's.
+    PUBLISH = "publish"
+    # Never: a teleoperation publisher (keyboard, Xbox) has the topic; the FSM and tuning tabs work as before.
+    OFF = "off"
+
+
+# LINT.ThenChange(//humanoid_nmpc/remote_control/README.md:walking_commands)
+
+
 class OperatorGui:
     """Runs an App against the operator bus at the walking command's rate.
 
-    Every tick, on Tk's thread: the FSM states the robot published since the last tick go to the App, then one walking
-    command is published - the Xbox controller's while one is connected (the on-screen sticks follow it), the App's
-    otherwise. The App's command is published even when it is all zero, so that the height slider reaches the gantry
-    in simulation.
+    Every tick, on Tk's thread: the FSM states the robot published since the last tick go to the App, then, while the
+    App publishes walking commands (its "Publish walking commands" checkbox), one walking command is published - the
+    Xbox controller's while one is read (the on-screen sticks follow it), the App's otherwise. The App's command is
+    published even when it is all zero, so that the height slider reaches the gantry in simulation.
+
+    The MPC keeps the last walking command it received, so a source that goes away leaves a stop behind: when the
+    controller is lost, the on-screen sticks are centered (the height kept) and their command goes out on that very
+    tick; when the checkbox is unticked, the centered command goes out once and then nothing. A controller that
+    connects starts from the height the slider shows, and follows a moved default pelvis height.
 
     Args:
         app: the window.
@@ -744,6 +833,7 @@ class OperatorGui:
         gamepad: the Xbox controller (xbox_controller_interface.GamepadPoller), or None.
         rate_hz: the tick rate [Hz].
         on_close: called after the window closes (stops the Rerun bridge the GUI started).
+        walking_commands: whether the GUI starts publishing walking commands (the App's checkbox changes it later).
     """
 
     def __init__(
@@ -753,6 +843,7 @@ class OperatorGui:
         gamepad: xbox_controller_interface.GamepadPoller | None = None,
         rate_hz: float = teleop.WALKING_COMMAND_RATE_HZ,
         on_close: Callable[[], None] | None = None,
+        walking_commands: WalkingCommands = WalkingCommands.PUBLISH,
     ) -> None:
         # The not-form rejects NaN, which `rate_hz <= 0.0` would let through.
         if not rate_hz > 0.0:
@@ -765,7 +856,14 @@ class OperatorGui:
         # The reference file is checked about once a second.
         self._reference_file_poll_ticks = max(1, int(round(rate_hz)))
         self._ticks = 0
+        # Whether the last tick published a walking command: unticking the checkbox sends one last, stopping one.
+        self._published_walking_command = False
+        # Whether the controller's command moved the on-screen sticks: they are centered when it goes away.
+        self._gamepad_drives_sticks = False
+        # The App's default pelvis height the controller's target last followed [m].
+        self._default_pelvis_height = app.default_pelvis_height
         app.set_fsm_command_callback(bus.fsm_command.send)
+        app.set_publishes_walking_commands(walking_commands is WalkingCommands.PUBLISH)
 
     def tick(self) -> None:
         """One period: apply the received FSM states and, about once a second, the reference file; then publish one walking command."""
@@ -774,21 +872,49 @@ class OperatorGui:
         self._ticks += 1
         if self._ticks % self._reference_file_poll_ticks == 0:
             self._app.poll_reference_file()
+            self._app.poll_tuning_files()
 
-        command = None
-        if self._gamepad is not None and self._gamepad.connected:
-            command = self._gamepad.tick()
+        publishes = self._app.publishes_walking_commands()
+        if publishes:
+            command = self._walking_command()
+            if command is not None:
+                self._operator_bus.walking_velocity_command.publish(command)
+        elif self._published_walking_command:
+            # Handed to a teleoperation publisher: the MPC keeps the last command it received, so the last one stops.
+            self._app.center_velocity_sticks()
+            self._gamepad_drives_sticks = False
+            self._operator_bus.walking_velocity_command.publish(
+                self._app.get_walking_command_msg()
+            )
+        self._published_walking_command = publishes
+
+    def _walking_command(
+        self,
+    ) -> walking_velocity_command_pb2.WalkingVelocityCommand | None:
+        """The walking command of this tick: the Xbox controller's while one is read, the App's otherwise."""
+        gamepad = self._gamepad
+        default_moved = self._app.default_pelvis_height != self._default_pelvis_height
+        self._default_pelvis_height = self._app.default_pelvis_height
+        if gamepad is not None and gamepad.connected:
+            if not self._gamepad_drives_sticks or default_moved:
+                # The controller starts from the height the slider shows, which a moved default has moved.
+                gamepad.set_pelvis_height_target(self._app.slider_height())
+            command = gamepad.tick()
             if command is not None:
                 self._app.set_knob_positions(command)
                 self._app.set_joystick_connected(True)
-        else:
-            self._app.set_joystick_connected(False)
-            command = self._app.get_walking_command_msg()
-            if self._gamepad is not None:
-                # Counts towards the next scan for a controller.
-                self._gamepad.tick()
-        if command is not None:
-            self._operator_bus.walking_velocity_command.publish(command)
+                self._gamepad_drives_sticks = True
+                return command
+            return None
+        elif gamepad is not None:
+            # Counts towards the next scan for a controller.
+            gamepad.tick()
+        if self._gamepad_drives_sticks:
+            # The controller that held the sticks went away: its last deflection must not keep walking the robot.
+            self._app.center_velocity_sticks()
+            self._gamepad_drives_sticks = False
+        self._app.set_joystick_connected(False)
+        return self._app.get_walking_command_msg()
 
     def _run_tick(self) -> None:
         try:
@@ -852,16 +978,25 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="the height slider's default [m] (default: the reference file's default_base_height)",
     )
+    parser.add_argument(
+        "--walking_commands",
+        choices=[mode.value for mode in WalkingCommands],
+        default=WalkingCommands.PUBLISH.value,
+        help="whether the GUI publishes the walking command (publish), or leaves it to a teleoperation publisher (off); "
+        "the Base Controller tab's checkbox changes it while the GUI runs (default: %(default)s)",
+    )
     teleop.add_bus_flags(parser, default_node=operator_bus.OPERATOR_NODE)
     return parser
 
 
-def _make_gamepad() -> xbox_controller_interface.GamepadPoller | None:
-    """The Xbox controller's poller, or None when pygame cannot run here."""
+def _make_gamepad(
+    initial_pelvis_height: float,
+) -> xbox_controller_interface.GamepadPoller | None:
+    """The Xbox controller's poller, its pelvis height target at `initial_pelvis_height` [m], or None when pygame cannot run here."""
     try:
         # Imports pygame (xbox_controller_interface.PygameJoystickBackend), which may be missing or fail to start.
         controller = xbox_controller_interface.XBoxControllerInterface(
-            teleop.WALKING_COMMAND_RATE_HZ
+            teleop.WALKING_COMMAND_RATE_HZ, initial_pelvis_height=initial_pelvis_height
         )
     # pylint: disable-next=broad-exception-caught  # The GUI works without a controller.
     except Exception as error:
@@ -949,8 +1084,9 @@ def main(argv: list[str] | None = None) -> int:
     gui = OperatorGui(
         app,
         bus,
-        gamepad=_make_gamepad(),
+        gamepad=_make_gamepad(app.slider_height()),
         on_close=viewer.close if viewer is not None else None,
+        walking_commands=WalkingCommands(args.walking_commands),
     )
     gui.run()
     return 0

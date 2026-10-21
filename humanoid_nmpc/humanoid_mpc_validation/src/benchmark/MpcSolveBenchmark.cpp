@@ -160,11 +160,11 @@ absl::StatusOr<JsonValue> runSolveBenchmark(const RobotConfiguration& configurat
   settings.set("failed_solves", JsonValue::number(static_cast<double>(failedSolves)));
 
   JsonValue& times = document.set("solve_time_ms", JsonValue::object());
-  times.set("total", summarizeTimes(wallTimes));
-  times.set("lq_approximation", summarizeTimes(lqApproximation));
-  times.set("solve_qp", summarizeTimes(solveQp));
-  times.set("linesearch", summarizeTimes(linesearch));
-  times.set("compute_controller", summarizeTimes(computeController));
+  times.set("total", summarizeSample(wallTimes));
+  times.set("lq_approximation", summarizeSample(lqApproximation));
+  times.set("solve_qp", summarizeSample(solveQp));
+  times.set("linesearch", summarizeSample(linesearch));
+  times.set("compute_controller", summarizeSample(computeController));
   const JsonValue* absl_nullable p99 = times.findPath("total.p99");
   const double periodMs = 1000.0 / driver->mpcFrequency();
   JsonValue& gate = document.set("real_time", JsonValue::object());

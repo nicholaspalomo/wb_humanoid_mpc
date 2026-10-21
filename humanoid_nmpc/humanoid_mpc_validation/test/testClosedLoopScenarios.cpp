@@ -31,6 +31,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cmath>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <regex>
 #include <set>
 #include <string>
@@ -79,6 +80,25 @@ TEST(ClosedLoopScenarios, TheSetIsTheDesignsWithTheSlowerWalkAndTheSmokeRun) {
                                           "turn_in_place_720", "turn_1radps", "arc",      "smoke"};
   EXPECT_EQ(names, expected);
   EXPECT_EQ(findClosedLoopScenario("missing").status().code(), absl::StatusCode::kNotFound);
+}
+
+// The descriptions are formatted from the commands' constants: the text they read as.
+TEST(ClosedLoopScenarios, TheDescriptionsSpellTheCommands) {
+  const std::vector<std::pair<std::string, std::string>> expected = {
+      {"standing", "at rest for 10 s"},
+      {"walk_0p5", "0.5 m/s forward for 15 s, then at rest"},
+      {"walk_0p3", "0.3 m/s forward for 15 s, then at rest (the slower walking variant)"},
+      {"lateral_0p2", "0.2 m/s to the left for 10 s, then at rest"},
+      {"turn_in_place_720", "+0.5 rad/s in place through 720 degrees, -0.5 rad/s back, then at rest"},
+      {"turn_1radps", "1 rad/s in place for 12.6 s, then at rest"},
+      {"arc", "0.3 m/s forward while turning at 0.3 rad/s for 15 s, then at rest"},
+      {"smoke", "0.3 m/s forward while turning at 0.2 rad/s for 1.5 s after 0.5 s of standing (the determinism test)"},
+  };
+  for (const std::pair<std::string, std::string>& entry : expected) {
+    const absl::StatusOr<ClosedLoopScenario> scenario = findClosedLoopScenario(entry.first);
+    ASSERT_TRUE(scenario.ok()) << entry.first;
+    EXPECT_EQ(scenario->description, entry.second) << entry.first;
+  }
 }
 
 TEST(ClosedLoopScenarios, TheCommandsAreWhatSection4Point5Asks) {
@@ -332,6 +352,27 @@ TEST(MetricBands, TheQuaternionNormMustStayBelowItsBound) {
   EXPECT_EQ(compareClosedLoopMetrics(candidate, baseline, BandOptions()).violations.size(), 1u);
   candidate.set("quaternion_norm", JsonValue::object()).set("max_deviation", JsonValue::number(1.0e-12));
   EXPECT_TRUE(compareClosedLoopMetrics(candidate, baseline, BandOptions()).violations.empty());
+}
+
+TEST(MetricBands, ANonFiniteQuaternionNormFailsItsBound) {
+  const JsonValue baseline = metricsDocument({});
+  // As held in memory: a NaN is not below the bound.
+  JsonValue inMemory = baseline;
+  inMemory.set("quaternion_norm", JsonValue::object()).set("max_deviation", JsonValue::number(std::numeric_limits<double>::quiet_NaN()));
+  const std::vector<std::string> nan = compareClosedLoopMetrics(inMemory, baseline, BandOptions()).violations;
+  ASSERT_EQ(nan.size(), 1u);
+  EXPECT_EQ(nan[0].rfind("quaternion_norm.max_deviation", 0), 0u) << nan[0];
+
+  // As read from its text, which writes the NaN as null: the count of the solves that had one fails the bound.
+  JsonValue fromText = baseline;
+  JsonValue& norm = fromText.set("quaternion_norm", JsonValue::object());
+  norm.set("max_deviation", JsonValue());
+  norm.set("non_finite_solves", JsonValue::number(2.0));
+  const std::vector<std::string> counted = compareClosedLoopMetrics(fromText, baseline, BandOptions()).violations;
+  ASSERT_EQ(counted.size(), 1u);
+  EXPECT_EQ(counted[0].rfind("quaternion_norm.non_finite_solves", 0), 0u) << counted[0];
+  norm.set("non_finite_solves", JsonValue::number(0.0));
+  EXPECT_TRUE(compareClosedLoopMetrics(fromText, baseline, BandOptions()).violations.empty());
 }
 
 }  // namespace

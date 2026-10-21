@@ -107,6 +107,10 @@ class ConfigFileStore {
   };
 
   struct Config {
+    /** The defaults of queueCapacity and of maxTextBytes [bytes]. */
+    static constexpr size_t kDefaultQueueCapacity = 4;
+    static constexpr size_t kDefaultMaxTextBytes = 1024 * 1024;
+
     StoredFile task;
     StoredFile reference;
     StoredFile pdGains;
@@ -118,9 +122,9 @@ class ConfigFileStore {
      */
     std::string unavailableReason;
     /** The saves waiting for the writer thread; one more is refused as busy. */
-    size_t queueCapacity = 4;
+    size_t queueCapacity = kDefaultQueueCapacity;
     /** [bytes] The largest text accepted. */
-    size_t maxTextBytes = 1024 * 1024;
+    size_t maxTextBytes = kDefaultMaxTextBytes;
   };
 
   struct Hooks {

@@ -20,8 +20,15 @@ applies to the next command; a file that no longer reads keeps the previous limi
 a number sends nothing.
 
 The latest command is republished at the topic's 25 Hz (`VelocityCommandRepeater`), so that an MPC node that connects
-later still gets it; nothing is published before the first line. Do not run it next to the velocity controls of the
-GUI or the Xbox publisher: they publish the same topic. Ctrl-C, or the end of the input, ends it.
+later still gets it; nothing is published before the first line. The repeater holds the command in m/s, not as the
+normalized message: the MPC reloads its copy of the limits when the reference file changes, so the repeater looks at the
+file about once a second too and renormalizes the held command by the new limits. The robot keeps walking at the speed
+the terminal showed (clamped to a lowered limit) instead of a speed nobody typed.
+
+Do not run it next to the velocity controls of the GUI or the Xbox publisher: they publish the same topic (start the
+GUI with `--walking_commands=off`). Ctrl-C, or the end of the input, ends it. Because the MPC keeps the last command it
+received, it first publishes the stop command (zero velocities, the pelvis height change kept) and waits until the bus
+has written it to DDS, plus 100 ms for DDS to put it on the wire before the bus deletes its writer.
 
 <!-- LINT.IfChange(teleop_flags) -->
 | Flag | Default | Meaning |
@@ -38,5 +45,5 @@ configuration file ([`humanoid_mpc_config`](../../humanoid_mpc_config/README.md)
 wrong type is refused with its file, line and column.
 
 `:test_keyboard_velocity_command` checks the limits of every shipped reference file, the refusals, the parsing, the
-normalization, the line reader (pipes, and the stop predicate while it waits) and the 25 Hz republication on a
-loopback bus.
+normalization, the line reader (pipes, and the stop predicate while it waits), the 25 Hz republication on a loopback
+bus, the renormalization after a saved change of the limits and the stop command at the end.

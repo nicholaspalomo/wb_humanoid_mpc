@@ -199,12 +199,11 @@ TEST(CentroidalMpcManifoldPolicyOverBus, TheRobotEvaluatesTheDecodedManifoldPoli
   ASSERT_EQ((*robotManifold)->getAmbientDim(), (*robotManifold)->getTangentDim() + 1) << "one unit quaternion in the state";
   std::unique_ptr<robot::ipc::Bus> robotBus = ipc::test_support::createNodeBus("robot");
   std::unique_ptr<robot::ipc::Bus> mpcBus = ipc::test_support::createNodeBus("mpc");
-  ipc::test_support::connectBoth(*robotBus, *mpcBus);
   MpcResetSupervisor supervisor;
   ipc::RemoteMpcLink::Config linkConfig;
   linkConfig.dimensions = dimensions;
   linkConfig.stateManifold = *robotManifold;
-  absl::StatusOr<std::unique_ptr<ipc::RemoteMpcLink>> link = ipc::RemoteMpcLink::Create(*robotBus, supervisor, linkConfig);
+  absl::StatusOr<std::unique_ptr<ipc::RemoteMpcLink>> link = ipc::RemoteMpcLink::Create(robotBus.get(), &supervisor, linkConfig);
   ASSERT_TRUE(link.ok()) << link.status();
   ipc::MpcServer::Config serverConfig;
   serverConfig.dimensions = dimensions;
@@ -212,7 +211,7 @@ TEST(CentroidalMpcManifoldPolicyOverBus, TheRobotEvaluatesTheDecodedManifoldPoli
   ipc::MpcServer::Hooks hooks;
   hooks.preSolveObserver = [&remoteInterface](const SystemObservation& /*observation*/) { insertSteps(remoteInterface); };
   absl::StatusOr<std::unique_ptr<ipc::MpcServer>> server = ipc::MpcServer::Create(
-      *mpcBus, *remote.mpc,
+      mpcBus.get(), remote.mpc.get(),
       [&remoteInterface](const SystemObservation& resetObservation) { return resetTargetsOf(remoteInterface, resetObservation); },
       serverConfig, std::move(hooks));
   ASSERT_TRUE(server.ok()) << server.status();

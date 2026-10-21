@@ -31,6 +31,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/contact/FootprintCornerHeights.h"
 
+#include <climits>
 #include <cmath>
 #include <cstdint>
 #include <memory>
@@ -40,39 +41,42 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/log/check.h"
 #include "absl/strings/str_cat.h"
+#include "ocs2_core/Dimensions.h"
 #include "pinocchio/multibody/data.hpp"
 #include "pinocchio/multibody/model.hpp"
 
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
+#include "nproto/Fnv1a64Constants.h"
 
 namespace ocs2::humanoid {
 
 namespace {
 
-/** [1/m], [1/rad]: the geometry is fingerprinted to a nanometre and a nanoradian, far below any edit that matters. */
+/** [1/m], [1/rad]: the geometry is fingerprinted to a nanometer and a nanoradian, far below any edit that matters. */
 constexpr double kFingerprintResolution = 1.0e9;
 
 /** FNV-1a, 64 bit. Deterministic across processes and builds, which absl::Hash deliberately is not. */
 class Fnv1a64 {
  public:
   void add(int64_t value) {
-    for (int byte = 0; byte < 8; ++byte) {
-      hash_ ^= static_cast<uint64_t>(value >> (8 * byte)) & 0xffU;
-      hash_ *= 0x100000001b3ULL;
+    // An int64_t is hashed one byte at a time, the least significant first.
+    for (int byte = 0; byte < nproto::kFnvWordOctets; ++byte) {
+      hash_ ^= static_cast<uint64_t>(value >> (CHAR_BIT * byte)) & nproto::kFnvOctetMask;
+      hash_ *= nproto::kFnvPrime;
     }
   }
   void add(double value) { add(static_cast<int64_t>(std::llround(value * kFingerprintResolution))); }
   void add(const std::string& text) {
     for (const char character : text) {
       hash_ ^= static_cast<uint64_t>(static_cast<unsigned char>(character));
-      hash_ *= 0x100000001b3ULL;
+      hash_ *= nproto::kFnvPrime;
     }
     add(static_cast<int64_t>(text.size()));
   }
   void add(const pinocchio::SE3& placement) {
-    for (int row = 0; row < 3; ++row) {
+    for (int row = 0; row < kPositionDim; ++row) {
       add(placement.translation()(row));
-      for (int col = 0; col < 3; ++col) {
+      for (int col = 0; col < kPositionDim; ++col) {
         add(placement.rotation()(row, col));
       }
     }
@@ -80,7 +84,7 @@ class Fnv1a64 {
   uint64_t value() const { return hash_; }
 
  private:
-  uint64_t hash_ = 0xcbf29ce484222325ULL;
+  uint64_t hash_ = nproto::kFnvOffsetBasis;
 };
 
 /**
@@ -135,7 +139,7 @@ FootprintCornerHeights::FootprintCornerHeights(const PinocchioInterface& pinocch
                             absl::Hex(geometryFingerprint(pinocchioInterface.getModel(), frameIds_, mpcRobotModelAdPtr_->getStateDim(),
                                                           mpcRobotModelAdPtr_->getConfigurationDim()),
                                       absl::kZeroPad16));
-  createAdInterface(modelSettings.recompileLibrariesCppAd);
+  createAdInterface(modelSettings.recompileLibrariesCppAd ? LibraryCreation::kRegenerate : LibraryCreation::kLoadIfAvailable);
 }
 
 FootprintCornerHeights::FootprintCornerHeights(const FootprintCornerHeights& rhs)
@@ -146,10 +150,10 @@ FootprintCornerHeights::FootprintCornerHeights(const FootprintCornerHeights& rhs
       modelName_(rhs.modelName_),
       modelFolder_(rhs.modelFolder_),
       verbose_(rhs.verbose_) {
-  createAdInterface(/*regenerate=*/false);
+  createAdInterface(LibraryCreation::kLoadIfAvailable);
 }
 
-void FootprintCornerHeights::createAdInterface(bool regenerate) {
+void FootprintCornerHeights::createAdInterface(LibraryCreation creation) {
   const size_t stateDim = mpcRobotModelAdPtr_->getStateDim();
   CppAdInterface::ad_function_t heightsAd = [this, stateDim](const ad_vector_t& x, ad_vector_t& y) {
     CHECK_EQ(static_cast<size_t>(x.rows()), stateDim);
@@ -159,7 +163,7 @@ void FootprintCornerHeights::createAdInterface(bool regenerate) {
 
   // First order only. Both callers are ConstraintOrder::Linear, so the second-order tape would be generated, compiled
   // and then never evaluated - which is precisely the waste this class exists to avoid.
-  if (regenerate) {
+  if (creation == LibraryCreation::kRegenerate) {
     adInterfacePtr_->createModels(CppAdInterface::ApproximationOrder::First, verbose_);
   } else {
     adInterfacePtr_->loadModelsIfAvailable(CppAdInterface::ApproximationOrder::First, verbose_);
@@ -173,7 +177,7 @@ ad_vector_t FootprintCornerHeights::heightsFunction(const ad_vector_t& state) co
 
   ad_vector_t heights(frameIds_.size());
   for (size_t corner = 0; corner < frameIds_.size(); ++corner) {
-    heights(static_cast<Eigen::Index>(corner)) = data.oMf[frameIds_[corner]].translation()(2);
+    heights(static_cast<Eigen::Index>(corner)) = data.oMf[frameIds_[corner]].translation()(kZAxisIndex);
   }
   return heights;
 }

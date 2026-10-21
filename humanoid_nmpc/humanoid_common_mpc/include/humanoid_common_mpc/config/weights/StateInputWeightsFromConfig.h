@@ -50,7 +50,9 @@ namespace ocs2::humanoid {
 // times 0. What the file must give, and what it
 // may not, is refused with an InvalidArgument that names the field path (`fieldPath`, "state_weights" in a task
 // file) and lists every problem at once: a missing block, joint or contact; a block, joint list, joint or contact the
-// MPC does not have (a fixed joint said so); a name given twice; a value that is not finite.
+// MPC does not have (a fixed joint said so); a name given twice; a value that is not finite; a weight or a scaling of
+// weights below 0, which would make the quadratic cost (and its Gauss-Newton Hessian) indefinite. A state value
+// (stateValuesFromConfig()) may have any sign.
 
 /**
  * The diagonal state weight matrix (tuningDimension(layout) square, on the rows of tuningLayoutOf(layout)) of `weights`:
@@ -117,7 +119,7 @@ absl::StatusOr<matrix_t> acomWeightsFromConfig(const mpc_config::AcomWeights& we
 
 /**
  * The task file's terminal_cost_scaling, the factor of final_state_weights and of the terminal instance of
- * com_and_acom_tracking_cost; InvalidArgument when the file does not give it or it is not finite.
+ * com_and_acom_tracking_cost; InvalidArgument when the file does not give it or it is not a finite number of at least 0.
  */
 absl::StatusOr<scalar_t> terminalCostScalingFromConfig(const mpc_config::TaskFile& task);
 

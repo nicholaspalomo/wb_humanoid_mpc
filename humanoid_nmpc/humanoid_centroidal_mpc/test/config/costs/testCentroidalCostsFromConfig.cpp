@@ -27,7 +27,7 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-// The conversions of the centroidal MPC's own cost blocks (DcmTerminalCostFromConfig.h, IcpCostFromConfig.h): the
+// The conversion of the centroidal MPC's own cost block (DcmTerminalCostFromConfig.h): the
 // schema's defaults are DcmTerminalCost::Config's, every field lands in its member, and what the cost refuses or cannot
 // read is refused by its key.
 
@@ -41,11 +41,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "gtest/gtest.h"
 
 #include "humanoid_centroidal_mpc/config/costs/DcmTerminalCostFromConfig.h"
-#include "humanoid_centroidal_mpc/config/costs/IcpCostFromConfig.h"
 #include "humanoid_centroidal_mpc/cost/DcmTerminalCost.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_mpc_config/dcm_terminal_cost_config.nproto.h"
-#include "humanoid_mpc_config/icp_cost_weights.nproto.h"
 
 namespace ocs2::humanoid {
 namespace {
@@ -81,7 +79,6 @@ TEST(DcmTerminalCostFromConfigTest, AComHeightIsPositiveOrLeftOutForTheModels) {
 TEST(DcmTerminalCostFromConfigTest, EachFieldLandsInItsMember) {
   mpc_config::DcmTerminalCostConfig block;
   block.com_height = 0.9;
-  block.gravity = 9.0;
   block.weight_x = 400.0;
   block.weight_y = 250.0;
   block.velocity_offset_factor = 0.5;
@@ -89,7 +86,6 @@ TEST(DcmTerminalCostFromConfigTest, EachFieldLandsInItsMember) {
   const absl::StatusOr<DcmTerminalCost::Config> config = dcmTerminalCostConfigFromConfig(block);
   ASSERT_TRUE(config.ok()) << config.status();
   EXPECT_EQ(config->comHeight, 0.9);
-  EXPECT_EQ(config->gravity, 9.0);
   EXPECT_EQ(config->weights, vector2_t(400.0, 250.0));
   EXPECT_EQ(config->velocityOffsetFactor, 0.5);
   EXPECT_EQ(config->supportBlendTime, 0.2);
@@ -100,21 +96,8 @@ TEST(DcmTerminalCostFromConfigTest, RefusesWhatTheCostRefuses) {
   block.weight_y = -1.0;
   EXPECT_TRUE(absl::StrContains(dcmTerminalCostConfigFromConfig(block).status().message(), "weight_y"));
   block = mpc_config::DcmTerminalCostConfig{};
-  block.gravity = 0.0;
-  EXPECT_EQ(dcmTerminalCostConfigFromConfig(block).status().code(), absl::StatusCode::kInvalidArgument);
-  block = mpc_config::DcmTerminalCostConfig{};
   block.velocity_offset_factor = std::numeric_limits<double>::quiet_NaN();
   EXPECT_TRUE(absl::StrContains(dcmTerminalCostConfigFromConfig(block).status().message(), "dcm_terminal_cost.velocity_offset_factor"));
-}
-
-TEST(IcpCostFromConfigTest, TheWeightActsAlongBothAxes) {
-  EXPECT_EQ(*icpCostWeightsFromConfig(mpc_config::IcpCostWeights{}), vector2_t::Zero());
-  mpc_config::IcpCostWeights weights;
-  weights.icp_error_weight = 3.5;
-  EXPECT_EQ(*icpCostWeightsFromConfig(weights), vector2_t(3.5, 3.5));
-  weights.icp_error_weight = std::numeric_limits<double>::infinity();
-  const absl::StatusOr<vector2_t> refused = icpCostWeightsFromConfig(weights);
-  EXPECT_TRUE(absl::StrContains(refused.status().message(), "icp_cost_weights.icp_error_weight")) << refused.status();
 }
 
 }  // namespace

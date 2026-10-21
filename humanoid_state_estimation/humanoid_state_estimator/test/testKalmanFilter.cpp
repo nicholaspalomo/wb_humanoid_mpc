@@ -146,8 +146,8 @@ matrix_t getCovarianceOrDie(const KalmanFilter& filter, const std::string& row_n
   return *covariance;
 }
 
-std::unique_ptr<KalmanFilter> createOrDie(absl::Span<const KalmanFilterState> initial_states) {
-  absl::StatusOr<std::unique_ptr<KalmanFilter>> filter = KalmanFilter::Create(initial_states);
+std::unique_ptr<KalmanFilter> createOrDie(absl::Span<const KalmanFilterState> initialStates) {
+  absl::StatusOr<std::unique_ptr<KalmanFilter>> filter = KalmanFilter::Create(initialStates);
   EXPECT_TRUE(filter.ok()) << filter.status();
   return std::move(*filter);
 }
@@ -180,9 +180,9 @@ TEST(KalmanFilterTest, matchesTheDenseKalmanFilterChannelByChannel) {
   const matrix_t P_a = randomCovariance(generator, /*dim=*/2);
   const matrix_t P_b = randomCovariance(generator, /*dim=*/3);
   const matrix_t P_c = randomCovariance(generator, /*dim=*/1);
-  std::unique_ptr<KalmanFilter> filter = createOrDie({{.name = "a", .state = a0, .P_state_estimate = P_a},
-                                                      {.name = "b", .state = b0, .P_state_estimate = P_b},
-                                                      {.name = "c", .state = c0, .P_state_estimate = P_c}});
+  std::unique_ptr<KalmanFilter> filter = createOrDie({{.name = "a", .state = a0, .stateCovariance = P_a},
+                                                      {.name = "b", .state = b0, .stateCovariance = P_b},
+                                                      {.name = "c", .state = c0, .stateCovariance = P_c}});
 
   DenseKalmanFilter reference;
   reference.x = (vector_t(6) << a0, b0, c0).finished();
@@ -200,9 +200,12 @@ TEST(KalmanFilterTest, matchesTheDenseKalmanFilterChannelByChannel) {
   const matrix_t B_b_u2 = randomMatrix(generator, /*rows=*/3, /*cols=*/2);
   const matrix_t Q_a = 0.01 * randomCovariance(generator, /*dim=*/2);
   const matrix_t Q_u1 = 0.01 * randomCovariance(generator, /*dim=*/1);
-  const std::vector<KalmanFilterProcessModel> process_model = {
-      {.state_name = "a", .A_state_transition = {{"a", A_aa}, {"b", A_ab}}, .B_control_input = {{"u1", B_a_u1}}, .Q_process_noise = Q_a},
-      {.state_name = "b", .A_state_transition = {{"c", A_bc}}, .B_control_input = {{"u2", B_b_u2}}},
+  const std::vector<KalmanFilterProcessModel> processModel = {
+      {.stateName = "a",
+       .stateTransition = {{"a", A_aa}, {"b", A_ab}},
+       .controlInputMatrix = {{"u1", B_a_u1}},
+       .processNoiseCovariance = Q_a},
+      {.stateName = "b", .stateTransition = {{"c", A_bc}}, .controlInputMatrix = {{"u2", B_b_u2}}},
   };
   // Inputs u1 (1) and u2 (2), stacked at offsets 0 and 1.
   matrix_t A = identity(6);
@@ -240,7 +243,7 @@ TEST(KalmanFilterTest, matchesTheDenseKalmanFilterChannelByChannel) {
       const KalmanFilterState state = getStateOrDie(*filter, names[i]);
       EXPECT_EQ(state.name, names[i]);
       expectNear(state.state, reference.x.segment(offsets[i], sizes[i]), /*tolerance=*/1.0e-9);
-      expectNear(state.P_state_estimate, reference.P.block(offsets[i], offsets[i], sizes[i], sizes[i]), /*tolerance=*/1.0e-9);
+      expectNear(state.stateCovariance, reference.P.block(offsets[i], offsets[i], sizes[i], sizes[i]), /*tolerance=*/1.0e-9);
       for (size_t j = 0; j < names.size(); ++j) {
         expectNear(getCovarianceOrDie(*filter, names[i], names[j]), reference.P.block(offsets[i], offsets[j], sizes[i], sizes[j]),
                    /*tolerance=*/1.0e-9);
@@ -251,7 +254,8 @@ TEST(KalmanFilterTest, matchesTheDenseKalmanFilterChannelByChannel) {
   for (int step = 0; step < 5; ++step) {
     const vector_t u1 = randomMatrix(generator, /*rows=*/1, /*cols=*/1);
     const vector_t u2 = randomMatrix(generator, /*rows=*/2, /*cols=*/1);
-    ASSERT_TRUE(filter->predict(process_model, {{.name = "u1", .input = u1, .Q_input_noise = Q_u1}, {.name = "u2", .input = u2}}).ok());
+    ASSERT_TRUE(
+        filter->predict(processModel, {{.name = "u1", .input = u1, .inputNoiseCovariance = Q_u1}, {.name = "u2", .input = u2}}).ok());
     reference.predict(A, B, (vector_t(3) << u1, u2).finished(), Q);
     expectMatchesReference(absl::StrCat("predict ", step));
 
@@ -260,8 +264,8 @@ TEST(KalmanFilterTest, matchesTheDenseKalmanFilterChannelByChannel) {
     ASSERT_TRUE(
         filter
             ->correct(
-                {{.name = "m1", .measurement = z1, .H_measurement_model = {{"a", H_m1_a}, {"c", H_m1_c}}, .R_measurement_noise = R_m1},
-                 {.name = "m2", .measurement = z2, .H_measurement_model = {{"b", H_m2_b}}, .R_measurement_noise = R_m2}})
+                {{.name = "m1", .measurement = z1, .measurementModel = {{"a", H_m1_a}, {"c", H_m1_c}}, .measurementNoiseCovariance = R_m1},
+                 {.name = "m2", .measurement = z2, .measurementModel = {{"b", H_m2_b}}, .measurementNoiseCovariance = R_m2}})
             .ok());
     reference.correct(H, (vector_t(3) << z1, z2).finished(), R);
     expectMatchesReference(absl::StrCat("correct ", step));
@@ -269,43 +273,43 @@ TEST(KalmanFilterTest, matchesTheDenseKalmanFilterChannelByChannel) {
 }
 
 TEST(KalmanFilterTest, aScalarRandomWalkFollowsTheClosedForm) {
-  std::unique_ptr<KalmanFilter> filter = createOrDie({{.name = "x", .state = makeVector({1.0}), .P_state_estimate = scalarMatrix(1.0)}});
+  std::unique_ptr<KalmanFilter> filter = createOrDie({{.name = "x", .state = makeVector({1.0}), .stateCovariance = scalarMatrix(1.0)}});
 
-  ASSERT_TRUE(filter->predict({{.state_name = "x", .Q_process_noise = scalarMatrix(0.5)}}, /*inputs=*/{}).ok());
+  ASSERT_TRUE(filter->predict({{.stateName = "x", .processNoiseCovariance = scalarMatrix(0.5)}}, /*inputs=*/{}).ok());
   EXPECT_DOUBLE_EQ(getStateOrDie(*filter, "x").state(0), 1.0);
-  EXPECT_DOUBLE_EQ(getStateOrDie(*filter, "x").P_state_estimate(0, 0), 1.5);
+  EXPECT_DOUBLE_EQ(getStateOrDie(*filter, "x").stateCovariance(0, 0), 1.5);
 
   // S = 1.5 + 2 = 3.5 and K = 1.5 / 3.5 = 3/7, so x = 1 + 3/7 (3 - 1) = 13/7 and P = (1 - 3/7) 1.5 = 6/7.
   ASSERT_TRUE(filter
                   ->correct({{.name = "z",
                               .measurement = makeVector({3.0}),
-                              .H_measurement_model = {{"x", scalarMatrix(1.0)}},
-                              .R_measurement_noise = scalarMatrix(2.0)}})
+                              .measurementModel = {{"x", scalarMatrix(1.0)}},
+                              .measurementNoiseCovariance = scalarMatrix(2.0)}})
                   .ok());
   EXPECT_NEAR(getStateOrDie(*filter, "x").state(0), 13.0 / 7.0, 1.0e-15);
-  EXPECT_NEAR(getStateOrDie(*filter, "x").P_state_estimate(0, 0), 6.0 / 7.0, 1.0e-15);
+  EXPECT_NEAR(getStateOrDie(*filter, "x").stateCovariance(0, 0), 6.0 / 7.0, 1.0e-15);
 }
 
 TEST(KalmanFilterTest, aChannelWithoutAProcessModelKeepsItsMeanAndCovariance) {
   std::unique_ptr<KalmanFilter> filter =
-      createOrDie({{.name = "moving", .state = makeVector({1.0}), .P_state_estimate = scalarMatrix(1.0)},
-                   {.name = "still", .state = makeVector({2.0, 3.0}), .P_state_estimate = 2.0 * identity(2)}});
+      createOrDie({{.name = "moving", .state = makeVector({1.0}), .stateCovariance = scalarMatrix(1.0)},
+                   {.name = "still", .state = makeVector({2.0, 3.0}), .stateCovariance = 2.0 * identity(2)}});
   // Correlate the two channels, so that the cross-covariance has something to show.
   ASSERT_TRUE(filter
                   ->correct({{.name = "sum",
                               .measurement = makeVector({4.0}),
-                              .H_measurement_model = {{"moving", scalarMatrix(1.0)}, {"still", matrix_t::Ones(1, 2)}},
-                              .R_measurement_noise = scalarMatrix(0.5)}})
+                              .measurementModel = {{"moving", scalarMatrix(1.0)}, {"still", matrix_t::Ones(1, 2)}},
+                              .measurementNoiseCovariance = scalarMatrix(0.5)}})
                   .ok());
   const KalmanFilterState still = getStateOrDie(*filter, "still");
   const matrix_t P_moving_still = getCovarianceOrDie(*filter, "moving", "still");
   ASSERT_GT(P_moving_still.cwiseAbs().maxCoeff(), 0.0);
 
-  ASSERT_TRUE(filter->predict({{.state_name = "moving", .A_state_transition = {{"moving", scalarMatrix(2.0)}}}}, /*inputs=*/{}).ok());
+  ASSERT_TRUE(filter->predict({{.stateName = "moving", .stateTransition = {{"moving", scalarMatrix(2.0)}}}}, /*inputs=*/{}).ok());
 
   // x_still[k+1] = x_still[k]: unchanged; the cross-covariance follows A_moving,moving P_moving,still.
   EXPECT_TRUE(getStateOrDie(*filter, "still").state == still.state);
-  EXPECT_TRUE(getStateOrDie(*filter, "still").P_state_estimate == still.P_state_estimate);
+  EXPECT_TRUE(getStateOrDie(*filter, "still").stateCovariance == still.stateCovariance);
   expectNear(getCovarianceOrDie(*filter, "moving", "still"), 2.0 * P_moving_still, /*tolerance=*/1.0e-15);
   expectNear(getCovarianceOrDie(*filter, "still", "moving"), 2.0 * P_moving_still.transpose(), /*tolerance=*/1.0e-15);
 }
@@ -313,23 +317,23 @@ TEST(KalmanFilterTest, aChannelWithoutAProcessModelKeepsItsMeanAndCovariance) {
 TEST(KalmanFilterTest, anUnlistedDiagonalBlockIsTheIdentityAndAZeroOneForgetsThePast) {
   const scalar_t dt = 0.1;
   std::unique_ptr<KalmanFilter> filter =
-      createOrDie({{.name = "position", .state = makeVector({1.0}), .P_state_estimate = scalarMatrix(0.0)},
-                   {.name = "velocity", .state = makeVector({2.0}), .P_state_estimate = scalarMatrix(0.0)}});
+      createOrDie({{.name = "position", .state = makeVector({1.0}), .stateCovariance = scalarMatrix(0.0)},
+                   {.name = "velocity", .state = makeVector({2.0}), .stateCovariance = scalarMatrix(0.0)}});
 
   // position lists only the velocity block, so p[k+1] = p[k] + dt v[k].
-  ASSERT_TRUE(filter->predict({{.state_name = "position", .A_state_transition = {{"velocity", scalarMatrix(dt)}}}}, /*inputs=*/{}).ok());
+  ASSERT_TRUE(filter->predict({{.stateName = "position", .stateTransition = {{"velocity", scalarMatrix(dt)}}}}, /*inputs=*/{}).ok());
   EXPECT_DOUBLE_EQ(getStateOrDie(*filter, "position").state(0), 1.0 + dt * 2.0);
   EXPECT_DOUBLE_EQ(getStateOrDie(*filter, "velocity").state(0), 2.0);
 
   // velocity lists its own block as zero, so v[k+1] = u[k] and its covariance is the noise of u alone.
   ASSERT_TRUE(filter
-                  ->predict({{.state_name = "velocity",
-                              .A_state_transition = {{"velocity", scalarMatrix(0.0)}},
-                              .B_control_input = {{"commanded_velocity", scalarMatrix(1.0)}}}},
-                            {{.name = "commanded_velocity", .input = makeVector({-5.0}), .Q_input_noise = scalarMatrix(0.25)}})
+                  ->predict({{.stateName = "velocity",
+                              .stateTransition = {{"velocity", scalarMatrix(0.0)}},
+                              .controlInputMatrix = {{"commanded_velocity", scalarMatrix(1.0)}}}},
+                            {{.name = "commanded_velocity", .input = makeVector({-5.0}), .inputNoiseCovariance = scalarMatrix(0.25)}})
                   .ok());
   EXPECT_DOUBLE_EQ(getStateOrDie(*filter, "velocity").state(0), -5.0);
-  EXPECT_DOUBLE_EQ(getStateOrDie(*filter, "velocity").P_state_estimate(0, 0), 0.25);
+  EXPECT_DOUBLE_EQ(getStateOrDie(*filter, "velocity").stateCovariance(0, 0), 0.25);
   EXPECT_DOUBLE_EQ(getStateOrDie(*filter, "position").state(0), 1.0 + dt * 2.0);
 }
 
@@ -337,16 +341,16 @@ TEST(KalmanFilterTest, inputNoiseIsCorrelatedAcrossTheChannelsItDrives) {
   const scalar_t dt = 0.01;
   const scalar_t sigma = 0.3;
   std::unique_ptr<KalmanFilter> filter =
-      createOrDie({{.name = "position", .state = vector_t::Zero(3), .P_state_estimate = matrix_t::Zero(3, 3)},
-                   {.name = "velocity", .state = vector_t::Zero(3), .P_state_estimate = matrix_t::Zero(3, 3)}});
+      createOrDie({{.name = "position", .state = vector_t::Zero(3), .stateCovariance = matrix_t::Zero(3, 3)},
+                   {.name = "velocity", .state = vector_t::Zero(3), .stateCovariance = matrix_t::Zero(3, 3)}});
   const vector_t acceleration = makeVector({1.0, -2.0, 0.5});
 
   ASSERT_TRUE(filter
-                  ->predict({{.state_name = "position",
-                              .A_state_transition = {{"velocity", dt * identity(3)}},
-                              .B_control_input = {{"acceleration", 0.5 * dt * dt * identity(3)}}},
-                             {.state_name = "velocity", .B_control_input = {{"acceleration", dt * identity(3)}}}},
-                            {{.name = "acceleration", .input = acceleration, .Q_input_noise = sigma * sigma * identity(3)}})
+                  ->predict({{.stateName = "position",
+                              .stateTransition = {{"velocity", dt * identity(3)}},
+                              .controlInputMatrix = {{"acceleration", 0.5 * dt * dt * identity(3)}}},
+                             {.stateName = "velocity", .controlInputMatrix = {{"acceleration", dt * identity(3)}}}},
+                            {{.name = "acceleration", .input = acceleration, .inputNoiseCovariance = sigma * sigma * identity(3)}})
                   .ok());
 
   expectNear(getStateOrDie(*filter, "position").state, 0.5 * dt * dt * acceleration, /*tolerance=*/1.0e-15);
@@ -364,51 +368,51 @@ TEST(KalmanFilterTest, positionMeasurementsCorrectTheVelocityThroughTheCrossCova
   const scalar_t dt = 0.01;
   const scalar_t true_velocity = 0.8;
   std::unique_ptr<KalmanFilter> filter =
-      createOrDie({{.name = "position", .state = makeVector({0.0}), .P_state_estimate = scalarMatrix(1.0e-6)},
-                   {.name = "velocity", .state = makeVector({0.0}), .P_state_estimate = scalarMatrix(1.0)}});
+      createOrDie({{.name = "position", .state = makeVector({0.0}), .stateCovariance = scalarMatrix(1.0e-6)},
+                   {.name = "velocity", .state = makeVector({0.0}), .stateCovariance = scalarMatrix(1.0)}});
   const std::vector<KalmanFilterProcessModel> constant_velocity = {
-      {.state_name = "position", .A_state_transition = {{"velocity", scalarMatrix(dt)}}}};
+      {.stateName = "position", .stateTransition = {{"velocity", scalarMatrix(dt)}}}};
 
   for (int step = 1; step <= 200; ++step) {
     ASSERT_TRUE(filter->predict(constant_velocity, /*inputs=*/{}).ok());
     ASSERT_TRUE(filter
                     ->correct({{.name = "position",
                                 .measurement = makeVector({true_velocity * dt * step}),
-                                .H_measurement_model = {{"position", scalarMatrix(1.0)}},
-                                .R_measurement_noise = scalarMatrix(1.0e-6)}})
+                                .measurementModel = {{"position", scalarMatrix(1.0)}},
+                                .measurementNoiseCovariance = scalarMatrix(1.0e-6)}})
                     .ok());
     if (step == 1) {
       EXPECT_GT(getStateOrDie(*filter, "velocity").state(0), 0.0) << "the first position measurement must already move the velocity";
     }
   }
   EXPECT_NEAR(getStateOrDie(*filter, "velocity").state(0), true_velocity, 1.0e-3);
-  EXPECT_LT(getStateOrDie(*filter, "velocity").P_state_estimate(0, 0), 1.0e-3);
+  EXPECT_LT(getStateOrDie(*filter, "velocity").stateCovariance(0, 0), 1.0e-3);
 }
 
 TEST(KalmanFilterTest, aJointCorrectionEqualsSequentialCorrectionsInAnyOrder) {
   std::mt19937 generator(7);
-  const std::vector<KalmanFilterState> initial_states = {
-      {.name = "a", .state = randomMatrix(generator, /*rows=*/2, /*cols=*/1), .P_state_estimate = randomCovariance(generator, /*dim=*/2)},
-      {.name = "b", .state = randomMatrix(generator, /*rows=*/2, /*cols=*/1), .P_state_estimate = randomCovariance(generator, /*dim=*/2)}};
+  const std::vector<KalmanFilterState> initialStates = {
+      {.name = "a", .state = randomMatrix(generator, /*rows=*/2, /*cols=*/1), .stateCovariance = randomCovariance(generator, /*dim=*/2)},
+      {.name = "b", .state = randomMatrix(generator, /*rows=*/2, /*cols=*/1), .stateCovariance = randomCovariance(generator, /*dim=*/2)}};
   // A coupled transition, so that the channels are correlated before the corrections.
-  const std::vector<KalmanFilterProcessModel> process_model = {
-      {.state_name = "a", .A_state_transition = {{"b", randomMatrix(generator, /*rows=*/2, /*cols=*/2)}}},
-      {.state_name = "b", .A_state_transition = {{"a", randomMatrix(generator, /*rows=*/2, /*cols=*/2)}}}};
+  const std::vector<KalmanFilterProcessModel> processModel = {
+      {.stateName = "a", .stateTransition = {{"b", randomMatrix(generator, /*rows=*/2, /*cols=*/2)}}},
+      {.stateName = "b", .stateTransition = {{"a", randomMatrix(generator, /*rows=*/2, /*cols=*/2)}}}};
   const KalmanFilterMeasurement first = {.name = "first",
                                          .measurement = randomMatrix(generator, /*rows=*/2, /*cols=*/1),
-                                         .H_measurement_model = {{"a", randomMatrix(generator, /*rows=*/2, /*cols=*/2)}},
-                                         .R_measurement_noise = randomCovariance(generator, /*dim=*/2)};
-  const KalmanFilterMeasurement second = {.name = "second",
-                                          .measurement = randomMatrix(generator, /*rows=*/1, /*cols=*/1),
-                                          .H_measurement_model = {{"a", randomMatrix(generator, /*rows=*/1, /*cols=*/2)},
-                                                                  {"b", randomMatrix(generator, /*rows=*/1, /*cols=*/2)}},
-                                          .R_measurement_noise = randomCovariance(generator, /*dim=*/1)};
+                                         .measurementModel = {{"a", randomMatrix(generator, /*rows=*/2, /*cols=*/2)}},
+                                         .measurementNoiseCovariance = randomCovariance(generator, /*dim=*/2)};
+  const KalmanFilterMeasurement second = {
+      .name = "second",
+      .measurement = randomMatrix(generator, /*rows=*/1, /*cols=*/1),
+      .measurementModel = {{"a", randomMatrix(generator, /*rows=*/1, /*cols=*/2)}, {"b", randomMatrix(generator, /*rows=*/1, /*cols=*/2)}},
+      .measurementNoiseCovariance = randomCovariance(generator, /*dim=*/1)};
 
-  std::unique_ptr<KalmanFilter> joint = createOrDie(initial_states);
-  std::unique_ptr<KalmanFilter> reversed = createOrDie(initial_states);
-  std::unique_ptr<KalmanFilter> sequential = createOrDie(initial_states);
+  std::unique_ptr<KalmanFilter> joint = createOrDie(initialStates);
+  std::unique_ptr<KalmanFilter> reversed = createOrDie(initialStates);
+  std::unique_ptr<KalmanFilter> sequential = createOrDie(initialStates);
   for (KalmanFilter* absl_nonnull filter : {joint.get(), reversed.get(), sequential.get()}) {
-    ASSERT_TRUE(filter->predict(process_model, /*inputs=*/{}).ok());
+    ASSERT_TRUE(filter->predict(processModel, /*inputs=*/{}).ok());
   }
   ASSERT_TRUE(joint->correct({first, second}).ok());
   ASSERT_TRUE(reversed->correct({second, first}).ok());
@@ -423,19 +427,19 @@ TEST(KalmanFilterTest, aJointCorrectionEqualsSequentialCorrectionsInAnyOrder) {
 
 TEST(KalmanFilterTest, theCovarianceStaysSymmetricPositiveSemiDefiniteUnderNearlyExactMeasurements) {
   std::mt19937 generator(3);
-  std::unique_ptr<KalmanFilter> filter = createOrDie({{.name = "a", .state = vector_t::Zero(3), .P_state_estimate = 1.0e3 * identity(3)},
-                                                      {.name = "b", .state = vector_t::Zero(3), .P_state_estimate = 1.0e-3 * identity(3)}});
+  std::unique_ptr<KalmanFilter> filter = createOrDie({{.name = "a", .state = vector_t::Zero(3), .stateCovariance = 1.0e3 * identity(3)},
+                                                      {.name = "b", .state = vector_t::Zero(3), .stateCovariance = 1.0e-3 * identity(3)}});
   for (int step = 0; step < 200; ++step) {
     ASSERT_TRUE(
         filter
-            ->predict({{.state_name = "a", .A_state_transition = {{"b", 0.01 * identity(3)}}, .Q_process_noise = 1.0e-8 * identity(3)}},
+            ->predict({{.stateName = "a", .stateTransition = {{"b", 0.01 * identity(3)}}, .processNoiseCovariance = 1.0e-8 * identity(3)}},
                       /*inputs=*/{})
             .ok());
     ASSERT_TRUE(filter
                     ->correct({{.name = "a",
                                 .measurement = randomMatrix(generator, /*rows=*/3, /*cols=*/1),
-                                .H_measurement_model = {{"a", identity(3)}, {"b", randomMatrix(generator, /*rows=*/3, /*cols=*/3)}},
-                                .R_measurement_noise = 1.0e-10 * identity(3)}})
+                                .measurementModel = {{"a", identity(3)}, {"b", randomMatrix(generator, /*rows=*/3, /*cols=*/3)}},
+                                .measurementNoiseCovariance = 1.0e-10 * identity(3)}})
                     .ok());
     const matrix_t P = jointCovariance(*filter);
     ASSERT_TRUE(P == P.transpose()) << "step " << step;
@@ -446,15 +450,15 @@ TEST(KalmanFilterTest, theCovarianceStaysSymmetricPositiveSemiDefiniteUnderNearl
 
 TEST(KalmanFilterTest, getStatesReturnsTheChannelsInDeclarationOrderAndRoundTripsThroughReset) {
   std::unique_ptr<KalmanFilter> filter =
-      createOrDie({{.name = "z_last_alphabetically", .state = makeVector({1.0}), .P_state_estimate = scalarMatrix(1.0)},
-                   {.name = "a_first_alphabetically", .state = makeVector({2.0, 3.0}), .P_state_estimate = identity(2)}});
-  ASSERT_TRUE(filter
-                  ->correct({{.name = "sum",
-                              .measurement = makeVector({4.0}),
-                              .H_measurement_model = {{"z_last_alphabetically", scalarMatrix(1.0)},
-                                                      {"a_first_alphabetically", matrix_t::Ones(1, 2)}},
-                              .R_measurement_noise = scalarMatrix(1.0)}})
-                  .ok());
+      createOrDie({{.name = "z_last_alphabetically", .state = makeVector({1.0}), .stateCovariance = scalarMatrix(1.0)},
+                   {.name = "a_first_alphabetically", .state = makeVector({2.0, 3.0}), .stateCovariance = identity(2)}});
+  ASSERT_TRUE(
+      filter
+          ->correct({{.name = "sum",
+                      .measurement = makeVector({4.0}),
+                      .measurementModel = {{"z_last_alphabetically", scalarMatrix(1.0)}, {"a_first_alphabetically", matrix_t::Ones(1, 2)}},
+                      .measurementNoiseCovariance = scalarMatrix(1.0)}})
+          .ok());
 
   const std::vector<KalmanFilterState> states = filter->getStates();
   ASSERT_EQ(states.size(), 2u);
@@ -465,14 +469,51 @@ TEST(KalmanFilterTest, getStatesReturnsTheChannelsInDeclarationOrderAndRoundTrip
   ASSERT_TRUE(copy.reset(states).ok());
   for (const KalmanFilterState& state : states) {
     EXPECT_TRUE(getStateOrDie(copy, state.name).state == state.state);
-    EXPECT_TRUE(getStateOrDie(copy, state.name).P_state_estimate == state.P_state_estimate);
+    EXPECT_TRUE(getStateOrDie(copy, state.name).stateCovariance == state.stateCovariance);
   }
   // reset() declares the channels uncorrelated.
   EXPECT_TRUE(getCovarianceOrDie(copy, "z_last_alphabetically", "a_first_alphabetically").isZero(0.0));
 }
 
+TEST(KalmanFilterTest, resetEstimateEqualsResetOnTheSameValuesAndRefusesAnotherLayout) {
+  const std::vector<KalmanFilterState> initial = {{.name = "position", .state = makeVector({1.0, 2.0}), .stateCovariance = identity(2)},
+                                                  {.name = "velocity", .state = makeVector({0.5}), .stateCovariance = scalarMatrix(4.0)}};
+  std::unique_ptr<KalmanFilter> filter = createOrDie(initial);
+  // A correction that correlates the channels, which resetEstimate() must clear as reset() does.
+  ASSERT_TRUE(filter
+                  ->correct({{.name = "sum",
+                              .measurement = makeVector({3.0}),
+                              .measurementModel = {{"position", matrix_t::Ones(1, 2)}, {"velocity", scalarMatrix(1.0)}},
+                              .measurementNoiseCovariance = scalarMatrix(0.1)}})
+                  .ok());
+  const std::vector<KalmanFilterState> restart = {
+      {.name = "position", .state = makeVector({-1.0, 0.25}), .stateCovariance = 0.5 * identity(2)},
+      {.name = "velocity", .state = makeVector({2.0}), .stateCovariance = scalarMatrix(0.3)}};
+  ASSERT_TRUE(filter->resetEstimate(restart).ok());
+  std::unique_ptr<KalmanFilter> reference = createOrDie(restart);
+  for (const KalmanFilterState& state : restart) {
+    EXPECT_TRUE(getStateOrDie(*filter, state.name).state == getStateOrDie(*reference, state.name).state);
+    EXPECT_TRUE(getStateOrDie(*filter, state.name).stateCovariance == getStateOrDie(*reference, state.name).stateCovariance);
+  }
+  EXPECT_TRUE(getCovarianceOrDie(*filter, "position", "velocity").isZero(0.0));
+
+  // Another order, another size, a missing channel or an invalid covariance: refused, the estimate kept.
+  const std::vector<KalmanFilterState> swapped = {restart[1], restart[0]};
+  EXPECT_EQ(filter->resetEstimate(swapped).code(), absl::StatusCode::kInvalidArgument);
+  std::vector<KalmanFilterState> resized = restart;
+  resized[1].state = makeVector({1.0, 2.0});
+  resized[1].stateCovariance = identity(2);
+  EXPECT_EQ(filter->resetEstimate(resized).code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_EQ(filter->resetEstimate({restart[0]}).code(), absl::StatusCode::kInvalidArgument);
+  std::vector<KalmanFilterState> negative = restart;
+  negative[1].stateCovariance = scalarMatrix(-1.0);
+  EXPECT_EQ(filter->resetEstimate(negative).code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_TRUE(getStateOrDie(*filter, "velocity").state == restart[1].state);
+  EXPECT_EQ(KalmanFilter().resetEstimate(restart).code(), absl::StatusCode::kFailedPrecondition);
+}
+
 TEST(KalmanFilterTest, anEmptyCorrectionLeavesTheEstimateUnchanged) {
-  std::unique_ptr<KalmanFilter> filter = createOrDie({{.name = "x", .state = makeVector({1.0, 2.0}), .P_state_estimate = identity(2)}});
+  std::unique_ptr<KalmanFilter> filter = createOrDie({{.name = "x", .state = makeVector({1.0, 2.0}), .stateCovariance = identity(2)}});
   const vector_t x = jointState(*filter);
   const matrix_t P = jointCovariance(*filter);
   ASSERT_TRUE(filter->correct(/*measurements=*/{}).ok());
@@ -489,28 +530,29 @@ TEST(KalmanFilterTest, legKinematicsCorrectTheBaseVelocityOfAContactAidedEstimat
   vector_t true_base_position = makeVector({0.0, 0.0, 0.9});
   vector_t true_base_velocity = makeVector({0.5, -0.2, 0.0});
 
-  std::unique_ptr<KalmanFilter> filter = createOrDie(
-      {{.name = "base_position", .state = true_base_position, .P_state_estimate = 1.0e-4 * identity(3)},
-       {.name = "base_velocity", .state = vector_t::Zero(3), .P_state_estimate = identity(3)},
-       {.name = "foot_position", .state = true_foot + makeVector({0.01, 0.01, 0.0}), .P_state_estimate = 1.0e-2 * identity(3)}});
-  const std::vector<KalmanFilterProcessModel> process_model = {
-      {.state_name = "base_position",
-       .A_state_transition = {{"base_velocity", dt * identity(3)}},
-       .B_control_input = {{"imu_acceleration", 0.5 * dt * dt * identity(3)}}},
-      {.state_name = "base_velocity", .B_control_input = {{"imu_acceleration", dt * identity(3)}}},
-      {.state_name = "foot_position", .Q_process_noise = 1.0e-10 * identity(3)},
+  std::unique_ptr<KalmanFilter> filter =
+      createOrDie({{.name = "base_position", .state = true_base_position, .stateCovariance = 1.0e-4 * identity(3)},
+                   {.name = "base_velocity", .state = vector_t::Zero(3), .stateCovariance = identity(3)},
+                   {.name = "foot_position", .state = true_foot + makeVector({0.01, 0.01, 0.0}), .stateCovariance = 1.0e-2 * identity(3)}});
+  const std::vector<KalmanFilterProcessModel> processModel = {
+      {.stateName = "base_position",
+       .stateTransition = {{"base_velocity", dt * identity(3)}},
+       .controlInputMatrix = {{"imu_acceleration", 0.5 * dt * dt * identity(3)}}},
+      {.stateName = "base_velocity", .controlInputMatrix = {{"imu_acceleration", dt * identity(3)}}},
+      {.stateName = "foot_position", .processNoiseCovariance = 1.0e-10 * identity(3)},
   };
 
   for (int step = 0; step < 500; ++step) {
     true_base_position += dt * true_base_velocity + 0.5 * dt * dt * acceleration;
     true_base_velocity += dt * acceleration;
     ASSERT_TRUE(
-        filter->predict(process_model, {{.name = "imu_acceleration", .input = acceleration, .Q_input_noise = 1.0e-4 * identity(3)}}).ok());
+        filter->predict(processModel, {{.name = "imu_acceleration", .input = acceleration, .inputNoiseCovariance = 1.0e-4 * identity(3)}})
+            .ok());
     ASSERT_TRUE(filter
                     ->correct({{.name = "foot_relative_position",
                                 .measurement = true_foot - true_base_position,
-                                .H_measurement_model = {{"foot_position", identity(3)}, {"base_position", -identity(3)}},
-                                .R_measurement_noise = 1.0e-6 * identity(3)}})
+                                .measurementModel = {{"foot_position", identity(3)}, {"base_position", -identity(3)}},
+                                .measurementNoiseCovariance = 1.0e-6 * identity(3)}})
                     .ok());
   }
 
@@ -530,25 +572,25 @@ TEST(KalmanFilterTest, createRejectsInvalidStateChannelsNamingTheProblem) {
   };
   const std::vector<Case> cases = {
       {"no channel", {}, "at least one state channel"},
-      {"empty name", {{.name = "", .state = makeVector({1.0}), .P_state_estimate = scalarMatrix(1.0)}}, "empty name"},
+      {"empty name", {{.name = "", .state = makeVector({1.0}), .stateCovariance = scalarMatrix(1.0)}}, "empty name"},
       {"repeated name",
-       {{.name = "x", .state = makeVector({1.0}), .P_state_estimate = scalarMatrix(1.0)},
-        {.name = "x", .state = makeVector({1.0}), .P_state_estimate = scalarMatrix(1.0)}},
+       {{.name = "x", .state = makeVector({1.0}), .stateCovariance = scalarMatrix(1.0)},
+        {.name = "x", .state = makeVector({1.0}), .stateCovariance = scalarMatrix(1.0)}},
        "state channel 'x' is declared twice"},
-      {"empty state", {{.name = "x", .state = vector_t(), .P_state_estimate = matrix_t()}}, "state channel 'x' is empty"},
+      {"empty state", {{.name = "x", .state = vector_t(), .stateCovariance = matrix_t()}}, "state channel 'x' is empty"},
       {"non-finite state",
-       {{.name = "x", .state = makeVector({kNaN}), .P_state_estimate = scalarMatrix(1.0)}},
+       {{.name = "x", .state = makeVector({kNaN}), .stateCovariance = scalarMatrix(1.0)}},
        "state of state channel 'x'"},
       {"covariance of the wrong size",
-       {{.name = "x", .state = vector_t::Zero(3), .P_state_estimate = identity(2)}},
-       "P_state_estimate of state channel 'x' is 2x2, expected 3x3"},
+       {{.name = "x", .state = vector_t::Zero(3), .stateCovariance = identity(2)}},
+       "stateCovariance of state channel 'x' is 2x2, expected 3x3"},
       {"asymmetric covariance",
-       {{.name = "x", .state = vector_t::Zero(2), .P_state_estimate = (matrix_t(2, 2) << 1.0, 0.5, 0.0, 1.0).finished()}},
-       "P_state_estimate of state channel 'x' is not symmetric"},
+       {{.name = "x", .state = vector_t::Zero(2), .stateCovariance = (matrix_t(2, 2) << 1.0, 0.5, 0.0, 1.0).finished()}},
+       "stateCovariance of state channel 'x' is not symmetric"},
       {"indefinite covariance",
-       {{.name = "x", .state = vector_t::Zero(2), .P_state_estimate = (matrix_t(2, 2) << 1.0, 2.0, 2.0, 1.0).finished()}},
-       "P_state_estimate of state channel 'x' is not positive semi-definite"},
-      {"non-finite covariance", {{.name = "x", .state = makeVector({1.0}), .P_state_estimate = scalarMatrix(kNaN)}}, "is not finite"},
+       {{.name = "x", .state = vector_t::Zero(2), .stateCovariance = (matrix_t(2, 2) << 1.0, 2.0, 2.0, 1.0).finished()}},
+       "stateCovariance of state channel 'x' is not positive semi-definite"},
+      {"non-finite covariance", {{.name = "x", .state = makeVector({1.0}), .stateCovariance = scalarMatrix(kNaN)}}, "is not finite"},
   };
   for (const Case& test_case : cases) {
     SCOPED_TRACE(test_case.label);
@@ -560,10 +602,10 @@ TEST(KalmanFilterTest, createRejectsInvalidStateChannelsNamingTheProblem) {
 }
 
 TEST(KalmanFilterTest, aRejectedResetKeepsThePreviousChannels) {
-  std::unique_ptr<KalmanFilter> filter = createOrDie({{.name = "x", .state = makeVector({1.0}), .P_state_estimate = scalarMatrix(1.0)}});
+  std::unique_ptr<KalmanFilter> filter = createOrDie({{.name = "x", .state = makeVector({1.0}), .stateCovariance = scalarMatrix(1.0)}});
   EXPECT_FALSE(filter
-                   ->reset({{.name = "y", .state = makeVector({2.0}), .P_state_estimate = scalarMatrix(1.0)},
-                            {.name = "z", .state = makeVector({kNaN}), .P_state_estimate = scalarMatrix(1.0)}})
+                   ->reset({{.name = "y", .state = makeVector({2.0}), .stateCovariance = scalarMatrix(1.0)},
+                            {.name = "z", .state = makeVector({kNaN}), .stateCovariance = scalarMatrix(1.0)}})
                    .ok());
   const std::vector<KalmanFilterState> states = filter->getStates();
   ASSERT_EQ(states.size(), 1u);
@@ -575,21 +617,21 @@ TEST(KalmanFilterTest, aFilterWithoutChannelsRefusesToStepUntilReset) {
   KalmanFilter filter;
   EXPECT_TRUE(filter.getStates().empty());
 
-  const absl::Status predicted = filter.predict(/*process_model=*/{}, /*inputs=*/{});
+  const absl::Status predicted = filter.predict(/*processModel=*/{}, /*inputs=*/{});
   EXPECT_EQ(predicted.code(), absl::StatusCode::kFailedPrecondition);
   EXPECT_THAT(predicted.message(), HasSubstr("predict() before reset()"));
   const absl::Status corrected = filter.correct(/*measurements=*/{});
   EXPECT_EQ(corrected.code(), absl::StatusCode::kFailedPrecondition);
   EXPECT_THAT(corrected.message(), HasSubstr("correct() before reset()"));
 
-  ASSERT_TRUE(filter.reset({{.name = "x", .state = makeVector({1.0}), .P_state_estimate = scalarMatrix(1.0)}}).ok());
-  EXPECT_TRUE(filter.predict(/*process_model=*/{}, /*inputs=*/{}).ok());
+  ASSERT_TRUE(filter.reset({{.name = "x", .state = makeVector({1.0}), .stateCovariance = scalarMatrix(1.0)}}).ok());
+  EXPECT_TRUE(filter.predict(/*processModel=*/{}, /*inputs=*/{}).ok());
 }
 
 TEST(KalmanFilterTest, unknownChannelLookupsAreNotFoundAndListTheDeclaredChannels) {
   std::unique_ptr<KalmanFilter> filter =
-      createOrDie({{.name = "base_position", .state = vector_t::Zero(3), .P_state_estimate = identity(3)},
-                   {.name = "base_velocity", .state = vector_t::Zero(3), .P_state_estimate = identity(3)}});
+      createOrDie({{.name = "base_position", .state = vector_t::Zero(3), .stateCovariance = identity(3)},
+                   {.name = "base_velocity", .state = vector_t::Zero(3), .stateCovariance = identity(3)}});
   const absl::StatusOr<KalmanFilterState> state = filter->getState("base_orientation");
   EXPECT_EQ(state.status().code(), absl::StatusCode::kNotFound);
   EXPECT_THAT(state.status().message(), HasSubstr("'base_orientation'"));
@@ -599,19 +641,19 @@ TEST(KalmanFilterTest, unknownChannelLookupsAreNotFoundAndListTheDeclaredChannel
 }
 
 TEST(KalmanFilterTest, getStateFillsACallerOwnedStateAndLeavesItAloneForAnUnknownName) {
-  std::unique_ptr<KalmanFilter> filter = createOrDie({{.name = "a", .state = makeVector({1.0, 2.0}), .P_state_estimate = identity(2)},
-                                                      {.name = "b", .state = makeVector({3.0}), .P_state_estimate = scalarMatrix(4.0)}});
+  std::unique_ptr<KalmanFilter> filter = createOrDie({{.name = "a", .state = makeVector({1.0, 2.0}), .stateCovariance = identity(2)},
+                                                      {.name = "b", .state = makeVector({3.0}), .stateCovariance = scalarMatrix(4.0)}});
   KalmanFilterState state;
   ASSERT_TRUE(filter->getState("a", state).ok());
   EXPECT_EQ(state.name, "a");
   EXPECT_TRUE(state.state == makeVector({1.0, 2.0}));
-  EXPECT_TRUE(state.P_state_estimate == identity(2));
+  EXPECT_TRUE(state.stateCovariance == identity(2));
 
   // The same object then reads a channel of another size.
   ASSERT_TRUE(filter->getState("b", state).ok());
   EXPECT_EQ(state.name, "b");
   EXPECT_TRUE(state.state == makeVector({3.0}));
-  EXPECT_TRUE(state.P_state_estimate == scalarMatrix(4.0));
+  EXPECT_TRUE(state.stateCovariance == scalarMatrix(4.0));
 
   const absl::Status unknown = filter->getState("c", state);
   EXPECT_EQ(unknown.code(), absl::StatusCode::kNotFound);
@@ -621,29 +663,29 @@ TEST(KalmanFilterTest, getStateFillsACallerOwnedStateAndLeavesItAloneForAnUnknow
 }
 
 TEST(KalmanFilterTest, reserveOnlySizesStorageBeforeOrAfterReset) {
-  const std::vector<KalmanFilterState> initial_states = {
-      {.name = "position", .state = makeVector({0.0, 1.0}), .P_state_estimate = identity(2)},
-      {.name = "velocity", .state = makeVector({1.0, 0.0}), .P_state_estimate = 2.0 * identity(2)}};
-  const std::vector<KalmanFilterProcessModel> process_model = {
-      {.state_name = "position", .A_state_transition = {{"velocity", 0.1 * identity(2)}}, .Q_process_noise = 1.0e-3 * identity(2)},
-      {.state_name = "velocity", .B_control_input = {{"acceleration", 0.1 * identity(2)}}}};
+  const std::vector<KalmanFilterState> initialStates = {
+      {.name = "position", .state = makeVector({0.0, 1.0}), .stateCovariance = identity(2)},
+      {.name = "velocity", .state = makeVector({1.0, 0.0}), .stateCovariance = 2.0 * identity(2)}};
+  const std::vector<KalmanFilterProcessModel> processModel = {
+      {.stateName = "position", .stateTransition = {{"velocity", 0.1 * identity(2)}}, .processNoiseCovariance = 1.0e-3 * identity(2)},
+      {.stateName = "velocity", .controlInputMatrix = {{"acceleration", 0.1 * identity(2)}}}};
   const std::vector<KalmanFilterInput> inputs = {
-      {.name = "acceleration", .input = makeVector({0.5, -0.5}), .Q_input_noise = 1.0e-2 * identity(2)}};
+      {.name = "acceleration", .input = makeVector({0.5, -0.5}), .inputNoiseCovariance = 1.0e-2 * identity(2)}};
   const std::vector<KalmanFilterMeasurement> measurements = {{.name = "position",
                                                               .measurement = makeVector({0.2, 0.9}),
-                                                              .H_measurement_model = {{"position", identity(2)}},
-                                                              .R_measurement_noise = 1.0e-2 * identity(2)}};
+                                                              .measurementModel = {{"position", identity(2)}},
+                                                              .measurementNoiseCovariance = 1.0e-2 * identity(2)}};
 
-  std::unique_ptr<KalmanFilter> unreserved = createOrDie(initial_states);
+  std::unique_ptr<KalmanFilter> unreserved = createOrDie(initialStates);
   KalmanFilter reserved_before_reset;
-  ASSERT_TRUE(reserved_before_reset.reserve(/*max_input_dim=*/8, /*max_measurement_dim=*/16).ok());
-  ASSERT_TRUE(reserved_before_reset.reset(initial_states).ok());
-  std::unique_ptr<KalmanFilter> reserved_after_reset = createOrDie(initial_states);
-  ASSERT_TRUE(reserved_after_reset->reserve(/*max_input_dim=*/8, /*max_measurement_dim=*/16).ok());
+  ASSERT_TRUE(reserved_before_reset.reserve(/*maxInputDim=*/8, /*maxMeasurementDim=*/16).ok());
+  ASSERT_TRUE(reserved_before_reset.reset(initialStates).ok());
+  std::unique_ptr<KalmanFilter> reserved_after_reset = createOrDie(initialStates);
+  ASSERT_TRUE(reserved_after_reset->reserve(/*maxInputDim=*/8, /*maxMeasurementDim=*/16).ok());
 
   for (KalmanFilter* absl_nonnull filter : {unreserved.get(), &reserved_before_reset, reserved_after_reset.get()}) {
     for (int step = 0; step < 3; ++step) {
-      ASSERT_TRUE(filter->predict(process_model, inputs).ok());
+      ASSERT_TRUE(filter->predict(processModel, inputs).ok());
       ASSERT_TRUE(filter->correct(measurements).ok());
     }
   }
@@ -652,7 +694,7 @@ TEST(KalmanFilterTest, reserveOnlySizesStorageBeforeOrAfterReset) {
     expectNear(jointCovariance(*filter), jointCovariance(*unreserved), /*tolerance=*/1.0e-14);
   }
 
-  const absl::Status negative = unreserved->reserve(/*max_input_dim=*/-1, /*max_measurement_dim=*/0);
+  const absl::Status negative = unreserved->reserve(/*maxInputDim=*/-1, /*maxMeasurementDim=*/0);
   EXPECT_EQ(negative.code(), absl::StatusCode::kInvalidArgument);
   EXPECT_THAT(negative.message(), HasSubstr("non-negative dimensions"));
 }
@@ -660,11 +702,10 @@ TEST(KalmanFilterTest, reserveOnlySizesStorageBeforeOrAfterReset) {
 class KalmanFilterRejectionTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    filter_ = createOrDie({{.name = "position", .state = makeVector({1.0, 2.0}), .P_state_estimate = identity(2)},
-                           {.name = "velocity", .state = makeVector({3.0, 4.0}), .P_state_estimate = 2.0 * identity(2)}});
+    filter_ = createOrDie({{.name = "position", .state = makeVector({1.0, 2.0}), .stateCovariance = identity(2)},
+                           {.name = "velocity", .state = makeVector({3.0, 4.0}), .stateCovariance = 2.0 * identity(2)}});
     // Correlate the channels, so that an accidental write anywhere in the covariance shows.
-    ASSERT_TRUE(
-        filter_->predict({{.state_name = "position", .A_state_transition = {{"velocity", 0.1 * identity(2)}}}}, /*inputs=*/{}).ok());
+    ASSERT_TRUE(filter_->predict({{.stateName = "position", .stateTransition = {{"velocity", 0.1 * identity(2)}}}}, /*inputs=*/{}).ok());
     x_before_ = jointState(*filter_);
     P_before_ = jointCovariance(*filter_);
   }
@@ -684,48 +725,48 @@ class KalmanFilterRejectionTest : public ::testing::Test {
 TEST_F(KalmanFilterRejectionTest, invalidPredictionsAreRejectedWithoutChangingTheEstimate) {
   struct Case {
     std::string label;
-    std::vector<KalmanFilterProcessModel> process_model;
+    std::vector<KalmanFilterProcessModel> processModel;
     std::vector<KalmanFilterInput> inputs;
     std::string expected_message;
   };
   const KalmanFilterInput acceleration = {.name = "acceleration", .input = makeVector({1.0, 1.0})};
   const std::vector<Case> cases = {
       {"model of an unknown channel",
-       {{.state_name = "orientation"}},
+       {{.stateName = "orientation"}},
        {},
        "a process model names state channel 'orientation', which reset() did not declare; the state channels are: position, velocity"},
       {"block of an unknown channel",
-       {{.state_name = "position", .A_state_transition = {{"orientation", identity(2)}}}},
+       {{.stateName = "position", .stateTransition = {{"orientation", identity(2)}}}},
        {},
-       "A_state_transition of state channel 'position' names state channel 'orientation'"},
+       "stateTransition of state channel 'position' names state channel 'orientation'"},
       {"transition block of the wrong size",
-       {{.state_name = "position", .A_state_transition = {{"velocity", identity(3)}}}},
+       {{.stateName = "position", .stateTransition = {{"velocity", identity(3)}}}},
        {},
-       "A_state_transition block ('position', 'velocity') is 3x3, expected 2x2"},
+       "stateTransition block ('position', 'velocity') is 3x3, expected 2x2"},
       {"non-finite transition block",
-       {{.state_name = "position", .A_state_transition = {{"velocity", kNaN * identity(2)}}}},
+       {{.stateName = "position", .stateTransition = {{"velocity", kNaN * identity(2)}}}},
        {},
-       "A_state_transition block ('position', 'velocity') is not finite"},
+       "stateTransition block ('position', 'velocity') is not finite"},
       {"input block of an input that was not given",
-       {{.state_name = "velocity", .B_control_input = {{"jerk", identity(2)}}}},
+       {{.stateName = "velocity", .controlInputMatrix = {{"jerk", identity(2)}}}},
        {acceleration},
-       "B_control_input of state channel 'velocity' names input 'jerk', which predict() was not given; the inputs are: acceleration"},
+       "controlInputMatrix of state channel 'velocity' names input 'jerk', which predict() was not given; the inputs are: acceleration"},
       {"input block of the wrong size",
-       {{.state_name = "velocity", .B_control_input = {{"acceleration", matrix_t::Identity(2, 3)}}}},
+       {{.stateName = "velocity", .controlInputMatrix = {{"acceleration", matrix_t::Identity(2, 3)}}}},
        {acceleration},
-       "B_control_input block ('velocity', 'acceleration') is 2x3, expected 2x2"},
+       "controlInputMatrix block ('velocity', 'acceleration') is 2x3, expected 2x2"},
       {"two models of one channel",
-       {{.state_name = "velocity"}, {.state_name = "velocity"}},
+       {{.stateName = "velocity"}, {.stateName = "velocity"}},
        {},
        "state channel 'velocity' is given two process models"},
       {"process noise of the wrong size",
-       {{.state_name = "velocity", .Q_process_noise = identity(3)}},
+       {{.stateName = "velocity", .processNoiseCovariance = identity(3)}},
        {},
-       "Q_process_noise of state channel 'velocity' is 3x3, expected 2x2"},
+       "processNoiseCovariance of state channel 'velocity' is 3x3, expected 2x2"},
       {"indefinite process noise",
-       {{.state_name = "velocity", .Q_process_noise = -identity(2)}},
+       {{.stateName = "velocity", .processNoiseCovariance = -identity(2)}},
        {},
-       "Q_process_noise of state channel 'velocity' is not positive semi-definite"},
+       "processNoiseCovariance of state channel 'velocity' is not positive semi-definite"},
       {"repeated input", {}, {acceleration, acceleration}, "input 'acceleration' is given twice"},
       {"input without a name", {}, {{.name = "", .input = makeVector({1.0})}}, "an input has an empty name"},
       {"empty input", {}, {{.name = "acceleration", .input = vector_t()}}, "input 'acceleration' is empty"},
@@ -735,17 +776,21 @@ TEST_F(KalmanFilterRejectionTest, invalidPredictionsAreRejectedWithoutChangingTh
        "the value of input 'acceleration' is not finite"},
       {"asymmetric input noise",
        {},
-       {{.name = "acceleration", .input = makeVector({1.0, 1.0}), .Q_input_noise = (matrix_t(2, 2) << 1.0, 0.1, 0.0, 1.0).finished()}},
-       "Q_input_noise of input 'acceleration' is not symmetric"},
+       {{.name = "acceleration",
+         .input = makeVector({1.0, 1.0}),
+         .inputNoiseCovariance = (matrix_t(2, 2) << 1.0, 0.1, 0.0, 1.0).finished()}},
+       "inputNoiseCovariance of input 'acceleration' is not symmetric"},
       // Positive variances, but a covariance larger than their geometric mean: a correlation of 2.
       {"input noise with a correlation beyond one",
        {},
-       {{.name = "acceleration", .input = makeVector({1.0, 1.0}), .Q_input_noise = (matrix_t(2, 2) << 1.0, 2.0, 2.0, 1.0).finished()}},
-       "Q_input_noise of input 'acceleration' is not positive semi-definite: its entry (0, 1) = 2"},
+       {{.name = "acceleration",
+         .input = makeVector({1.0, 1.0}),
+         .inputNoiseCovariance = (matrix_t(2, 2) << 1.0, 2.0, 2.0, 1.0).finished()}},
+       "inputNoiseCovariance of input 'acceleration' is not positive semi-definite: its entry (0, 1) = 2"},
   };
   for (const Case& test_case : cases) {
     SCOPED_TRACE(test_case.label);
-    expectRejectedWithoutChange(filter_->predict(test_case.process_model, test_case.inputs), test_case.expected_message);
+    expectRejectedWithoutChange(filter_->predict(test_case.processModel, test_case.inputs), test_case.expected_message);
   }
 }
 
@@ -757,78 +802,81 @@ TEST_F(KalmanFilterRejectionTest, invalidCorrectionsAreRejectedWithoutChangingTh
   };
   const KalmanFilterMeasurement valid = {.name = "position",
                                          .measurement = makeVector({1.0, 2.0}),
-                                         .H_measurement_model = {{"position", identity(2)}},
-                                         .R_measurement_noise = identity(2)};
+                                         .measurementModel = {{"position", identity(2)}},
+                                         .measurementNoiseCovariance = identity(2)};
   const std::vector<Case> cases = {
       {"block of an unknown channel",
        {{.name = "gps",
          .measurement = makeVector({1.0, 2.0}),
-         .H_measurement_model = {{"orientation", identity(2)}},
-         .R_measurement_noise = identity(2)}},
-       "H_measurement_model of measurement 'gps' names state channel 'orientation'"},
+         .measurementModel = {{"orientation", identity(2)}},
+         .measurementNoiseCovariance = identity(2)}},
+       "measurementModel of measurement 'gps' names state channel 'orientation'"},
       {"observation block of the wrong size",
        {{.name = "gps",
          .measurement = makeVector({1.0, 2.0}),
-         .H_measurement_model = {{"position", identity(3)}},
-         .R_measurement_noise = identity(2)}},
-       "H_measurement_model block ('gps', 'position') is 3x3, expected 2x2"},
+         .measurementModel = {{"position", identity(3)}},
+         .measurementNoiseCovariance = identity(2)}},
+       "measurementModel block ('gps', 'position') is 3x3, expected 2x2"},
       {"no observation block",
-       {{.name = "gps", .measurement = makeVector({1.0, 2.0}), .R_measurement_noise = identity(2)}},
+       {{.name = "gps", .measurement = makeVector({1.0, 2.0}), .measurementNoiseCovariance = identity(2)}},
        "measurement 'gps' observes no state channel"},
       {"missing noise",
-       {{.name = "gps", .measurement = makeVector({1.0, 2.0}), .H_measurement_model = {{"position", identity(2)}}}},
-       "R_measurement_noise of measurement 'gps' is missing"},
+       {{.name = "gps", .measurement = makeVector({1.0, 2.0}), .measurementModel = {{"position", identity(2)}}}},
+       "measurementNoiseCovariance of measurement 'gps' is missing"},
       {"noise of the wrong size",
        {{.name = "gps",
          .measurement = makeVector({1.0, 2.0}),
-         .H_measurement_model = {{"position", identity(2)}},
-         .R_measurement_noise = identity(3)}},
-       "R_measurement_noise of measurement 'gps' is 3x3, expected 2x2"},
+         .measurementModel = {{"position", identity(2)}},
+         .measurementNoiseCovariance = identity(3)}},
+       "measurementNoiseCovariance of measurement 'gps' is 3x3, expected 2x2"},
       {"repeated measurement", {valid, valid}, "measurement 'position' is given twice"},
       {"measurement without a name",
        {{.name = "",
          .measurement = makeVector({1.0, 2.0}),
-         .H_measurement_model = {{"position", identity(2)}},
-         .R_measurement_noise = identity(2)}},
+         .measurementModel = {{"position", identity(2)}},
+         .measurementNoiseCovariance = identity(2)}},
        "a measurement has an empty name"},
       {"empty measurement",
-       {{.name = "gps", .measurement = vector_t(), .H_measurement_model = {{"position", identity(2)}}, .R_measurement_noise = identity(2)}},
+       {{.name = "gps",
+         .measurement = vector_t(),
+         .measurementModel = {{"position", identity(2)}},
+         .measurementNoiseCovariance = identity(2)}},
        "measurement 'gps' is empty"},
       {"non-finite measurement",
        {{.name = "gps",
          .measurement = makeVector({kNaN, 2.0}),
-         .H_measurement_model = {{"position", identity(2)}},
-         .R_measurement_noise = identity(2)}},
+         .measurementModel = {{"position", identity(2)}},
+         .measurementNoiseCovariance = identity(2)}},
        "the value of measurement 'gps' is not finite"},
       // Twice the same noise-free direction: H P H^T + R has rank one.
       {"singular innovation covariance",
        {{.name = "first",
          .measurement = makeVector({1.0}),
-         .H_measurement_model = {{"velocity", matrix_t::Ones(1, 2)}},
-         .R_measurement_noise = scalarMatrix(0.0)},
+         .measurementModel = {{"velocity", matrix_t::Ones(1, 2)}},
+         .measurementNoiseCovariance = scalarMatrix(0.0)},
         {.name = "second",
          .measurement = makeVector({1.0}),
-         .H_measurement_model = {{"velocity", matrix_t::Ones(1, 2)}},
-         .R_measurement_noise = scalarMatrix(0.0)}},
+         .measurementModel = {{"velocity", matrix_t::Ones(1, 2)}},
+         .measurementNoiseCovariance = scalarMatrix(0.0)}},
        "the innovation covariance H P H^T + R of measurements first, second is not positive definite"},
       // The same direction scaled by 1/3: singular in exact arithmetic, and only rounding away from it in floating point,
       // so the Cholesky factorization either fails or leaves a pivot at rounding level, which the pivot test rejects.
       {"innovation covariance singular up to rounding",
        {{.name = "first",
          .measurement = makeVector({1.0}),
-         .H_measurement_model = {{"velocity", matrix_t::Ones(1, 2)}},
-         .R_measurement_noise = scalarMatrix(0.0)},
+         .measurementModel = {{"velocity", matrix_t::Ones(1, 2)}},
+         .measurementNoiseCovariance = scalarMatrix(0.0)},
         {.name = "third",
          .measurement = makeVector({1.0 / 3.0}),
-         .H_measurement_model = {{"velocity", matrix_t::Constant(1, 2, 1.0 / 3.0)}},
-         .R_measurement_noise = scalarMatrix(0.0)}},
+         .measurementModel = {{"velocity", matrix_t::Constant(1, 2, 1.0 / 3.0)}},
+         .measurementNoiseCovariance = scalarMatrix(0.0)}},
        "the innovation covariance H P H^T + R of measurements first, third is not positive definite"},
       {"noise with a correlation beyond one",
        {{.name = "gps",
          .measurement = makeVector({1.0, 2.0}),
-         .H_measurement_model = {{"position", identity(2)}},
-         .R_measurement_noise = (matrix_t(2, 2) << 1.0, -2.0, -2.0, 1.0).finished()}},
-       "R_measurement_noise of measurement 'gps' is not positive semi-definite: its entry (0, 1) = -2"},
+         .measurementModel = {{"position", identity(2)}},
+         .measurementNoiseCovariance = (matrix_t(2, 2) << 1.0, -2.0, -2.0, 1.0).finished()}},
+       "measurementNoiseCovariance of measurement 'gps' is not positive semi-definite: its entry (0, 1) = -2"},
   };
   for (const Case& test_case : cases) {
     SCOPED_TRACE(test_case.label);

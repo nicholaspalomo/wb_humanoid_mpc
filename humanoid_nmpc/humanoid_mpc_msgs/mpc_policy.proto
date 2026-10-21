@@ -14,11 +14,11 @@ import "nproto/options.proto";
 
 // One MPC solution: ocs2::PrimalSolution plus ocs2::CommandData and ocs2::PerformanceIndex, as
 // MPC_MRT_Interface::copyToBuffer() assembles them in process.
-// Next ID: 15
+// Next ID: 16
 message MpcPolicy {
   option (nproto.generate_struct) = "ocs2::humanoid::msgs::MpcPolicy";
 
-  reserved 15 to max;
+  reserved 16 to max;
 
   // The robot's reset counters this solution was solved after (ResetRequests). The robot drops a policy whose
   // resets_served is below the requests it has made: it was solved before a reset the robot asked for.
@@ -56,4 +56,7 @@ message MpcPolicy {
 
   PerformanceIndex performance = 13;
   ViewerAnnotations annotations = 14;
+  // The model layout the MPC node solved on (MpcObservation.model_fingerprint): a robot of another layout refuses the
+  // policy, as one of other dimensions. 0: not stamped.
+  fixed64 model_fingerprint = 15;
 }

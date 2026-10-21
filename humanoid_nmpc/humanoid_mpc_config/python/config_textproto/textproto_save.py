@@ -266,6 +266,9 @@ class _ValueBatch:
 def save(path: str, message_class: type[MessageT], edits: Sequence[Edit]) -> EditResult:
     """Applies `edits` to the file at `path` (apply_edits()) and writes the result atomically when the text changed.
 
+    The file must name its schema with a `# proto-message:` line (nproto_textproto.check_proto_message_header()), as
+    every loader of it requires.
+
     Args:
       path: The file.
       message_class: The generated class of its schema.
@@ -278,8 +281,11 @@ def save(path: str, message_class: type[MessageT], edits: Sequence[Edit]) -> Edi
       OSError: The file cannot be read or written.
       SaveError: As apply_edits(); the file is then untouched.
     """
-    with open(path, encoding="utf-8", newline="") as file:
-        text = file.read()
+    try:
+        text = nproto_textproto.read_textproto_file(path)
+        nproto_textproto.check_proto_message_header(text, message_class(), path)
+    except nproto_textproto.TextprotoError as error:
+        raise SaveError(str(error)) from error
     result = apply_edits(text, message_class, edits, path)
     if result.changed:
         write_atomically(path, result.text)

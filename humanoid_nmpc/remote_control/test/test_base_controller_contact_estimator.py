@@ -25,11 +25,12 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-"""Tests of the contact estimator drop-down on the Base Controller tab of the joystick GUI.
+"""Tests of the schema's drop-downs on the Base Controller tab of the joystick GUI, the contact estimator's among them.
 
-The drop-down offers the names of the contact_estimator registry (config_registries.textproto), mirrors the selection
-of the MPC Parameters tab (task file `contact_estimator`) and selects through it, so a choice publishes the name on
-operator/mpc_parameters like a slider. Needs a display.
+The tab offers every task-file choice whose schema names a base_controller_label (task_file.proto marks
+contact_estimator so). Its drop-down offers the names of the contact_estimator registry (config_registries.textproto),
+mirrors the value of the MPC Parameters tab, the schema's default included, and selects through it, so a choice
+publishes the name on operator/mpc_parameters like a slider. Needs a display.
 """
 
 import os
@@ -78,25 +79,33 @@ class TestBaseControllerContactEstimatorDropDown(unittest.TestCase):
             ),
         )
 
+    def _choice(self, app: base_velocity_controller_gui.App):
+        """The contact estimator's drop-down, which the schema puts on the tab (base_controller_label)."""
+        self.assertIn("contact_estimator", app.schema_choices)
+        return app.schema_choices["contact_estimator"]
+
     def test_the_drop_down_offers_the_registry_and_selects_the_contact_estimator(self):
         app = self._create_app()
         try:
             app.withdraw()
+            choice = self._choice(app)
             self.assertEqual(
-                app.contact_estimator_var.get(),
+                choice.var.get(),
                 "cheater_sim",
                 "the Atlas task file selects cheater_sim",
             )
-            self.assertNotIn("disabled", app.contact_estimator_combobox.state())
-            offered = tuple(app.contact_estimator_combobox.cget("values"))
+            self.assertNotIn("disabled", choice.combobox.state())
+            offered = tuple(choice.combobox.cget("values"))
             self.assertIn("cheater_sim", offered)
             self.assertIn("always_in_contact", offered)
 
             # Choosing always_in_contact selects it through the MPC Parameters tab and publishes it.
-            app.contact_estimator_var.set("always_in_contact")
-            app._on_contact_estimator_selected()
+            choice.var.set("always_in_contact")
+            app._on_schema_choice_selected("contact_estimator")
             tab = app.mpc_params_tab
-            self.assertEqual(tab.selected_contact_estimator(), "always_in_contact")
+            self.assertEqual(
+                tab.base_controller_value("contact_estimator"), "always_in_contact"
+            )
             tab.after_cancel(tab._debounce_publish_id)
             tab._debounce_publish_id = None
             tab._publish_to_topic()
@@ -106,10 +115,50 @@ class TestBaseControllerContactEstimatorDropDown(unittest.TestCase):
 
             # The tab's Reset All restores the file's selection and the drop-down follows.
             tab.reset_all_defaults()
-            self.assertEqual(app.contact_estimator_var.get(), "cheater_sim")
+            self.assertEqual(choice.var.get(), "cheater_sim")
             reset = self.publisher.last_message
             assert isinstance(reset, mpc_parameter_update_pb2.MpcParameterUpdate)
             self.assertEqual(reset.task.contact_estimator, "cheater_sim")
+        finally:
+            app.destroy()
+
+    def test_the_drop_down_is_built_from_the_schema_and_labeled_by_it(self):
+        app = self._create_app()
+        try:
+            app.withdraw()
+            self._choice(app)
+            # Only the fields the schema offers here, each labeled with its base_controller_label.
+            for spec in app.mpc_params_tab.base_controller_fields():
+                self.assertTrue(spec.tuning.base_controller_label)
+            labels = [
+                str(widget.cget("text"))
+                for widget in app.schema_choice_frame.winfo_children()
+                if isinstance(widget, base_velocity_controller_gui.ttk.Label)
+            ]
+            self.assertIn("Contact estimator:", labels)
+        finally:
+            app.destroy()
+
+    def test_a_file_that_leaves_the_estimator_at_its_default_shows_the_default(self):
+        with open(self.task_file, encoding="utf-8") as handle:
+            lines = handle.read().split("\n")
+        kept = [line for line in lines if not line.startswith("contact_estimator:")]
+        self.assertNotEqual(kept, lines, "the Atlas task file sets contact_estimator")
+        with open(self.task_file, "w", encoding="utf-8") as handle:
+            handle.write("\n".join(kept))
+        app = self._create_app()
+        try:
+            app.withdraw()
+            choice = self._choice(app)
+            # The schema's default, which the controller runs with, not an empty, disabled drop-down.
+            self.assertEqual(choice.var.get(), "cheater_sim")
+            self.assertNotIn("disabled", choice.combobox.state())
+            choice.var.set("always_in_contact")
+            app._on_schema_choice_selected("contact_estimator")
+            self.assertEqual(
+                app.mpc_params_tab.base_controller_value("contact_estimator"),
+                "always_in_contact",
+            )
         finally:
             app.destroy()
 
@@ -117,8 +166,9 @@ class TestBaseControllerContactEstimatorDropDown(unittest.TestCase):
         app = self._create_app(enable_online_tuning=False)
         try:
             app.withdraw()
-            self.assertIn("disabled", app.contact_estimator_combobox.state())
-            self.assertEqual(app.contact_estimator_var.get(), "cheater_sim")
+            choice = self._choice(app)
+            self.assertIn("disabled", choice.combobox.state())
+            self.assertEqual(choice.var.get(), "cheater_sim")
         finally:
             app.destroy()
 

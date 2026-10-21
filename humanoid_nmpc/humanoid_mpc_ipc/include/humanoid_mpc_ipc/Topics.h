@@ -34,11 +34,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/string_view.h"
 
 /**
- * The topics of the IPC bus (humanoid_nmpc/docs/distributed_runtime/README.md, "Topics"). A topic is the first frame of
- * every bus message; the comment of each constant names the message it carries and who publishes it.
- *
- * ZeroMQ's SUB filter matches a prefix of the topic frame, so no topic may be a prefix of another
- * (test/testTopics.cpp checks it).
+ * The topics of the IPC bus (humanoid_nmpc/docs/distributed_runtime/README.md, "Topics"). Each is a DDS topic of the same
+ * name (letters, digits, '_' and '/'); the comment of each constant names the message it carries and who publishes it.
+ * config/ipc/network.textproto gives every one its QoS profile and publishers (test/testTopics.cpp checks it).
  */
 namespace ocs2::humanoid::ipc::topics {
 
@@ -49,11 +47,11 @@ inline constexpr absl::string_view kRobotMpcObservation = "robot/mpc_observation
 inline constexpr absl::string_view kRobotState = "robot/state";
 // FsmState, robot -> GUI, on change and at 2 Hz.
 inline constexpr absl::string_view kRobotFsmState = "robot/fsm_state";
-// LoopTiming, robot -> GUI and Rerun bridge, at 1 Hz.
+// LoopTiming, robot -> Rerun bridge, at 1 Hz.
 inline constexpr absl::string_view kRobotLoopTiming = "robot/loop_timing";
 // MpcPolicy, MPC -> robot and dummy sim, every solve.
 inline constexpr absl::string_view kMpcPolicy = "mpc/policy";
-// MpcStatus, MPC -> robot (solver health), GUI and Rerun bridge, every solve attempt.
+// MpcStatus, MPC -> robot (solver health) and Rerun bridge, every solve attempt.
 inline constexpr absl::string_view kMpcStatus = "mpc/status";
 // VisualizationScene, MPC (visualization) -> Rerun bridge.
 inline constexpr absl::string_view kVizScene = "viz/scene";
@@ -65,7 +63,7 @@ inline constexpr absl::string_view kOperatorWalkingVelocityCommand = "operator/w
 inline constexpr absl::string_view kOperatorFsmCommand = "operator/fsm_command";
 // MpcParameterUpdate (humanoid_mpc_config: the whole task and contact planner files), GUI -> MPC and robot, on edit.
 inline constexpr absl::string_view kOperatorMpcParameters = "operator/mpc_parameters";
-// JointPdGainsFile (humanoid_mpc_config: the whole PD gains file), GUI -> robot, on edit.
+// JointPdGainsUpdate (humanoid_mpc_config: the whole PD gains file, paired with its configuration identity), GUI -> robot, on edit.
 inline constexpr absl::string_view kOperatorPdGains = "operator/pd_gains";
 // JointTargets, GUI -> robot, on edit (JOINT_PD only).
 inline constexpr absl::string_view kOperatorJointTargets = "operator/joint_targets";
@@ -96,7 +94,7 @@ inline constexpr std::array<absl::string_view, 16> kAllTopics = {
     kRobotConfigSaveStatus,
 };
 // clang-format off
-// LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_ipc/python/humanoid_mpc_ipc/topics.py:topics, //humanoid_nmpc/docs/distributed_runtime/README.md:topic_table)
+// LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_ipc/python/humanoid_mpc_ipc/topics.py:topics, //humanoid_nmpc/docs/distributed_runtime/README.md:topic_table, //config/ipc/network.textproto:topic_qos)
 // clang-format on
 
 }  // namespace ocs2::humanoid::ipc::topics

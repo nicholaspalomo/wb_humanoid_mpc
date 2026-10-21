@@ -16,7 +16,7 @@ and 4.6).
    step x (1 / mrt_desired_frequency) / dt <-- prepareCycle(), computeJointControlAction()  (Execution::kCaller)
    getRobotState() ------------------------->        |  observations, policies  <------>  runSolverIteration()
          |                                                                               every 1 / mpc_desired_frequency
-         +--------------------> ClosedLoopMetrics <--- solve times, the SQP's delta_x0
+         +--------------------> ClosedLoopMetrics <--- solve times, the SQP's delta_x0 and step
                                       |
                                 <robot>_<scenario>.json (ClosedLoopMetricsSchema)
 ```
@@ -29,7 +29,7 @@ and 4.6).
 | JSON | `io/JsonValue.h` | The documents the metrics and the benchmark write; insertion-ordered, shortest round-trip numbers. |
 | Lockstep closed loop | `closed_loop/LockstepClosedLoop.h`, `closed_loop/ClosedLoopDriver.h`, `closed_loop/CentroidalClosedLoopDriver.h`, `closed_loop/WholeBodyClosedLoopDriver.h` | The headless simulator, the formulation's MPC as its MPC node builds it, its MRT joint controller as its robot binary builds it, and between the two an `InProcessMpcLink` whose solver iterations the runner calls (`InProcessMpcLink::Execution::kCaller`, `runSolverIteration()`). One thread, no bus. |
 | Scenarios | `closed_loop/ClosedLoopScenario.h` | The commands of section 4.5, driven through the GUI's message. |
-| Metrics | `closed_loop/ClosedLoopMetrics.h`, `closed_loop/ClosedLoopMetricsSchema.h`, `closed_loop/MetricBands.h`, `exe/compareClosedLoopMain.cpp` | The metrics of section 4.5, their JSON schema, the band rules against a baseline label, and the offline comparison of two recorded labels. |
+| Metrics | `closed_loop/ClosedLoopMetrics.h`, `closed_loop/ClosedLoopMetricsSchema.h`, `closed_loop/MetricBands.h`, `closed_loop/SqpStepDiagnostics.h`, `exe/compareClosedLoopMain.cpp` | The metrics of section 4.5 and each solve's SQP step, their JSON schema, the band rules against a baseline label, and the offline comparison of two recorded labels. |
 | Solve benchmark | `benchmark/MpcSolveBenchmark.h`, `benchmark/SolveBenchmarkGate.h`, `exe/benchmarkMpcSolveMain.cpp` | Section 4.6: recorded walking states replayed through the controller, solve times per phase and the tape operation count of every CppAD library, and the real-time gate of a benchmark against a baseline label. |
 | Recorded data | `data/closed_loop/<label>/`, `data/benchmark/<label>/`, `data/benchmark/states/` | The labels the Make targets record (["Recording and comparing labels"](#recording-and-comparing-labels)), and the walking states the benchmark replays. |
 | Euler chart | `chart/EulerChart.h` | Phi, Phi^-1, dPhi / dx_e and P_e between the ZYX Euler coordinates of a state and the physical state of the quaternion formulation (design section 2.12), through `orientation/EulerBoundary.h`: what the equivalence suites of `humanoid_common_mpc/test/equivalence` map their Euler oracle through. |
@@ -40,7 +40,10 @@ A run is reproducible and independent of the machine's speed:
 
 1. Every control cycle (`1 / mpc.mrt_desired_frequency` of the task file, a whole number of 0.5 ms simulation steps) runs in
    the order of `RobotProcess::cycle()` (`humanoid_common_mpc_app/robot`): the runner reads the simulator's state,
-   hands the controller the mode and the JOINT_PD posture (`RobotController::prepareCycle()`, in the order of the
+   passes it through the task file's `state_estimator` as the robot process does (`createRobotProcessStateEstimator()`:
+   `ground_truth` hands the controller the simulator's state itself, `kalman` its estimate of the base; the fall check,
+   the metrics and the joints' feedback torques read the true state, the recorded robot states the controller's), hands
+   the controller the mode and the JOINT_PD posture (`RobotController::prepareCycle()`, in the order of the
    formulation's binary), computes the action, applies the controller-side settings of the task file, serves the operator's
    commands of this cycle, which take effect in the controller from the next cycle on, and applies the action last.
 2. A solve is due every `1 / mpc.mpc_desired_frequency` of simulation time. It runs in the control cycle it falls in, after the
@@ -114,8 +117,9 @@ to [-1, 1], and the pelvis height at `default_base_height`. A command beyond a r
 ## Metrics
 
 <!-- LINT.IfChange(metrics_schema) -->
-Every document has `schema: humanoid_mpc_validation.closed_loop_metrics.v1`, the label, robot, formulation and scenario,
-an open `provenance` and `settings` object, and these fields (null where nothing was measured):
+Every document has `schema: humanoid_mpc_validation.closed_loop_metrics.v2`, the label, robot, formulation and scenario,
+an open `provenance` and `settings` object, and these fields (null where nothing was measured). v2 added `sqp_step`; a v1
+document has none of it, and a comparison skips a metric either document lacks:
 
 | Field | Meaning |
 |---|---|
@@ -129,11 +133,23 @@ an open `provenance` and `settings` object, and these fields (null where nothing
 | `stance_foot_slip.{max_m, rms_m, stance_phases}` | the horizontal drift of a contact frame from its touch-down while in measured contact |
 | `joint_torque.rms_nm` | the commanded torque of the MPC joints |
 | `initial_state_gap.{max_rotation_rad, max_rotation_time_s, max_norm}` | `delta_x0` of each solve's first SQP iteration, as the solver records it: the observation against the node 0 it warm-started from (the previous solution after `trajectorySpread`), zero after a reset the solve served first |
-| `quaternion_norm.max_deviation` | `max | |xi_k| - 1 |` over the nodes of every solution; null without a solve |
+| `quaternion_norm.{max_deviation, non_finite_solves}` | `max | |xi_k| - 1 |` over the nodes of every solution; null without a solve, and the count of solves with non-finite quaternion deviations |
 | `non_finite_values` | NaN or infinite values in the observations, policy inputs and joint torques |
 | `solve_time_ms.{total, lq_approximation, solve_qp, linesearch, compute_controller}.{mean, p50, p99, max}` | the solver iteration's wall time and the SQP's phases |
+| `sqp_step.{steps, full_steps, reduced_steps, zero_steps, full_steps_refused_above_g_max}` | the SQP's step in each successful solve (its last iteration, `SqpSolver::getIterationRecords()`): how many solves took the full step, a reduced one or none, and in how many the full step was refused for a constraint violation above `g_max` |
+| `sqp_step.accepted_by.{constraint, dual, cost}` | the filter line search's rule that accepted the step: the step's violation above `g_max`; every other step not above `g_max` - between `g_min` and `g_max`, or below `g_min` after an iterate at or above it or without a descent direction (a decrease of the merit or of the violation); the violation below `g_min` before and after the step on a descent direction (Armijo) |
+| `sqp_step.longest_violation_growth` | the longest run of consecutive solves whose constraint violation grew over the solve before (a failed solve ends a run) |
+| `sqp_step.constraint_violation.{mean, p50, p99, max}` | the line search's constraint violation after each step: the shooting gaps, the initial-state gap and the equality constraints |
+| `sqp_step.swing_normal_velocity_residual.{mean, p50, p99, max}` | the largest residual of the hard swing-foot normal-velocity rows (`<contact>_normalVelocity`) over each new solution's nodes, over the solves with a swing in the horizon. The rows differ by formulation, and so do their units: m/s on the centroidal MPCs (`v_z - zdot_ref + k_p (z - z_ref)`), m/s^2 on the whole-body MPC (`k_v (v_z - zdot_ref) + k_a (a_z - zddot_ref) + k_p (z - z_ref)`, the gains of `model_settings.foot_constraint`; 10, 1 and 100 on the Unitree G1), so the numbers of a centroidal and of a whole-body configuration are not alike |
 | `failures.{failed_solves, resets_served, full_resets_served, simulator_resets, unhealthy_cycles}` | during the commands; simulator resets over the whole run |
 <!-- LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_validation/src/closed_loop/ClosedLoopMetricsSchema.cpp:metrics_schema) -->
+
+The `sqp_step` group is what shows a Gauss-Newton SQP cycling from one solve to the next (design README section 6): runs
+of full steps whose violation grows (`longest_violation_growth`), each ended by a full step refused above `g_max`
+(`full_steps_refused_above_g_max`) and a reduced step. A run's time series has the step of every solve
+(`solve_sqp_step`: the step size, the codes of the rules that accepted the step and judged the full step, the full
+step's and the step's constraint violation) and the swing residual of every solve with a swing
+(`solve_swing_normal_velocity_residual`), so a plot shows where in the gait the cycle runs (`TimeSeriesLabels.h`).
 
 ## Bands against a baseline
 
@@ -157,7 +173,8 @@ the band, it passes and is reported as an improvement. A comparison returns both
 a widened gate is documented rather than discovered. Survival must be equal or better (surviving where the baseline fell
 is an improvement; a run that fell in the baseline is compared on survival alone), the p99 solve time at most +10 %
 (only on the machine of the baseline, `--compare_solve_time`), and the quaternion norm below 1e-9. A metric that is null
-in either document is not compared.
+in the baseline is not compared; one that the baseline measured and the candidate did not (null, or NaN in a run's
+document still in memory) fails, since no band can hold a value that is not there.
 <!-- LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_validation/include/humanoid_mpc_validation/closed_loop/MetricBands.h:metric_bands) -->
 
 ## Recording and comparing labels
@@ -251,13 +268,14 @@ state, so states recorded with one formulation drive another through the same ob
 |---|---|
 | `test_validation_io` | SHA-256 against the FIPS test vectors; JSON round trips (numbers bit for bit); golden files bit for bit with their provenance, every recorded file under `data/` (the recorded states, and the documents of any label) formatting back to its bytes; malformed input rejected with its position; the toolchain through a document and a golden header, read from the environment the Make targets pass, a missing or malformed one refused |
 | `test_euler_chart` | the chart's blocks where `initial_state` puts them; Phi is the Euler boundary's conversion; dPhi / dx_e and P_e against central differences, P_e = E+ dPhi on the angles; the inverse chart (the angles wrapped); the rate coupling; the singularity; malformed layouts and a zero quaternion refused |
-| `test_closed_loop_metrics` | each metric on synthetic samples with a known answer; the schema test; the band directions, an improvement passed and reported, a regression failed, the height mean two-sided; the offline comparison of two labels archived from synthetic runs: the verdict of the runs as held in memory, run by run and in the order of the configurations and scenarios, the runs without a baseline named, one robot alone, the solve times only on request, and a missing directory, an unknown robot and an unreadable document refused |
+| `test_closed_loop_metrics` | each metric on synthetic samples with a known answer, the SQP steps of a cycle among them (growth runs, refusals above `g_max`, the rules that accepted each step); the schema test; the band directions, an improvement passed and reported, a regression failed, the height mean two-sided; the offline comparison of two labels archived from synthetic runs: the verdict of the runs as held in memory, run by run and in the order of the configurations and scenarios, the runs without a baseline named, one robot alone, the solve times only on request, and a missing directory, an unknown robot and an unreadable document refused |
+| `test_sqp_step_diagnostics` | the SQP step a solve records: the hard normal-velocity terms found by their contacts' names, their largest residual over the nodes where they are active (none without a swing), and every line-search verdict's kind |
 | `test_closed_loop_scenarios` | the scenario set, the GUI conversion and its clamp against the MPC node's, the configurations and their files against the robots' launch files, the bands (each the larger of its parts, survival, the quaternion norm) |
 | `test_lockstep_solve_schedule` | the runner's solve schedule: the pacing, a failed solve's pause and its end by a reset requested after the failure |
 | `test_recorded_robot_states` | a recording reads back as the recorded states; another robot is refused |
 | `test_stride_motion_of_recorded_walks` | the stride means of the base's planar motion on the recorded straight walks of `data/benchmark/states/` (design section 2.9): neither a turn nor a sideways walk over the cycle of the gait they walk, where the pelvis's own yaw rate and sideways velocity sway past the gait thresholds; an added turn reads exactly as that turn; a stall of the solves of up to 1 s is bridged; a history restarted from the instantaneous twist reads the sway as a turn. Builds no model |
 | `test_joint_feedback_torques` | the joint torques a control cycle records: the PD torque plus the feedforward of each MPC joint, in the order of the MPC's joints; a joint the action leaves out is an internal error naming it |
-| `test_lockstep_determinism` | smoke runs on the Unitree G1 with one solver thread agree to 1e-9, two in one process and one in a process of its own, and a run's per-solve gaps hold its document's largest (exclusive: it compiles CppAD libraries) |
+| `test_lockstep_determinism` | smoke runs on the Unitree G1 with one solver thread agree to 1e-9, two in one process and one in a process of its own, and a run's per-solve gaps, SQP steps and swing residuals hold its document's largest (exclusive: it compiles CppAD libraries) |
 | `test_initial_state_gap` | the initial-state gap of a solve (`initialStateGapOf`): the state manifold's rotation angle wherever its layout puts the rotation block, zero without a rotation block; and the quaternion norm deviation of a solution (`maxQuaternionNormDeviationOf`), the largest distance of a stored quaternion from the unit sphere, none without a node |
 | `test_driver_settings_from_config` | the GUI's command scaling from its own fields of the reference file, a limit that is absent or not positive refused by name, every configuration's reference file; the contact wrench gate of a whole task file: no block is the instantaneous gate, a refused block keeps the gate in use, every configuration's task file sets its own |
 | `test_robot_scene_gantry_hold` | the gantry hold each configuration's task file names (pinned: a change is a change of its runs), its MuJoCo scene supporting it, the robot process's mujoco backend running on it without falling back to `kinematic_teleport`; each configuration on `weld_constraint` (all five) failing the check with its scene's weld taken out |
@@ -279,6 +297,7 @@ The runner mirrors code it cannot share, each pair tied with `LINT.IfChange` / `
 | Here | There |
 |---|---|
 | `LockstepClosedLoop.cpp:robot_process_cycle` | `RobotProcess.cpp:robot_process_cycle` (the order of the control cycle) |
+| `LockstepStateEstimator.cpp:robot_process_state_estimator` | `RobotProcess.cpp:robot_process_state_estimator` (the state estimator by name, `StateEstimatorContext`) |
 | `ClosedLoopDriver.cpp:controller_side_updates` | `RobotProcess.cpp:controller_side_updates` (`applyControllerSettings()`) |
 | `ClosedLoopDriver.cpp:robot_backend_options` | `CentroidalMpcRobotMain.cpp`, `WBMpcRobotMain.cpp`: `robot_backend_options` |
 | `CentroidalClosedLoopDriver.cpp:centroidal_robot_controller`, `WholeBodyClosedLoopDriver.cpp:whole_body_robot_controller` | the controller set-up of `CentroidalMpcRobotMain.cpp`, `WBMpcRobotMain.cpp` |

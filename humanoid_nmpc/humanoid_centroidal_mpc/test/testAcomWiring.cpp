@@ -70,6 +70,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/orientation/BaseOrientation.h"
 #include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
 #include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
+#include "humanoid_nmpc/humanoid_common_mpc/test/support/StatusTestMacros.h"
 #include "support/ProblemFingerprint.h"
 #include "support/TypedConfigFiles.h"
 
@@ -357,12 +358,12 @@ class HeadingModelReloadTest : public ::testing::Test {
     atlas_ = *std::move(config);
 
     modelSettings_ =
-        std::make_unique<ModelSettings>(ModelSettings::Create(atlas_.task, urdfFile_, "testAcomWiring", /*verbose=*/false).value());
+        std::make_unique<ModelSettings>(checkedValue(ModelSettings::Create(atlas_.task, urdfFile_, "testAcomWiring", /*verbose=*/false)));
     pinocchioInterface_ = std::make_unique<PinocchioInterface>(
-        loadCustomPinocchioInterface(atlas_.task, urdfFile_, *modelSettings_, /*scaleTotalMass=*/false).value());
-    info_ = centroidalModelInfoOf(atlas_, *pinocchioInterface_, *modelSettings_).value();
+        checkedValue(loadCustomPinocchioInterface(atlas_.task, urdfFile_, *modelSettings_, /*scaleTotalMass=*/false)));
+    HUMANOID_ASSERT_OK_AND_ASSIGN(info_, centroidalModelInfoOf(atlas_, *pinocchioInterface_, *modelSettings_));
     robotModel_ = std::make_unique<CentroidalMpcRobotModel<scalar_t>>(*modelSettings_, *pinocchioInterface_, info_);
-    initialState_ = initialStateOnModel(atlas_.task, *robotModel_).value();
+    HUMANOID_ASSERT_OK_AND_ASSIGN(initialState_, initialStateOnModel(atlas_.task, *robotModel_));
 
     // The shipped planner configuration with the heading model on, its model parameters derived as the interface
     // derives them, and the same configuration with the heading model off.
@@ -375,7 +376,7 @@ class HeadingModelReloadTest : public ::testing::Test {
     ContactPlanningGroundParameters ground;
     PinocchioInterface pinocchioForDerivation(*pinocchioInterface_);
     deriveContactPlanningModelParameters(pinocchioForDerivation, *robotModel_, initialState_, modelSettings_->contactParentJointNames,
-                                         ground, headingOn_.shared.gravity, headingOn_.stepWidth.nominalStepWidth)
+                                         ground)
         .applyTo(headingOn_);
     ASSERT_TRUE(headingOn_.validateStatus().ok()) << headingOn_.validateStatus();
     headingOff_ = headingOn_;
@@ -387,10 +388,10 @@ class HeadingModelReloadTest : public ::testing::Test {
 
   std::shared_ptr<ContactPlanningReferenceManager> makeReferenceManager(const MpcRobotModelBase<scalar_t>& robotModel,
                                                                         const ContactPlanningConfig& config) const {
-    std::shared_ptr<SwingTrajectoryPlanner> swingPlanner = std::make_shared<SwingTrajectoryPlanner>(
-        swingTrajectorySettingsFromConfig(atlas_.task.swing_trajectory_config).value(), kNumContacts);
+    std::unique_ptr<SwingTrajectoryPlanner> swingPlanner = std::make_unique<SwingTrajectoryPlanner>(
+        checkedValue(swingTrajectorySettingsFromConfig(atlas_.task.swing_trajectory_config)), kNumContacts);
     absl::StatusOr<std::shared_ptr<ContactPlanningReferenceManager>> manager =
-        ContactPlanningReferenceManager::Create(GaitSchedule::Create(atlas_.reference, *modelSettings_, /*verbose=*/false).value(),
+        ContactPlanningReferenceManager::Create(checkedValue(GaitSchedule::Create(atlas_.reference, *modelSettings_, /*verbose=*/false)),
                                                 std::move(swingPlanner), *pinocchioInterface_, robotModel, config);
     EXPECT_TRUE(manager.ok()) << manager.status();
     return manager.ok() ? *manager : nullptr;
@@ -454,7 +455,7 @@ TEST_F(HeadingModelReloadTest, theEvaluatorIsLeftToTheStatusReturningSetUpUntilI
 
 TEST_F(HeadingModelReloadTest, aNetworkTrainedOnOtherJointsRefusesTheReloadAndTheStart) {
   // The MPC model's joints relabeled - two of them swapped - so that the network no longer matches them name by name.
-  ModelSettings permuted = ModelSettings::Create(atlas_.task, urdfFile_, "testAcomWiring", /*verbose=*/false).value();
+  HUMANOID_ASSERT_OK_AND_ASSIGN(ModelSettings permuted, ModelSettings::Create(atlas_.task, urdfFile_, "testAcomWiring", /*verbose=*/false));
   ASSERT_GE(permuted.mpcModelJointNames.size(), 2u);
   std::swap(permuted.mpcModelJointNames[0], permuted.mpcModelJointNames[1]);
   const CentroidalMpcRobotModel<scalar_t> permutedModel(permuted, *pinocchioInterface_, info_);
@@ -473,7 +474,8 @@ TEST_F(HeadingModelReloadTest, aNetworkTrainedOnOtherJointsRefusesTheReloadAndTh
 }
 
 TEST_F(HeadingModelReloadTest, aRobotWithoutANetworkKeepsTheBaseYawAsItsHeading) {
-  ModelSettings unregistered = ModelSettings::Create(atlas_.task, urdfFile_, "testAcomWiring", /*verbose=*/false).value();
+  HUMANOID_ASSERT_OK_AND_ASSIGN(ModelSettings unregistered,
+                                ModelSettings::Create(atlas_.task, urdfFile_, "testAcomWiring", /*verbose=*/false));
   unregistered.robotName = "robot_without_an_acom_network";
   const CentroidalMpcRobotModel<scalar_t> model(unregistered, *pinocchioInterface_, info_);
   const std::shared_ptr<ContactPlanningReferenceManager> manager = makeReferenceManager(model, headingOff_);

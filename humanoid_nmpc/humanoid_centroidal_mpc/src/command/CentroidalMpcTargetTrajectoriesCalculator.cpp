@@ -41,14 +41,22 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "ocs2_core/Dimensions.h"
 #include "pinocchio/algorithm/center-of-mass.hpp"
 #include "pinocchio/algorithm/centroidal.hpp"
 
+#include "humanoid_centroidal_mpc/common/CentroidalMpcRobotModel.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/config/ConfigFiles.h"
 #include "humanoid_common_mpc/config/reference/ReferenceFromConfig.h"
 
 namespace ocs2::humanoid {
+
+namespace {
+// [s] A time jump of more than this since the last command (a reset, a restart) restarts the joint-state filter from the
+// current joints.
+constexpr scalar_t kMaxJointFilterTimeGap = 0.1;
+}  // namespace
 
 absl::StatusOr<std::unique_ptr<CentroidalMpcTargetTrajectoriesCalculator>> CentroidalMpcTargetTrajectoriesCalculator::Create(
     const std::string& referenceFile,
@@ -182,7 +190,7 @@ TargetTrajectories CentroidalMpcTargetTrajectoriesCalculator::commandedVelocityT
   // its linear momentum is the command in the knot's heading frame (design README section 2.9). Between knots dpsi_k apart the
   // solver interpolates both linearly, which shortens the horizontal angular momentum by up to |L_xy| (1 - cos(dpsi_k /
   // 2)); the knots' subdivision bounds the CoM velocity's share of that (TargetTrajectoriesCalculatorBase's class comment).
-  const vector3_t angularMomentum = lockedInertia.col(2) * (knots.front().commandedYawRate / mass_);
+  const vector3_t angularMomentum = lockedInertia.col(kZAxisIndex) * (knots.front().commandedYawRate / mass_);
 
   // Extract current joint state from the provided initial state observation
   vector_t currentJointState = initState.tail(targetJointState_.size());
@@ -190,7 +198,7 @@ TargetTrajectories CentroidalMpcTargetTrajectoriesCalculator::commandedVelocityT
   // Initialize filter if empty, if time jumps (e.g., reset/restart), or if it holds anything that is not a number. The
   // filter then starts from the current joints at this time: decaying it over the time since lastTime_ would put it at
   // (or near) the nominal joints at once, after a reset the more so the later the reset comes.
-  if (filteredJointState_.size() != targetJointState_.size() || initTime < lastTime_ || (initTime - lastTime_) > 0.1 ||
+  if (filteredJointState_.size() != targetJointState_.size() || initTime < lastTime_ || (initTime - lastTime_) > kMaxJointFilterTimeGap ||
       !filteredJointState_.allFinite()) {
     filteredJointState_ = currentJointState;
     lastTime_ = initTime;
@@ -214,9 +222,9 @@ TargetTrajectories CentroidalMpcTargetTrajectoriesCalculator::commandedVelocityT
     vector_t state = vector_t::Zero(mpcRobotModelPtr_->getStateDim());
     const scalar_t cosine = std::cos(knot.headingChange);
     const scalar_t sine = std::sin(knot.headingChange);
-    state.head<6>() << knot.commandedVelocityWorld(0), knot.commandedVelocityWorld(1), 0.0,
+    state.head<centroidal_model::kCentroidalMomentumDim>() << knot.commandedVelocityWorld(0), knot.commandedVelocityWorld(1), 0.0,
         cosine * angularMomentum(0) - sine * angularMomentum(1), sine * angularMomentum(0) + cosine * angularMomentum(1),
-        angularMomentum(2);
+        angularMomentum(kZAxisIndex);
     mpcRobotModelPtr_->setBasePoseEulerZyx(state, knot.basePose);
     if (knot.secondSegmentFraction == 0.0) {
       mpcRobotModelPtr_->setJointAngles(state, filteredJointState_);

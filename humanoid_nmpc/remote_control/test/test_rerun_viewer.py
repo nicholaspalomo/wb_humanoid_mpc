@@ -44,6 +44,12 @@ import unittest
 
 from remote_control import rerun_viewer
 
+# The Rerun bridge's own default gRPC port, which a serve_web bridge of a launch file holds; this test does not depend on
+# the bridge's library, which carries the rerun-sdk wheel.
+# LINT.IfChange(bridge_default_grpc_port)
+_BRIDGE_DEFAULT_GRPC_PORT = 9876
+# LINT.ThenChange(//humanoid_nmpc/humanoid_rerun_viewer/python/humanoid_rerun_viewer/rerun_sinks.py:sink_defaults)
+
 
 def _wait_for(condition: Callable[[], bool], timeout: float = 10.0) -> bool:
     deadline = time.monotonic() + timeout
@@ -123,6 +129,8 @@ class TestRerunViewerLauncher(unittest.TestCase):
             [
                 os.path.join(self.repo_root, rerun_viewer.RERUN_BRIDGE_BINARY),
                 f"--network_config={self.network}",
+                "--rerun_sink=spawn",
+                f"--grpc_port={rerun_viewer.GUI_RERUN_GRPC_PORT}",
             ],
         )
         # Bazel's output directory of the bridge's target.
@@ -143,8 +151,23 @@ class TestRerunViewerLauncher(unittest.TestCase):
         )
         self.assertEqual(
             launcher.command()[1:],
-            [f"--network_config={self.network}", "--urdf=/robots/g1.urdf"],
+            [
+                f"--network_config={self.network}",
+                "--rerun_sink=spawn",
+                f"--grpc_port={rerun_viewer.GUI_RERUN_GRPC_PORT}",
+                "--urdf=/robots/g1.urdf",
+            ],
         )
+
+    def test_the_bridge_spawns_its_viewer_on_the_guis_own_port(self):
+        # A launch file's serve_web bridge holds the bridge's default gRPC port; rerun-sdk's spawn takes whatever
+        # listens on its port for a viewer, so on that port the button would open none and stream into the web viewer.
+        self.assertNotEqual(rerun_viewer.GUI_RERUN_GRPC_PORT, _BRIDGE_DEFAULT_GRPC_PORT)
+        command = rerun_viewer.RerunViewerLauncher(
+            self.repo_root, self.network
+        ).command()
+        self.assertIn("--rerun_sink=spawn", command)
+        self.assertIn(f"--grpc_port={rerun_viewer.GUI_RERUN_GRPC_PORT}", command)
 
     def test_a_bridge_that_is_not_built_is_not_started_and_says_how_to_build_it(self):
         launcher = rerun_viewer.RerunViewerLauncher(
@@ -170,6 +193,19 @@ class TestRerunViewerLauncher(unittest.TestCase):
         second = launcher.open()
         self.assertFalse(second.started)
         self.assertEqual(len(self.calls), 1)
+
+    def test_a_bridge_whose_viewer_was_closed_is_started_again(self):
+        # The bridge ends once its spawned viewer is gone (humanoid_rerun_viewer's ViewerWatch), so the button opens a
+        # new bridge and viewer.
+        self._install_bridge()
+        launcher = rerun_viewer.RerunViewerLauncher(
+            self.repo_root, self.network, popen=self._fake_popen
+        )
+        self.assertTrue(launcher.open().started)
+        self.process.returncode = 0
+        self.assertFalse(launcher.is_running())
+        self.assertTrue(launcher.open().started)
+        self.assertEqual(len(self.calls), 2)
 
     def test_close_stops_the_bridge_it_started_and_only_that(self):
         self._install_bridge()

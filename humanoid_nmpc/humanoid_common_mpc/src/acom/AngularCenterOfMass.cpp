@@ -43,6 +43,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
 #include "absl/strings/string_view.h"
+#include "ocs2_core/Dimensions.h"
 
 #include "humanoid_common_mpc/acom/AcomSirenWeightsAtlas.h"
 #include "humanoid_common_mpc/acom/AcomSirenWeightsG1.h"
@@ -55,6 +56,12 @@ namespace ocs2::humanoid {
 namespace {
 
 using RowMajorMatrix = Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>;
+
+// The layers createFromStaticWeights() loads: the sinusoidal ones, and the linear readout after them.
+// LINT.IfChange(acom_layer_count)
+constexpr int kSirenSinusoidalLayerCount = 2;
+constexpr int kSirenLayerCount = kSirenSinusoidalLayerCount + 1;
+// LINT.ThenChange(//humanoid_learning/acom/train_main.py:siren_num_layers)
 
 /** One layer of a generated weight header, copied out of its row-major C arrays. */
 SirenLayerWeights mapLayer(const double* absl_nonnull weight, size_t rows, size_t cols, const double* absl_nonnull bias) {
@@ -72,12 +79,10 @@ SirenLayerWeights mapLayer(const double* absl_nonnull weight, size_t rows, size_
  */
 template <typename WeightsT>
 absl::StatusOr<std::unique_ptr<AngularCenterOfMass>> createFromStaticWeights() {
-  // LINT.IfChange(acom_layer_count)
-  static_assert(WeightsT::num_layers == 3,
+  static_assert(WeightsT::num_layers == kSirenLayerCount,
                 "createFromStaticWeights() hardcodes 3 layers (2 sinusoidal + 1 linear readout). "
                 "Retrain with --num_layers 2, or extend this loader if the SIREN architecture changes.");
-  // LINT.ThenChange(//humanoid_learning/acom/train_main.py:siren_num_layers)
-  static_assert(WeightsT::output_dim == 3,
+  static_assert(WeightsT::output_dim == kRotationTangentDim,
                 "The aCOM orientation offset is a 3-vector. A header with a different "
                 "output_dim would overflow the fixed-size vector3_t return value.");
   auto acom = std::make_unique<AngularCenterOfMass>(WeightsT::input_dim, WeightsT::num_layers - 1, WeightsT::omega_0);
@@ -215,7 +220,7 @@ absl::Status AngularCenterOfMass::loadWeights(const std::vector<SirenLayerWeight
   }
   // The orientation offset is returned as a fixed-size vector3_t, so a readout of
   // any other width would overflow it.
-  if (layers.back().weight.rows() != 3) {
+  if (layers.back().weight.rows() != kRotationTangentDim) {
     return absl::InvalidArgumentError(
         absl::StrCat("AngularCenterOfMass::loadWeights: readout layer has ", layers.back().weight.rows(), " rows, expected 3."));
   }

@@ -63,15 +63,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
 #include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
 #include "humanoid_mpc_config/reference_file.nproto.h"
+#include "humanoid_nmpc/humanoid_common_mpc/test/support/StatusTestMacros.h"
 #include "support/TypedConfigFiles.h"
 
 namespace ocs2::humanoid {
 
 namespace {
 
-/// The command filter is first order with coefficient 0.8 per call, so its state settles on the command as 0.8^N. After
-/// this many calls the residual is 0.8^120, about 2e-12 of the command, well below the 1e-9 the exact identities below
-/// are held to.
+/// The calls a target is built over. The calculator passes the command through unfiltered (it once low-pass filtered it
+/// per call), so every call gives the same target; repeating it checks that the target does not depend on the calls
+/// before it.
 constexpr int kFilterSettlingCalls = 120;
 
 /// Index of the body z angular velocity within the Pinocchio v vector [dp_W, w_B, dq_j] of the quaternion root: for a
@@ -99,23 +100,23 @@ class YawCommandDynamicsTest : public ::testing::Test {
     ASSERT_TRUE(config.ok()) << config.status();
     atlas_ = *std::move(config);
 
-    modelSettings_ =
-        std::make_unique<ModelSettings>(ModelSettings::Create(atlas_.task, urdfFile_, "testYawCommandDynamics", /*verbose=*/false).value());
+    modelSettings_ = std::make_unique<ModelSettings>(
+        checkedValue(ModelSettings::Create(atlas_.task, urdfFile_, "testYawCommandDynamics", /*verbose=*/false)));
     pinocchioInterface_ = std::make_unique<PinocchioInterface>(
-        loadCustomPinocchioInterface(atlas_.task, urdfFile_, *modelSettings_, /*scaleTotalMass=*/false).value());
-    info_ = centroidalModelInfoOf(atlas_, *pinocchioInterface_, *modelSettings_).value();
+        checkedValue(loadCustomPinocchioInterface(atlas_.task, urdfFile_, *modelSettings_, /*scaleTotalMass=*/false)));
+    HUMANOID_ASSERT_OK_AND_ASSIGN(info_, centroidalModelInfoOf(atlas_, *pinocchioInterface_, *modelSettings_));
     robotModel_ = std::make_unique<CentroidalMpcRobotModel<scalar_t>>(*modelSettings_, *pinocchioInterface_, info_);
 
-    initialState_ = initialStateOnModel(atlas_.task, *robotModel_).value();
+    HUMANOID_ASSERT_OK_AND_ASSIGN(initialState_, initialStateOnModel(atlas_.task, *robotModel_));
     mass_ = pinocchio::computeTotalMass(pinocchioInterface_->getModel());
 
     // Constructed exactly as the MPC node (CentroidalMpcNode) does for the walking command path.
-    calculator_ = CentroidalMpcTargetTrajectoriesCalculator::Create(referenceFile_, *robotModel_, *pinocchioInterface_,
-                                                                    /*mpcHorizon=*/1.0)
-                      .value();
+    HUMANOID_ASSERT_OK_AND_ASSIGN(calculator_,
+                                  CentroidalMpcTargetTrajectoriesCalculator::Create(referenceFile_, *robotModel_, *pinocchioInterface_,
+                                                                                    /*mpcHorizon=*/1.0));
   }
 
-  /** The target the calculator emits once its command filter has settled on `command` = [v_x, v_y, dz, yaw_rate]. */
+  /** The target the calculator emits for `command` = [v_x, v_y, dz, yaw_rate] after kFilterSettlingCalls calls. */
   TargetTrajectories settledTarget(const vector4_t& command, const vector_t& state) {
     TargetTrajectories target;
     for (int i = 0; i < kFilterSettlingCalls; ++i) {
@@ -144,19 +145,19 @@ class YawCommandDynamicsTest : public ::testing::Test {
     ground.torsionalFrictionCoefficient = 0.05;
     PinocchioInterface pinocchioForDerivation(*pinocchioInterface_);
     deriveContactPlanningModelParameters(pinocchioForDerivation, *robotModel_, initialState_, modelSettings_->contactParentJointNames,
-                                         ground, config.shared.gravity, config.stepWidth.nominalStepWidth)
+                                         ground)
         .applyTo(config);
     std::unique_ptr<SwingTrajectoryPlanner> swingPlanner(
-        new SwingTrajectoryPlanner(swingTrajectorySettingsFromConfig(atlas_.task.swing_trajectory_config).value(), kNumContacts));
+        new SwingTrajectoryPlanner(checkedValue(swingTrajectorySettingsFromConfig(atlas_.task.swing_trajectory_config)), kNumContacts));
     absl::StatusOr<std::shared_ptr<ContactPlanningReferenceManager>> referenceManager =
-        ContactPlanningReferenceManager::Create(GaitSchedule::Create(atlas_.reference, *modelSettings_, /*verbose=*/false).value(),
+        ContactPlanningReferenceManager::Create(checkedValue(GaitSchedule::Create(atlas_.reference, *modelSettings_, /*verbose=*/false)),
                                                 std::move(swingPlanner), *pinocchioInterface_, *robotModel_, config);
     EXPECT_TRUE(referenceManager.ok()) << referenceManager.status();
     if (!referenceManager.ok()) return nullptr;
     absl::StatusOr<std::unique_ptr<AngularCenterOfMass>> acom =
         AngularCenterOfMass::Create(modelSettings_->robotName, modelSettings_->mpcModelJointNames);
     EXPECT_TRUE(acom.ok()) << acom.status();
-    if (acom.ok()) (*referenceManager)->setAngularCenterOfMass(std::shared_ptr<AngularCenterOfMass>(*std::move(acom)));
+    if (acom.ok()) (*referenceManager)->setAngularCenterOfMass(*std::move(acom));
     return *referenceManager;
   }
 

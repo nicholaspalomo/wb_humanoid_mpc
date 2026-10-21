@@ -39,6 +39,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/log/log.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
 #include "ocs2_core/misc/Lookup.h"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
@@ -197,7 +198,7 @@ absl::StatusOr<std::shared_ptr<GaitSchedule>> GaitSchedule::Create(const mpc_con
   return makeGaitSchedule(initModeSchedule, defaultModeSequenceTemplate, modelSettings, verbose);
 }
 
-absl::StatusOr<std::shared_ptr<GaitSchedule>> GaitSchedule::Create(const std::string& referenceFile,
+absl::StatusOr<std::shared_ptr<GaitSchedule>> GaitSchedule::Create(absl::string_view referenceFile,
                                                                    const ModelSettings& modelSettings,
                                                                    bool verbose) {
   ASSIGN_OR_RETURN(const mpc_config::ReferenceFile reference, loadReferenceFile(referenceFile));

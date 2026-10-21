@@ -35,6 +35,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 
 #include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
 #include "ocs2_core/reference/ModeSchedule.h"
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
@@ -53,6 +54,11 @@ namespace ocs2::humanoid {
 class GaitSchedule {
  public:
   GaitSchedule(ModeSchedule initModeSchedule, ModeSequenceTemplate initModeSequenceTemplate, scalar_t phaseTransitionStanceTime);
+
+  // Shared by the reference manager and the gait updaters through one std::shared_ptr; a copy would fork the schedule.
+  GaitSchedule(const GaitSchedule&) = delete;
+  GaitSchedule& operator=(const GaitSchedule&) = delete;
+  ~GaitSchedule() = default;
 
   /**
    * @param [in] lowerBoundTime: The smallest time for which the ModeSchedule should be defined.
@@ -85,7 +91,7 @@ class GaitSchedule {
    * @return loadReferenceFile()'s error for a file that cannot be read or does not parse, and the typed Create()'s
    *         errors, prefixed with the file.
    */
-  static absl::StatusOr<std::shared_ptr<GaitSchedule>> Create(const std::string& referenceFile,
+  static absl::StatusOr<std::shared_ptr<GaitSchedule>> Create(absl::string_view referenceFile,
                                                               const ModelSettings& modelSettings,
                                                               bool verbose = false);
 

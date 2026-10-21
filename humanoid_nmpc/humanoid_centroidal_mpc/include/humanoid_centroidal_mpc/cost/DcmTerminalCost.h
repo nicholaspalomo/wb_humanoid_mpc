@@ -36,6 +36,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "ocs2_core/PhysicalConstants.h"
 #include "ocs2_core/automatic_differentiation/CppAdInterface.h"
 #include "ocs2_core/cost/StateCost.h"
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
@@ -68,6 +69,10 @@ namespace ocs2::humanoid {
  * The cost is 0.5 ||W^(1/2) (xi - xi_ref)||^2 with a Gauss-Newton Hessian, so it stays positive semi-definite for every
  * configuration. It replaces the quadratic final_state_weights terminal cost on the full state, whose base pose entries are meaningless
  * for varying gait cadences.
+ *
+ * Not thread-safe: the generated CppAD model keeps evaluation buffers and setConfig() replaces the configuration, so
+ * one object is used by one thread at a time; the solver clones the cost per worker thread and reconfigures it between
+ * solves. Build it with Create(), which resolves and validates the configuration.
  */
 class DcmTerminalCost final : public StateCost {
  public:
@@ -83,33 +88,42 @@ class DcmTerminalCost final : public StateCost {
   static constexpr char kLibraryName[] = "dcmTerminalCost";
 
   struct Config {
+    /** The default weight of each axis of the DCM error. */
+    static constexpr scalar_t kDefaultWeight = 100.0;
+    /** [s] supportBlendTime's default. */
+    static constexpr scalar_t kDefaultSupportBlendTime = 0.1;
+
     // [m] pendulum height for omega. nullopt: the model's (resolveConfig() fills it in), what a file without
     // dcm_terminal_cost.com_height converts to; a value: an explicit override, positive.
     std::optional<scalar_t> comHeight;
-    scalar_t gravity = 9.81;              // [m/s^2]
-    vector2_t weights{100.0, 100.0};      // [x, y] weights on the DCM error
-    scalar_t velocityOffsetFactor = 1.0;  // scales the v_cmd / omega offset of the DCM reference
-    scalar_t supportBlendTime = 0.1;      // [s] a foot's support weight ramps 0->1 after touch-down and 1->0 before lift-off
+    // [m/s^2] the robot model's gravity (modelGravity()), the one its dynamics use; not a file key. resolveConfig()
+    // writes the model's, at start-up and on every setConfig().
+    scalar_t gravity = kGravitationalAcceleration;
+    vector2_t weights{kDefaultWeight, kDefaultWeight};  // [x, y] weights on the DCM error
+    scalar_t velocityOffsetFactor = 1.0;                // scales the v_cmd / omega offset of the DCM reference
+    // [s] a foot's support weight ramps 0->1 after touch-down and 1->0 before lift-off
+    scalar_t supportBlendTime = kDefaultSupportBlendTime;
 
-    /** sqrt(gravity / comHeight); NaN while comHeight is not resolved (resolveConfig()). */
-    scalar_t omega() const;
+    /** [1/s] sqrt(gravity / comHeight); empty while comHeight is not resolved (resolveConfig()). */
+    std::optional<scalar_t> omega() const;
 
     /**
      * OK, or InvalidArgument naming the dcm_terminal_cost field to change: a com_height that is given and is not a
-     * positive number, a gravity that is not positive, a negative weight or blend time.
+     * positive number, a negative weight or blend time. The gravity is the model's, which modelGravity() checks.
      */
     absl::Status validate() const;
   };
 
   /**
-   * `config` with an unset comHeight set to `modelComHeight`, the pendulum length of the robot's model, and validated.
-   * InvalidArgument naming dcm_terminal_cost.com_height when neither the file nor the model gives a positive height.
+   * `config` with an unset comHeight set to `modelComHeight`, the pendulum length of the robot's model, its gravity set
+   * to `modelGravity`, the model's, and validated. InvalidArgument naming dcm_terminal_cost.com_height when neither the
+   * file nor the model gives a positive height.
    */
-  static absl::StatusOr<Config> resolveConfig(Config config, scalar_t modelComHeight);
+  static absl::StatusOr<Config> resolveConfig(Config config, scalar_t modelComHeight, scalar_t modelGravity);
 
   /**
-   * Builds the cost with `config` resolved against `modelComHeight` (resolveConfig), or returns the InvalidArgument that
-   * names the field to change.
+   * Builds the cost with `config` resolved against `modelComHeight` and the gravity of `pinocchioInterface`'s model
+   * (resolveConfig, modelGravity()), or returns the InvalidArgument that names the field to change.
    *
    * @param modelComHeight [m] the model's pendulum length at the nominal state
    *                       (CentroidalMpcInterface::getNominalComHeight()); what an unset comHeight stands for, now and
@@ -144,14 +158,18 @@ class DcmTerminalCost final : public StateCost {
 
   /**
    * Live update of weights / height; the CppAD model is parameterized so no recompilation is needed. An unset comHeight
-   * is resolved to the model's height the cost was built with. A configuration that does not validate is refused with
-   * the InvalidArgument naming its field, and the running one is kept.
+   * is resolved to the model's height the cost was built with, and the gravity is always the model's. A configuration that does not
+   * validate is refused with the InvalidArgument naming its field, and the running one is kept.
    */
   absl::Status setConfig(const Config& config);
   /** The running configuration, comHeight resolved. */
   const Config& getConfig() const { return config_; }
+  /** [1/s] the running configuration's omega, sqrt(gravity / comHeight) of the resolved comHeight. */
+  scalar_t omega() const { return omega_; }
   /** [m] the model's pendulum length an unset comHeight resolves to. */
   scalar_t getModelComHeight() const { return modelComHeight_; }
+  /** [m/s^2] the model's gravity, which every configuration resolves to. */
+  scalar_t getModelGravity() const { return modelGravity_; }
 
   /**
    * Parameter vector [w_left, w_right, omega, v_cmd_x, v_cmd_y, offsetFactor, sqrtW_x, sqrtW_y, plannedWeight,
@@ -180,18 +198,20 @@ class DcmTerminalCost final : public StateCost {
   DcmTerminalCost(const SwitchedModelReferenceManager& referenceManager,
                   Config config,
                   scalar_t modelComHeight,
+                  scalar_t modelGravity,
                   const PinocchioInterface& pinocchioInterface,
                   const MpcRobotModelBase<ad_scalar_t>& mpcRobotModelAD,
                   const std::string& costName,
                   const ModelSettings& modelSettings);
   DcmTerminalCost(const DcmTerminalCost& other);
-  ad_vector_t residual(const ad_vector_t& state, const ad_vector_t& parameters);
 
   const SwitchedModelReferenceManager* absl_nonnull referenceManagerPtr_;
   Config config_;
   scalar_t modelComHeight_;
+  // [m/s^2] the gravity of the model the cost was built on (modelGravity()).
+  scalar_t modelGravity_;
+  scalar_t omega_ = 0.0;  // [1/s] config_.omega() of the resolved config_, set with every config_
   bool isActive_ = true;
-  PinocchioInterfaceCppAd pinocchioInterfaceCppAd_;
   std::unique_ptr<MpcRobotModelBase<ad_scalar_t>> mpcRobotModelAdPtr_;
   std::unique_ptr<CppAdInterface> adInterfacePtr_;
 };

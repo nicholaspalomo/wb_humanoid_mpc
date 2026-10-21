@@ -37,9 +37,18 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-/** `hip_yaw_range` (soft, every node): lower_i <= psi_i - theta <= upper_i, the hip yaw limits of every leg from the model. */
+/**
+ * `hip_yaw_range` (soft, every node): lower_i <= psi_i - theta_base <= upper_i, the hip yaw limits of every leg from the
+ * model, measured from the pelvis. The pelvis yaw theta_base is written as the planned heading theta plus its offset from
+ * the heading at planning time (ContactPlannerInput::baseYaw), which the planner holds over the horizon.
+ *
+ * Not thread-safe, like every ContactPlanningTerm: the planner that owns it configures and evaluates it from one thread at a time.
+ */
 class HipYawRangeConstraint final : public LipConstraintBase {
  public:
+  /** The pelvis yaw minus the whole-body heading at planning time, wrapped to the nearest branch; 0 without a base yaw. */
+  static scalar_t baseYawOffset(const ContactPlannerInput& input);
+
   std::string describe() const override;
   std::vector<std::string> requiredBlocks() const override { return {term::kHeadingDoubleIntegrator}; }
   void configure(const ContactPlanningConfig& config) override;

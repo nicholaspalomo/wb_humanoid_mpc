@@ -32,11 +32,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <memory>
 #include <utility>
 
+#include "ocs2_core/penalties/penalties/PenaltyBase.h"
 #include "ocs2_core/penalties/penalties/SquaredHingePenalty.h"
 
 namespace ocs2::humanoid {
 
 namespace {
+
 /**
  * The penalty that bounds λ from below.
  *
@@ -151,7 +153,8 @@ void BasisScalingNonNegativityConstraint::setBarrierPenalty(const PieceWisePolyn
   // Both penalties take (mu, delta). Un-gated the hinge's delta stays 0: it is the offset of the hinge's zero, and the
   // whole point of using a hinge for λ >= 0 is that its zero sits exactly on λ = 0. Writing the barrier's smoothing
   // width there would demand a positive λ from every generator and reinstate the bribe this term exists to remove.
-  const vector_t parameters = (vector_t(2) << barrierSettings.mu, scheduleGated_ ? barrierSettings.delta : 0.0).finished();
+  const vector_t parameters =
+      (vector_t(kMuDeltaParameterCount) << barrierSettings.mu, scheduleGated_ ? barrierSettings.delta : 0.0).finished();
   penaltyPtr_->setParameters(parameters);
 }
 

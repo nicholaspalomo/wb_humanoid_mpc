@@ -27,29 +27,35 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
+#include "pinocchio/fwd.hpp"
+
 #include "humanoid_common_mpc/config/costs/CollisionConstraintFromConfig.h"
 
-#include <cmath>
+#include <array>
+#include <cstddef>
+#include <string>
 
+#include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "ocs2_core/penalties/penalties/PieceWisePolynomialBarrierPenalty.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
+#include "pinocchio/multibody/model.hpp"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
+#include "humanoid_common_mpc/config/ConfigValueChecks.h"
 #include "humanoid_common_mpc/constraint/FootCollisionConstraint.h"
 #include "humanoid_mpc_config/collision_constraint_config.nproto.h"
 
 namespace ocs2::humanoid {
 namespace {
 
-/** InvalidArgument naming `collision_constraint.<field>` unless `value` is finite. */
-absl::Status checkFinite(absl::string_view field, double value) {
-  if (std::isfinite(value)) {
-    return absl::OkStatus();
-  }
-  return absl::InvalidArgumentError(absl::StrCat("collision_constraint.", field, " is ", value, ", but it must be finite."));
+/** InvalidArgument naming `collision_constraint.<field>` when the frame name `frame` is empty. */
+absl::Status checkNamed(absl::string_view field, const std::string& frame) {
+  if (!frame.empty()) return absl::OkStatus();
+  return absl::InvalidArgumentError(absl::StrCat("collision_constraint.", field, " is empty: the constraint needs the frame"));
 }
 
 }  // namespace
@@ -58,8 +64,13 @@ absl::StatusOr<FootCollisionConstraint::Config> footCollisionConstraintConfigFro
     const mpc_config::CollisionConstraintConfig& collisionConstraint) {
   const mpc_config::CollisionConstraintConfig::Foot& foot = collisionConstraint.foot;
   const mpc_config::CollisionConstraintConfig::Knee& knee = collisionConstraint.knee;
-  RETURN_IF_ERROR(checkFinite("foot.foot_collision_sphere_radius", foot.foot_collision_sphere_radius));
-  RETURN_IF_ERROR(checkFinite("knee.knee_collision_sphere_radius", knee.knee_collision_sphere_radius));
+  // A sphere of radius 0 or less keeps nothing apart (and a negative one lets the spheres overlap).
+  RETURN_IF_ERROR(requirePositive("collision_constraint.foot.foot_collision_sphere_radius", foot.foot_collision_sphere_radius));
+  RETURN_IF_ERROR(requirePositive("collision_constraint.knee.knee_collision_sphere_radius", knee.knee_collision_sphere_radius));
+  RETURN_IF_ERROR(checkNamed("foot.left_ankle_frame", foot.left_ankle_frame));
+  RETURN_IF_ERROR(checkNamed("foot.right_ankle_frame", foot.right_ankle_frame));
+  RETURN_IF_ERROR(checkNamed("knee.left_knee_frame", knee.left_knee_frame));
+  RETURN_IF_ERROR(checkNamed("knee.right_knee_frame", knee.right_knee_frame));
   FootCollisionConstraint::Config config;
   config.leftAnkleFrame = foot.left_ankle_frame;
   config.rightAnkleFrame = foot.right_ankle_frame;
@@ -70,10 +81,27 @@ absl::StatusOr<FootCollisionConstraint::Config> footCollisionConstraintConfigFro
   return config;
 }
 
+absl::Status checkFootCollisionFramesExist(const FootCollisionConstraint::Config& config, const PinocchioInterface::Model& model) {
+  constexpr size_t kFrames = 10;
+  const std::array<const std::string* absl_nonnull, kFrames> frames = {
+      &config.leftAnkleFrame,  &config.rightAnkleFrame, &config.leftFootCenterFrame, &config.rightFootCenterFrame, &config.leftFootFrame1,
+      &config.rightFootFrame1, &config.leftFootFrame2,  &config.rightFootFrame2,     &config.leftKneeFrame,        &config.rightKneeFrame,
+  };
+  for (const std::string* absl_nonnull frame : frames) {
+    // getFrameId() of a name the model lacks is nframes, one past the last frame, which the constraint would read.
+    if (!model.existFrame(*frame)) {
+      return absl::InvalidArgumentError(
+          absl::StrCat("collision_constraint: the frame '", *frame, "' is not a frame of the robot model (foot_collision)"));
+    }
+  }
+  return absl::OkStatus();
+}
+
 absl::StatusOr<PieceWisePolynomialBarrierPenalty::Config> footCollisionBarrierFromConfig(
     const mpc_config::CollisionConstraintConfig& collisionConstraint) {
-  RETURN_IF_ERROR(checkFinite("mu", collisionConstraint.mu));
-  RETURN_IF_ERROR(checkFinite("delta", collisionConstraint.delta));
+  // A non-positive mu rewards a violation, and the polynomial barrier is discontinuous for a non-positive delta.
+  RETURN_IF_ERROR(requirePositive("collision_constraint.mu", collisionConstraint.mu));
+  RETURN_IF_ERROR(requirePositive("collision_constraint.delta", collisionConstraint.delta));
   return PieceWisePolynomialBarrierPenalty::Config(collisionConstraint.mu, collisionConstraint.delta);
 }
 

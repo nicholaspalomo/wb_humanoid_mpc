@@ -52,7 +52,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_nmpc/humanoid_mpc_ipc/test/PolicyTestData.h"
 #include "robot_ipc/BusOptions.h"
-#include "robot_ipc/NodeEndpoint.h"
+#include "robot_runtime/robot_ipc/test/TestNetwork.h"
 
 namespace ocs2::humanoid::ipc::test_support {
 
@@ -194,26 +194,21 @@ bool waitFor(const std::function<bool()>& condition, absl::Duration timeout) {
   return condition();
 }
 
-std::unique_ptr<robot::ipc::Bus> createNodeBus(const std::string& name) {
+std::unique_ptr<robot::ipc::Bus> createNodeBus(const std::string& name, int domainIndex) {
   robot::ipc::BusOptions options;
   options.nodeName = name;
-  options.network.nodes = {robot::ipc::NodeEndpoint{.name = name, .host = "127.0.0.1", .port = robot::ipc::kEphemeralPort, .bindHost = ""}};
+  options.network = robot::ipc::isolatedTestNetwork({name}, domainIndex);
   absl::StatusOr<std::unique_ptr<robot::ipc::Bus>> bus = robot::ipc::Bus::Create(std::move(options));
   CHECK_OK(bus.status());
   return std::move(*bus);
 }
 
-std::unique_ptr<robot::ipc::Bus> createSubscriberBus(const std::string& nodeName, int port) {
+std::unique_ptr<robot::ipc::Bus> createSubscriberBus(int domainIndex) {
   robot::ipc::BusOptions options;
-  options.network.nodes = {robot::ipc::NodeEndpoint{.name = nodeName, .host = "127.0.0.1", .port = port, .bindHost = ""}};
+  options.network = robot::ipc::isolatedTestNetwork({"subscriber"}, domainIndex);
   absl::StatusOr<std::unique_ptr<robot::ipc::Bus>> bus = robot::ipc::Bus::Create(std::move(options));
   CHECK_OK(bus.status());
   return std::move(*bus);
-}
-
-void connectBoth(robot::ipc::Bus& first, robot::ipc::Bus& second) {
-  CHECK_OK(first.connect(second.boundEndpoint()));
-  CHECK_OK(second.connect(first.boundEndpoint()));
 }
 
 humanoid_mpc_msgs::MpcPolicy makePolicyMessage(scalar_t initTime,

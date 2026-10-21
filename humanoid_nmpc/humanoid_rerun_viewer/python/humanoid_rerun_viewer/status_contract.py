@@ -89,6 +89,7 @@ LOOP_LATENESS = StatusSeries(
     "ms",
     "Realtime Loop Wake-up Lateness [ms]",
 )
+# Totals since the robot process started, as LoopTiming carries them; the loop_timing line warns of their increase.
 LOOP_EVENTS = StatusSeries(
     f"{STATUS_ROOT}/robot/loop_events",
     (

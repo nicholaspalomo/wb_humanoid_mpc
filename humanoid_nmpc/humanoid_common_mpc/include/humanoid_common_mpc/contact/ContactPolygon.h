@@ -59,7 +59,16 @@ struct PolygonBounds {
 /// An immutable value once constructed, so concurrent reads are safe.
 class ContactPolygon {
  public:
+  /** The polygon of `polygonPoints` scaled by `scaleFactor`, with the bounds of the scaled points. */
   ContactPolygon(const std::vector<vector3_t>& polygonPoints, const ContactCenterPoint& contactCenterPoint, scalar_t scaleFactor = 1.0);
+
+  // Copyable, but not assignable: the contact center point is const. A move copies the const contact center point, and
+  // only an allocation failure could make that copy throw.
+  ContactPolygon(const ContactPolygon&) = default;
+  ContactPolygon& operator=(const ContactPolygon&) = delete;
+  ContactPolygon(ContactPolygon&&) noexcept = default;
+  ContactPolygon& operator=(ContactPolygon&&) = delete;
+  ~ContactPolygon() = default;
 
   size_t getNumberOfContactPoints() const { return polygonPoints_.size(); }
   vector3_t getContactPointTranslation(int index) const { return vector3_t(polygonPoints_[index][0], polygonPoints_[index][1], 0.0); }

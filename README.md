@@ -105,7 +105,7 @@ cd ~/workspace/wb_humanoid_mpc
 > `/wb_humanoid_mpc_ws/workspace/wb_humanoid_mpc`, where `.devcontainer/devcontainer.json` opens the workspace too. The
 > launch targets and the editor's clangd (`tools/ide/README.md`) reach the container's checkout through the same mount.
 
-> **Note:** The repository uses **Bazel 9.x** with `bzlmod` for hermetic dependency management. There is no ROS: the robot, the MPC and the operator tools are separate processes on a ZeroMQ + Protocol Buffers bus, and Rerun draws the robot, the plan and the plots ([humanoid_nmpc/docs/distributed_runtime/README.md](humanoid_nmpc/docs/distributed_runtime/README.md)).
+> **Note:** The repository uses **Bazel 9.x** with `bzlmod` for hermetic dependency management. There is no ROS: the robot, the MPC and the operator tools are separate processes on a Cyclone DDS + Protocol Buffers bus (plain DDS, no ROS middleware), and Rerun draws the robot, the plan and the plots ([humanoid_nmpc/docs/distributed_runtime/README.md](humanoid_nmpc/docs/distributed_runtime/README.md)).
 
 ### 2. Environment Setup
 
@@ -180,7 +180,7 @@ make clean-all    # Deep clean including external caches
 ## 🖥️ Launching Simulations
 
 ### How it runs
-The robot and the MPC are separate processes on a ZeroMQ + Protocol Buffers bus, as on hardware: the **robot process**
+The robot and the MPC are separate processes on a Cyclone DDS + Protocol Buffers bus, as on hardware: the **robot process**
 (the realtime loop: MuJoCo as its backend, the MRT joint controller, the FSM) runs on the robot's computer, the **MPC
 node**, the **remote-control GUI** and the **Rerun bridge** on the laptop
 ([architecture](humanoid_nmpc/docs/distributed_runtime/README.md)). Simulation mirrors that: `make launch-<robot>-sim`
@@ -191,19 +191,32 @@ build and run the laptop side inside the dev container through `docker exec` (`D
 sandbox targets run anywhere.
 
 ### Visualization Options
-- **Local Linux:** GUI windows (Rerun / Controller GUI, and the MuJoCo viewer with `VIEWER=glfw`) draw on the display
-  of the shell the target runs in. From the host, allow the containers on it once:
-  `xhost +SI:localuser:root +SI:localuser:$(id -un)`.
-- **Remote SSH (Linux host):** Use the `-vnc` targets to stream the desktop directly to your browser. Navigate to **`http://localhost:6080/vnc.html`** for the operator GUI (and the MuJoCo window with `VIEWER=glfw`), **`http://localhost:6090`** for the MuJoCo web viewer, and **`http://localhost:9090/?url=rerun+http://localhost:9876/proxy`** for Rerun. See the [Visualization Guide](.devcontainer/README.md) for full details.
+
+<!-- LINT.IfChange(views) -->
+Every launch target takes `VIEWS=`, one name for where its three views go, and prints the URL of each right before the
+laptop side starts ([Visualization Guide](.devcontainer/README.md#views-browser-tabs-or-the-vnc-desktop)):
+
+| `VIEWS=` | MuJoCo (`-sim`) | Rerun | Operator GUI (Tk) |
+|----------|-----------------|-------|-------------------|
+| `browser` (default) | **`http://localhost:6090`** | **`http://localhost:9090/?url=rerun+http://localhost:9876/proxy`** | **`http://localhost:6080/vnc.html`** (noVNC) |
+| `vnc` (the `-vnc` targets) | window on the VNC desktop `:99` | native viewer on `:99` | on `:99`: one noVNC tab |
+| `display` | window on this shell's `DISPLAY` | native viewer on `DISPLAY` | window on `DISPLAY` |
+
+`browser` and `vnc` start the VNC desktop first; `display` stops with a hint when no X server answers on `DISPLAY`.
+`VIEWER=` (MuJoCo: `glfw|web|none`) and `RERUN_SINK=` (`serve_web|spawn|connect|save`) override the view's choice.
+The laptop side is launched the same way in simulation and on the robot (`launch-<robot>-mpc[-vnc]`).
+<!-- LINT.ThenChange(//Makefile:views) -->
+
+- **Local Linux:** with `VIEWS=display`, the windows draw on the display of the shell the target runs in. From the
+  host, allow the containers on it once: `xhost +SI:localuser:root +SI:localuser:$(id -un)`.
+- **Remote SSH (Linux host):** forward ports `6080`, `6090`, `9090` and `9876` (`devcontainer.json` does); the default
+  browser view needs nothing else.
 - **macOS (Docker Desktop):** the containers do not share a host network there, so the MuJoCo `-sim` targets do not
-  run; use `make launch-<robot>-dummy-sim-vnc` and the sandbox targets, which run entirely in the dev container.
-- **MuJoCo in a browser (the default):** `make launch-<robot>-sim` serves the MuJoCo viewer at
-  **`http://localhost:6090`**, rendered offscreen without an X server or VNC (forward the port from a remote host). The
-  plot configuration chooses it (`mujoco_viewer: "web"` in
+  run; use `make launch-<robot>-dummy-sim` and the sandbox targets, which run entirely in the dev container.
+- **The MuJoCo web viewer** renders offscreen without an X server or VNC. Without `VIEWS=` on the command line the plot
+  configuration chooses the viewer (`mujoco_viewer: "web"` in
   [`plot_config.textproto`](humanoid_nmpc/humanoid_rerun_viewer/config/plot_config.textproto), `PLOT_CONFIG=` names
-  another file); `VIEWER=glfw` opens the old window on `DISPLAY` instead (the VNC desktop with `-vnc`). See the
-  [Visualization Guide](.devcontainer/README.md#mujoco-web-viewer).
-- **Rerun in a browser:** opens at **`http://localhost:9090/?url=rerun+http://localhost:9876/proxy`** by default (or enter `rerun+http://localhost:9876/proxy` if prompted; set `RERUN_SINK=spawn` for the native window).
+  another file). See the [Visualization Guide](.devcontainer/README.md#mujoco-web-viewer).
 
 ### Launch Targets
 
@@ -213,14 +226,14 @@ For every robot configuration - `g1` (Unitree G1, centroidal MPC), `wb-g1` (G1, 
 
 ```bash
 make launch-drc-atlas-sim             # MuJoCo sim: robot-sim container + MPC, GUI and Rerun bridge (run on the host);
-                                      # the MuJoCo viewer at http://localhost:6090
-make launch-drc-atlas-sim-vnc         # ... GUI on the VNC desktop (Browser / Remote SSH; not on macOS: Docker Desktop)
+                                      # three browser tabs: MuJoCo, Rerun and the GUI through noVNC
+make launch-drc-atlas-sim-vnc         # ... all three on the VNC desktop (VIEWS=vnc; not on macOS: Docker Desktop)
 make launch-drc-atlas-dummy-sim       # the MPC against the dummy simulator (the MPC model's own rollout)
 make launch-drc-atlas-dummy-sim-vnc
 make launch-drc-atlas-sandbox-vnc     # the URDF in Rerun with a slider per joint (not for wb-g1: use g1)
 make launch-drc-atlas-sim NETEM="delay 3ms 1ms loss 0.5%"   # the bus over a delayed, lossy link (tc netem)
-make launch-drc-atlas-sim-vnc VIEWER=glfw   # the MuJoCo viewer as a window on the VNC desktop, as before
-make launch-drc-atlas-sim VIEWER=none RERUN_SINK=serve_web    # no MuJoCo viewer; Rerun in the browser
+make launch-drc-atlas-sim VIEWS=display     # native windows on this shell's DISPLAY
+make launch-drc-atlas-sim VIEWER=none RERUN_SINK=spawn    # no MuJoCo viewer; Rerun's native viewer
 ```
 
 On a real robot (the robot's computer needs only Docker; [tools/deploy](tools/deploy/README.md)):
@@ -228,7 +241,7 @@ On a real robot (the robot's computer needs only Docker; [tools/deploy](tools/de
 ```bash
 cp config/ipc/two_machine.example.textproto my_network.textproto     # both machines' addresses
 make deploy-robot ROBOT=drc_atlas HOST=<robot ssh host> NETWORK=my_network.textproto SERVICE=enable
-make launch-drc-atlas-mpc NETWORK=my_network.textproto               # the laptop side
+make launch-drc-atlas-mpc NETWORK=my_network.textproto               # the laptop side (-mpc-vnc: on the VNC desktop)
 make launch-drc-atlas-robot HOST=<robot ssh host>                    # or the robot side in the foreground
 ```
 
@@ -271,8 +284,8 @@ The joystick GUI (`base_velocity_controller_gui`, [humanoid_nmpc/remote_control/
    - Command planar velocities ($v_x, v_y, \omega_z$) via interactive virtual joysticks or physical Xbox gamepad.
    - Adjust root pelvis height and virtual gantry suspension.
    - Switch supervisory FSM modes (`ZERO_TORQUE`, `JOINT_PD`, `GRAVITY_COMP`, `WB_MPC`, `SAFETY`).
-   - Checkbox selecting the simulator's cheater contact estimator (task file `contact_estimator: "cheater_sim"` on, `"always_in_contact"` off), applied live through the parameter topic.
-   - **Open Rerun viewer** starts the Rerun bridge, which opens the native viewer with the 3D scene and the plot tabs.
+   - A drop-down for every task-file choice the schema marks with `base_controller_label` (`tuning_options.proto`), such as the contact estimator (`contact_estimator`: `"cheater_sim"`, `"always_in_contact"`, ...), showing the value the MPC Parameters tab holds, the default included, and applied live through the parameter topic.
+   - **Open Rerun viewer** starts a Rerun bridge of its own, which opens a native viewer (on port 9877, next to the launch file's web viewer) with the 3D scene and the plot tabs.
 
 2. **⚙️ Joint PD Gains (`joint_pd_gains.textproto`):**
    - A slider and a numeric entry per gain of the file: the default gains and each joint's proportional ($K_p$) and derivative ($K_d$) gain.
@@ -331,7 +344,7 @@ telemetry_frames: "pelvis"
 ```
 
 - **`telemetry_sinks`:** The telemetry sinks of the robot process, by name (`humanoid_nmpc/humanoid_common_mpc_app/robot/README.md`): `bus` publishes every sample on `robot/state`; a file without a `telemetry_sinks` line turns the telemetry off, and the realtime loop then samples nothing. The retired boolean `enable_telemetry` is refused with this replacement.
-- **`enable_online_tuning`:** When `false`, the GUI disables all sliders, quick multipliers, and save buttons in both the **⚙️ Joint PD Gains** and **📈 MPC Parameters** tabs, displaying an orange safety badge `🔒 Online Tuning Disabled`.
+- **`enable_online_tuning`:** When `false`, the GUI disables all sliders, quick multipliers, and save buttons in the **⚙️ Joint PD Gains**, **📈 MPC Parameters**, and **🎚️ Command Limits** tabs, displaying an orange safety badge `🔒 Online Tuning Disabled`.
 - **`telemetry_frames`:** Optional targeted list of Pinocchio frames to monitor. The telemetry engine automatically computes forward kinematics, spatial twists, frame accelerations, and contact wrenches for both measured and MPC desired states.
 
 Weights and states are addressed by name, never by index. Momenta, positions and velocities are `{x y z}` blocks, the
@@ -440,8 +453,11 @@ The entity paths and series names are tabulated in [the bridge's README](humanoi
 ---
 
 ### MuJoCo 3D Viewer Hotkeys & Controls
-When focused in the MuJoCo simulation viewport, use these keyboard shortcuts and mouse inputs:
+When focused in the MuJoCo simulation viewport, use these keyboard shortcuts and mouse inputs. A visualization's key
+works only when the task file lists it in `sim_visualizations` (the field is read at start-up); the web page's Markers
+panel lists exactly the ones the running robot has.
 
+<!-- LINT.IfChange(viewer_hotkeys) -->
 | Key / Input | Action | Effect |
 |:---:|---|---|
 | **`k`** | Toggle **Camera Tracking** | Switches between robot tracking mode (`mjCAMERA_TRACKING` locked on pelvis/torso) and free manual camera (`mjCAMERA_FREE`) |
@@ -449,22 +465,23 @@ When focused in the MuJoCo simulation viewport, use these keyboard shortcuts and
 | **`1`** | Toggle **Visual Meshes** | Shows/hides high-res surface meshes (group 1) to inspect underlying collision geoms |
 | **`2`** | Toggle **Collision Primitives** | Shows/hides collision capsules, boxes, and spheres (group 2) |
 | **`3` - `5`** | Toggle **Auxiliary Groups** | Shows/hides user/sensor geom groups (groups 3–5) |
-| **`t`** | Toggle **Model Transparency** | Alternates between 30% alpha (x-ray mode for internal joint/actuator inspection) and 100% opaque |
-| **`c`** | Toggle **Contact Points** | Renders small colored spheres at active physical collision contact points |
-| **`f`** | Toggle **Contact Forces** | Renders 3D vector arrows depicting normal and friction contact forces |
-| **`m`** | Toggle **Center of Mass (CoM)** | Displays CoM indicator spheres for kinematic bodies / links |
-| **`i`** | Toggle **Inertia Ellipsoids** | Renders equivalent inertia ellipsoids depicting principal moments of inertia |
-| **`h`** | Toggle **Convex Hulls** | Displays computed convex hulls enclosing the link meshes |
-| **`o`** | Toggle **Center of Mass** | Whole-body CoM sphere, its vertical, and its shadow on the ground (`center_of_mass` in `sim_visualizations`) |
-| **`z`** | Toggle **ZMP** | Zero moment point of the physical ground reaction, as a disc on the ground (`zmp`) |
-| **`d`** | Toggle **DCM** | Divergent component of motion (capture point) of the measured CoM, on the ground, with its offset from the CoM's shadow (`dcm`) |
-| **`b`** | Toggle **Contact Timeline** | Barcode of planned vs ground-truth contact per contact point (`contact_timeline`) |
-| **`g`** | Toggle **Target Contact Patches** | Contact patch of every foot at the planner's target position and yaw (`target_contact_patches`) |
-| **`p`** | **Print Cheatsheet** | Prints the hotkey and mouse control guide to the terminal |
+| **`b`** | Toggle **Contact Timeline** | Barcode of planned vs ground-truth contact per contact point (`contact_timeline`, on in every shipped task file) |
+| **`g`** | Toggle **Target Contact Patches** | Contact patch of every foot at the planner's target position and yaw (`target_contact_patches`, on in every shipped task file) |
+| **`o`** | Toggle **Center of Mass** | Whole-body CoM sphere, its vertical, and its shadow on the ground (`center_of_mass`, on in some shipped task files) |
+| **`z`** | Toggle **ZMP** | Zero moment point of the physical ground reaction, as a disc on the ground (`zmp`, on in some shipped task files) |
+| **`d`** | Toggle **DCM** | Divergent component of motion (capture point) of the measured CoM, on the ground, with its offset from the CoM's shadow (`dcm`, on in some shipped task files) |
+| **`t`** | Toggle **X-ray View** | MuJoCo's transparency: the moving geoms at the model's map alpha (30% by default), the floor opaque (`mj_transparent`: list it in `sim_visualizations`, commented out in the shipped task files) |
+| **`c`** | Toggle **Contact Points** | Renders small colored spheres at active physical collision contact points (`mj_contact_points`: list it in `sim_visualizations`, commented out in the shipped task files) |
+| **`f`** | Toggle **Contact Forces** | Renders 3D vector arrows depicting normal and friction contact forces (`mj_contact_forces`: list it in `sim_visualizations`, commented out in the shipped task files) |
+| **`m`** | Toggle **Center of Mass (CoM)** | Displays CoM indicator spheres for kinematic bodies / links (`mj_com`: list it in `sim_visualizations`, commented out in the shipped task files) |
+| **`i`** | Toggle **Inertia Ellipsoids** | Renders equivalent inertia ellipsoids depicting principal moments of inertia (`mj_inertia`: list it in `sim_visualizations`, commented out in the shipped task files) |
+| **`h`** | Toggle **Convex Hulls** | Displays computed convex hulls enclosing the link meshes (`mj_convex_hull`: list it in `sim_visualizations`, commented out in the shipped task files) |
+| **`p`** | **Markers / Cheatsheet** | The web page opens its Markers panel (the visualizations with their keys); the GLFW window prints the hotkey and mouse guide to the robot's log |
 | **Left Click + Drag** | **Orbit Camera** | Rotates camera viewpoint around the robot or focal point |
 | **Right Click + Drag** | **Pan Camera** | Translates camera position horizontally and vertically |
 | **Scroll / Mid Drag** | **Zoom Camera** | Zooms camera toward or away from the target |
 | **Shift + Click + Drag** | **Constrained Pan/Orbit** | Constrains mouse orbit/pan motion to the horizontal plane |
+<!-- LINT.ThenChange(//robot_runtime/mujoco_sim_interface/src/visualization/VisualizationRegistry.cpp:visualization_names) -->
 
 ---
 
@@ -528,7 +545,7 @@ make export-rollouts
 make train-bc
 
 # Export trained policy to ONNX format for C++ deployment
-bazel run //humanoid_learning/export:export_onnx -- --output_path=models/humanoid_policy.onnx
+bazel run //humanoid_learning/export:export_onnx -- --checkpoint_path=checkpoints/bc_policy.npz --output_path=models/humanoid_policy.onnx
 ```
 
 </details>

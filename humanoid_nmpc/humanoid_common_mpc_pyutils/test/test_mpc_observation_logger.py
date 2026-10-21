@@ -37,7 +37,6 @@ import csv
 import datetime
 import io
 import os
-import socket
 import tempfile
 import threading
 import time
@@ -64,12 +63,6 @@ def observation(
     message.observation.state.extend(state)
     message.observation.input.extend(inputs)
     return message
-
-
-def free_port() -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
-        probe.bind(("127.0.0.1", 0))
-        return probe.getsockname()[1]
 
 
 def wait_for(condition: Callable[[], bool]) -> bool:
@@ -135,26 +128,13 @@ class WriterTest(unittest.TestCase):
 
 
 class BusTest(unittest.TestCase):
-    """The logger's subscription over a loopback bus, as `run` sets it up."""
+    """The logger's subscription over a DDS bus of the test process, as `run` sets it up."""
 
     def test_every_observation_published_reaches_the_file_in_order(self) -> None:
-        robot = robot_ipc.Bus(
-            ROBOT,
-            robot_ipc.NetworkConfig(
-                nodes=(
-                    robot_ipc.NodeEndpoint(
-                        ROBOT, "127.0.0.1", robot_ipc.EPHEMERAL_PORT
-                    ),
-                )
-            ),
-        )
+        network = robot_ipc.isolated_test_network([ROBOT])
+        robot = robot_ipc.Bus(ROBOT, network)
         self.addCleanup(robot.close)
-        logger_bus = robot_ipc.Bus(
-            "",
-            robot_ipc.NetworkConfig(
-                nodes=(robot_ipc.NodeEndpoint(ROBOT, "127.0.0.1", robot.bound_port),)
-            ),
-        )
+        logger_bus = robot_ipc.Bus("", network)
         self.addCleanup(logger_bus.close)
         stream = io.StringIO()
         writer = mpc_observation_logger.ObservationCsvWriter(stream)
@@ -162,8 +142,8 @@ class BusTest(unittest.TestCase):
         robot.start()
         logger_bus.start()
 
-        # ZeroMQ drops what is published before the subscription reaches the publisher: publish probes, of the same
-        # dimensions and at negative times, until one arrives.
+        # A VOLATILE reader misses what is written before it matched the writer: publish probes, of the same dimensions
+        # and at negative times, until one arrives.
         def probe_arrived() -> bool:
             robot.publish(
                 topics.ROBOT_MPC_OBSERVATION, observation(-1.0, [0.0, 0.0], [0.0])
@@ -195,11 +175,7 @@ class RunTest(unittest.TestCase):
             with open(network_file, "w", encoding="utf-8") as stream:
                 stream.write(
                     robot_ipc.format_network_config(
-                        robot_ipc.NetworkConfig(
-                            nodes=(
-                                robot_ipc.NodeEndpoint(ROBOT, "127.0.0.1", free_port()),
-                            )
-                        )
+                        robot_ipc.isolated_test_network([ROBOT])
                     )
                 )
             stop = threading.Event()

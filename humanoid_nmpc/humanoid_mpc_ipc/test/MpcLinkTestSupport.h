@@ -183,14 +183,14 @@ std::unique_ptr<ManifoldScriptedMpc> makeManifoldScriptedMpc(std::shared_ptr<con
 /** Polls `condition` every millisecond until it holds or `timeout` passes; returns whether it held. */
 bool waitFor(const std::function<bool()>& condition, absl::Duration timeout = kTimeout);
 
-/** A publishing bus of node `name` on an ephemeral loopback port, alone in its network. */
-std::unique_ptr<robot::ipc::Bus> createNodeBus(const std::string& name);
+/**
+ * A publishing bus of node `name` on this test process's DDS domain number `domainIndex`
+ * (robot::ipc::isolatedTestNetwork()): the buses of one domain reach each other, those of two domains never do.
+ */
+std::unique_ptr<robot::ipc::Bus> createNodeBus(const std::string& name, int domainIndex = 0);
 
-/** A bus that only subscribes, to the publisher `nodeName` at `port` on the loopback interface. */
-std::unique_ptr<robot::ipc::Bus> createSubscriberBus(const std::string& nodeName, int port);
-
-/** Connects the subscriber of each of the two buses to the publisher of the other. Before either starts. */
-void connectBoth(robot::ipc::Bus& first, robot::ipc::Bus& second);
+/** A bus that only subscribes, on this test process's DDS domain number `domainIndex`. */
+std::unique_ptr<robot::ipc::Bus> createSubscriberBus(int domainIndex = 0);
 
 /**
  * A policy message as an MPC node sends it: solved from the observation at `initTime` (state `value`), planned as

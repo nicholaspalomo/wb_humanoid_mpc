@@ -36,6 +36,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <utility>
 
 #include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_mpc_validation/closed_loop/RecordedRobotStates.h"
@@ -43,15 +44,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid::validation {
 
-std::string metricsFileName(const std::string& robot, const std::string& scenario) {
+std::string metricsFileName(absl::string_view robot, absl::string_view scenario) {
   return absl::StrCat(robot, "_", scenario, ".json");
 }
 
-std::string timeSeriesFileName(const std::string& robot, const std::string& scenario) {
+std::string timeSeriesFileName(absl::string_view robot, absl::string_view scenario) {
   return absl::StrCat(robot, "_", scenario, "_timeseries.txt");
 }
 
-std::string recordedStatesFileName(const std::string& robot, const std::string& scenario) {
+std::string recordedStatesFileName(absl::string_view robot, absl::string_view scenario) {
   return absl::StrCat(robot, "_", scenario, "_states.txt");
 }
 

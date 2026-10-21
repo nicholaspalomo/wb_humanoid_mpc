@@ -31,6 +31,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cmath>
 #include <filesystem>
 #include <fstream>
+#include <limits>
+#include <optional>
+#include <random>
 #include <string>
 #include <system_error>
 #include <utility>
@@ -54,7 +57,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * The closed-loop metrics: each definition on synthetic samples whose answer is known (perfect tracking is no error, a
  * constant height has no spread, a turn at a constant rate unwraps through +/-pi to rate * time, a planted foot does not
  * slip), and the schema test - every document the metrics write validates, the validator catches what is missing,
- * mistyped or unknown. Then the comparison rules (MetricBands.h): the band directions, improvements reported and
+ * mistyped or unknown; the SQP's steps, a cycle of which shows as runs of growing violation ended by full steps refused
+ * above g_max. Then the comparison rules (MetricBands.h): the band directions, improvements reported and
  * passed, and the offline comparison of two labels archived from synthetic runs, which reaches the verdict of the runs
  * as held in memory, run by run, names the runs without a baseline and refuses what it cannot compare.
  */
@@ -109,7 +113,7 @@ TEST(ClosedLoopMetrics, PerfectTrackingHasNoErrorAndAConstantHeightNoSpread) {
   EXPECT_NEAR(numberAt(report, "velocity.rms_error_mps"), 0.0, 1.0e-12);
   EXPECT_NEAR(numberAt(report, "yaw_rate.rms_error_radps"), 0.0, 1.0e-12);
   EXPECT_NEAR(numberAt(report, "base_height.mean_m"), 0.8, 1.0e-12);
-  EXPECT_NEAR(numberAt(report, "base_height.std_m"), 0.0, 1.0e-6);
+  EXPECT_EQ(numberAt(report, "base_height.std_m"), 0.0) << "a constant height has no spread, not a rounding floor";
   EXPECT_NEAR(numberAt(report, "base_height.rms_error_m"), 0.0, 1.0e-12);
   EXPECT_NEAR(numberAt(report, "tilt.max_rad"), 0.0, 1.0e-12) << "a level base has no tilt, whatever its heading";
   EXPECT_NEAR(numberAt(report, "joint_torque.rms_nm"), 2.0, 1.0e-12);
@@ -130,6 +134,37 @@ TEST(ClosedLoopMetrics, TheErrorsAreTheRmsOfTheDifferences) {
   EXPECT_NEAR(numberAt(report, "yaw_rate.rms_error_radps"), 0.2, 1.0e-12);
   EXPECT_NEAR(numberAt(report, "base_height.std_m"), 0.01, 1.0e-9);
   EXPECT_NEAR(numberAt(report, "base_height.rms_error_m"), 0.01, 1.0e-12);
+}
+
+TEST(ClosedLoopMetrics, TheHeightSpreadIsTheTwoPassStandardDeviation) {
+  std::mt19937_64 generator(/*seed=*/7);
+  for (const double spread : {1.0e-2, 1.0e-4, 1.0e-6}) {
+    std::normal_distribution<double> height(/*mean=*/0.8, spread);
+    ClosedLoopMetrics metrics;
+    std::vector<double> heights;
+    for (size_t k = 0; k < 5000; ++k) {
+      ControlCycleSample sample = trackingSample(k, /*forwardVelocity=*/0.0, /*yawRate=*/0.0);
+      sample.basePosition.z() = height(generator);
+      heights.push_back(sample.basePosition.z());
+      metrics.addControlCycle(sample);
+    }
+    double mean = 0.0;
+    for (const double h : heights) mean += h;
+    mean /= static_cast<double>(heights.size());
+    double squaredDeviationSum = 0.0;
+    for (const double h : heights) squaredDeviationSum += (h - mean) * (h - mean);
+    const double twoPassStd = std::sqrt(squaredDeviationSum / static_cast<double>(heights.size()));
+    EXPECT_NEAR(numberAt(reportOf(metrics), "base_height.std_m"), twoPassStd, 1.0e-9 * twoPassStd) << "spread " << spread;
+  }
+  for (const double constantHeight : {0.79, 0.8, 0.912, 1.05}) {
+    ClosedLoopMetrics metrics;
+    for (size_t k = 0; k < 10000; ++k) {
+      ControlCycleSample sample = trackingSample(k, /*forwardVelocity=*/0.0, /*yawRate=*/0.0);
+      sample.basePosition.z() = constantHeight;
+      metrics.addControlCycle(sample);
+    }
+    EXPECT_EQ(numberAt(reportOf(metrics), "base_height.std_m"), 0.0) << constantHeight;
+  }
 }
 
 TEST(ClosedLoopMetrics, TheVelocityErrorIsTakenInTheHeadingFrame) {
@@ -206,7 +241,78 @@ TEST(ClosedLoopMetrics, SolveStatisticsAreNearestRankPercentiles) {
   EXPECT_EQ(numberAt(report, "failures.failed_solves"), 1.0);
   EXPECT_EQ(numberAt(report, "initial_state_gap.max_rotation_rad"), 6.28);
   EXPECT_NEAR(numberAt(report, "initial_state_gap.max_rotation_time_s"), 0.40, 1.0e-12) << "when the gap peaked";
-  EXPECT_TRUE(summarizeTimes({}).find("p99")->isNull());
+  EXPECT_TRUE(summarizeSample({}).find("p99")->isNull());
+}
+
+/** A solve at `time` whose SQP took a step of `stepSize`, accepted by `kind`, that ended at the violation `violation`. */
+SolveSample solveWithStep(double time, double stepSize, SqpStepKind kind, double violation, std::optional<double> residual) {
+  SolveSample solve;
+  solve.time = time;
+  solve.sqpStep = SqpStepSample{.stepSize = stepSize,
+                                .stepKind = kind,
+                                .fullStepKind = kind,
+                                .fullStepConstraintViolation = violation,
+                                .constraintViolation = violation,
+                                .swingNormalVelocityResidual = residual};
+  return solve;
+}
+
+/** `solve` with its full step refused above g_max, at the violation `fullStepViolation`. */
+SolveSample refusedAboveGMax(SolveSample solve, double fullStepViolation) {
+  CHECK(solve.sqpStep.has_value()) << "refusedAboveGMax() refuses the step of a solve that took one";
+  solve.sqpStep->fullStepKind = SqpStepKind::kConstraint;
+  solve.sqpStep->fullStepConstraintViolation = fullStepViolation;
+  return solve;
+}
+
+TEST(ClosedLoopMetrics, TheSqpStepsShowACycleAsGrowthRunsEndedByRefusalsAboveGMax) {
+  ClosedLoopMetrics metrics;
+  // A cycle: full steps whose violation grows by about 1.9 from one solve to the next, then a full step refused above
+  // g_max and a half step that resets the violation, and growth again.
+  metrics.addSolve(solveWithStep(/*time=*/0.02, /*stepSize=*/1.0, SqpStepKind::kDual, /*violation=*/1.0e-3, /*residual=*/0.01));
+  metrics.addSolve(solveWithStep(/*time=*/0.04, /*stepSize=*/1.0, SqpStepKind::kDual, /*violation=*/1.9e-3, /*residual=*/0.02));
+  metrics.addSolve(solveWithStep(/*time=*/0.06, /*stepSize=*/1.0, SqpStepKind::kDual, /*violation=*/3.6e-3, /*residual=*/0.04));
+  metrics.addSolve(solveWithStep(/*time=*/0.08, /*stepSize=*/1.0, SqpStepKind::kDual, /*violation=*/6.8e-3, /*residual=*/0.08));
+  metrics.addSolve(
+      refusedAboveGMax(solveWithStep(/*time=*/0.10, /*stepSize=*/0.5, SqpStepKind::kDual, /*violation=*/3.4e-3, /*residual=*/0.04),
+                       /*fullStepViolation=*/1.3e-2));
+  metrics.addSolve(solveWithStep(/*time=*/0.12, /*stepSize=*/1.0, SqpStepKind::kDual, /*violation=*/6.4e-3, /*residual=*/0.06));
+  // A failed solve has no step and ends the run of growth.
+  SolveSample failed;
+  failed.time = 0.14;
+  failed.succeeded = false;
+  metrics.addSolve(failed);
+  metrics.addSolve(solveWithStep(/*time=*/0.16, /*stepSize=*/1.0, SqpStepKind::kDual, /*violation=*/9.0e-3, /*residual=*/0.05));
+  // No step taken (the same violation: no growth), and no swing in the horizon from here on.
+  metrics.addSolve(solveWithStep(/*time=*/0.18, /*stepSize=*/0.0, SqpStepKind::kZero, /*violation=*/9.0e-3, /*residual=*/std::nullopt));
+  metrics.addSolve(solveWithStep(/*time=*/0.20, /*stepSize=*/1.0, SqpStepKind::kCost, /*violation=*/5.0e-7, /*residual=*/std::nullopt));
+  // A quarter step accepted above g_max, its full step refused there.
+  metrics.addSolve(refusedAboveGMax(
+      solveWithStep(/*time=*/0.22, /*stepSize=*/0.25, SqpStepKind::kConstraint, /*violation=*/2.0e-2, /*residual=*/std::nullopt),
+      /*fullStepViolation=*/4.0e-2));
+
+  const JsonValue report = reportOf(metrics);
+  EXPECT_TRUE(validateClosedLoopMetrics(report).ok()) << validateClosedLoopMetrics(report);
+  EXPECT_EQ(numberAt(report, "sqp_step.steps"), 10.0) << "every solve but the failed one";
+  EXPECT_EQ(numberAt(report, "sqp_step.full_steps"), 7.0);
+  EXPECT_EQ(numberAt(report, "sqp_step.reduced_steps"), 2.0);
+  EXPECT_EQ(numberAt(report, "sqp_step.zero_steps"), 1.0);
+  EXPECT_EQ(numberAt(report, "sqp_step.full_steps_refused_above_g_max"), 2.0);
+  EXPECT_EQ(numberAt(report, "sqp_step.accepted_by.constraint"), 1.0);
+  EXPECT_EQ(numberAt(report, "sqp_step.accepted_by.dual"), 7.0);
+  EXPECT_EQ(numberAt(report, "sqp_step.accepted_by.cost"), 1.0);
+  EXPECT_EQ(numberAt(report, "sqp_step.longest_violation_growth"), 3.0) << "the three growths before the reset";
+  EXPECT_EQ(numberAt(report, "sqp_step.constraint_violation.max"), 2.0e-2);
+  EXPECT_EQ(numberAt(report, "sqp_step.constraint_violation.p50"), 3.6e-3) << "the fifth of the ten, nearest rank";
+  EXPECT_EQ(numberAt(report, "sqp_step.swing_normal_velocity_residual.max"), 0.08);
+  EXPECT_NEAR(numberAt(report, "sqp_step.swing_normal_velocity_residual.mean"), 0.3 / 7.0, 1.0e-15) << "over the seven with a swing";
+
+  // A run without a step has counts of zero and no statistics.
+  const JsonValue empty = reportOf(ClosedLoopMetrics());
+  EXPECT_EQ(numberAt(empty, "sqp_step.steps"), 0.0);
+  EXPECT_EQ(numberAt(empty, "sqp_step.longest_violation_growth"), 0.0);
+  EXPECT_TRUE(empty.findPath("sqp_step.constraint_violation.max")->isNull());
+  EXPECT_TRUE(empty.findPath("sqp_step.swing_normal_velocity_residual.mean")->isNull());
 }
 
 TEST(ClosedLoopMetrics, AFallIsReportedWithItsTimeAndReason) {
@@ -229,12 +335,45 @@ TEST(ClosedLoopMetrics, EveryWrapAngleIsInMinusPiToPi) {
   }
 }
 
+// A NaN in a solve's sample is not dropped by the maxima: they become NaN, which the text of the document writes as null,
+// so the solves that had one are counted where the text keeps them.
+TEST(ClosedLoopMetrics, ANonFiniteSolveSampleIsKeptAndCounted) {
+  const double nan = std::numeric_limits<double>::quiet_NaN();
+  ClosedLoopMetrics metrics;
+  for (const double time : {0.0, 0.02, 0.04}) {
+    SolveSample solve;
+    solve.time = time;
+    const bool isTheNan = time == 0.02;
+    solve.quaternionNormDeviation = isTheNan ? nan : 1.0e-12;
+    solve.initialStateRotationGap = isTheNan ? nan : 0.01;
+    solve.initialStateGapNorm = isTheNan ? nan : 0.02;
+    metrics.addSolve(solve);  // a finite sample before the NaN and one after it
+  }
+  const JsonValue report = reportOf(metrics);
+  for (const std::string path : {"quaternion_norm.max_deviation", "initial_state_gap.max_rotation_rad", "initial_state_gap.max_norm"}) {
+    const JsonValue* absl_nullable value = report.findPath(path);
+    ASSERT_NE(value, nullptr) << path;
+    ASSERT_TRUE(value->isNumber()) << path;
+    EXPECT_TRUE(std::isnan(value->asNumber())) << path << " = " << value->asNumber();
+  }
+  EXPECT_EQ(numberAt(report, "initial_state_gap.max_rotation_time_s"), 0.02);
+  EXPECT_EQ(numberAt(report, "quaternion_norm.non_finite_solves"), 1.0);
+
+  const absl::StatusOr<JsonValue> parsed = JsonValue::parse(report.serialize());
+  ASSERT_TRUE(parsed.ok()) << parsed.status();
+  const JsonValue* absl_nullable deviation = parsed->findPath("quaternion_norm.max_deviation");
+  ASSERT_NE(deviation, nullptr);
+  EXPECT_TRUE(deviation->isNull());
+  EXPECT_EQ(numberAt(*parsed, "quaternion_norm.non_finite_solves"), 1.0);
+  EXPECT_EQ(numberAt(reportOf(ClosedLoopMetrics()), "quaternion_norm.non_finite_solves"), 0.0);
+}
+
 // ----------------------------------------------------------------------------------------------------- the schema
 
 TEST(ClosedLoopMetricsSchema, EveryDocumentTheMetricsWriteValidates) {
   ClosedLoopMetrics metrics;
   for (size_t k = 0; k < 20; ++k) metrics.addControlCycle(trackingSample(k, /*forwardVelocity=*/0.3, /*yawRate=*/0.1));
-  SolveSample solve;
+  SolveSample solve = solveWithStep(/*time=*/0.0, /*stepSize=*/1.0, SqpStepKind::kDual, /*violation=*/1.0e-4, /*residual=*/1.0e-3);
   solve.quaternionNormDeviation = 1.0e-12;
   metrics.addSolve(solve);
   const JsonValue report = reportOf(metrics);
@@ -361,6 +500,54 @@ TEST(MetricBands, TheHeightMeanIsHeldWithinItsBandBothWays) {
   }
   EXPECT_TRUE(compareClosedLoopMetrics(bandedDocument(/*value=*/0.1, "base_height.mean_m", /*pathValue=*/0.796), baseline, BandOptions())
                   .violations.empty());
+}
+
+/** `document` with `value` at the two-level path `path` ("<group>.<field>"); members keep their order. */
+JsonValue withValueAt(const JsonValue& document, const std::string& path, const JsonValue& value) {
+  const size_t dot = path.find('.');
+  const std::string group = path.substr(0, dot);
+  const JsonValue* absl_nullable existing = document.find(group);
+  JsonValue members = existing != nullptr ? *existing : JsonValue::object();
+  members.set(path.substr(dot + 1), value);
+  JsonValue copy = document;
+  copy.set(group, members);
+  return copy;
+}
+
+TEST(MetricBands, AMetricTheCandidateLacksOrMadeNanFailsAgainstABaselineThatHasIt) {
+  const JsonValue baseline = bandedDocument(/*value=*/0.1, "base_height.mean_m", /*pathValue=*/0.8);
+  for (const MetricBand& band : closedLoopMetricBands()) {
+    for (const JsonValue& missing : {JsonValue(), JsonValue::number(std::numeric_limits<double>::quiet_NaN()),
+                                     JsonValue::number(std::numeric_limits<double>::infinity())}) {
+      const JsonValue candidate = withValueAt(baseline, band.path, missing);
+      const ClosedLoopComparison comparison = compareClosedLoopMetrics(candidate, baseline, BandOptions());
+      ASSERT_EQ(comparison.violations.size(), 1u) << band.path << ": " << describeClosedLoopComparison(comparison);
+      EXPECT_EQ(comparison.violations[0].rfind(band.path, 0), 0u) << comparison.violations[0];
+    }
+    // Nothing to hold the candidate to: a metric the baseline did not measure is not compared.
+    const ClosedLoopComparison unmeasured =
+        compareClosedLoopMetrics(baseline, withValueAt(baseline, band.path, JsonValue()), BandOptions());
+    EXPECT_TRUE(unmeasured.violations.empty()) << band.path << ": " << describeClosedLoopComparison(unmeasured);
+  }
+}
+
+TEST(MetricBands, ASolveTimeOrQuaternionNormTheCandidateLacksFailsAgainstABaselineThatHasIt) {
+  JsonValue baseline = bandedDocument(/*value=*/0.1, "base_height.mean_m", /*pathValue=*/0.8);
+  baseline.set("solve_time_ms", JsonValue::object()).set("total", JsonValue::object()).set("p99", JsonValue::number(5.0));
+  baseline = withValueAt(baseline, "quaternion_norm.max_deviation", JsonValue::number(1.0e-12));
+  EXPECT_TRUE(compareClosedLoopMetrics(baseline, baseline, BandOptions{.compareSolveTime = true}).violations.empty());
+
+  JsonValue noSolveTime = baseline;
+  noSolveTime.set("solve_time_ms", JsonValue::object()).set("total", JsonValue::object()).set("p99", JsonValue());
+  const ClosedLoopComparison compared = compareClosedLoopMetrics(noSolveTime, baseline, BandOptions{.compareSolveTime = true});
+  ASSERT_EQ(compared.violations.size(), 1u) << describeClosedLoopComparison(compared);
+  EXPECT_EQ(compared.violations[0].rfind("solve_time_ms.total.p99", 0), 0u) << compared.violations[0];
+  EXPECT_TRUE(compareClosedLoopMetrics(noSolveTime, baseline, BandOptions{.compareSolveTime = false}).violations.empty());
+
+  const ClosedLoopComparison noNorm =
+      compareClosedLoopMetrics(withValueAt(baseline, "quaternion_norm.max_deviation", JsonValue()), baseline, BandOptions());
+  ASSERT_EQ(noNorm.violations.size(), 1u) << describeClosedLoopComparison(noNorm);
+  EXPECT_EQ(noNorm.violations[0].rfind("quaternion_norm.max_deviation", 0), 0u) << noNorm.violations[0];
 }
 
 TEST(MetricBands, TheDescriptionListsBothKinds) {

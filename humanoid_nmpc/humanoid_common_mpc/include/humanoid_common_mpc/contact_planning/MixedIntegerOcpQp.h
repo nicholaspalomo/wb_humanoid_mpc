@@ -72,12 +72,18 @@ using MiqpAssignmentCostFn = std::function<scalar_t(const MiqpAssignment& assign
 
 /** The limits and switches of one branch-and-bound search (MixedIntegerOcpQp). Passive data. */
 struct MiqpSettings {
-  int maxNodes = 300;                // branch-and-bound node limit (QP relaxations solved, heuristics included)
-  scalar_t maxSolveTime = 0.1;       // [s] wall-clock limit; the best incumbent so far is returned when exceeded
-  scalar_t integralityTol = 1.0e-4;  // |v - round(v)| below this counts as integral
-  scalar_t absoluteGap = 1.0e-6;     // nodes whose bound is within this gap of the incumbent are pruned
-  bool useDivingHeuristic = true;    // after the root relaxation, dive (fix integral values, round the rest) for an early incumbent
-  int maxDiveIterations = 64;
+  static constexpr int kDefaultMaxNodes = 300;
+  static constexpr scalar_t kDefaultMaxSolveTime = 0.1;  // [s]
+  static constexpr scalar_t kDefaultIntegralityTolerance = 1.0e-4;
+  static constexpr scalar_t kDefaultAbsoluteGap = 1.0e-6;
+  static constexpr int kDefaultMaxDiveIterations = 64;
+
+  int maxNodes = kDefaultMaxNodes;                         // branch-and-bound node limit (QP relaxations solved, heuristics included)
+  scalar_t maxSolveTime = kDefaultMaxSolveTime;            // [s] wall-clock limit; the best incumbent so far is returned when exceeded
+  scalar_t integralityTol = kDefaultIntegralityTolerance;  // |v - round(v)| below this counts as integral
+  scalar_t absoluteGap = kDefaultAbsoluteGap;              // nodes whose bound is within this gap of the incumbent are pruned
+  bool useDivingHeuristic = true;  // after the root relaxation, dive (fix integral values, round the rest) for an early incumbent
+  int maxDiveIterations = kDefaultMaxDiveIterations;
   bool verbose = false;
 };
 
@@ -111,10 +117,15 @@ struct MiqpResult {
  *
  * Note that for disjunctive constraints (big-M) the relaxation bounds are weak, so the search is effectively an enumeration
  * of the admissible assignments with pruning by propagation; the node and time limits make it an anytime method.
+ *
+ * Not thread-safe: solve() and solveFixed() use the one QP solver the instance owns. Not copyable (OcpQpHpipmSolver).
  */
 class MixedIntegerOcpQp {
  public:
   MixedIntegerOcpQp(OcpQpHpipmSolver::Settings qpSettings, MiqpSettings settings);
+  MixedIntegerOcpQp(const MixedIntegerOcpQp&) = delete;
+  MixedIntegerOcpQp& operator=(const MixedIntegerOcpQp&) = delete;
+  ~MixedIntegerOcpQp() = default;
 
   /**
    * @param problem            The OCP-QP. The binaries' box bounds are overwritten by the search.
@@ -151,6 +162,8 @@ class MixedIntegerOcpQp {
   void setSettings(const MiqpSettings& settings) { settings_ = settings; }
 
  private:
+  class Search;  // the state of one solve(), MixedIntegerOcpQp.cpp
+
   struct BinaryLocation {
     int stage = 0;
     int boxIndex = 0;  // index into the stage's idxbu / lbu / ubu

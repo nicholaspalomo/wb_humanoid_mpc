@@ -36,7 +36,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace robot::mujoco_sim_interface {
 
-/** Text in the top-left corner: render and simulation FPS, real and simulated time, real-time factor and drift. */
+/** Text in the top-left corner: render and simulation FPS, real and simulated time, real-time factor and drift. Not thread-safe: the viewer
+ * drives it from one thread. */
 class MetricsOverlay final : public MujocoVisualization {
  public:
   std::string name() const override { return "metrics"; }

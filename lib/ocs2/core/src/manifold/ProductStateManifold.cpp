@@ -62,7 +62,7 @@ absl::StatusOr<std::shared_ptr<const ProductStateManifold>> ProductStateManifold
     if (segment.type == StateManifoldSegment::Type::kEuclidean && segment.dimension == 0) {
       return absl::InvalidArgumentError(absl::StrCat("[ProductStateManifold] Segment ", i, " is a Euclidean segment of size 0."));
     }
-    if (segment.type == StateManifoldSegment::Type::kUnitQuaternion && segment.dimension != 4) {
+    if (segment.type == StateManifoldSegment::Type::kUnitQuaternion && segment.dimension != kQuaternionCoefficients) {
       return absl::InvalidArgumentError(absl::StrCat("[ProductStateManifold] Segment ", i, " is a unit quaternion of size ",
                                                      segment.dimension, "; a unit quaternion has the 4 coefficients (x, y, z, w)."));
     }
@@ -114,9 +114,9 @@ void ProductStateManifold::retract(const vector_t& x, const vector_t& dx, scalar
       xNew.segment(block.ambientOffset, block.ambientDim) =
           x.segment(block.ambientOffset, block.ambientDim) + alpha * dx.segment(block.tangentOffset, block.tangentDim);
     } else {
-      const quaternion_t xi = x.segment<4>(block.ambientOffset);
-      const rotation_t step = alpha * dx.segment<3>(block.tangentOffset);
-      xNew.segment<4>(block.ambientOffset) = quaternionSafeNormalize(quaternionProduct(xi, quaternionExp(step)));
+      const quaternion_t xi = x.segment<kQuaternionCoefficients>(block.ambientOffset);
+      const rotation_t step = alpha * dx.segment<kRotationTangentDim>(block.tangentOffset);
+      xNew.segment<kQuaternionCoefficients>(block.ambientOffset) = quaternionSafeNormalize(quaternionProduct(xi, quaternionExp(step)));
     }
   }
 }
@@ -143,9 +143,9 @@ void ProductStateManifold::differenceInto(const vector_t& x0, const vector_t& x1
       dx.segment(block.tangentOffset, block.tangentDim) =
           x1.segment(block.ambientOffset, block.ambientDim) - x0.segment(block.ambientOffset, block.ambientDim);
     } else {
-      const quaternion_t xi0 = x0.segment<4>(block.ambientOffset);
-      const quaternion_t xi1 = x1.segment<4>(block.ambientOffset);
-      dx.segment<3>(block.tangentOffset) = quaternionLog(quaternionProduct(quaternionConjugate(xi0), xi1));
+      const quaternion_t xi0 = x0.segment<kQuaternionCoefficients>(block.ambientOffset);
+      const quaternion_t xi1 = x1.segment<kQuaternionCoefficients>(block.ambientOffset);
+      dx.segment<kRotationTangentDim>(block.tangentOffset) = quaternionLog(quaternionProduct(quaternionConjugate(xi0), xi1));
     }
   }
 }
@@ -156,9 +156,9 @@ void ProductStateManifold::interpolateInto(const vector_t& x0, const vector_t& x
       x.segment(block.ambientOffset, block.ambientDim) =
           (1.0 - alpha) * x0.segment(block.ambientOffset, block.ambientDim) + alpha * x1.segment(block.ambientOffset, block.ambientDim);
     } else {
-      const quaternion_t xi0 = x0.segment<4>(block.ambientOffset);
-      const quaternion_t xi1 = x1.segment<4>(block.ambientOffset);
-      x.segment<4>(block.ambientOffset) = quaternionSlerp(xi0, xi1, alpha);
+      const quaternion_t xi0 = x0.segment<kQuaternionCoefficients>(block.ambientOffset);
+      const quaternion_t xi1 = x1.segment<kQuaternionCoefficients>(block.ambientOffset);
+      x.segment<kQuaternionCoefficients>(block.ambientOffset) = quaternionSlerp(xi0, xi1, alpha);
     }
   }
 }
@@ -167,8 +167,8 @@ void ProductStateManifold::project(vector_t& x) const {
   CHECK_EQ(sizeOf(x.size()), ambientDim_);
   for (const Block& block : blocks_) {
     if (block.type == StateManifoldSegment::Type::kUnitQuaternion) {
-      const quaternion_t xi = x.segment<4>(block.ambientOffset);
-      x.segment<4>(block.ambientOffset) = quaternionSafeNormalize(xi);
+      const quaternion_t xi = x.segment<kQuaternionCoefficients>(block.ambientOffset);
+      x.segment<kQuaternionCoefficients>(block.ambientOffset) = quaternionSafeNormalize(xi);
     }
   }
 }
@@ -178,25 +178,46 @@ scalar_t ProductStateManifold::getMaximumRotationAngle(const vector_t& dx) const
   scalar_t maximumAngle = 0.0;
   for (const Block& block : blocks_) {
     if (block.type == StateManifoldSegment::Type::kUnitQuaternion) {
-      maximumAngle = std::max(maximumAngle, dx.segment<3>(block.tangentOffset).norm());
+      const scalar_t norm = dx.segment<kRotationTangentDim>(block.tangentOffset).norm();
+      if (std::isnan(norm)) {
+        return norm;
+      }
+      if (norm > maximumAngle) {
+        maximumAngle = norm;
+      }
     }
   }
   return maximumAngle;
 }
 
-std::vector<Eigen::Matrix<scalar_t, 4, 3>> ProductStateManifold::tangentMaps(const vector_t& x) const {
+bool ProductStateManifold::hasRepresentableRotations(const vector_t& x) const {
   CHECK_EQ(sizeOf(x.size()), ambientDim_);
-  std::vector<Eigen::Matrix<scalar_t, 4, 3>> maps;
+  constexpr scalar_t kSquaredGuard = kQuaternionNormalizationEpsilon * kQuaternionNormalizationEpsilon;
+  for (const Block& block : blocks_) {
+    // Written as !(|xi|^2 > guard^2), the safe normalization's own test, so that a NaN block has no rotation either.
+    if (block.type == StateManifoldSegment::Type::kUnitQuaternion &&
+        !(x.segment<kQuaternionCoefficients>(block.ambientOffset).squaredNorm() > kSquaredGuard)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+std::vector<Eigen::Matrix<scalar_t, kQuaternionCoefficients, kRotationTangentDim>> ProductStateManifold::tangentMaps(
+    const vector_t& x) const {
+  CHECK_EQ(sizeOf(x.size()), ambientDim_);
+  std::vector<Eigen::Matrix<scalar_t, kQuaternionCoefficients, kRotationTangentDim>> maps;
   for (const Block& block : blocks_) {
     if (block.type == StateManifoldSegment::Type::kUnitQuaternion) {
-      const quaternion_t xi = x.segment<4>(block.ambientOffset);
+      const quaternion_t xi = x.segment<kQuaternionCoefficients>(block.ambientOffset);
       maps.push_back(quaternionTangentMap(xi));
     }
   }
   return maps;
 }
 
-void ProductStateManifold::mapQuaternionColumns(const std::vector<Eigen::Matrix<scalar_t, 4, 3>>& columnMaps, matrix_t& M) const {
+void ProductStateManifold::mapQuaternionColumns(
+    const std::vector<Eigen::Matrix<scalar_t, kQuaternionCoefficients, kRotationTangentDim>>& columnMaps, matrix_t& M) const {
   CHECK_EQ(sizeOf(M.cols()), ambientDim_);
   // Left to right: a block's tangent columns start at or before its ambient ones, so a block is written only over
   // columns already read.
@@ -209,16 +230,17 @@ void ProductStateManifold::mapQuaternionColumns(const std::vector<Eigen::Matrix<
         }
       }
     } else {
-      const matrix_t mapped = M.middleCols<4>(block.ambientOffset) * columnMaps[quaternionIndex++];
-      M.middleCols<3>(block.tangentOffset) = mapped;
+      const matrix_t mapped = M.middleCols<kQuaternionCoefficients>(block.ambientOffset) * columnMaps[quaternionIndex++];
+      M.middleCols<kRotationTangentDim>(block.tangentOffset) = mapped;
     }
   }
   M.conservativeResize(Eigen::NoChange, tangentDim_);
 }
 
 template <typename Derived>
-void ProductStateManifold::mapQuaternionRows(const std::vector<Eigen::Matrix<scalar_t, 3, 4>>& rowMaps,
-                                             Eigen::PlainObjectBase<Derived>& M) const {
+void ProductStateManifold::mapQuaternionRows(
+    const std::vector<Eigen::Matrix<scalar_t, kRotationTangentDim, kQuaternionCoefficients>>& rowMaps,
+    Eigen::PlainObjectBase<Derived>& M) const {
   CHECK_EQ(sizeOf(M.rows()), ambientDim_);
   size_t quaternionIndex = 0;
   for (const Block& block : blocks_) {
@@ -229,8 +251,8 @@ void ProductStateManifold::mapQuaternionRows(const std::vector<Eigen::Matrix<sca
         }
       }
     } else {
-      const matrix_t mapped = rowMaps[quaternionIndex++] * M.template middleRows<4>(block.ambientOffset);
-      M.template middleRows<3>(block.tangentOffset) = mapped;
+      const matrix_t mapped = rowMaps[quaternionIndex++] * M.template middleRows<kQuaternionCoefficients>(block.ambientOffset);
+      M.template middleRows<kRotationTangentDim>(block.tangentOffset) = mapped;
     }
   }
   M.conservativeResize(tangentDim_, M.cols());
@@ -241,16 +263,16 @@ void ProductStateManifold::pullBackStateColumns(const vector_t& x, matrix_t& J) 
 }
 
 void ProductStateManifold::pullBackStateRows(const vector_t& x, matrix_t& M) const {
-  std::vector<Eigen::Matrix<scalar_t, 3, 4>> rowMaps;
-  for (const Eigen::Matrix<scalar_t, 4, 3>& E : tangentMaps(x)) {
+  std::vector<Eigen::Matrix<scalar_t, kRotationTangentDim, kQuaternionCoefficients>> rowMaps;
+  for (const Eigen::Matrix<scalar_t, kQuaternionCoefficients, kRotationTangentDim>& E : tangentMaps(x)) {
     rowMaps.push_back(E.transpose());
   }
   mapQuaternionRows(rowMaps, M);
 }
 
 void ProductStateManifold::pullBackGradient(const vector_t& x, vector_t& g) const {
-  std::vector<Eigen::Matrix<scalar_t, 3, 4>> rowMaps;
-  for (const Eigen::Matrix<scalar_t, 4, 3>& E : tangentMaps(x)) {
+  std::vector<Eigen::Matrix<scalar_t, kRotationTangentDim, kQuaternionCoefficients>> rowMaps;
+  for (const Eigen::Matrix<scalar_t, kQuaternionCoefficients, kRotationTangentDim>& E : tangentMaps(x)) {
     rowMaps.push_back(E.transpose());
   }
   mapQuaternionRows(rowMaps, g);
@@ -270,9 +292,9 @@ void ProductStateManifold::liftStateColumns(const vector_t& x, matrix_t& J) cons
         }
       }
     } else {
-      const quaternion_t xi = x.segment<4>(block->ambientOffset);
-      const matrix_t lifted = J.middleCols<3>(block->tangentOffset) * quaternionTangentMapPseudoInverse(xi);
-      J.middleCols<4>(block->ambientOffset) = lifted;
+      const quaternion_t xi = x.segment<kQuaternionCoefficients>(block->ambientOffset);
+      const matrix_t lifted = J.middleCols<kRotationTangentDim>(block->tangentOffset) * quaternionTangentMapPseudoInverse(xi);
+      J.middleCols<kQuaternionCoefficients>(block->ambientOffset) = lifted;
     }
   }
 }
@@ -294,16 +316,16 @@ void ProductStateManifold::pushForwardDynamics(const vector_t& x,
   // Jr^-1(f_q) 2 G(xi_Phi)' / |xi_Phi|^2 because G(xi)' xi = 0.
   const vector_t& phi = dynamics.f;
   vector_t gap(tangentDim_);
-  std::vector<Eigen::Matrix<scalar_t, 3, 4>> rowMaps;
+  std::vector<Eigen::Matrix<scalar_t, kRotationTangentDim, kQuaternionCoefficients>> rowMaps;
   for (const Block& block : blocks_) {
     if (block.type == StateManifoldSegment::Type::kEuclidean) {
       gap.segment(block.tangentOffset, block.tangentDim) =
           phi.segment(block.ambientOffset, block.ambientDim) - xNext.segment(block.ambientOffset, block.ambientDim);
     } else {
-      const quaternion_t xiPhi = phi.segment<4>(block.ambientOffset);
-      const quaternion_t xiNext = xNext.segment<4>(block.ambientOffset);
+      const quaternion_t xiPhi = phi.segment<kQuaternionCoefficients>(block.ambientOffset);
+      const quaternion_t xiNext = xNext.segment<kQuaternionCoefficients>(block.ambientOffset);
       const rotation_t blockGap = quaternionLog(quaternionProduct(quaternionConjugate(xiNext), xiPhi));
-      gap.segment<3>(block.tangentOffset) = blockGap;
+      gap.segment<kRotationTangentDim>(block.tangentOffset) = blockGap;
       rowMaps.push_back(so3RightJacobianInverse(blockGap) * quaternionTangentMapPseudoInverse(xiPhi));
     }
   }

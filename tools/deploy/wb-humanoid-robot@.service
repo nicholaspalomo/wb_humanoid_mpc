@@ -22,7 +22,9 @@ Type=oneshot
 RemainAfterExit=yes
 WorkingDirectory=@DEPLOY_DIR@
 Environment=ROBOT=%i
+# LINT.IfChange(deployed_robot_guard)
 ExecStartPre=/bin/sh -c 'grep -qx "ROBOT=%i" .env || { echo "wb-humanoid-robot@%i: $$(pwd) holds the deployment of $$(sed -n "s/^ROBOT=//p" .env); make deploy-robot ROBOT=%i deploys this one" >&2; exit 1; }'
+# LINT.ThenChange(//tools/deploy/deploy_robot.sh:deployed_robot_guard)
 ExecStart=/usr/bin/docker compose up --detach --no-build --remove-orphans
 ExecStop=/usr/bin/docker compose down
 TimeoutStartSec=300

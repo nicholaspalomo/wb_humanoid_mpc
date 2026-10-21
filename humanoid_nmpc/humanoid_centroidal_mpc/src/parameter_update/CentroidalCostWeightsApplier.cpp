@@ -42,10 +42,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/types/span.h"
 
 #include "humanoid_centroidal_mpc/config/costs/DcmTerminalCostFromConfig.h"
-#include "humanoid_centroidal_mpc/config/costs/IcpCostFromConfig.h"
 #include "humanoid_centroidal_mpc/cost/CentroidalMpcEndEffectorFootCost.h"
 #include "humanoid_centroidal_mpc/cost/DcmTerminalCost.h"
-#include "humanoid_centroidal_mpc/cost/ICPCost.h"
 #include "humanoid_common_mpc/common/CostTermNames.h"
 #include "humanoid_common_mpc/config/costs/TaskSpaceCostFromConfig.h"
 #include "humanoid_common_mpc/cost/EndEffectorKinematicCostHelpers.h"
@@ -56,9 +54,8 @@ namespace ocs2::humanoid {
 namespace {
 
 // LINT.IfChange(centroidal_cost_weights_fields)
-constexpr std::array<absl::string_view, 3> kFields = {
+constexpr std::array<absl::string_view, 2> kFields = {
     "task_space_foot_cost",
-    "icp_cost_weights",
     "dcm_terminal_cost",
 };
 // LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_config/task_file.proto)
@@ -84,10 +81,6 @@ void CentroidalCostWeightsApplier::apply(HotUpdateTarget& target) {
   if (carriesFootCost(running, target.contactNames())) {
     footCost = convertedOrReported(taskSpaceFootCostFromConfig(task.task_space_foot_cost), target.source(), "task_space_foot_cost");
   }
-  std::optional<vector2_t> icpWeights;
-  if (carriesTerm(*running.costPtr, kIcpCostTerm)) {
-    icpWeights = convertedOrReported(icpCostWeightsFromConfig(task.icp_cost_weights), target.source(), "icp_cost_weights");
-  }
   std::optional<DcmTerminalCost::Config> dcmTerminalCost;
   if (carriesTerm(*running.finalCostPtr, DcmTerminalCost::kTermName)) {
     dcmTerminalCost = convertedOrReported(dcmTerminalCostConfigFromConfig(task.dcm_terminal_cost), target.source(), "dcm_terminal_cost");
@@ -98,15 +91,13 @@ void CentroidalCostWeightsApplier::apply(HotUpdateTarget& target) {
     if (footCost.has_value()) {
       const vector12_t weights = footCost->weights.toVector();
       for (const std::string& footName : target.contactNames()) {
-        updateTermIfPresent<CentroidalMpcEndEffectorFootCost>(*ocp.costPtr, taskSpaceKinematicsCostName(footName),
-                                                              [&](CentroidalMpcEndEffectorFootCost& cost) {
-                                                                cost.setWeights(weights);
-                                                                cost.setActiveInStance(footCost->activeInStance);
-                                                              });
+        updateTermIfPresent<CentroidalMpcEndEffectorFootCost>(
+            *ocp.costPtr, taskSpaceKinematicsCostName(footName), [&](CentroidalMpcEndEffectorFootCost& cost) {
+              cost.setWeights(weights);
+              cost.setActiveInStance(footCost->activeInStance);
+              cost.setSwingVelocityReferenceWeight(footCost->swingVelocityReferenceWeight);
+            });
       }
-    }
-    if (icpWeights.has_value()) {
-      updateTermIfPresent<ICPCost>(*ocp.costPtr, kIcpCostTerm, [&](ICPCost& cost) { cost.setWeights(*icpWeights); });
     }
     if (dcmTerminalCost.has_value()) {
       absl::Status applied = absl::OkStatus();

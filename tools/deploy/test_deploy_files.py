@@ -102,14 +102,30 @@ PLOT_CONFIG_HEADER = (
     "# proto-file: humanoid_nmpc/humanoid_rerun_viewer/proto/plot_config.proto\n"
     "# proto-message: humanoid_rerun_viewer_proto.PlotConfig\n"
 )
-# Stand-ins for what a sim session runs, which record their command lines to SESSION_LOG: Docker, with the viewer and the
-# plot configuration it would give the robot container, has nothing running; the dev container's runner and the image
-# build do nothing.
+# Stand-ins for what a sim session runs, which record their command lines to SESSION_LOG: Docker, with the network file,
+# the viewer and the plot configuration it would give the robot container, has nothing running, answers `compose logs`
+# with FAKE_ROBOT_LOG, and knows the mounts of one container, FAKE_CONTAINER_ID's; the dev container's runner and the
+# image build do nothing.
+# LINT.IfChange(sim_network)
 FAKE_DOCKER = """#!/bin/sh
-echo "docker $* | viewer=${WB_ROBOT_VIEWER-} plot_config=${WB_ROBOT_SIM_PLOT_CONFIG-}" >> "$SESSION_LOG"
+echo "docker $* | network=${WB_ROBOT_NETWORK_SOURCE-} viewer=${WB_ROBOT_VIEWER-} plot_config=${WB_ROBOT_SIM_PLOT_CONFIG-}" >> "$SESSION_LOG"
+if [ "$1" = "inspect" ]; then
+    for last; do :; done
+    [ -n "${FAKE_CONTAINER_ID-}" ] && [ "$last" = "$FAKE_CONTAINER_ID" ] || exit 1
+    echo "$FAKE_MOUNT_SOURCE $FAKE_MOUNT_DESTINATION"
+fi
+case " $* " in
+    *" logs "*) [ -n "${FAKE_ROBOT_LOG-}" ] && printf '%s\n' "$FAKE_ROBOT_LOG" ;;
+esac
+exit 0
 """
+# LINT.ThenChange(//tools/deploy/session.sh:sim_network)
 FAKE_RECORDER = """#!/bin/sh
 echo "$(basename "$0") $*" >> "$SESSION_LOG"
+case "$*" in
+    *"xset q"*) [ -z "${FAKE_NO_X_SERVER-}" ] || exit 1 ;;
+esac
+exit 0
 """
 # The host's path of the fake checkout, as WB_HOST_CHECKOUT gives it.
 HOST_CHECKOUT = "/host/checkout"
@@ -181,25 +197,25 @@ class NetemTest(unittest.TestCase):
             [
                 "qdisc replace dev lo root handle 5600: prio bands 4 priomap 1 2 2 2 1 2 0 0 1 1 1 1 1 1 1 1",
                 "qdisc add dev lo parent 5600:4 handle 5601: netem delay 3ms 1ms loss 0.5%",
-                "filter add dev lo parent 5600: protocol ip prio 1 u32 match ip protocol 6 0xff match ip sport 5600 0xffe0 "
+                "filter add dev lo parent 5600: protocol ip prio 1 u32 match ip protocol 17 0xff match ip sport 7168 0xfe00 "
                 "flowid 5600:4",
-                "filter add dev lo parent 5600: protocol ipv6 prio 2 u32 match ip6 protocol 6 0xff match ip6 sport 5600 0xffe0 "
+                "filter add dev lo parent 5600: protocol ipv6 prio 2 u32 match ip6 protocol 17 0xff match ip6 sport 7168 0xfe00 "
                 "flowid 5600:4",
-                "filter add dev lo parent 5600: protocol ip prio 1 u32 match ip protocol 6 0xff match ip dport 5600 0xffe0 "
+                "filter add dev lo parent 5600: protocol ip prio 1 u32 match ip protocol 17 0xff match ip dport 7168 0xfe00 "
                 "flowid 5600:4",
-                "filter add dev lo parent 5600: protocol ipv6 prio 2 u32 match ip6 protocol 6 0xff match ip6 dport 5600 0xffe0 "
+                "filter add dev lo parent 5600: protocol ipv6 prio 2 u32 match ip6 protocol 17 0xff match ip6 dport 7168 0xfe00 "
                 "flowid 5600:4",
             ],
         )
 
-    def test_every_filter_matches_tcp_only(self) -> None:
+    def test_every_filter_matches_udp_only(self) -> None:
         self.netem("apply", "lo", "delay", "3ms")
         filters = [call for call in self.tc.calls() if call.startswith("filter add")]
         self.assertEqual(len(filters), 4, "both directions, IPv4 and IPv6")
         for call in filters:
             with self.subTest(call=call):
                 self.assertRegex(
-                    call, r"\bmatch ip6? protocol 6 0xff match ip6? [sd]port "
+                    call, r"\bmatch ip6? protocol 17 0xff match ip6? [sd]port "
                 )
 
     def test_apply_replaces_a_qdisc_a_previous_run_left(self) -> None:
@@ -224,7 +240,9 @@ class NetemTest(unittest.TestCase):
                 self.assertEqual(self.netem(*arguments).returncode, 2)
         self.assertEqual([call for call in self.tc.calls() if "show" not in call], [])
 
-    def test_the_port_range_holds_every_node_of_the_network_files(self) -> None:
+    def test_the_port_range_holds_the_dds_ports_of_the_network_files(self) -> None:
+        # Every process's discovery and data port of the file's domain: 7400 + 250 * domain_id + 10 + 2 * index and
+        # the port after it, for the 20 indices of one machine (robot_ipc/DomainConfig.h unicastPortRange()).
         script = read("tools/deploy/netem.sh")
         base = int(search(r"^BUS_PORT=(\d+)$", script, re.M).group(1))
         mask = int(search(r"^BUS_PORT_MASK=(0x[0-9a-f]+)$", script, re.M).group(1), 16)
@@ -232,11 +250,10 @@ class NetemTest(unittest.TestCase):
             "config/ipc/network.textproto",
             "config/ipc/two_machine.example.textproto",
         ):
-            ports = [
-                int(port) for port in re.findall(r"\bport:\s*(\d+)", read(network))
-            ]
+            domain = search(r"^domain_id:\s*(\d+)$", read(network), re.M)
+            first = 7400 + 250 * int(domain.group(1)) + 10
+            ports = range(first, first + 2 * 20)
             with self.subTest(network=network):
-                self.assertTrue(ports)
                 self.assertEqual([port for port in ports if port & mask != base], [])
 
 
@@ -271,7 +288,7 @@ class EntrypointTest(unittest.TestCase):
     def write_robot(self, name: str, body: str) -> None:
         path = os.path.join(self.bundle, "launch", f"{name}.sh")
         with open(path, "w", encoding="utf-8") as stream:
-            stream.write("#!/bin/sh\n" + body)
+            stream.write(f"#!/bin/sh\n{body}")
         os.chmod(path, 0o755)
 
     def entrypoint(self) -> list[str]:
@@ -335,7 +352,7 @@ class EntrypointTest(unittest.TestCase):
             with self.subTest(environment=environment):
                 result = self.run_entrypoint(dict(environment, ROBOT="fake"))
                 self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertIn(expected + "\n", result.stdout)
+                self.assertIn(f"{expected}\n", result.stdout)
 
     def test_netem_is_applied_for_the_run_and_cleared_after(self) -> None:
         result = self.run_entrypoint(
@@ -438,7 +455,7 @@ class ComposeTest(unittest.TestCase):
         # One directory per robot configuration below it.
         self.assertEqual(
             self.robot["environment"]["WB_ROBOT_CONFIG_STORE_DIR"],
-            CONFIG_STORE_TARGET + "/${ROBOT}",
+            f"{CONFIG_STORE_TARGET}/${{ROBOT}}",
         )
         self.assertEqual(
             self.robot["environment"]["WB_ROBOT_CONFIG_SEED"],
@@ -457,7 +474,7 @@ class ComposeTest(unittest.TestCase):
             "robot_models/drc_atlas/drc_atlas_centroidal_mpc/launch/robot.textproto"
         )
         variables = {
-            "WB_ROBOT_" + name.upper()
+            f"WB_ROBOT_{name.upper()}"
             for name in re.findall(r'variables \{ name: "(\w+)"', launch)
         }
         passed = {
@@ -694,6 +711,22 @@ class DockerfileTest(unittest.TestCase):
     # LINT.ThenChange(//docker/Dockerfile:robot_images)
 
 
+class DevContainerPlatformTest(unittest.TestCase):
+    def test_the_aarch64_instructions_name_the_dev_containers_platform_variable(
+        self,
+    ) -> None:
+        # The dev container is amd64 unless its variable says otherwise: an arm64 bundle needs that variable set.
+        compose = read("docker-compose.yaml")
+        variable = search(
+            r"^\s*platform: \$\{(\w+):-linux/amd64\}$", compose, re.M
+        ).group(1)
+        section = search(
+            r"### aarch64\n(.*?)\n## ", read("tools/deploy/README.md"), re.S
+        )
+        self.assertIn(f"{variable}=linux/arm64", section.group(1))
+        self.assertIn(f"{variable}=linux/", read("tools/deploy/deploy_robot.sh"))
+
+
 class DeployScriptTest(unittest.TestCase):
     def deploy(self, *arguments: str) -> subprocess.CompletedProcess:
         env = dict(os.environ)
@@ -809,6 +842,69 @@ class DeployScriptTest(unittest.TestCase):
             r"docker compose ps --quiet robot .*then\s+docker compose up --detach --no-build",
         )
 
+    def test_up_refuses_a_robot_other_than_the_deployed_one(self) -> None:
+        # One robot per machine: `up` of another robot than the deployment's .env would recreate the deployment's
+        # container (one compose project) running that robot, which the unit refuses too. And ROBOT comes from the
+        # .env alone: a ROBOT exported by the caller, or by make from its command line, must not override it.
+        with tempfile.TemporaryDirectory() as home:
+            deployment = os.path.join(home, "wb-humanoid-robot")
+            os.makedirs(os.path.join(home, "bin"))
+            os.makedirs(deployment)
+            with open(os.path.join(deployment, ".env"), "w", encoding="utf-8") as env:
+                env.write("COMPOSE_PROJECT_NAME=wb-humanoid-robot\nROBOT=unitree_g1\n")
+            log = os.path.join(home, "docker.log")
+            docker = os.path.join(home, "bin", "docker")
+            with open(docker, "w", encoding="utf-8") as stream:
+                stream.write(
+                    '#!/bin/sh\necho "$* ROBOT=${ROBOT-unset} cwd=$(pwd)" >> "$DOCKER_LOG"\n'
+                )
+            os.chmod(docker, 0o755)
+
+            def up(robot: str, caller_robot: str | None) -> subprocess.CompletedProcess:
+                env = dict(os.environ)
+                env["HOME"] = home
+                env["DOCKER_LOG"] = log
+                env["PATH"] = f"{os.path.join(home, 'bin')}:{env['PATH']}"
+                env.pop("ROBOT", None)
+                if caller_robot is not None:
+                    env["ROBOT"] = caller_robot
+                return subprocess.run(
+                    [
+                        "bash",
+                        runfile("tools/deploy/deploy_robot.sh"),
+                        "up",
+                        "--robot",
+                        robot,
+                        "--host",
+                        "localhost",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    env=env,
+                    stdin=subprocess.DEVNULL,
+                    timeout=60,
+                    check=False,  # The test checks the return code.
+                )
+
+            def logged() -> str:
+                if not os.path.exists(log):
+                    return ""
+                with open(log, encoding="utf-8") as stream:
+                    return stream.read()
+
+            refused = up("drc_atlas", caller_robot=None)
+            self.assertEqual(refused.returncode, 1, refused.stdout)
+            self.assertIn("unitree_g1", refused.stderr)
+            self.assertIn("make deploy-robot ROBOT=drc_atlas", refused.stderr)
+            self.assertEqual(logged(), "")
+
+            started = up("unitree_g1", caller_robot="drc_atlas")
+            self.assertEqual(started.returncode, 0, started.stderr)
+            self.assertEqual(
+                logged().splitlines(),
+                [f"compose up ROBOT=unset cwd={os.path.realpath(deployment)}"],
+            )
+
     def test_an_unknown_robot_is_refused_before_anything_is_built(self) -> None:
         result = self.deploy("deploy", "--dry_run", "--robot", "drc_atlass")
         self.assertEqual(result.returncode, 1)
@@ -884,9 +980,51 @@ class DeployScriptTest(unittest.TestCase):
 
 # The launch targets each robot configuration of the Makefile gets, and those of a robot with a sandbox.
 # LINT.IfChange(launch_targets)
-CONFIGURATION_TARGETS = ("sim", "sim-vnc", "dummy-sim", "dummy-sim-vnc", "robot", "mpc")
+CONFIGURATION_TARGETS = (
+    "sim",
+    "sim-vnc",
+    "dummy-sim",
+    "dummy-sim-vnc",
+    "robot",
+    "mpc",
+    "mpc-vnc",
+)
+# The targets whose -vnc twin is the target with VIEWS=vnc.
+VNC_TWINS = ("sim", "dummy-sim", "mpc", "sandbox")
 SANDBOX_TARGETS = ("sandbox", "sandbox-vnc")
 # LINT.ThenChange(//Makefile:launch_targets)
+
+
+# The views of the Makefile's VIEWS: each one's MuJoCo viewer and Rerun sink.
+# LINT.IfChange(views)
+VIEWS = {
+    "browser": ("web", "serve_web"),
+    "vnc": ("glfw", "spawn"),
+    "display": ("glfw", "spawn"),
+}
+# LINT.ThenChange(//Makefile:views, //tools/deploy/session.sh:views)
+
+
+def make_dry_run(*arguments: str) -> subprocess.CompletedProcess:
+    """`make -n` of the checkout's Makefile with `arguments`: the commands a target would run, without running them."""
+    return subprocess.run(
+        ["make", "-n", "--no-print-directory", "-C", RUNFILES] + list(arguments),
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,  # The tests check the return code.
+    )
+
+
+def session_command(output: str) -> str:
+    """The session.sh line of a dry run's output that starts a session (kill-sims' `session.sh stop` is not one)."""
+    lines = [
+        line
+        for line in output.splitlines()
+        if "tools/deploy/session.sh" in line and not line.rstrip().endswith(" stop")
+    ]
+    assert len(lines) == 1, output
+    return lines[0]
 
 
 def sandbox_robots(makefile: str) -> list[str]:
@@ -1039,6 +1177,128 @@ class MakefileTest(unittest.TestCase):
         self.assertNotEqual(outside.returncode, 0)
         self.assertIn("outside the checkout", outside.stderr)
 
+    def test_the_launch_targets_pass_the_plots_and_the_recording_relative_to_the_checkout(
+        self,
+    ) -> None:
+        # The dev container mounts the checkout elsewhere than the host keeps it: an absolute path of the host inside
+        # the checkout reaches the bridge relative to the checkout, on every launch target, not only -sim.
+        def make(*arguments: str) -> subprocess.CompletedProcess:
+            return subprocess.run(
+                ["make", "-n", "--no-print-directory", "-C", RUNFILES]
+                + list(arguments),
+                capture_output=True,
+                text=True,
+                timeout=60,
+                check=False,  # The test checks the return code.
+            )
+
+        plots = os.path.join(RUNFILES, SHIPPED_PLOT_CONFIG)
+        recording = os.path.join(RUNFILES, "walk.rrd")
+        for target, extra in (
+            ("launch-drc-atlas-dummy-sim", ()),
+            ("launch-drc-atlas-sandbox", ()),
+            ("launch-drc-atlas-mpc", ("NETWORK=config/ipc/network.textproto",)),
+        ):
+            with self.subTest(target=target):
+                result = make(
+                    target, f"PLOT_CONFIG={plots}", f"RRD_PATH={recording}", *extra
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn(f"--set plot_config={SHIPPED_PLOT_CONFIG}", result.stdout)
+                self.assertIn("--set rrd_path=walk.rrd", result.stdout)
+        outside = make("launch-drc-atlas-dummy-sim", "PLOT_CONFIG=/etc/hostname")
+        self.assertNotEqual(outside.returncode, 0)
+        self.assertIn(
+            "PLOT_CONFIG=/etc/hostname is outside the checkout", outside.stderr
+        )
+        # A recording outside the checkout is the dev container's own path, kept as it is.
+        elsewhere = make("launch-drc-atlas-dummy-sim", "RRD_PATH=/tmp/walk.rrd")
+        self.assertEqual(elsewhere.returncode, 0, elsewhere.stderr)
+        self.assertIn("--set rrd_path=/tmp/walk.rrd", elsewhere.stdout)
+
+    def test_the_views_are_the_sessions(self) -> None:
+        self.assertEqual(
+            search(r"^VIEWS_NAMES := (.*)$", self.makefile, re.M).group(1).split(),
+            list(VIEWS),
+        )
+        self.assertEqual(
+            search(r'^VIEWS_NAMES="([^"]*)"$', read("tools/deploy/session.sh"), re.M)
+            .group(1)
+            .split(),
+            list(VIEWS),
+        )
+        self.assertRegex(self.makefile, re.compile(r"^VIEWS \?= browser$", re.M))
+        for view, (viewer, sink) in VIEWS.items():
+            with self.subTest(view=view):
+                self.assertEqual(
+                    self.makefile_variable(f"views_viewer_{view}"), [viewer]
+                )
+                self.assertEqual(
+                    self.makefile_variable(f"views_rerun_sink_{view}"), [sink]
+                )
+
+    def test_every_vnc_target_is_its_twin_with_the_vnc_view(self) -> None:
+        for twin in VNC_TWINS:
+            with self.subTest(target=twin):
+                self.assertRegex(
+                    self.makefile,
+                    re.compile(
+                        rf"^launch-\$\(call field,\$\(1\),1\)-{twin}-vnc: "
+                        rf"launch-\$\(call field,\$\(1\),1\)-{twin}$",
+                        re.M,
+                    ),
+                )
+                self.assertRegex(
+                    self.makefile,
+                    re.compile(
+                        rf"^(?:\S+ )*launch-\$\(call field,\$\(1\),1\)-{twin}-vnc[ :]"
+                        r".*override VIEWS = vnc$",
+                        re.M,
+                    ),
+                )
+
+    @unittest.skipUnless(shutil.which("make"), "needs make")
+    def test_a_view_picks_the_mujoco_viewer_and_the_rerun_sink(self) -> None:
+        network = "NETWORK=config/ipc/network.textproto"
+        cases = (
+            # (arguments, the session's view, its sink, the robot's viewer or None for the plot configuration's)
+            (("launch-drc-atlas-sim",), "browser", "serve_web", None),
+            (("launch-drc-atlas-sim", "VIEWS=browser"), "browser", "serve_web", "web"),
+            (("launch-drc-atlas-sim-vnc",), "vnc", "spawn", "glfw"),
+            (("launch-drc-atlas-sim-vnc", "VIEWS=browser"), "vnc", "spawn", "glfw"),
+            (("launch-drc-atlas-sim", "VIEWS=display"), "display", "spawn", "glfw"),
+            (
+                ("launch-drc-atlas-sim-vnc", "VIEWER=web", "RERUN_SINK=serve_web"),
+                "vnc",
+                "serve_web",
+                "web",
+            ),
+            (("launch-drc-atlas-mpc-vnc", network), "vnc", "spawn", None),
+            (
+                ("launch-drc-atlas-mpc", network, "RERUN_SINK=save"),
+                "browser",
+                "save",
+                None,
+            ),
+            (("launch-drc-atlas-dummy-sim-vnc",), "vnc", "spawn", None),
+            (("launch-drc-atlas-sandbox-vnc",), "vnc", "spawn", None),
+        )
+        for arguments, view, sink, viewer in cases:
+            with self.subTest(arguments=arguments):
+                result = make_dry_run(*arguments)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                command = session_command(result.stdout)
+                self.assertIn(f"--views {view} ", command)
+                self.assertEqual(re.findall(r"--set rerun_sink=(\S+)", command), [sink])
+                if viewer is None:
+                    self.assertNotIn("--viewer", command)
+                else:
+                    self.assertIn(f'--viewer "{viewer}"', command)
+        unknown = make_dry_run("launch-drc-atlas-sim", "VIEWS=desktop")
+        self.assertNotEqual(unknown.returncode, 0)
+        self.assertIn("VIEWS=desktop is not a view", unknown.stderr)
+        self.assertIn("browser vnc display", unknown.stderr)
+
     def test_no_ros_remains_and_no_launch_runs_the_mpc_in_the_robot_process(
         self,
     ) -> None:
@@ -1046,6 +1306,69 @@ class MakefileTest(unittest.TestCase):
         self.assertNotRegex(code, r"ros2 |rviz|plotjuggler")
         self.assertNotIn("in_process", code)
         self.assertRegex(code, r"\$\(session\) sim --robot")
+
+    def test_launch_and_deploy_targets_raise_the_udp_buffers_first(self) -> None:
+        """Every target that starts the bus first raises the kernel's UDP buffer limits on the machine that runs it."""
+        network = "config/ipc/two_machine.example.textproto"
+        cases = (
+            (
+                ("launch-drc-atlas-sim",),
+                "config/ipc/network.textproto",
+                "localhost",
+                "session.sh sim",
+            ),
+            (
+                ("launch-drc-atlas-dummy-sim",),
+                "config/ipc/network.textproto",
+                "localhost",
+                "session.sh laptop",
+            ),
+            (
+                ("launch-drc-atlas-mpc", f"NETWORK={network}"),
+                network,
+                "localhost",
+                "session.sh laptop",
+            ),
+            (
+                ("launch-drc-atlas-robot", "HOST=robot"),
+                "config/ipc/network.textproto",
+                "robot",
+                "deploy_robot.sh up",
+            ),
+            (
+                ("deploy-robot", "ROBOT=drc_atlas", "HOST=robot", f"NETWORK={network}"),
+                network,
+                "robot",
+                "deploy_robot.sh deploy",
+            ),
+            (
+                ("udp-buffers", "HOST=robot"),
+                "config/ipc/network.textproto",
+                "robot",
+                None,
+            ),
+        )
+        for arguments, expected_network, expected_host, starter in cases:
+            with self.subTest(arguments=arguments):
+                result = make_dry_run(*arguments)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                lines = result.stdout.splitlines()
+                buffers = [
+                    i
+                    for i, line in enumerate(lines)
+                    if "tools/deploy/udp_buffers.sh" in line
+                ]
+                self.assertEqual(len(buffers), 1, result.stdout)
+                command = lines[buffers[0]]
+                self.assertRegex(
+                    command, rf"--network \S*/{re.escape(expected_network)} "
+                )
+                self.assertTrue(
+                    command.rstrip().endswith(f"--host {expected_host}"), command
+                )
+                if starter is not None:
+                    starts = [i for i, line in enumerate(lines) if starter in line]
+                    self.assertTrue(starts and buffers[0] < starts[0], result.stdout)
 
 
 class SessionTest(unittest.TestCase):
@@ -1123,14 +1446,13 @@ class SessionTest(unittest.TestCase):
     ) -> None:
         makefile = read("Makefile")
         targets = re.findall(
-            r"^launch-\$\(call field,\$\(1\),1\)-sim(?:-vnc)?:.*\n((?:\t.*\n)+)",
+            r"^launch-\$\(call field,\$\(1\),1\)-sim:.*\n((?:\t.*\n)+)",
             makefile,
             re.M,
         )
-        self.assertEqual(len(targets), 2)
-        for recipe in targets:
-            self.assertIn('--plot_config "$$(PLOT_CONFIG)"', recipe)
-            self.assertIn('--viewer "$$(VIEWER)"', recipe)
+        self.assertEqual(len(targets), 1)
+        self.assertIn('--plot_config "$$(PLOT_CONFIG)"', targets[0])
+        self.assertIn("$$(sim_viewer)", targets[0])
         self.assertRegex(makefile, re.compile(r"^VIEWER \?=$", re.M))
 
     def fake_checkout(self, files: dict[str, str]) -> str:
@@ -1144,7 +1466,7 @@ class SessionTest(unittest.TestCase):
             "fake_bin/tc": "#!/bin/sh\n",
         }
         texts = {
-            SHIPPED_PLOT_CONFIG: PLOT_CONFIG_HEADER + 'mujoco_viewer: "web"\n',
+            SHIPPED_PLOT_CONFIG: f'{PLOT_CONFIG_HEADER}mujoco_viewer: "web"\n',
             **files,
             **executables,
         }
@@ -1162,13 +1484,19 @@ class SessionTest(unittest.TestCase):
         return checkout
 
     def run_sim(
-        self, checkout: str, *arguments: str
+        self,
+        checkout: str,
+        *arguments: str,
+        environment: dict[str, str] | None = None,
+        laptop: str | None = None,
     ) -> tuple[subprocess.CompletedProcess, list[str]]:
         """Runs `session.sh sim` with `arguments` in a fake checkout.
 
         Args:
             checkout: A checkout of fake_checkout().
             *arguments: The session's arguments after its launch file and build.
+            environment: Replaces the session's WB_HOST_CHECKOUT (HOST_CHECKOUT) with these variables.
+            laptop: A launch file: runs `session.sh laptop` of it instead.
 
         Returns:
             How it ended, and the command lines the stand-ins recorded, in order.
@@ -1183,15 +1511,17 @@ class SessionTest(unittest.TestCase):
             SESSION_LOG=log,
             WB_HOST_CHECKOUT=HOST_CHECKOUT,
         )
+        if environment is not None:
+            env.pop("WB_HOST_CHECKOUT")
+            env.update(environment)
+        command = (
+            ["sim", "--robot", "drc_atlas"] if laptop is None else ["laptop"]
+        ) + ["--launch_file", laptop or "mpc.textproto"]
         result = subprocess.run(
             [
                 "bash",
                 os.path.join(checkout, "tools", "deploy", "session.sh"),
-                "sim",
-                "--robot",
-                "drc_atlas",
-                "--launch_file",
-                "mpc.textproto",
+                *command,
                 "--build",
                 "//tools/launch",
                 "--skip_build",
@@ -1224,8 +1554,66 @@ class SessionTest(unittest.TestCase):
             if line.startswith("docker compose ") and " up " in line
         ]
         self.assertEqual(len(starts), 1, recorded)
-        match = search(r"\| viewer=(\S*) plot_config=(\S*)$", starts[0])
+        match = search(r" viewer=(\S*) plot_config=(\S*)$", starts[0])
         return match.group(1), match.group(2)
+
+    def robot_network(self, recorded: list[str]) -> str:
+        """The network file the robot container the session started mounts."""
+        (start,) = [
+            line
+            for line in recorded
+            if line.startswith("docker compose ") and " up " in line
+        ]
+        return search(r"\| network=(\S*) ", start).group(1)
+
+    def test_the_robot_container_mounts_the_checkouts_network_file_by_its_host_path(
+        self,
+    ) -> None:
+        # Compose resolves its default network file relative to where it runs: in a dev container, a path the host's
+        # Docker does not have. The session names the host's path of the checkout's file.
+        checkout = self.fake_checkout({})
+        result, recorded = self.run_sim(checkout)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            self.robot_network(recorded),
+            f"{HOST_CHECKOUT}/config/ipc/network.textproto",
+        )
+
+    @unittest.skipUnless(
+        os.path.exists("/.dockerenv"), "finds its container only inside one"
+    )
+    def test_in_a_container_on_the_hosts_network_the_checkout_is_found_by_the_containers_id(
+        self,
+    ) -> None:
+        # On the host's network a container's hostname is the host's, which names no container: the session reads its
+        # own container's id from the mount of /etc/hostname, and asks Docker for that container's mounts.
+        checkout = self.fake_checkout({})
+        container_id = "abc0123456789def"
+        mountinfo = os.path.join(checkout, "mountinfo")
+        with open(mountinfo, "w", encoding="utf-8") as stream:
+            stream.write(
+                "1 0 259:8 / / rw - ext4 /dev/root rw\n"
+                f"2 1 259:8 /var/lib/docker/containers/{container_id}/hostname /etc/hostname rw,relatime - ext4 "
+                "/dev/nvme0n1p5 rw\n"
+            )
+        result, recorded = self.run_sim(
+            checkout,
+            environment={
+                "WB_MOUNTINFO": mountinfo,
+                "FAKE_CONTAINER_ID": container_id,
+                "FAKE_MOUNT_SOURCE": "/srv/host_checkout",
+                "FAKE_MOUNT_DESTINATION": checkout,
+            },
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            self.robot_network(recorded),
+            "/srv/host_checkout/config/ipc/network.textproto",
+        )
+        self.assertEqual(
+            self.robot_container(recorded),
+            ("", f"/srv/host_checkout/{SHIPPED_PLOT_CONFIG}"),
+        )
 
     def test_an_absolute_plot_configuration_reaches_both_sides_relative_to_the_checkout(
         self,
@@ -1235,7 +1623,7 @@ class SessionTest(unittest.TestCase):
         # relative to the checkout: the robot container its file of the host, the launcher the same file in the dev
         # container's checkout.
         checkout = self.fake_checkout(
-            {"plots/mine.textproto": PLOT_CONFIG_HEADER + 'mujoco_viewer: "none"\n'}
+            {"plots/mine.textproto": f'{PLOT_CONFIG_HEADER}mujoco_viewer: "none"\n'}
         )
         absolute = os.path.join(checkout, "plots", "mine.textproto")
         result, recorded = self.run_sim(
@@ -1285,7 +1673,12 @@ class SessionTest(unittest.TestCase):
         # The Rerun bridge's "none" turns its plots off; the robot reads the shipped file's viewer, web.
         checkout = self.fake_checkout({})
         result, recorded = self.run_sim(
-            checkout, "--set", "plot_config=none", "--plot_config", "none"
+            checkout,
+            "--set",
+            "plot_config=none",
+            "--plot_config",
+            "none",
+            environment=self.robot_log(_SERVING_LOCALHOST, _VIEWER_WEB),
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.laptop_plot_config(recorded), "none")
@@ -1294,6 +1687,153 @@ class SessionTest(unittest.TestCase):
             ("", f"{HOST_CHECKOUT}/{SHIPPED_PLOT_CONFIG}"),
         )
         self.assertIn("http://localhost:6090", result.stdout)
+
+    def robot_log(self, *lines: str) -> dict[str, str]:
+        """The session's environment with the robot container's log of `lines`.
+
+        Args:
+            *lines: The lines `compose logs` answers.
+
+        Returns:
+            The variables run_sim() gives the session.
+        """
+        return {"WB_HOST_CHECKOUT": HOST_CHECKOUT, "FAKE_ROBOT_LOG": "\n".join(lines)}
+
+    def announcements(self, stdout: str) -> list[str]:
+        """The session's lines that give the web viewer's address."""
+        return [
+            line
+            for line in stdout.splitlines()
+            if line.startswith("session.sh: the MuJoCo web viewer")
+        ]
+
+    def test_the_viewer_address_waits_for_the_robot_to_serve_it(self) -> None:
+        # The address used to be printed as soon as the container was created, about a second before the robot bound
+        # the port, so a browser opening it at once got "connection refused" and never retried.
+        checkout = self.fake_checkout({})
+        result, _ = self.run_sim(checkout, environment=self.robot_log())
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.announcements(result.stdout), [])
+        self.assertIn("once it serves it", result.stdout)
+
+    def test_a_viewer_that_fell_back_announces_no_address(self) -> None:
+        checkout = self.fake_checkout({})
+        result, _ = self.run_sim(
+            checkout,
+            environment=self.robot_log(
+                _SERVING_LOCALHOST,
+                "[MujocoSimInterface] the 'web' viewer did not start (no EGL); trying 'none'",
+                "[MujocoSimInterface] viewer: none",
+            ),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.announcements(result.stdout), [])
+
+    def test_the_announced_address_is_the_servers_own(self) -> None:
+        # WB_ROBOT_WEB_VIEWER_ADDRESS binds an interface address, which localhost does not reach.
+        checkout = self.fake_checkout({})
+        result, _ = self.run_sim(
+            checkout,
+            environment=self.robot_log(
+                "I1019 [WebViewerServer] serving the MuJoCo viewer at http://192.0.2.10:6090/",
+                _VIEWER_WEB,
+            ),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        [announcement] = self.announcements(result.stdout)
+        self.assertIn("http://192.0.2.10:6090/", announcement)
+        self.assertIn("ssh -L 6090:192.0.2.10:6090", announcement)
+        self.assertNotIn("http://localhost", announcement)
+
+    def test_the_browser_view_starts_the_vnc_desktop_and_prints_three_tabs(
+        self,
+    ) -> None:
+        checkout = self.fake_checkout({})
+        result, recorded = self.run_sim(
+            checkout,
+            "--views",
+            "browser",
+            "--set",
+            "rerun_sink=serve_web",
+            environment=self.robot_log(_SERVING_LOCALHOST, _VIEWER_WEB),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        starts = [line for line in recorded if "start_vnc.sh" in line]
+        self.assertEqual(len(starts), 1, recorded)
+        # The desktop comes up before the robot container, whose glfw window would need it.
+        compose_up = next(
+            i for i, line in enumerate(recorded) if " up " in line and "docker" in line
+        )
+        self.assertLess(recorded.index(starts[0]), compose_up)
+        for url in (
+            "http://localhost:9090/?url=rerun+http://localhost:9876/proxy",
+            "http://localhost:6090",
+            "http://localhost:6080/vnc.html",
+        ):
+            self.assertIn(url, result.stdout)
+        self.assertIn("(the VNC desktop :99)", result.stdout)
+
+    def test_the_vnc_view_puts_everything_on_the_desktop(self) -> None:
+        checkout = self.fake_checkout({})
+        result, recorded = self.run_sim(
+            checkout,
+            "--views",
+            "vnc",
+            "--viewer",
+            "glfw",
+            "--set",
+            "rerun_sink=spawn",
+            laptop="dummy_sim.textproto",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue([line for line in recorded if "start_vnc.sh" in line])
+        self.assertIn("Everything is on the VNC desktop :99", result.stdout)
+        self.assertIn("native viewer, on DISPLAY=:99", result.stdout)
+
+    def test_the_display_view_fails_before_the_build_without_an_x_server(
+        self,
+    ) -> None:
+        checkout = self.fake_checkout({})
+        no_server, recorded = self.run_sim(
+            checkout,
+            "--views",
+            "display",
+            environment={
+                "WB_HOST_CHECKOUT": HOST_CHECKOUT,
+                "DISPLAY": ":42",
+                "FAKE_NO_X_SERVER": "1",
+            },
+        )
+        self.assertEqual(no_server.returncode, 2)
+        self.assertIn("no X server answers on DISPLAY=:42", no_server.stderr)
+        self.assertIn("VIEWS=browser", no_server.stderr)
+        self.assertFalse(
+            [line for line in recorded if "tools/launch" in line or " up " in line],
+            recorded,
+        )
+        answered, recorded = self.run_sim(
+            checkout,
+            "--views",
+            "display",
+            laptop="dummy_sim.textproto",
+            environment={"WB_HOST_CHECKOUT": HOST_CHECKOUT, "DISPLAY": ":42"},
+        )
+        self.assertEqual(answered.returncode, 0, answered.stderr)
+        self.assertFalse([line for line in recorded if "start_vnc.sh" in line])
+        self.assertIn("a window on DISPLAY=:42", answered.stdout)
+
+    def test_an_unknown_view_is_refused(self) -> None:
+        checkout = self.fake_checkout({})
+        result, _ = self.run_sim(checkout, "--views", "desktop")
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("--views desktop is not a view", result.stderr)
+
+
+# The robot's log lines the session announces the web viewer from (WebViewerServer.cpp, MujocoSimInterface.cpp).
+_SERVING_LOCALHOST = (
+    "I1019 [WebViewerServer] serving the MuJoCo viewer at http://localhost:6090/"
+)
+_VIEWER_WEB = "I1019 MujocoSimInterface.cpp:915] [MujocoSimInterface] viewer: web"
 
 
 if __name__ == "__main__":

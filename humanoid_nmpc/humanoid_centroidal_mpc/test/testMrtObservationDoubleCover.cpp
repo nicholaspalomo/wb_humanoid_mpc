@@ -45,6 +45,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_centroidal_mpc/mrt/CentroidalMpcMrtJointController.h"
 #include "humanoid_common_mpc/mrt/InProcessMpcLink.h"
 #include "humanoid_common_mpc/orientation/EulerBoundary.h"
+#include "humanoid_nmpc/humanoid_common_mpc/test/support/StatusTestMacros.h"
 #include "robot_model/RobotDescription.h"
 #include "robot_model/RobotJointAction.h"
 #include "robot_model/RobotState.h"
@@ -81,13 +82,14 @@ quaternion_t negated(const quaternion_t& orientation) {
 class Harness {
  public:
   Harness()
-      : description_(robot::model::RobotDescription::Create(stack_.urdfFile()).value()), robotState_(description_), action_(description_) {
+      : description_(checkedValue(robot::model::RobotDescription::Create(stack_.urdfFile()))),
+        robotState_(description_),
+        action_(description_) {
     InProcessMpcLink::Config config;
     config.execution = InProcessMpcLink::Execution::kCaller;
-    controller_ = CentroidalMpcMrtJointController::Create(description_, stack_.modelSettings(), stack_.model(),
-                                                          InProcessMpcLink::factory(stack_.mpc(), std::move(config), &link_),
-                                                          stack_.pinocchioInterface())
-                      .value();
+    controller_ = checkedValue(CentroidalMpcMrtJointController::Create(description_, stack_.modelSettings(), stack_.model(),
+                                                                       InProcessMpcLink::factory(stack_.mpc(), std::move(config), &link_),
+                                                                       stack_.pinocchioInterface(), stack_.pdGainsFile()));
     mpcJointIndices_ = description_.getJointIndices(stack_.modelSettings().mpcModelJointNames);
     // A plan whose joints lead the observed ones by 0.1 rad, so that the policy commands something the measurement moves.
     const size_t jointStart = stack_.model().getJointStartindex();

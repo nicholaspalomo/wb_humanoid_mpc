@@ -36,6 +36,7 @@ cc_library(
         "@abseil-cpp//absl/log",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/time",
         "@pinocchio",
     ],
 )
@@ -49,9 +50,11 @@ cc_binary(
     deps = [
         ":wb_mpc_node",
         "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc_app/node:exit_codes",
         "//humanoid_nmpc/humanoid_common_mpc_app/node:mpc_app_flags",
         "//humanoid_nmpc/humanoid_common_mpc_app/node:mpc_node",
         "//humanoid_nmpc/humanoid_common_mpc_app/node:node_process",
+        "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
         "//robot_runtime/robot_ipc",
         "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/flags:flag",
@@ -62,6 +65,7 @@ cc_binary(
         "@abseil-cpp//absl/log:initialize",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/time",
     ],
 )
 
@@ -71,11 +75,12 @@ cc_binary(
     srcs = ["src/WBMpcDummySimMain.cpp"],
     copts = FIRST_PARTY_COPTS,
     deps = [
-        "//humanoid_nmpc/humanoid_wb_mpc",
         "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc_app/node:exit_codes",
         "//humanoid_nmpc/humanoid_common_mpc_app/node:mpc_app_flags",
         "//humanoid_nmpc/humanoid_common_mpc_app/node:mpc_node",
         "//humanoid_nmpc/humanoid_common_mpc_app/node:node_process",
+        "//humanoid_nmpc/humanoid_wb_mpc",
         "//lib/ocs2:ocs2_mpc",
         "//robot_runtime/robot_ipc",
         "@abseil-cpp//absl/base:nullability",
@@ -151,6 +156,7 @@ cc_test(
         "//robot_models/unitree_g1/g1_wb_mpc",
     ],
     deps = [
+        "//robot_runtime/robot_ipc:test_network",
         ":wb_mpc_node",
         "//humanoid_nmpc/humanoid_wb_mpc",
         "//humanoid_nmpc/humanoid_common_mpc",

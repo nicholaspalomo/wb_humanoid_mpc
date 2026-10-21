@@ -61,6 +61,8 @@ constexpr size_t kStackPrefaultFrameOverheadBytes = 256;
 // Stack the prefault leaves untouched at the bottom: room for the calls the thread makes from its deepest frame, for a
 // signal handler, and for the inaccuracy of the stack bounds glibc reports for the main thread.
 constexpr size_t kStackSafetyMarginBytes = 64 * 1024;
+// [bytes] The page size assumed when sysconf() does not report one.
+constexpr size_t kFallbackPageSizeBytes = 4096;
 
 // The soft limit of `resource`, as text for an error message.
 std::string softLimitText(int resource) {
@@ -200,7 +202,7 @@ absl::Status prefaultStack(size_t bytes) {
   }
 
   const int64_t pageSize = sysconf(_SC_PAGESIZE);
-  touchStackChunks(chunks, pageSize > 0 ? static_cast<size_t>(pageSize) : 4096);
+  touchStackChunks(chunks, pageSize > 0 ? static_cast<size_t>(pageSize) : kFallbackPageSizeBytes);
   return absl::OkStatus();
 }
 

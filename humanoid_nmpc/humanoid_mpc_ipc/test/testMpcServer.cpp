@@ -130,6 +130,9 @@ class FakeRobot {
 
   uint64_t sequence() const { return sequence_; }
 
+  /** The model layout the next observations are stamped with (MpcObservation.model_fingerprint); 0 by default. */
+  void setModelFingerprint(uint64_t fingerprint) { modelFingerprint_ = fingerprint; }
+
  private:
   void publishObservation(uint64_t sequence, const SystemObservation& observation, uint64_t requested, uint64_t fullRequested) {
     humanoid_mpc_msgs::MpcObservation message;
@@ -137,10 +140,12 @@ class FakeRobot {
     message.mutable_resets()->set_requested(requested);
     message.mutable_resets()->set_full_requested(fullRequested);
     message.set_sequence(sequence);
+    message.set_model_fingerprint(modelFingerprint_);
     CHECK_OK(bus_->publish(topics::kRobotMpcObservation, message));
   }
   std::unique_ptr<robot::ipc::Bus> bus_;
   uint64_t sequence_ = 0;
+  uint64_t modelFingerprint_ = 0;
   mutable absl::Mutex mutex_;
   std::vector<humanoid_mpc_msgs::MpcPolicy> policies_ ABSL_GUARDED_BY(mutex_);
   std::vector<humanoid_mpc_msgs::MpcStatus> statuses_ ABSL_GUARDED_BY(mutex_);
@@ -162,9 +167,8 @@ class MpcServerTest : public ::testing::Test {
              MpcServer::ResetTargetTrajectoriesFunction resetTargets = resetTargetsFor) {
     mpc_ = test_support::makeScriptedMpc(settings);
     mpcBus_ = test_support::createNodeBus("mpc");
-    test_support::connectBoth(robot_.bus(), *mpcBus_);
     absl::StatusOr<std::unique_ptr<MpcServer>> server =
-        MpcServer::Create(*mpcBus_, *mpc_, std::move(resetTargets), std::move(config), std::move(hooks));
+        MpcServer::Create(mpcBus_.get(), mpc_.get(), std::move(resetTargets), std::move(config), std::move(hooks));
     CHECK_OK(server.status());
     server_ = std::move(*server);
     CHECK_OK(robot_.bus().start());
@@ -300,6 +304,31 @@ TEST_F(MpcServerTest, AnObservationOfOtherDimensionsIsRejectedAndNotSolved) {
   ASSERT_TRUE(waitFor([&]() { return server_->statistics().observationsRejected == before.observationsRejected + 2; }));
   absl::SleepFor(absl::Milliseconds(20));
   EXPECT_EQ(server_->statistics().solveAttempts, before.solveAttempts);
+}
+
+TEST_F(MpcServerTest, AnObservationOfAnotherModelLayoutIsRejectedAndNotSolved) {
+  // Equal dimensions, another joint order or set of fixed joints: only the fingerprint tells them apart.
+  constexpr uint64_t kLayout = 0x5eed'0000'0000'0001;
+  MpcServer::Config config = defaultConfig();
+  config.modelFingerprint = kLayout;
+  build(config);
+  robot_.setModelFingerprint(kLayout);
+  warmUp();
+  EXPECT_EQ(robot_.lastPolicy().model_fingerprint(), kLayout) << "the policy carries the MPC's layout";
+  const MpcServer::Statistics before = server_->statistics();
+
+  robot_.setModelFingerprint(kLayout + 1);
+  robot_.publish(/*time=*/1.1);
+  ASSERT_TRUE(waitFor([&]() { return server_->statistics().observationsRejected == before.observationsRejected + 1; }));
+  // A robot that does not stamp its observations runs a build without the check: refused too.
+  robot_.setModelFingerprint(0);
+  robot_.publish(/*time=*/1.2);
+  ASSERT_TRUE(waitFor([&]() { return server_->statistics().observationsRejected == before.observationsRejected + 2; }));
+  absl::SleepFor(absl::Milliseconds(20));
+  EXPECT_EQ(server_->statistics().solveAttempts, before.solveAttempts);
+
+  robot_.setModelFingerprint(kLayout);
+  EXPECT_EQ(solveFrom(/*time=*/1.3).model_fingerprint(), kLayout) << "positive control";
 }
 
 TEST_F(MpcServerTest, TheSolutionTimeWindowBoundsThePolicy) {
@@ -531,18 +560,19 @@ TEST(MpcServerCreateTest, RefusesWhatItCannotRun) {
   MpcServer::Config config;
   config.dimensions = modelDimensions();
 
-  EXPECT_EQ(MpcServer::Create(*bus, *mpc, /*resetTargetTrajectories=*/nullptr, config).status().code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_EQ(MpcServer::Create(bus.get(), mpc.get(), /*resetTargetTrajectories=*/nullptr, config).status().code(),
+            absl::StatusCode::kInvalidArgument);
   MpcServer::Config noDimensions = config;
   noDimensions.dimensions.stateDim = 0;
-  EXPECT_EQ(MpcServer::Create(*bus, *mpc, resetTargetsFor, noDimensions).status().code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_EQ(MpcServer::Create(bus.get(), mpc.get(), resetTargetsFor, noDimensions).status().code(), absl::StatusCode::kInvalidArgument);
   MpcServer::Config noModes = config;
   noModes.dimensions.numModes = 0;
-  EXPECT_EQ(MpcServer::Create(*bus, *mpc, resetTargetsFor, noModes).status().code(), absl::StatusCode::kInvalidArgument);
-  std::unique_ptr<robot::ipc::Bus> subscriber = test_support::createSubscriberBus("robot", bus->boundPort());
-  EXPECT_EQ(MpcServer::Create(*subscriber, *mpc, resetTargetsFor, config).status().code(), absl::StatusCode::kInvalidArgument)
+  EXPECT_EQ(MpcServer::Create(bus.get(), mpc.get(), resetTargetsFor, noModes).status().code(), absl::StatusCode::kInvalidArgument);
+  std::unique_ptr<robot::ipc::Bus> subscriber = test_support::createSubscriberBus();
+  EXPECT_EQ(MpcServer::Create(subscriber.get(), mpc.get(), resetTargetsFor, config).status().code(), absl::StatusCode::kInvalidArgument)
       << "a bus that cannot publish";
   CHECK_OK(bus->start());
-  EXPECT_EQ(MpcServer::Create(*bus, *mpc, resetTargetsFor, config).status().code(), absl::StatusCode::kFailedPrecondition);
+  EXPECT_EQ(MpcServer::Create(bus.get(), mpc.get(), resetTargetsFor, config).status().code(), absl::StatusCode::kFailedPrecondition);
 }
 
 TEST(MpcServerLifecycleTest, StartsOnceAndStopsPromptlyWhileWaitingForAnObservation) {
@@ -550,7 +580,7 @@ TEST(MpcServerLifecycleTest, StartsOnceAndStopsPromptlyWhileWaitingForAnObservat
   std::unique_ptr<robot::ipc::Bus> bus = test_support::createNodeBus("mpc");
   MpcServer::Config config;
   config.dimensions = modelDimensions();
-  absl::StatusOr<std::unique_ptr<MpcServer>> server = MpcServer::Create(*bus, *mpc, resetTargetsFor, config);
+  absl::StatusOr<std::unique_ptr<MpcServer>> server = MpcServer::Create(bus.get(), mpc.get(), resetTargetsFor, config);
   ASSERT_TRUE(server.ok()) << server.status();
   CHECK_OK(bus->start());
   ASSERT_TRUE((*server)->start().ok());

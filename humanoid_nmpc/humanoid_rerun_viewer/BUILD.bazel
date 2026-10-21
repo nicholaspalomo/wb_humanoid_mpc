@@ -52,7 +52,6 @@ py_library(
         requirement("protobuf"),
         # Arrow record batches of the plots (scalar_batcher.FrameBatcher); rerun-sdk's own dependency.
         requirement("pyarrow"),
-        requirement("pyzmq"),
         # Not requirement("rerun-sdk"): see the rerun_sdk whl_mods in MODULE.bazel. It carries the native viewer too
         # (rerun_cli/rerun), which the spawn sink starts.
         "@operator_deps//rerun_sdk:rerun",
@@ -89,11 +88,13 @@ py_binary(
 # Tests
 # ==============================================================================
 
-# Synthetic messages that follow the contracts, a small URDF package, and a reader of .rrd files.
+# Synthetic messages that follow the contracts, a small URDF package, a reader of .rrd files, and free loopback ports
+# for the tests' servers.
 py_library(
     name = "test_support",
     testonly = True,
     srcs = [
+        "test/loopback_ports.py",
         "test/rrd_contents.py",
         "test/synthetic_messages.py",
     ],
@@ -147,7 +148,10 @@ py_test(
     name = "test_plot_config",
     size = "small",
     srcs = ["test/test_plot_config.py"],
-    data = [":plot_config"],
+    data = [
+        "proto/plot_config.proto",
+        ":plot_config",
+    ],
     deps = [":test_support"],
 )
 
@@ -166,6 +170,23 @@ py_test(
     deps = [":test_support"],
 )
 
+# The writer thread that runs the handlers: a handler blocked in a Rerun sink that takes no data never blocks the bus or
+# the stop; pause() and resume() around a viewer that is gone.
+py_test(
+    name = "test_bus_bridge",
+    size = "small",
+    srcs = ["test/test_bus_bridge.py"],
+    deps = [":test_support"],
+)
+
+# When the viewer of spawn and connect is gone or back, and what the bridge then does.
+py_test(
+    name = "test_viewer_watch",
+    size = "small",
+    srcs = ["test/test_viewer_watch.py"],
+    deps = [":test_support"],
+)
+
 py_test(
     name = "test_rerun_sinks",
     size = "small",
@@ -173,11 +194,13 @@ py_test(
     deps = [":test_support"],
 )
 
-# The periods (BusBridge's options, --flush_period) reject zero, negative and NaN values.
+# The periods (BusBridge's options, --flush_period) reject zero, negative and NaN values; the defaults of --plots and
+# --terminal_state, which the shipped plot configuration decides.
 py_test(
     name = "test_period_flags",
     size = "small",
     srcs = ["test/test_period_flags.py"],
+    data = [":plot_config"],
     deps = [":test_support"],
 )
 
@@ -190,7 +213,7 @@ py_test(
 )
 
 # Scene and telemetry published on a loopback bus with robot_ipc, bridged into an .rrd file; and the binary itself,
-# stopped with SIGINT and SIGTERM.
+# stopped with SIGINT and SIGTERM, with viewers that are absent, go away and come back, and a robot that restarts.
 py_test(
     name = "test_end_to_end",
     size = "medium",

@@ -29,9 +29,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
+#include <algorithm>
 #include <atomic>
+#include <cmath>
 #include <cstddef>
 #include <memory>
+#include <random>
 #include <string>
 #include <utility>
 #include <vector>
@@ -49,11 +52,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_centroidal_mpc/mrt/CentroidalMpcMrtJointController.h"
 #include "humanoid_centroidal_mpc_test/CentroidalTestingModelInterface.h"
 #include "humanoid_common_mpc/common/StateManifoldFactory.h"
+#include "humanoid_common_mpc/config/ConfigFiles.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_common_mpc/mrt/ControllerEvent.h"
 #include "humanoid_common_mpc/mrt/ControllerEventSink.h"
 #include "humanoid_common_mpc/mrt/JointActionAccess.h"
 #include "humanoid_nmpc/humanoid_common_mpc/test/ScriptedPolicyMpcLink.h"
+#include "humanoid_nmpc/humanoid_common_mpc/test/support/StatusTestMacros.h"
 #include "robot_model/RobotDescription.h"
 #include "robot_model/RobotJointAction.h"
 #include "robot_model/RobotState.h"
@@ -139,7 +144,8 @@ TEST(CentroidalMpcMrtPolicyExecution, ARefusedPolicyHoldsTheRobotWithoutMrtBaseA
   const std::shared_ptr<const StateManifold> manifold = *std::move(manifoldOrStatus);
   test_support::ScriptedPolicyMpcLink* absl_nullable link = nullptr;
   absl::StatusOr<std::unique_ptr<CentroidalMpcMrtJointController>> controllerOrStatus = CentroidalMpcMrtJointController::Create(
-      description, model.getModelSettings(), mpcModel, test_support::ScriptedPolicyMpcLink::factory(&link), model.getPinocchioInterface());
+      description, model.getModelSettings(), mpcModel, test_support::ScriptedPolicyMpcLink::factory(&link), model.getPinocchioInterface(),
+      jointPdGainsFileBeside(model.taskFile));
   ASSERT_TRUE(controllerOrStatus.ok()) << controllerOrStatus.status();
   ASSERT_NE(link, nullptr);
   CentroidalMpcMrtJointController& controller = **controllerOrStatus;
@@ -199,6 +205,85 @@ TEST(CentroidalMpcMrtPolicyExecution, ARefusedPolicyHoldsTheRobotWithoutMrtBaseA
     runCycles(controller, nominal, robotState, action, time, "WB_MPC", 10 * kCycles);
     EXPECT_NE(actionValuesOf(description, action), hold);
     EXPECT_EQ(sink.posted.load(), expectedEvents);
+  }
+}
+
+// On a moving plan the feedback of the policy acts on the error at the measurement time: a robot measured exactly on the
+// plan gets exactly the feedforward, at every lookahead - the joint velocity targets and the wrenches of the input
+// included - so the action of a manifold-linear policy with large gains is that of the same plan without gains.
+// Evaluated at the lookahead on the state measured before it, as it used to be, the gains fed the planned motion back.
+TEST(CentroidalMpcMrtPolicyExecution, ARobotMeasuredOnAMovingPlanGetsExactlyTheFeedforwardAtEveryLookahead) {
+  CentroidalTestingModelInterface model;
+  absl::StatusOr<robot::model::RobotDescription> descriptionOrStatus = robot::model::RobotDescription::Create(model.urdfFile);
+  ASSERT_TRUE(descriptionOrStatus.ok()) << descriptionOrStatus.status();
+  const robot::model::RobotDescription& description = *descriptionOrStatus;
+  const CentroidalMpcRobotModel<scalar_t>& mpcModel = model.getMpcRobotModel();
+  HUMANOID_ASSERT_OK_AND_ASSIGN(const std::shared_ptr<const StateManifold> manifold, stateManifoldOf(mpcModel));
+  test_support::ScriptedPolicyMpcLink* absl_nullable link = nullptr;
+  absl::StatusOr<std::unique_ptr<CentroidalMpcMrtJointController>> controllerOrStatus = CentroidalMpcMrtJointController::Create(
+      description, model.getModelSettings(), mpcModel, test_support::ScriptedPolicyMpcLink::factory(&link), model.getPinocchioInterface(),
+      jointPdGainsFileBeside(model.taskFile));
+  ASSERT_TRUE(controllerOrStatus.ok()) << controllerOrStatus.status();
+  ASSERT_NE(link, nullptr);
+  CentroidalMpcMrtJointController& controller = **controllerOrStatus;
+  robot::model::RobotState robotState(description);
+  robotState.setRootPositionInWorldFrame(vector3_t(0.0, 0.0, 0.75));
+  for (size_t joint = 0; joint < description.getNumJoints(); ++joint) robotState.setJointPosition(joint, /*jointPosition=*/0.1);
+  robotState.setContactFlag(/*index=*/0, /*contactFlag=*/true);
+  robotState.setContactFlag(/*index=*/1, /*contactFlag=*/true);
+  robot::model::RobotJointAction action(description);
+  const std::vector<scalar_t> nominal(description.getNumJoints(), 0.1);
+  scalar_t time = 0.0;
+  runCycles(controller, nominal, robotState, action, time, "JOINT_PD", kCycles);
+  runCycles(controller, nominal, robotState, action, time, "WB_MPC", kCycles);
+
+  // Settle the time-dependent parts of the action (the entry, the contact wrench gate's ramp) on a plan that holds the
+  // measured state.
+  const Eigen::Index nu = static_cast<Eigen::Index>(mpcModel.getInputDim());
+  const Eigen::Index ndx = static_cast<Eigen::Index>(manifold->getTangentDim());
+  vector_t input = vector_t::Zero(nu);
+  for (Eigen::Index i = 0; i < nu; ++i) input(i) = 0.2 * std::sin(1.3 * static_cast<scalar_t>(i));
+  const vector_t measured = link->lastObservation().state;
+  link->deliver(policyOf(std::make_unique<FeedforwardController>(scalar_array_t{time - 1.0, time + 100.0}, vector_array_t{input, input}),
+                         measured, input, time));
+  runCycles(controller, nominal, robotState, action, time, "WB_MPC", 10 * kCycles);
+  ASSERT_FALSE(controller.isEnteringMpc());
+
+  std::mt19937 generator(/*sd=*/37);
+  std::normal_distribution<scalar_t> normal(0.0, 1.0);
+  matrix_t gain(nu, ndx);
+  for (Eigen::Index i = 0; i < gain.size(); ++i) gain.data()[i] = 20.0 * normal(generator);
+  for (const scalar_t period : {0.002, 0.01, 0.017}) {
+    SCOPED_TRACE(period);
+    std::vector<std::vector<scalar_t>> actions;
+    for (const scalar_t gainScale : {1.0, 0.0}) {
+      // The plan starts at the next measurement, on the state the controller measures (the robot does not move), and
+      // moves: the momentum, the base and its attitude, and the joints (by less than the divergence bound).
+      const scalar_t measurementTime = time + period;
+      const vector_t now = link->lastObservation().state;
+      vector_t later = now;
+      for (Eigen::Index i = 0; i < later.size(); ++i) later(i) += 0.3 * std::cos(static_cast<scalar_t>(i));
+      manifold->project(later);
+      PrimalSolution plan;
+      plan.timeTrajectory_ = {measurementTime, measurementTime + 1.0};
+      plan.stateTrajectory_ = {now, later};
+      plan.inputTrajectory_ = {input, input + vector_t::Constant(nu, 0.4)};
+      plan.modeSchedule_ = ModeSchedule(/*eventTimesInput=*/{}, /*modeSequenceInput=*/{static_cast<size_t>(ModeNumber::kStance)});
+      const matrix_t scaledGain = gainScale * gain;
+      plan.controllerPtr_ = std::make_unique<ManifoldLinearController>(plan.timeTrajectory_, plan.stateTrajectory_, plan.inputTrajectory_,
+                                                                       matrix_array_t{scaledGain, scaledGain}, manifold);
+      link->deliver(plan);
+      controller.setNominalJointPositions(nominal);
+      controller.setControlMode("WB_MPC");
+      time = measurementTime;
+      robotState.setTime(time);
+      controller.computeJointControlAction(time, robotState, action);
+      actions.push_back(actionValuesOf(description, action));
+    }
+    ASSERT_EQ(actions[0].size(), actions[1].size());
+    for (size_t i = 0; i < actions[0].size(); ++i) {
+      EXPECT_NEAR(actions[0][i], actions[1][i], 1.0e-9 * std::max(1.0, std::abs(actions[1][i]))) << "entry " << i;
+    }
   }
 }
 

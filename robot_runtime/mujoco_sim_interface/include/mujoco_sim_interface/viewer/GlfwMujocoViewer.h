@@ -33,6 +33,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <thread>
 #include <vector>
@@ -40,10 +41,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/base/nullability.h"
 #include "absl/base/thread_annotations.h"
 #include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 #include "absl/synchronization/mutex.h"
 #include "mujoco/mujoco.h"
 
+#include "mujoco_sim_interface/MujocoUtils.h"
 #include "mujoco_sim_interface/viewer/MujocoFrameRenderer.h"
 #include "mujoco_sim_interface/viewer/MujocoViewer.h"
 #include "mujoco_sim_interface/viewer/ViewerNames.h"
@@ -57,9 +60,27 @@ class MujocoSimInterface;
 /** The viewer key (MujocoFrameRenderer::handleKey) of a GLFW key code: '0' to '5' and 'a' to 'z'; none for other keys. */
 std::optional<char> viewerKeyFromGlfwKey(int glfwKey);
 
+/** A cursor motion as MuJoCo's camera takes it (MujocoFrameRenderer::moveCamera()). */
+struct CameraDragFractions {
+  double dx = 0.0;
+  double dy = 0.0;
+};
+
+/**
+ * Returns the cursor motion `dxPixels`, `dyPixels` in a window `windowHeight` pixels high as fractions of that height
+ * on both axes: mjv_moveCamera measures both in units of the viewport's height, so a 100 pixel drag turns or moves the
+ * camera as far horizontally as vertically. A height below one pixel counts as one.
+ */
+CameraDragFractions cameraDragFractions(double dxPixels, double dyPixels, int windowHeight);
+
 /**
  * The `glfw` viewer: an interactive MuJoCo window on DISPLAY (the Xvfb/VNC desktop of the containers). Everything drawn
  * on top of the model is a MujocoVisualization (visualization/), drawn by its MujocoFrameRenderer.
+ *
+ * It draws with a private copy of the simulator's model, made by Create() on the simulator's thread before the physics
+ * starts, which each frame brings up to date with the snapshot's run-time model arrays (MjState::modelFields), as the
+ * web viewer does: the physics thread writes the simulator's own model while it runs (the gantry's weld, the torque
+ * switch's damping, the projectile), which the render thread must not read.
  *
  * start() launches the render thread and returns without waiting: the window, the OpenGL context and every MuJoCo
  * rendering structure live on that thread. Where the viewer cannot start - no display, no window, no OpenGL - it logs
@@ -68,8 +89,11 @@ std::optional<char> viewerKeyFromGlfwKey(int glfwKey);
  */
 class GlfwMujocoViewer final : public MujocoViewer {
  public:
-  /** `sim` must outlive the viewer; the render thread reads its model and state. */
-  explicit GlfwMujocoViewer(const MujocoSimInterface* absl_nonnull sim);
+  /**
+   * Copies `sim`'s model for the render thread; call it on the simulator's thread before the physics starts. `sim` must
+   * outlive the viewer; the render thread reads its state snapshots. Internal when the model cannot be copied.
+   */
+  static absl::StatusOr<std::unique_ptr<GlfwMujocoViewer>> Create(const MujocoSimInterface* absl_nonnull sim);
 
   GlfwMujocoViewer(const GlfwMujocoViewer&) = delete;
   GlfwMujocoViewer& operator=(const GlfwMujocoViewer&) = delete;
@@ -93,12 +117,18 @@ class GlfwMujocoViewer final : public MujocoViewer {
  private:
   friend class GlfwMujocoViewerTestPeer;
 
+  GlfwMujocoViewer(const MujocoSimInterface* absl_nonnull sim, MjModelPtr model);
+
   /** One capture of the window's back buffer, for GlfwMujocoViewerTestPeer: RGB, rows bottom-up. */
   struct WindowCapture {
     int width = 0;
     int height = 0;
     std::vector<uint8_t> rgb;
   };
+
+  // The size the window opens with, [px].
+  static constexpr int kInitialWindowWidth = 1920;
+  static constexpr int kInitialWindowHeight = 1024;
 
   // GLFW's callbacks are plain functions; they reach the viewer through the window's user pointer.
   static void keyboard(GLFWwindow* absl_nonnull window, int key, int scancode, int act, int mods);
@@ -119,7 +149,11 @@ class GlfwMujocoViewer final : public MujocoViewer {
   void serveCapture();
 
   const MujocoSimInterface* absl_nonnull sim_;
-  MujocoFrameRenderer frameRenderer_;
+  /// The private model copy the render thread draws with; declared before frameRenderer_, which points at it.
+  MjModelPtr model_;
+  /// Created by initialize() on the render thread, and reset by cleanup(); null before and after, and when initialize()
+  /// failed. The GLFW callbacks that use it are installed after it is created and run on the render thread.
+  std::unique_ptr<MujocoFrameRenderer> frameRenderer_;
 
   std::thread renderThread_;
 
@@ -128,8 +162,8 @@ class GlfwMujocoViewer final : public MujocoViewer {
   GLFWwindow* absl_nullable window_ = nullptr;
   mjrRect viewport_ = {.left = 0, .bottom = 0, .width = 0, .height = 0};
 
-  int viewportWidth_ = 1920;
-  int viewportHeight_ = 1024;
+  int viewportWidth_ = kInitialWindowWidth;
+  int viewportHeight_ = kInitialWindowHeight;
 
   // mouse interaction
   bool buttonLeft_ = false;

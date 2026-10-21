@@ -27,7 +27,9 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
+#include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstddef>
 #include <filesystem>
 #include <fstream>
@@ -36,6 +38,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <optional>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #include "absl/base/nullability.h"
@@ -94,11 +97,13 @@ MPC_MRT_Interface::SolverObservationObserver observeInTheMotionManager(AtlasRefe
 
 class PdGainsHarness {
  public:
-  explicit PdGainsHarness(const std::string& pdGainsFile = "")
+  /** A controller on the gains file `*pdGainsFile`; null: the shipped DRC Atlas file. */
+  explicit PdGainsHarness(const std::string* absl_nullable pdGainsFile = nullptr)
       : description_(robot::model::RobotDescription::Create(stack_.urdfFile()).value()), robotState_(description_), action_(description_) {
     controller_ = CentroidalMpcMrtJointController::Create(description_, stack_.modelSettings(), stack_.model(), stack_.mpc(),
                                                           observeInTheMotionManager(stack_), stack_.pinocchioInterface(),
-                                                          /*mpcDesiredFrequency=*/1000.0, pdGainsFile)
+                                                          /*mpcDesiredFrequency=*/1000.0,
+                                                          pdGainsFile != nullptr ? *pdGainsFile : stack_.pdGainsFile())
                       .value();
     mpcJointIndices_ = description_.getJointIndices(stack_.modelSettings().mpcModelJointNames);
     otherJointIndices_ = description_.getJointIndices(stack_.modelSettings().fixedJointNames);
@@ -147,14 +152,15 @@ mpc_config::JointPdGainsFile gainsFile(scalar_t kp, const std::string& firstJoin
   mpc_config::JointPdGainsFile file;
   file.default_gains.kp = kp;
   file.default_gains.kd = 3.0;
+  file.default_gains.torque_limit = 1000.0;
   file.joint_gains.push_back({.joint = firstJoint, .kp = firstJointKp, .kd = std::nullopt, .torque_limit = std::nullopt});
   return file;
 }
 
 /** gainsFile() as the text of a joint_pd_gains.textproto. */
 std::string gainsText(scalar_t kp, const std::string& firstJoint, scalar_t firstJointKp) {
-  return absl::StrCat("default_gains {\n  kp: ", kp, "\n  kd: 3.0\n}\njoint_gains { joint: \"", firstJoint, "\" kp: ", firstJointKp,
-                      " }\n");
+  return absl::StrCat("default_gains {\n  kp: ", kp, "\n  kd: 3.0\n  torque_limit: 1000.0\n}\njoint_gains { joint: \"", firstJoint,
+                      "\" kp: ", firstJointKp, " }\n");
 }
 
 absl::Status setFromAnotherThread(CentroidalMpcMrtJointController& controller, const mpc_config::JointPdGainsFile& gains) {
@@ -164,9 +170,10 @@ absl::Status setFromAnotherThread(CentroidalMpcMrtJointController& controller, c
   return status;
 }
 
+/** Writes the PD gains file `content` to `file`, below the header that names its schema. */
 void writeFile(const std::string& file, const std::string& content) {
   std::ofstream out(file, std::ios::trunc);
-  out << content;
+  out << "# proto-message: humanoid_mpc_config.JointPdGainsFile\n" << content;
 }
 
 /** Moves the file's modification time on by a second, so that a rewrite inside the file system's clock tick counts. */
@@ -184,10 +191,12 @@ TEST(MrtJointControllerPdGains, GainsSetFromAnotherThreadReachTheNextCycleWithou
   ASSERT_GT(heapAllocationCount() - beforeProbe, 0u) << "the allocation counter is not linked into this binary";
   const size_t baseline = harness.allocationsOfOneCycle();
   ASSERT_EQ(harness.allocationsOfOneCycle(), baseline) << "a control cycle does not allocate the same every time; nothing to compare";
+  const scalar_t shippedKp = harness.controller().getPdGains().defaults.kp;
+  ASSERT_NE(shippedKp, 123.0);
 
   ASSERT_TRUE(
       setFromAnotherThread(harness.controller(), gainsFile(/*kp=*/123.0, harness.mpcJointNames().front(), /*firstJointKp=*/77.0)).ok());
-  EXPECT_EQ(harness.controller().getPdGains().defaults.kp, 250.0) << "the gains changed before a control cycle took them";
+  EXPECT_EQ(harness.controller().getPdGains().defaults.kp, shippedKp) << "the gains changed before a control cycle took them";
   EXPECT_EQ(harness.allocationsOfOneCycle(), baseline) << "taking the new gains into use allocated on the control thread";
   EXPECT_EQ(harness.controller().getPdGains().defaults.kp, 123.0) << "the cycle did not take the new gains into use";
 
@@ -208,12 +217,14 @@ TEST(MrtJointControllerPdGains, RefusedGainsAreRefusedOnTheCallersThreadAndTheGa
 
   // The old path wrote these to a file, failed to parse it on the control thread and reset every joint to 250.
   const mpc_config::JointPdGainsFile valid = gainsFile(/*kp=*/1.0, firstJoint, /*firstJointKp=*/1.0);
-  std::vector<mpc_config::JointPdGainsFile> refused = {valid, valid, valid, valid, valid};
+  std::vector<mpc_config::JointPdGainsFile> refused = {valid, valid, valid, valid, valid, mpc_config::JointPdGainsFile{}, valid};
   refused[0].default_gains.kd = -3.0;
   refused[1].default_gains.kp = std::numeric_limits<double>::quiet_NaN();
   refused[2].joint_gains.push_back(refused[2].joint_gains.front());  // the same joint twice
   refused[3].joint_gains.front().joint.clear();                      // an entry that names no joint
   refused[4].joint_gains.front().joint = "left_knee_joint";          // another robot's file (the Unitree R1's knee)
+  // refused[5] sets nothing: the controller has no gains of its own to fill it in with (it used to apply 250 N*m/rad).
+  refused[6].default_gains.torque_limit.reset();
   for (size_t k = 0; k < refused.size(); ++k) {
     const absl::Status status = setFromAnotherThread(harness.controller(), refused[k]);
     EXPECT_EQ(status.code(), absl::StatusCode::kInvalidArgument) << "accepted the refused gains " << k;
@@ -222,16 +233,12 @@ TEST(MrtJointControllerPdGains, RefusedGainsAreRefusedOnTheCallersThreadAndTheGa
     EXPECT_EQ(jointAction(action, harness.mpcJointIndices()[1]).kp, 123.0) << "refused gains " << k << " changed the gains";
     EXPECT_EQ(jointAction(action, harness.mpcJointIndices()[1]).kd, 3.0) << "refused gains " << k << " changed the gains";
   }
-
-  // The payload is the file: one that sets nothing is the controller's defaults.
-  ASSERT_TRUE(setFromAnotherThread(harness.controller(), mpc_config::JointPdGainsFile{}).ok());
-  EXPECT_EQ(jointAction(harness.cycle(), harness.mpcJointIndices()[0]).kp, 250.0);
 }
 
 TEST(MrtJointControllerPdGains, TheGainsFileIsWatchedByPollPdGainsFileAndNotByTheControlCycle) {
   const std::string file = absl::StrCat(::testing::TempDir(), "/centroidal_joint_pd_gains.textproto");
-  writeFile(file, "default_gains {\n  kp: 111.0\n  kd: 3.0\n}\n");
-  PdGainsHarness harness(file);
+  writeFile(file, "default_gains {\n  kp: 111.0\n  kd: 3.0\n  torque_limit: 1000.0\n}\n");
+  PdGainsHarness harness(&file);
   harness.controller().setControlMode("JOINT_PD");
   EXPECT_EQ(jointAction(harness.cycle(), harness.mpcJointIndices()[1]).kp, 111.0) << "the constructor did not load the gains file";
 
@@ -257,12 +264,40 @@ TEST(MrtJointControllerPdGains, TheGainsFileIsWatchedByPollPdGainsFileAndNotByTh
   std::filesystem::remove(file);
 }
 
+/** Gives `file` a modification time `seconds` from now: a write before (negative) or after an event of the test. */
+void setWriteTime(const std::string& file, int seconds) {
+  std::filesystem::last_write_time(file, std::filesystem::file_time_type::clock::now() + std::chrono::seconds(seconds));
+}
+
+// A Save followed by more tuning within one poll period: the watcher notices the saved file after the newer live gains,
+// and an older edit must not undo them; a file written after them is the newer edit and is applied.
+TEST(MrtJointControllerPdGains, AGainsFileSavedBeforeTheNewestLiveGainsDoesNotUndoThem) {
+  const std::string file = absl::StrCat(::testing::TempDir(), "/centroidal_superseded_joint_pd_gains.textproto");
+  writeFile(file, "default_gains {\n  kp: 111.0\n  kd: 3.0\n  torque_limit: 1000.0\n}\n");
+  PdGainsHarness harness(&file);
+  harness.controller().setControlMode("JOINT_PD");
+  const std::string firstJoint = harness.mpcJointNames().front();
+
+  writeFile(file, gainsText(/*kp=*/222.0, firstJoint, /*firstJointKp=*/22.0));
+  setWriteTime(file, /*seconds=*/-5);
+  ASSERT_TRUE(setFromAnotherThread(harness.controller(), gainsFile(/*kp=*/333.0, firstJoint, /*firstJointKp=*/33.0)).ok());
+  harness.controller().pollPdGainsFile();
+  EXPECT_EQ(jointAction(harness.cycle(), harness.mpcJointIndices()[1]).kp, 333.0) << "the older saved file undid the newer live gains";
+
+  writeFile(file, gainsText(/*kp=*/444.0, firstJoint, /*firstJointKp=*/44.0));
+  setWriteTime(file, /*seconds=*/2);
+  harness.controller().pollPdGainsFile();
+  EXPECT_EQ(jointAction(harness.cycle(), harness.mpcJointIndices()[1]).kp, 444.0) << "a file written after the live gains was not applied";
+
+  std::filesystem::remove(file);
+}
+
 // At start-up there are no gains in use to keep: Create() refuses a gains file it cannot use, with a Status naming the
 // file and the field, so the controller does not start. It used to leave every joint the file did not reach on the
 // hard-coded 500 N*m torque limit.
 TEST(MrtJointControllerPdGains, CreateReturnsTheRefusalOfAGainsFileAsAStatus) {
   const std::string file = absl::StrCat(::testing::TempDir(), "/centroidal_refused_by_create_joint_pd_gains.textproto");
-  writeFile(file, "default_gains { kp: 111.0 torque_limit: 24.0 }\njoint_gains { joint: \"l_leg_kny\" torque_limit: -24.0 }\n");
+  writeFile(file, "default_gains { kp: 111.0 kd: 3.0 torque_limit: 24.0 }\njoint_gains { joint: \"l_leg_kny\" torque_limit: -24.0 }\n");
   AtlasReferenceStack stack;
   absl::StatusOr<robot::model::RobotDescription> descriptionOrStatus = robot::model::RobotDescription::Create(stack.urdfFile());
   ASSERT_TRUE(descriptionOrStatus.ok()) << descriptionOrStatus.status();
@@ -276,13 +311,70 @@ TEST(MrtJointControllerPdGains, CreateReturnsTheRefusalOfAGainsFileAsAStatus) {
   EXPECT_TRUE(absl::StrContains(refused.status().message(), "joint_gains[joint=l_leg_kny].torque_limit")) << refused.status();
 
   // Positive control: the same file without the mistake.
-  writeFile(file, "default_gains { kp: 111.0 torque_limit: 24.0 }\n");
+  writeFile(file, "default_gains { kp: 111.0 kd: 3.0 torque_limit: 24.0 }\n");
   const absl::StatusOr<std::unique_ptr<CentroidalMpcMrtJointController>> created = CentroidalMpcMrtJointController::Create(
       description, stack.modelSettings(), stack.model(), stack.mpc(), observeInTheMotionManager(stack), stack.pinocchioInterface(),
       /*mpcDesiredFrequency=*/1000.0, file);
   ASSERT_TRUE(created.ok()) << created.status();
   EXPECT_EQ((*created)->getPdGains().mpcJointTorqueLimit[1], 24.0);
   std::filesystem::remove(file);
+}
+
+// No gains file, one that does not exist or one whose default_gains leaves a gain out, and the controller does not
+// start: it has no gains of its own, where it used to start every joint on 250 N*m/rad, 15 N*m*s/rad and 500 N*m.
+TEST(MrtJointControllerPdGains, WithoutACompleteGainsFileTheControllerDoesNotStart) {
+  AtlasReferenceStack stack;
+  absl::StatusOr<robot::model::RobotDescription> descriptionOrStatus = robot::model::RobotDescription::Create(stack.urdfFile());
+  ASSERT_TRUE(descriptionOrStatus.ok()) << descriptionOrStatus.status();
+  const robot::model::RobotDescription& description = *descriptionOrStatus;
+  const std::string partial = absl::StrCat(::testing::TempDir(), "/centroidal_partial_joint_pd_gains.textproto");
+  writeFile(partial, "default_gains { kp: 111.0 torque_limit: 24.0 }\n");
+  const std::string missing = absl::StrCat(::testing::TempDir(), "/centroidal_missing_joint_pd_gains.textproto");
+  const std::vector<std::pair<std::string, absl::StatusCode>> cases = {
+      {"", absl::StatusCode::kInvalidArgument}, {missing, absl::StatusCode::kNotFound}, {partial, absl::StatusCode::kInvalidArgument}};
+  for (const std::pair<std::string, absl::StatusCode>& refusal : cases) {
+    const absl::StatusOr<std::unique_ptr<CentroidalMpcMrtJointController>> refused = CentroidalMpcMrtJointController::Create(
+        description, stack.modelSettings(), stack.model(), stack.mpc(), observeInTheMotionManager(stack), stack.pinocchioInterface(),
+        /*mpcDesiredFrequency=*/1000.0, refusal.first);
+    EXPECT_EQ(refused.status().code(), refusal.second) << "'" << refusal.first << "': " << refused.status();
+  }
+  std::filesystem::remove(partial);
+}
+
+// torque_limit bounds every feedforward torque the controller commands: JOINT_PD's gravity compensation too, which it
+// used to send unclamped (GRAVITY_COMP and WB_MPC were clamped).
+TEST(MrtJointControllerPdGains, TheTorqueLimitBoundsTheFeedforwardOfJointPdAndGravityComp) {
+  PdGainsHarness harness;
+  const scalar_t limit = 0.5;  // [N*m], well below the gravity torques of the Atlas legs at its initial posture
+  for (const char* absl_nonnull mode : {"JOINT_PD", "GRAVITY_COMP"}) {
+    harness.controller().setControlMode(mode);
+    ASSERT_TRUE(
+        setFromAnotherThread(harness.controller(), gainsFile(/*kp=*/100.0, harness.mpcJointNames().front(), /*firstJointKp=*/100.0)).ok());
+    scalar_t largest = 0.0;
+    const robot::model::RobotJointAction& unlimited = harness.cycle();
+    for (size_t index : harness.mpcJointIndices()) largest = std::max(largest, std::abs(jointAction(unlimited, index).feed_forward_effort));
+    ASSERT_GT(largest, limit) << "positive control, " << mode;
+    mpc_config::JointPdGainsFile limited = gainsFile(/*kp=*/100.0, harness.mpcJointNames().front(), /*firstJointKp=*/100.0);
+    limited.default_gains.torque_limit = limit;
+    ASSERT_TRUE(setFromAnotherThread(harness.controller(), limited).ok());
+    const robot::model::RobotJointAction& action = harness.cycle();
+    for (size_t index : harness.mpcJointIndices()) {
+      EXPECT_LE(std::abs(jointAction(action, index).feed_forward_effort), limit) << mode << ", joint " << index;
+    }
+  }
+}
+
+// The fraction of kd an MPC joint keeps in GRAVITY_COMP is the gains file's gravity_comp_damping_fraction, hot.
+TEST(MrtJointControllerPdGains, TheGravityCompDampingFractionIsTheFiles) {
+  PdGainsHarness harness;
+  harness.controller().setControlMode("GRAVITY_COMP");
+  mpc_config::JointPdGainsFile gains = gainsFile(/*kp=*/100.0, harness.mpcJointNames().front(), /*firstJointKp=*/100.0);
+  ASSERT_TRUE(setFromAnotherThread(harness.controller(), gains).ok());
+  EXPECT_DOUBLE_EQ(jointAction(harness.cycle(), harness.mpcJointIndices()[1]).kd,
+                   3.0 * mpc_config::JointPdGainsFile::kDefaultGravityCompDampingFraction);
+  gains.gravity_comp_damping_fraction = 0.6;
+  ASSERT_TRUE(setFromAnotherThread(harness.controller(), gains).ok());
+  EXPECT_DOUBLE_EQ(jointAction(harness.cycle(), harness.mpcJointIndices()[1]).kd, 3.0 * 0.6);
 }
 
 }  // namespace

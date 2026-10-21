@@ -79,15 +79,15 @@ class FakeCheckoutTestCase(unittest.TestCase):
         self.config = os.path.join(self.repo_root, _ATLAS)
         self.task = _write(
             os.path.join(self.config, "mpc", "task.textproto"),
-            _TASK_HEADER + "enable_online_tuning: false\n",
+            f"{_TASK_HEADER}enable_online_tuning: false\n",
         )
         self.reference = _write(
             os.path.join(self.config, "command", "reference.textproto"),
-            _REFERENCE_HEADER + "default_base_height: 0.91\n",
+            f"{_REFERENCE_HEADER}default_base_height: 0.91\n",
         )
         self.pd_gains = _write(
             os.path.join(self.config, "controller", "joint_pd_gains.textproto"),
-            _PD_GAINS_HEADER + "default_gains { kp: 1 }\n",
+            f"{_PD_GAINS_HEADER}default_gains {{ kp: 1 }}\n",
         )
         # A copy such as a runfiles tree holds.
         self.copy_root = os.path.join(self.tmpdir, "runfiles", "_main")
@@ -251,6 +251,20 @@ class TestResolveConfigFiles(FakeCheckoutTestCase):
             files, config_files.GuiConfigFiles(self.task, self.reference, self.pd_gains)
         )
 
+    def test_a_pd_gains_file_alone_finds_its_own_robots_task_and_reference(self):
+        g1_config = os.path.join(
+            self.repo_root, "robot_models", "unitree_g1", "g1_wb_mpc", "config"
+        )
+        g1_task = _write(os.path.join(g1_config, "mpc", "task.textproto"))
+        g1_ref = _write(os.path.join(g1_config, "command", "reference.textproto"))
+        g1_pd = _write(
+            os.path.join(g1_config, "controller", "joint_pd_gains.textproto")
+        )
+        files = config_files.resolve_config_files(
+            pd_gains_file=g1_pd, repo_root=self.repo_root
+        )
+        self.assertEqual(files, config_files.GuiConfigFiles(g1_task, g1_ref, g1_pd))
+
     def test_nothing_given_falls_back_to_a_shipped_robot(self):
         # The fake checkout holds the first default task file.
         files = config_files.resolve_config_files(repo_root=self.repo_root)
@@ -305,21 +319,21 @@ class TestDefaults(FakeCheckoutTestCase):
         self.assertEqual(config_files.read_default_pelvis_height("", fallback=0.5), 0.5)
         broken = _write(
             os.path.join(self.tmpdir, "broken.textproto"),
-            _REFERENCE_HEADER + "default_base_height: [unclosed\n",
+            f"{_REFERENCE_HEADER}default_base_height: [unclosed\n",
         )
         self.assertEqual(
             config_files.read_default_pelvis_height(broken, fallback=0.5), 0.5
         )
         unknown = _write(
             os.path.join(self.tmpdir, "unknown.textproto"),
-            _REFERENCE_HEADER + "defaultBaseHeight: 0.9\n",
+            f"{_REFERENCE_HEADER}defaultBaseHeight: 0.9\n",
         )
         self.assertEqual(
             config_files.read_default_pelvis_height(unknown, fallback=0.5), 0.5
         )
         no_key = _write(
             os.path.join(self.tmpdir, "no_key.textproto"),
-            _REFERENCE_HEADER + "max_rotation_velocity: 1\n",
+            f"{_REFERENCE_HEADER}max_rotation_velocity: 1\n",
         )
         self.assertEqual(
             config_files.read_default_pelvis_height(no_key, fallback=0.5), 0.5
@@ -330,18 +344,18 @@ class TestDefaults(FakeCheckoutTestCase):
         self.assertTrue(config_files.read_online_tuning_state("").enabled)
         on = _write(
             os.path.join(self.tmpdir, "on.textproto"),
-            _TASK_HEADER + "enable_online_tuning: true\n",
+            f"{_TASK_HEADER}enable_online_tuning: true\n",
         )
         self.assertTrue(config_files.read_online_tuning_state(on).enabled)
         silent = _write(
             os.path.join(self.tmpdir, "silent.textproto"),
-            _TASK_HEADER + "terrain_height: 0.1\n",
+            f"{_TASK_HEADER}terrain_height: 0.1\n",
         )
         self.assertTrue(config_files.read_online_tuning_state(silent).enabled)
         # A file that does not parse into the schema (the retired YAML spelling) turns tuning off, saying where.
         retired = _write(
             os.path.join(self.tmpdir, "retired.textproto"),
-            _TASK_HEADER + "enableOnlineTuning: false\n",
+            f"{_TASK_HEADER}enableOnlineTuning: false\n",
         )
         state = config_files.read_online_tuning_state(retired)
         self.assertFalse(state.enabled)

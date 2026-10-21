@@ -51,23 +51,34 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace robot::ipc {
 
 /**
- * The ZeroMQ bus of humanoid_nmpc/docs/distributed_runtime/README.md: a publish/subscribe network without a broker.
+ * The DDS bus of humanoid_nmpc/docs/distributed_runtime/README.md: publish/subscribe over Cyclone DDS, without a
+ * broker and without ROS. Every bus topic is a DDS topic of the same name whose samples are one robot_ipc::Envelope
+ * (WireProtocol.h): the wire protocol's version, the writer's sequence number, the full protobuf type name and the
+ * serialized message. A sample of another protocol version is refused and counted as rejected.
  *
- * A bus binds one PUB socket at the endpoint of its node (unless it only subscribes) and connects one SUB socket to
- * every endpoint of the network, its own included, so any process may publish any topic and processes start in any
- * order. Every message is three frames: the topic, the full protobuf type name and the serialized message.
+ * A bus is one DDS participant of NetworkConfig::domainId, configured from the network file (DomainConfig.h): unicast
+ * discovery to the host of every node, the quality of service of each topic by its named profile (QosProfile.h). Any
+ * process may publish any topic and processes start in any order; DDS discovery matches the writers and readers, and
+ * TopicStatistics::matchedReaders / matchedWriters say which are up.
  *
- * Threads. Both sockets belong to the bus's IO thread, which start() launches. Handlers and periodic callbacks run on
- * it, one at a time, so they must return quickly and need no locking among themselves. publish() may be called from
- * any thread except a realtime one: it serializes on the caller and hands the frames to the IO thread through a short
- * mutex-protected queue. A realtime thread never calls the bus; it exchanges data with a periodic callback through
- * lock-free mailboxes instead.
+ * Order. One drain takes up to BusOptions::maxMessagesPerDrain samples across the topics and dispatches them in the
+ * order they were written (their source timestamps, which every bus makes strictly increasing across its topics):
+ * kAll's every sample, kLatest's newest one at the place it was written (the older ones of the drain are superseded).
+ * Within a drain, a handler never sees a sample of one topic before one of another topic that the same publisher wrote
+ * earlier. Across drains DDS gives no such guarantee: the topics are separate DDS readers, and a large sample being
+ * repaired may arrive after a small one written later.
+ *
+ * Threads. The DDS readers and writers belong to the bus's IO thread, which start() launches. Handlers and periodic
+ * callbacks run on it, one at a time, so they must return quickly and need no locking among themselves. publish() may
+ * be called from any thread except a realtime one: it serializes on the caller and hands the sample to the IO thread
+ * through a short mutex-protected queue; only the IO thread calls dds_write(). A realtime thread never calls the bus;
+ * it exchanges data with a periodic callback through lock-free mailboxes instead.
  *
  * Errors are absl::Status values. Nothing throws out of the IO thread: a handler or callback that throws is logged
  * and counted, and the bus carries on.
  *
- * Lifecycle. subscribe(), subscribeRaw(), addPeriodicCallback() and connect() configure a bus that is not running
- * (before start(), or after stop()); start() and stop() are idempotent, and the destructor stops.
+ * Lifecycle. subscribe(), subscribeRaw() and addPeriodicCallback() configure a bus that is not running (before
+ * start(), or after stop()); start() and stop() are idempotent, and the destructor stops.
  */
 class Bus {
  public:
@@ -75,9 +86,10 @@ class Bus {
   using MessageHandler = std::function<void(const google::protobuf::Message& message)>;
 
   /**
-   * Binds and connects the sockets; the IO thread starts with start(). A node name that is not in the network or an
-   * invalid network is InvalidArgument; an endpoint that cannot be bound (taken, or an address of another machine) is
-   * Unavailable.
+   * Joins the DDS domain and creates the writers of the topics the network file lists this node as a publisher of; the
+   * IO thread starts with start(). A node name that is not in the network or an invalid network is InvalidArgument; a
+   * node whose host is an address of another machine is Unavailable; a process whose buses ask for two different
+   * configurations of one domain is FailedPrecondition; a DDS failure is Internal.
    */
   static absl::StatusOr<std::unique_ptr<Bus>> Create(BusOptions options);
 
@@ -86,10 +98,9 @@ class Bus {
   Bus& operator=(const Bus&) = delete;
 
   /**
-   * Hands every message of exactly `topic` (ZeroMQ filters by prefix; the bus also checks the whole topic) that
-   * carries the type Msg to `handler`, on the IO thread. A message of another type, or one that does not parse, is
-   * rejected and counted. The reference is valid during the call only, and the message object is reused for the next
-   * one, so copy what you keep. One subscription per topic.
+   * Hands every message of `topic` that carries the type Msg to `handler`, on the IO thread. A message of another type, or one that does
+   * not parse, is rejected and counted. The reference is valid during the call only, and the message object is reused for the next one, so
+   * copy what you keep. One subscription per topic.
    */
   template <typename Msg>
   absl::Status subscribe(absl::string_view topic, Delivery delivery, std::function<void(const Msg&)> handler) {
@@ -109,16 +120,11 @@ class Bus {
   absl::Status subscribeRaw(absl::string_view topic, Delivery delivery, RawHandler handler);
 
   /**
-   * Calls `callback` on the IO thread every `period`, on absolute deadlines from start(). A callback that is late by a
-   * whole period skips the missed calls rather than bursting.
+   * Calls `callback` on the IO thread every `period`, on absolute deadlines from start(). A deadline that has passed
+   * when the call before it returns (a callback that overran its period, or a late IO thread) is skipped, to the next
+   * deadline still ahead, rather than called at once or in a burst.
    */
   absl::Status addPeriodicCallback(absl::Duration period, std::function<void()> callback);
-
-  /**
-   * Connects the SUB socket to one more endpoint ("tcp://host:port"), such as a node bound to kEphemeralPort or a
-   * publisher outside the network file.
-   */
-  absl::Status connect(absl::string_view endpoint);
 
   /** Launches the IO thread. Idempotent. */
   absl::Status start();
@@ -133,16 +139,22 @@ class Bus {
   bool isRunning() const;
 
   /**
-   * Publishes `message` on `topic` from any non-realtime thread. Serializes on the caller and queues the frames for
-   * the IO thread, which sends them promptly; never waits for the network. A message published while the bus is not
+   * Publishes `message` on `topic` from any non-realtime thread. Serializes on the caller and queues the sample for
+   * the IO thread, which writes it promptly; never waits for the network. A message published while the bus is not
    * running stays queued until start(). A full queue refuses with ResourceExhausted (counted as sendDropped); a bus
    * without a node is FailedPrecondition.
    */
   absl::Status publish(absl::string_view topic, const google::protobuf::Message& message);
 
   /**
-   * Publishes from a handler or a periodic callback, straight onto the socket. Called from any other thread it is
-   * FailedPrecondition.
+   * publish() of a message serialized already, of the full protobuf type name `typeName` (a relay, or a tool that
+   * forwards what subscribeRaw() handed it). The bus does not check that `payload` parses as that type.
+   */
+  absl::Status publishRaw(absl::string_view topic, absl::string_view typeName, absl::string_view payload);
+
+  /**
+   * Publishes from a handler or a periodic callback, straight to the DDS writer (after what publish() queued). Called
+   * from any other thread it is FailedPrecondition.
    */
   absl::Status publishFromIoThread(absl::string_view topic, const google::protobuf::Message& message);
 
@@ -151,12 +163,12 @@ class Bus {
 
   /** BusOptions::nodeName; empty for a bus that only subscribes. */
   const std::string& nodeName() const;
-  /** The endpoint the PUB socket is bound to, e.g. "tcp://127.0.0.1:5600"; empty for a bus that only subscribes. */
-  const std::string& boundEndpoint() const;
-  /** The port of boundEndpoint() (the kernel's choice for kEphemeralPort), or kEphemeralPort when there is none. */
-  int boundPort() const;
-  /** The endpoints the SUB socket is connected to, in the order they were connected. */
-  std::vector<std::string> subscriberEndpoints() const;
+  /** NetworkConfig::domainId. */
+  int domainId() const;
+  /** The hosts the bus sends its discovery packets to: the distinct hosts of the network's nodes. */
+  const std::vector<std::string>& discoveryPeers() const;
+  /** The Cyclone DDS configuration the bus joined its domain with (DomainConfig.h). */
+  const std::string& domainConfig() const;
 
   /** The counters of one topic (all zero for a topic the bus has not seen). Thread-safe. */
   TopicStatistics topicStatistics(absl::string_view topic) const;

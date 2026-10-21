@@ -228,5 +228,75 @@ class MaskTest(unittest.TestCase):
         self.assertEqual(cpp_source.line_starts("ab\ncd\n"), [0, 3, 6])
 
 
+class ScopesTest(unittest.TestCase):
+    def _number_scopes(self, source: str) -> list[tuple[str, ...]]:
+        tokens = cpp_source.code_tokens(source)
+        scopes = cpp_source.scopes(source)
+        return [
+            scopes[k]
+            for k, token in enumerate(tokens)
+            if token.kind == cpp_source.NUMBER
+        ]
+
+    def test_an_enum_body_is_an_enum_scope(self):
+        source = (
+            "enum class Mode : int { kA = 3 };\n[[nodiscard]] enum Flag { kB = 4 };\n"
+        )
+        self.assertEqual(
+            self._number_scopes(source),
+            [(cpp_source.ENUM_SCOPE,), (cpp_source.ENUM_SCOPE,)],
+        )
+
+    def test_a_function_with_an_elaborated_enum_parameter_has_a_code_body(self):
+        source = "void set(enum Mode mode) {\n  gain = 3;\n}\n"
+        self.assertEqual(self._number_scopes(source), [(cpp_source.CODE_SCOPE,)])
+
+    def test_a_function_returning_an_elaborated_enum_has_a_code_body(self):
+        source = "enum Color parse(int x) {\n  return static_cast<Color>(x + 3);\n}\n"
+        self.assertEqual(self._number_scopes(source), [(cpp_source.CODE_SCOPE,)])
+
+    def test_an_enum_with_a_decltype_underlying_type_is_an_enum_scope(self):
+        source = "enum E : decltype(kX) { kA = 2 };\nenum F : std::underlying_type_t<G> { kB = 3 };\n"
+        self.assertEqual(
+            self._number_scopes(source),
+            [(cpp_source.ENUM_SCOPE,), (cpp_source.ENUM_SCOPE,)],
+        )
+
+    def test_a_constexpr_lambda_has_a_code_body(self):
+        source = "const std::function<int()> kMake = []() constexpr { return 3; };\n"
+        self.assertEqual(self._number_scopes(source), [(cpp_source.CODE_SCOPE,)])
+
+
+class CodeBodiesInInitializersTest(unittest.TestCase):
+    def _bodies(self, source: str) -> list[str]:
+        tokens = cpp_source.code_tokens(source)
+        return [
+            " ".join(t.text for t in tokens[first : last + 1])
+            for first, last in cpp_source.code_bodies_in_initializers(source)
+        ]
+
+    def test_the_lambda_bodies_of_a_braced_initializer_are_found(self):
+        self.assertEqual(
+            self._bodies(
+                "const std::vector<Fn> kFns = {[](double x) { return 3.0 * x; }, [] { return 2; }};\n"
+            ),
+            ["{ return 3.0 * x ; }", "{ return 2 ; }"],
+        )
+
+    def test_the_lambda_bodies_after_lambda_specifiers_are_found(self):
+        self.assertEqual(
+            self._bodies(
+                "const Foo kFoo{.a = []() constexpr { return 3; }, .b = []() noexcept(true) { return 4; },"
+                " .c = []() -> int { return 5; }, .d = [](int x) mutable { return x; }};\n"
+            ),
+            ["{ return 3 ; }", "{ return 4 ; }", "{ return 5 ; }", "{ return x ; }"],
+        )
+
+    def test_nested_braced_initializers_are_not_bodies(self):
+        self.assertEqual(
+            self._bodies("const Foo kFoo{{1, 2}, Bar{3}, std::array<int, 1>{4}};\n"), []
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

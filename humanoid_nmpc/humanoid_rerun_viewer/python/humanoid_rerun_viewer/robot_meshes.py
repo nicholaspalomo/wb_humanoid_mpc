@@ -90,15 +90,15 @@ def visual_color(
 
 
 class RobotMeshes:
-    """The visual geometry of one URDF, ready to log for any number of instances; reads each mesh file once."""
+    """The visual geometry of one URDF, ready to log for any number of instances; reads each mesh file once.
+
+    Attributes:
+        model: The URDF whose geometry is logged.
+    """
 
     def __init__(self, model: urdf_model.RobotModel) -> None:
-        self._model = model
+        self.model = model
         self._mesh_contents: dict[str, bytes] = {}
-
-    @property
-    def model(self) -> urdf_model.RobotModel:
-        return self._model
 
     def _contents(self, path: str) -> bytes:
         contents = self._mesh_contents.get(path)
@@ -126,7 +126,7 @@ class RobotMeshes:
             OSError: a mesh file can no longer be read.
         """
         result = InstanceLogResult()
-        for visual in self._model.visuals:
+        for visual in self.model.visuals:
             path = scene_contract.visual_path(style.name, visual.link, visual.index)
             color = visual_color(visual, style)
             geometry = visual.geometry

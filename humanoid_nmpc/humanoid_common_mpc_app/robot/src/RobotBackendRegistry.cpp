@@ -53,9 +53,11 @@ RobotBackendRegistry::RobotBackendRegistry() {
       [](const RobotBackendOptions& options) { return MujocoRobotBackend::checkOptions(options); });
 }
 
-void RobotBackendRegistry::add(const std::string& name, const std::string& description, Factory factory, OptionsCheck checkOptions) {
-  entries_.push_back(
-      Entry{.name = name, .description = description, .factory = std::move(factory), .checkOptions = std::move(checkOptions)});
+void RobotBackendRegistry::add(std::string name, std::string description, Factory factory, OptionsCheck checkOptions) {
+  entries_.push_back(Entry{.name = std::move(name),
+                           .description = std::move(description),
+                           .factory = std::move(factory),
+                           .checkOptions = std::move(checkOptions)});
 }
 
 const RobotBackendRegistry::Entry* absl_nullable RobotBackendRegistry::find(absl::string_view name) const {

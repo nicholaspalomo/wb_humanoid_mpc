@@ -43,7 +43,7 @@ from google.protobuf import descriptor as descriptor_module
 # LINT.IfChange(fnv1a)
 _FNV_OFFSET_BASIS = 14_695_981_039_346_656_037
 _FNV_PRIME = 1_099_511_628_211
-# LINT.ThenChange(//tools/nproto/src/Schema.cpp:fnv1a)
+# LINT.ThenChange(//tools/nproto/include/nproto/Fnv1a64Constants.h:fnv1a)
 _MASK = (1 << 64) - 1
 
 

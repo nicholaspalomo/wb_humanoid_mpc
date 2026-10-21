@@ -101,14 +101,25 @@ TargetTrajectories noTargets(const vector4_t& /*velocityTarget*/,
   return TargetTrajectories();
 }
 
+// A velocity command beyond every shipped limit, so that the limits clamp it: [m/s], [m] and [rad/s].
+constexpr scalar_t kSaturatingLinearVelocity = 5.0;
+constexpr scalar_t kSaturatingHeightChange = 1.0;
+constexpr scalar_t kSaturatingYawRate = 5.0;
+
+// A pose command: [m] and [rad].
+constexpr scalar_t kPoseCommandDeltaX = 1.0;
+constexpr scalar_t kPoseCommandDeltaY = 0.5;
+constexpr scalar_t kPoseCommandDeltaHeight = 0.1;
+constexpr scalar_t kPoseCommandDeltaYaw = 0.5;
+
 /** [v_x, v_y, delta height, yaw rate]: beyond every shipped limit, so that the limits clamp it. */
 vector4_t saturatingVelocityCommand() {
-  return vector4_t(5.0, 5.0, 1.0, 5.0);
+  return vector4_t(kSaturatingLinearVelocity, kSaturatingLinearVelocity, kSaturatingHeightChange, kSaturatingYawRate);
 }
 
 /** [delta x, delta y, delta height, delta yaw] of a pose command. */
 vector4_t poseCommand() {
-  return vector4_t(1.0, 0.5, 0.1, 0.5);
+  return vector4_t(kPoseCommandDeltaX, kPoseCommandDeltaY, kPoseCommandDeltaHeight, kPoseCommandDeltaYaw);
 }
 
 void dumpTargets(ValueDump& dump, TargetTrajectoriesCalculatorBase& calculator, const vector_t& initialState) {

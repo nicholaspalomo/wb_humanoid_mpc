@@ -51,6 +51,9 @@ namespace ocs2::humanoid {
  * Because it is a limit cycle at gait frequency it is also the heuristic that could not be expressed by shaping the
  * target trajectory, whose knots over a one-second horizon, placed by the command (three on a straight walk), would
  * sample two or three whole periods and interpolate linearly between the samples. It only works at the per-node seam.
+ *
+ * Like every LocomotionHeuristic, its const methods are safe to call concurrently; configure() is not, and must not run
+ * while they do.
  */
 class PeriodicOrientationHeuristic final : public BasePoseHeuristic {
  public:

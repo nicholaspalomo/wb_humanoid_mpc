@@ -43,7 +43,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_mpc_ipc/Topics.h"
 #include "robot_ipc/BusOptions.h"
 #include "robot_ipc/Delivery.h"
-#include "robot_ipc/NodeEndpoint.h"
+#include "robot_runtime/robot_ipc/test/TestNetwork.h"
 
 namespace ocs2::humanoid::node::test_support {
 namespace {
@@ -53,7 +53,7 @@ namespace topics = ::ocs2::humanoid::ipc::topics;
 std::unique_ptr<robot::ipc::Bus> createLoopbackBus(const std::string& name) {
   robot::ipc::BusOptions options;
   options.nodeName = name;
-  options.network.nodes = {robot::ipc::NodeEndpoint{.name = name, .host = "127.0.0.1", .port = robot::ipc::kEphemeralPort, .bindHost = ""}};
+  options.network = robot::ipc::isolatedTestNetwork({name});
   absl::StatusOr<std::unique_ptr<robot::ipc::Bus>> bus = robot::ipc::Bus::Create(std::move(options));
   CHECK_OK(bus.status());
   return *std::move(bus);
@@ -75,12 +75,6 @@ ScriptedRobot::ScriptedRobot() : robot_(createLoopbackBus("robot")), operator_(c
 ScriptedRobot::~ScriptedRobot() {
   robot_->stop();
   operator_->stop();
-}
-
-void ScriptedRobot::connect(robot::ipc::Bus& mpcBus) {
-  CHECK_OK(mpcBus.connect(robot_->boundEndpoint()));
-  CHECK_OK(mpcBus.connect(operator_->boundEndpoint()));
-  CHECK_OK(robot_->connect(mpcBus.boundEndpoint()));
 }
 
 absl::Status ScriptedRobot::start() {

@@ -31,13 +31,40 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 // expressions below keep odeint's form, a coefficient times a vector summed left to right, so that the results match
 // odeint's bit for bit: `1.0 * x` and the zero-coefficient terms of runge_kutta4 are kept for that reason.
 
-#include <ocs2_core/integration/steppers.h>
-
 #include <algorithm>
 #include <cmath>
 
+#include <ocs2_core/integration/DormandPrince5Tableau.h>
+#include <ocs2_core/integration/steppers.h>
+
 namespace ocs2 {
 namespace steppers {
+
+namespace {
+
+/** The midpoint update x1 = x0 + 2 h dxdt of the modified midpoint method spans two substeps of size h. */
+constexpr scalar_t kLeapfrogSpanInSubsteps = static_cast<scalar_t>(2);
+/** The weight of the final smoothing step of the modified midpoint method, x = 1/2 (x0 + x1 + h dxdt). */
+constexpr scalar_t kSmoothingStepWeight = static_cast<scalar_t>(1) / static_cast<scalar_t>(2);
+
+/* The Butcher tableau of odeint's runge_kutta4 (rk4_coefficients_a1, _a2, _a3, _b and _c): kRk4A<i><j> is the weight
+ * of stage j in the state of stage i, kRk4B<j> the weight of stage j in the solution and kRk4C<i> the node of stage i,
+ * the fraction of dt at which it evaluates the system. */
+constexpr scalar_t kRk4A10 = static_cast<scalar_t>(1) / static_cast<scalar_t>(2);
+constexpr scalar_t kRk4A20 = static_cast<scalar_t>(0);
+constexpr scalar_t kRk4A21 = static_cast<scalar_t>(1) / static_cast<scalar_t>(2);
+constexpr scalar_t kRk4A30 = static_cast<scalar_t>(0);
+constexpr scalar_t kRk4A31 = static_cast<scalar_t>(0);
+constexpr scalar_t kRk4A32 = static_cast<scalar_t>(1);
+constexpr scalar_t kRk4B0 = static_cast<scalar_t>(1) / static_cast<scalar_t>(6);
+constexpr scalar_t kRk4B1 = static_cast<scalar_t>(1) / static_cast<scalar_t>(3);
+constexpr scalar_t kRk4B2 = static_cast<scalar_t>(1) / static_cast<scalar_t>(3);
+constexpr scalar_t kRk4B3 = static_cast<scalar_t>(1) / static_cast<scalar_t>(6);
+constexpr scalar_t kRk4C1 = static_cast<scalar_t>(1) / static_cast<scalar_t>(2);
+constexpr scalar_t kRk4C2 = static_cast<scalar_t>(1) / static_cast<scalar_t>(2);
+constexpr scalar_t kRk4C3 = static_cast<scalar_t>(1);
+
+}  // namespace
 
 /******************************************************************************************************/
 /******************************************************************************************************/
@@ -52,12 +79,11 @@ void Euler::doStep(const system_func_t& system, vector_t& x, scalar_t t, scalar_
 /******************************************************************************************************/
 void ModifiedMidpoint::doStep(const system_func_t& system, vector_t& x, scalar_t t, scalar_t dt) {
   const scalar_t val1 = static_cast<scalar_t>(1);
-  const scalar_t val05 = static_cast<scalar_t>(1) / static_cast<scalar_t>(2);
 
   system(x, dxdt_, t);
 
   const scalar_t h = dt / static_cast<scalar_t>(kSteps);
-  const scalar_t h2 = static_cast<scalar_t>(2) * h;
+  const scalar_t h2 = kLeapfrogSpanInSubsteps * h;
   scalar_t th = t + h;
 
   // x1 = x + h * dxdt
@@ -77,37 +103,22 @@ void ModifiedMidpoint::doStep(const system_func_t& system, vector_t& x, scalar_t
   }
 
   // x = 0.5 * (x0 + x1 + h * dxdt)
-  x = val05 * x0_ + val05 * x1_ + (val05 * h) * dxdtMidpoint_;
+  x = kSmoothingStepWeight * x0_ + kSmoothingStepWeight * x1_ + (kSmoothingStepWeight * h) * dxdtMidpoint_;
 }
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
 void RungeKutta4::doStep(const system_func_t& system, vector_t& x, scalar_t t, scalar_t dt) {
-  // Butcher tableau of odeint's rk4_coefficients_a1, _a2, _a3, _b and _c.
-  const scalar_t a1_0 = static_cast<scalar_t>(1) / static_cast<scalar_t>(2);
-  const scalar_t a2_0 = static_cast<scalar_t>(0);
-  const scalar_t a2_1 = static_cast<scalar_t>(1) / static_cast<scalar_t>(2);
-  const scalar_t a3_0 = static_cast<scalar_t>(0);
-  const scalar_t a3_1 = static_cast<scalar_t>(0);
-  const scalar_t a3_2 = static_cast<scalar_t>(1);
-  const scalar_t b0 = static_cast<scalar_t>(1) / static_cast<scalar_t>(6);
-  const scalar_t b1 = static_cast<scalar_t>(1) / static_cast<scalar_t>(3);
-  const scalar_t b2 = static_cast<scalar_t>(1) / static_cast<scalar_t>(3);
-  const scalar_t b3 = static_cast<scalar_t>(1) / static_cast<scalar_t>(6);
-  const scalar_t c1 = static_cast<scalar_t>(1) / static_cast<scalar_t>(2);
-  const scalar_t c2 = static_cast<scalar_t>(1) / static_cast<scalar_t>(2);
-  const scalar_t c3 = static_cast<scalar_t>(1);
-
   system(x, dxdt_, t);
 
-  xTmp_ = 1.0 * x + (a1_0 * dt) * dxdt_;
-  system(xTmp_, f0_, t + c1 * dt);
-  xTmp_ = 1.0 * x + (a2_0 * dt) * dxdt_ + (a2_1 * dt) * f0_;
-  system(xTmp_, f1_, t + c2 * dt);
-  xTmp_ = 1.0 * x + (a3_0 * dt) * dxdt_ + (a3_1 * dt) * f0_ + (a3_2 * dt) * f1_;
-  system(xTmp_, f2_, t + c3 * dt);
-  x = 1.0 * x + (b0 * dt) * dxdt_ + (b1 * dt) * f0_ + (b2 * dt) * f1_ + (b3 * dt) * f2_;
+  xTmp_ = 1.0 * x + (kRk4A10 * dt) * dxdt_;
+  system(xTmp_, f0_, t + kRk4C1 * dt);
+  xTmp_ = 1.0 * x + (kRk4A20 * dt) * dxdt_ + (kRk4A21 * dt) * f0_;
+  system(xTmp_, f1_, t + kRk4C2 * dt);
+  xTmp_ = 1.0 * x + (kRk4A30 * dt) * dxdt_ + (kRk4A31 * dt) * f0_ + (kRk4A32 * dt) * f1_;
+  system(xTmp_, f2_, t + kRk4C3 * dt);
+  x = 1.0 * x + (kRk4B0 * dt) * dxdt_ + (kRk4B1 * dt) * f0_ + (kRk4B2 * dt) * f1_ + (kRk4B3 * dt) * f2_;
 }
 
 /******************************************************************************************************/
@@ -126,51 +137,23 @@ void DormandPrince5::doStep(const system_func_t& system, vector_t& x, scalar_t t
 /******************************************************************************************************/
 void DormandPrince5::step(
     const system_func_t& system, const vector_t& in, const vector_t& dxdtIn, scalar_t t, vector_t& out, vector_t& dxdtOut, scalar_t dt) {
-  const scalar_t a2 = static_cast<scalar_t>(1) / static_cast<scalar_t>(5);
-  const scalar_t a3 = static_cast<scalar_t>(3) / static_cast<scalar_t>(10);
-  const scalar_t a4 = static_cast<scalar_t>(4) / static_cast<scalar_t>(5);
-  const scalar_t a5 = static_cast<scalar_t>(8) / static_cast<scalar_t>(9);
-
-  const scalar_t b21 = static_cast<scalar_t>(1) / static_cast<scalar_t>(5);
-
-  const scalar_t b31 = static_cast<scalar_t>(3) / static_cast<scalar_t>(40);
-  const scalar_t b32 = static_cast<scalar_t>(9) / static_cast<scalar_t>(40);
-
-  const scalar_t b41 = static_cast<scalar_t>(44) / static_cast<scalar_t>(45);
-  const scalar_t b42 = static_cast<scalar_t>(-56) / static_cast<scalar_t>(15);
-  const scalar_t b43 = static_cast<scalar_t>(32) / static_cast<scalar_t>(9);
-
-  const scalar_t b51 = static_cast<scalar_t>(19372) / static_cast<scalar_t>(6561);
-  const scalar_t b52 = static_cast<scalar_t>(-25360) / static_cast<scalar_t>(2187);
-  const scalar_t b53 = static_cast<scalar_t>(64448) / static_cast<scalar_t>(6561);
-  const scalar_t b54 = static_cast<scalar_t>(-212) / static_cast<scalar_t>(729);
-
-  const scalar_t b61 = static_cast<scalar_t>(9017) / static_cast<scalar_t>(3168);
-  const scalar_t b62 = static_cast<scalar_t>(-355) / static_cast<scalar_t>(33);
-  const scalar_t b63 = static_cast<scalar_t>(46732) / static_cast<scalar_t>(5247);
-  const scalar_t b64 = static_cast<scalar_t>(49) / static_cast<scalar_t>(176);
-  const scalar_t b65 = static_cast<scalar_t>(-5103) / static_cast<scalar_t>(18656);
-
-  const scalar_t c1 = static_cast<scalar_t>(35) / static_cast<scalar_t>(384);
-  const scalar_t c3 = static_cast<scalar_t>(500) / static_cast<scalar_t>(1113);
-  const scalar_t c4 = static_cast<scalar_t>(125) / static_cast<scalar_t>(192);
-  const scalar_t c5 = static_cast<scalar_t>(-2187) / static_cast<scalar_t>(6784);
-  const scalar_t c6 = static_cast<scalar_t>(11) / static_cast<scalar_t>(84);
-
   // xTmp = x + dt * b21 * dxdt
-  xTmp_ = 1.0 * in + (dt * b21) * dxdtIn;
-  system(xTmp_, k2_, t + dt * a2);
+  xTmp_ = 1.0 * in + (dt * dormand_prince5::kB21) * dxdtIn;
+  system(xTmp_, k2_, t + dt * dormand_prince5::kA2);
   // xTmp = x + dt * b31 * dxdt + dt * b32 * k2
-  xTmp_ = 1.0 * in + (dt * b31) * dxdtIn + (dt * b32) * k2_;
-  system(xTmp_, k3_, t + dt * a3);
+  xTmp_ = 1.0 * in + (dt * dormand_prince5::kB31) * dxdtIn + (dt * dormand_prince5::kB32) * k2_;
+  system(xTmp_, k3_, t + dt * dormand_prince5::kA3);
   // xTmp = x + dt * (b41 * dxdt + b42 * k2 + b43 * k3)
-  xTmp_ = 1.0 * in + (dt * b41) * dxdtIn + (dt * b42) * k2_ + (dt * b43) * k3_;
-  system(xTmp_, k4_, t + dt * a4);
-  xTmp_ = 1.0 * in + (dt * b51) * dxdtIn + (dt * b52) * k2_ + (dt * b53) * k3_ + (dt * b54) * k4_;
-  system(xTmp_, k5_, t + dt * a5);
-  xTmp_ = 1.0 * in + (dt * b61) * dxdtIn + (dt * b62) * k2_ + (dt * b63) * k3_ + (dt * b64) * k4_ + (dt * b65) * k5_;
+  xTmp_ = 1.0 * in + (dt * dormand_prince5::kB41) * dxdtIn + (dt * dormand_prince5::kB42) * k2_ + (dt * dormand_prince5::kB43) * k3_;
+  system(xTmp_, k4_, t + dt * dormand_prince5::kA4);
+  xTmp_ = 1.0 * in + (dt * dormand_prince5::kB51) * dxdtIn + (dt * dormand_prince5::kB52) * k2_ + (dt * dormand_prince5::kB53) * k3_ +
+          (dt * dormand_prince5::kB54) * k4_;
+  system(xTmp_, k5_, t + dt * dormand_prince5::kA5);
+  xTmp_ = 1.0 * in + (dt * dormand_prince5::kB61) * dxdtIn + (dt * dormand_prince5::kB62) * k2_ + (dt * dormand_prince5::kB63) * k3_ +
+          (dt * dormand_prince5::kB64) * k4_ + (dt * dormand_prince5::kB65) * k5_;
   system(xTmp_, k6_, t + dt);
-  out = 1.0 * in + (dt * c1) * dxdtIn + (dt * c3) * k3_ + (dt * c4) * k4_ + (dt * c5) * k5_ + (dt * c6) * k6_;
+  out = 1.0 * in + (dt * dormand_prince5::kC1) * dxdtIn + (dt * dormand_prince5::kC3) * k3_ + (dt * dormand_prince5::kC4) * k4_ +
+        (dt * dormand_prince5::kC5) * k5_ + (dt * dormand_prince5::kC6) * k6_;
 
   // the new derivative
   system(out, dxdtOut, t + dt);
@@ -187,23 +170,11 @@ void DormandPrince5::stepWithError(const system_func_t& system,
                                    vector_t& dxdtOut,
                                    scalar_t dt,
                                    vector_t& xErr) {
-  const scalar_t c1 = static_cast<scalar_t>(35) / static_cast<scalar_t>(384);
-  const scalar_t c3 = static_cast<scalar_t>(500) / static_cast<scalar_t>(1113);
-  const scalar_t c4 = static_cast<scalar_t>(125) / static_cast<scalar_t>(192);
-  const scalar_t c5 = static_cast<scalar_t>(-2187) / static_cast<scalar_t>(6784);
-  const scalar_t c6 = static_cast<scalar_t>(11) / static_cast<scalar_t>(84);
-
-  const scalar_t dc1 = c1 - static_cast<scalar_t>(5179) / static_cast<scalar_t>(57600);
-  const scalar_t dc3 = c3 - static_cast<scalar_t>(7571) / static_cast<scalar_t>(16695);
-  const scalar_t dc4 = c4 - static_cast<scalar_t>(393) / static_cast<scalar_t>(640);
-  const scalar_t dc5 = c5 - static_cast<scalar_t>(-92097) / static_cast<scalar_t>(339200);
-  const scalar_t dc6 = c6 - static_cast<scalar_t>(187) / static_cast<scalar_t>(2100);
-  const scalar_t dc7 = static_cast<scalar_t>(-1) / static_cast<scalar_t>(40);
-
   step(system, in, dxdtIn, t, out, dxdtOut, dt);
 
   // error estimate
-  xErr = (dt * dc1) * dxdtIn + (dt * dc3) * k3_ + (dt * dc4) * k4_ + (dt * dc5) * k5_ + (dt * dc6) * k6_ + (dt * dc7) * dxdtOut;
+  xErr = (dt * dormand_prince5::kDc1) * dxdtIn + (dt * dormand_prince5::kDc3) * k3_ + (dt * dormand_prince5::kDc4) * k4_ +
+         (dt * dormand_prince5::kDc5) * k5_ + (dt * dormand_prince5::kDc6) * k6_ + (dt * dormand_prince5::kDc7) * dxdtOut;
 }
 
 /******************************************************************************************************/
@@ -248,9 +219,9 @@ scalar_t ControlledDormandPrince5::error(const vector_t& xOld, const vector_t& d
 /******************************************************************************************************/
 /******************************************************************************************************/
 scalar_t ControlledDormandPrince5::decreaseStep(scalar_t dt, scalar_t error, int errorOrder) {
-  dt *= std::max(static_cast<scalar_t>(static_cast<scalar_t>(9) / static_cast<scalar_t>(10) *
-                                       std::pow(error, static_cast<scalar_t>(-1) / (errorOrder - 1))),
-                 static_cast<scalar_t>(static_cast<scalar_t>(1) / static_cast<scalar_t>(5)));
+  dt *= std::max(
+      static_cast<scalar_t>(dormand_prince5::kStepSizeSafetyFactor * std::pow(error, static_cast<scalar_t>(-1) / (errorOrder - 1))),
+      dormand_prince5::kMinStepDecreaseFactor);
   return dt;
 }
 
@@ -258,11 +229,11 @@ scalar_t ControlledDormandPrince5::decreaseStep(scalar_t dt, scalar_t error, int
 /******************************************************************************************************/
 /******************************************************************************************************/
 scalar_t ControlledDormandPrince5::increaseStep(scalar_t dt, scalar_t error, int stepperOrder) {
-  if (error < 0.5) {
+  if (error < dormand_prince5::kStepIncreaseErrorThreshold) {
     // error should be > 0
-    error = std::max(static_cast<scalar_t>(std::pow(static_cast<scalar_t>(5.0), -static_cast<scalar_t>(stepperOrder))), error);
+    error = std::max(static_cast<scalar_t>(std::pow(dormand_prince5::kStepIncreaseLimit, -static_cast<scalar_t>(stepperOrder))), error);
     // error too small - increase dt and keep the evolution and limit scaling factor to 5.0
-    dt *= static_cast<scalar_t>(9) / static_cast<scalar_t>(10) * std::pow(error, static_cast<scalar_t>(-1) / stepperOrder);
+    dt *= dormand_prince5::kStepSizeSafetyFactor * std::pow(error, static_cast<scalar_t>(-1) / stepperOrder);
   }
   return dt;
 }

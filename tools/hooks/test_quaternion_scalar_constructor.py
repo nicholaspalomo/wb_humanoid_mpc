@@ -72,6 +72,28 @@ class QuaternionScalarConstructorTest(unittest.TestCase):
         )
         self.assertEqual(_found(source), [])
 
+    def test_a_nested_quaternion_type_and_a_files_own_alias_are_flagged(self):
+        source = (
+            "pinocchio::SE3::Quaternion a(w, x, y, z);\n"
+            "using Quat = Eigen::Quaterniond;\n"
+            "Quat b(w, x, y, z);\n"
+            "typedef Eigen::Quaternion<double> Q;\n"
+            "return Q{w, x, y, z};\n"
+            "typename SE3Tpl<SCALAR_T>::Quaternion c(w, x, y, z);\n"
+        )
+        self.assertEqual(_found(source), [(1, 17), (3, 1), (5, 8), (6, 28)])
+
+    def test_aliases_of_other_types_and_other_uses_are_not(self):
+        source = (
+            "using Quat = Eigen::Quaterniond;\n"
+            "Quat a(vector4_t(x, y, z, w));\n"
+            "using Vec = Eigen::Matrix<double, 4, 1>;\n"
+            "Vec b(w, x, y, z);\n"
+            "pinocchio::SE3::Quaternion c(rotation);\n"
+            "Quaternion d(w, x, y, z);\n"
+        )
+        self.assertEqual(_found(source), [])
+
     def test_the_orientation_directory_and_other_trees_are_not_read(self):
         source = "quaternion_t a(w, x, y, z);\n"
         for path in (

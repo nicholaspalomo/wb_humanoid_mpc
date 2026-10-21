@@ -39,6 +39,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <utility>
 #include <vector>
 
+#include "absl/base/nullability.h"
 #include "absl/log/check.h"
 #include "absl/status/statusor.h"
 
@@ -50,8 +51,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 namespace {
-constexpr scalar_t kSameSwingTolerance = 1.0e-6;  // [s] lift-off times closer than this identify the same swing
-constexpr scalar_t kMinTimeShift = 1.0e-6;        // [s] smaller event shifts are not applied
 
 bool footInContact(const ModeSchedule& schedule, size_t phaseIndex, size_t foot) {
   return modeNumber2StanceLeg(schedule.modeSequence[phaseIndex])[foot];
@@ -84,26 +83,26 @@ contact_flag_t contactFlagsAtTime(const ModeSchedule& schedule, scalar_t time) {
   return modeNumber2StanceLeg(schedule.modeSequence[modeIndexAtTime(schedule, time)]);
 }
 
-std::optional<std::pair<size_t, size_t>> swingPhaseIndexRange(const ModeSchedule& schedule, size_t foot, scalar_t time) {
+std::optional<PhaseIndexRange> swingPhaseIndexRange(const ModeSchedule& schedule, size_t foot, scalar_t time) {
   if (schedule.modeSequence.empty()) return std::nullopt;
   const size_t index = modeIndexAtTime(schedule, time);
   if (footInContact(schedule, index, foot)) return std::nullopt;
-  return std::make_pair(firstSwingPhase(schedule, foot, index), lastSwingPhase(schedule, foot, index));
+  return PhaseIndexRange{.first = firstSwingPhase(schedule, foot, index), .last = lastSwingPhase(schedule, foot, index)};
 }
 
-std::optional<std::pair<scalar_t, scalar_t>> swingPhaseAtTime(const ModeSchedule& schedule, size_t foot, scalar_t time) {
-  const std::optional<std::pair<size_t, size_t>> range = swingPhaseIndexRange(schedule, foot, time);
+std::optional<SwingWindow> swingPhaseAtTime(const ModeSchedule& schedule, size_t foot, scalar_t time) {
+  const std::optional<PhaseIndexRange> range = swingPhaseIndexRange(schedule, foot, time);
   if (!range.has_value()) return std::nullopt;
   const size_t first = range->first;
-  const size_t last = range->second;
+  const size_t last = range->last;
   if (first == 0 || last + 1 >= schedule.modeSequence.size()) return std::nullopt;  // no lift-off or no touch-down event
-  return std::make_pair(schedule.eventTimes[first - 1], schedule.eventTimes[last]);
+  return SwingWindow{.liftOff = schedule.eventTimes[first - 1], .touchDown = schedule.eventTimes[last]};
 }
 
 std::optional<size_t> touchDownEventIndex(const ModeSchedule& schedule, size_t foot, scalar_t time) {
-  const std::optional<std::pair<size_t, size_t>> range = swingPhaseIndexRange(schedule, foot, time);
-  if (!range.has_value() || range->second + 1 >= schedule.modeSequence.size()) return std::nullopt;
-  return range->second;
+  const std::optional<PhaseIndexRange> range = swingPhaseIndexRange(schedule, foot, time);
+  if (!range.has_value() || range->last + 1 >= schedule.modeSequence.size()) return std::nullopt;
+  return range->last;
 }
 
 namespace {
@@ -233,7 +232,7 @@ scalar_t commitBoundaryForSchedule(const ModeSchedule& schedule, scalar_t time, 
     // Closed at the far end: a swing that starts exactly on the boundary is executed too. Leaving it out let a plan
     // re-decide a lift-off that the previous plan had aligned onto this very boundary, and with the planning period
     // equal to the plan's age the lift-off receded by one period per plan and the robot never stepped.
-    if (phaseStart > boundary + 1.0e-9) break;
+    if (phaseStart > boundary + kEventTimeTolerance) break;
     if (i >= eventTimes.size()) break;  // the last phase has no touch-down to extend to
     const contact_flag_t contacts = modeNumber2StanceLeg(modeSequence[i]);
     for (size_t foot = 0; foot < kNumContacts; ++foot) {
@@ -250,9 +249,9 @@ bool planAgreesWithSwingsInFlight(const ModeSchedule& applied, const ContactPlan
   if (!plan.valid || plan.contacts.empty()) return true;
   const contact_flag_t planned = plan.contactsAtTime(time + kMinTimeShift);
   for (size_t foot = 0; foot < kNumContacts; ++foot) {
-    const std::optional<std::pair<scalar_t, scalar_t>> phase = swingPhaseAtTime(applied, foot, time);
+    const std::optional<SwingWindow> phase = swingPhaseAtTime(applied, foot, time);
     // Not swinging, or a lift-off at `time` itself: nothing is in flight that the plan could contradict.
-    if (!phase.has_value() || phase->first >= time - kMinTimeShift) continue;
+    if (!phase.has_value() || phase->liftOff >= time - kMinTimeShift) continue;
     if (planned[foot]) return false;
   }
   return true;
@@ -353,12 +352,11 @@ void fillPlannerInputFromSchedule(
   input.committedPhaseStartTimes = committedPhaseStartsForPlanner(schedule, time, dt, maxCommittedNodes, input.committedUntil);
 }
 
-scalar_t applyScheduleShiftsToPlan(ContactPlan& plan, const std::deque<std::pair<scalar_t, scalar_t>>& shiftLog) {
+scalar_t applyScheduleShiftsToPlan(ContactPlan& plan, const std::deque<ScheduleShift>& shiftLog) {
   const scalar_t snapshotTime = plan.startTime;  // the snapshot's identity, read before any shift moves it
   scalar_t total = 0.0;
-  for (const std::pair<scalar_t, scalar_t>& entry : shiftLog) {
-    // entry: (the time the later events were re-timed, the shift)
-    if (entry.first > snapshotTime) total += entry.second;
+  for (const ScheduleShift& entry : shiftLog) {
+    if (entry.time > snapshotTime) total += entry.shift;
   }
   if (total != 0.0) plan.shiftInTime(total);
   return total;
@@ -383,10 +381,10 @@ void removeRedundantEvents(ModeSchedule& schedule) {
 std::optional<scalar_t> truncateSwingPhase(ModeSchedule& schedule, size_t foot, scalar_t time) {
   std::vector<scalar_t>& eventTimes = schedule.eventTimes;
   std::vector<size_t>& modeSequence = schedule.modeSequence;
-  const std::optional<std::pair<size_t, size_t>> range = swingPhaseIndexRange(schedule, foot, time);
+  const std::optional<PhaseIndexRange> range = swingPhaseIndexRange(schedule, foot, time);
   if (!range.has_value()) return std::nullopt;
   size_t index = modeIndexAtTime(schedule, time);
-  size_t last = range->second;
+  size_t last = range->last;
   if (last + 1 >= modeSequence.size()) return std::nullopt;  // the swing never touches down within the schedule
   const scalar_t touchDown = eventTimes[last];
 
@@ -447,23 +445,69 @@ feet_array_t<ContactEventReport> adaptScheduleToContactEvents(ModeSchedule& sche
 
 /*============================================ LIP helpers =================================================*/
 
+namespace {
+
+// The LIP state after `duration` from (com, velocity): about the fixed ZMP `zmp`, or at constant velocity when there is
+// none (c'' = 0, whose ZMP c - c'' / omega^2 is the CoM itself).
+LipState flowReducedModel(
+    const vector2_t& com, const vector2_t& velocity, const vector2_t* absl_nullable zmp, scalar_t omega, scalar_t duration) {
+  LipState state;
+  if (zmp == nullptr) {
+    state.com = com + duration * velocity;
+    state.comVelocity = velocity;
+    state.zmp = state.com;
+    return state;
+  }
+  const scalar_t ch = std::cosh(omega * duration);
+  const scalar_t sh = std::sinh(omega * duration);
+  const vector2_t offset = com - *zmp;
+  state.zmp = *zmp;
+  state.com = *zmp + offset * ch + velocity * (sh / omega);
+  state.comVelocity = offset * (omega * sh) + velocity * ch;
+  return state;
+}
+
+// Whether the plan carries the reduced model of each continuous phase (ContactPlan::phaseZmp).
+bool hasPhaseReducedModel(const ContactPlan& plan) {
+  return plan.hasContinuousPhases() && plan.phaseZmp.size() == plan.phaseStartTimes.size();
+}
+
+// The node state at `nodeTime` propagated to `time` (>= nodeTime) through the continuous phases in between, each with
+// its own reduced model: the H-LIP's roll-out, which a phase boundary inside the interval does not interrupt.
+LipState flowThroughPhases(const ContactPlan& plan, int node, scalar_t nodeTime, scalar_t time, scalar_t omega) {
+  const std::vector<scalar_t>& starts = plan.phaseStartTimes;
+  size_t phase = 0;
+  while (phase + 1 < starts.size() && starts[phase + 1] <= nodeTime) ++phase;
+  LipState state;
+  state.com = plan.comPosition[static_cast<size_t>(node)];
+  state.comVelocity = plan.comVelocity[static_cast<size_t>(node)];
+  scalar_t segmentStart = nodeTime;
+  while (true) {
+    const bool lastSegment = phase + 1 >= starts.size() || starts[phase + 1] >= time;
+    const scalar_t segmentEnd = lastSegment ? time : starts[phase + 1];
+    const std::optional<vector2_t>& zmp = plan.phaseZmp[phase];
+    state =
+        flowReducedModel(state.com, state.comVelocity, zmp.has_value() ? &*zmp : nullptr, omega, std::max(0.0, segmentEnd - segmentStart));
+    if (lastSegment) return state;
+    segmentStart = segmentEnd;
+    ++phase;
+  }
+}
+
+}  // namespace
+
 std::optional<LipState> lipReferenceState(const ContactPlan& plan, scalar_t omega, scalar_t time) {
   const size_t numIntervals = plan.contacts.size();
   const bool consistent = plan.valid && numIntervals > 0 && plan.zmp.size() == numIntervals &&
                           plan.comPosition.size() == numIntervals + 1 && plan.comVelocity.size() == numIntervals + 1;
   if (!consistent || omega <= 0.0 || plan.dt <= 0.0) return std::nullopt;
-  if (time < plan.startTime - 1.0e-9 || time > plan.endTime() + 1.0e-9) return std::nullopt;
+  if (time < plan.startTime - kEventTimeTolerance || time > plan.endTime() + kEventTimeTolerance) return std::nullopt;
 
   const int k = plan.intervalIndex(time);
-  const scalar_t tau = std::clamp(time - (plan.startTime + plan.dt * static_cast<scalar_t>(k)), 0.0, plan.dt);
-  const scalar_t ch = std::cosh(omega * tau);
-  const scalar_t sh = std::sinh(omega * tau);
-  LipState state;
-  state.zmp = plan.zmp[k];
-  const vector2_t offset = plan.comPosition[k] - state.zmp;
-  state.com = state.zmp + offset * ch + plan.comVelocity[k] * (sh / omega);
-  state.comVelocity = offset * (omega * sh) + plan.comVelocity[k] * ch;
-  return state;
+  const scalar_t nodeTime = plan.startTime + plan.dt * static_cast<scalar_t>(k);
+  const scalar_t tau = std::clamp(time - nodeTime, 0.0, plan.dt);
+  if (hasPhaseReducedModel(plan)) return flowThroughPhases(plan, k, nodeTime, nodeTime + tau, omega);
+  return flowReducedModel(plan.comPosition[k], plan.comVelocity[k], &plan.zmp[k], omega, tau);
 }
 
 vector2_t dcmStepAdjustment(const vector2_t& dcmError, scalar_t omega, scalar_t timeToTouchDown, scalar_t gain, scalar_t maxOffset) {

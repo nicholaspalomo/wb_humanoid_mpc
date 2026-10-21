@@ -37,6 +37,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/str_format.h"
 
+#include "humanoid_common_mpc_app/node/ExitCodes.h"
 #include "humanoid_mpc_validation/closed_loop/MetricBands.h"
 
 /*
@@ -77,7 +78,7 @@ int compareLabels() {
   const std::string baseline = absl::GetFlag(FLAGS_baseline);
   if (candidate.empty() || baseline.empty()) {
     absl::FPrintF(stderr, "Usage: compare_closed_loop --candidate=<label> --baseline=<label> [--robot=<robot>]\n");
-    return 2;
+    return node::kUsageErrorExitCode;
   }
   const ArchivedComparisonOptions options{
       .candidateDirectory = (std::filesystem::path(kClosedLoopDirectory) / candidate).string(),
@@ -88,7 +89,7 @@ int compareLabels() {
   const absl::StatusOr<ArchivedComparison> comparison = compareArchivedClosedLoopRuns(options);
   if (!comparison.ok()) {
     absl::FPrintF(stderr, "%s\n", comparison.status().ToString());
-    return 2;
+    return node::kUsageErrorExitCode;
   }
   size_t outside = 0;
   size_t improved = 0;
@@ -104,7 +105,7 @@ int compareLabels() {
                comparison->runs.size(), outside, improved, comparison->withoutBaseline.size());
   if (comparison->runs.empty()) {
     absl::FPrintF(stderr, "No run of %s has a baseline in %s.\n", candidate, baseline);
-    return 2;
+    return node::kUsageErrorExitCode;
   }
   return outside == 0 ? 0 : 1;
 }

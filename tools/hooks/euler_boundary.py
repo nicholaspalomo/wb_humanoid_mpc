@@ -36,7 +36,8 @@ accessors. This check keeps the Euler API out of the code that must not convert:
                   `<package>/include/<package>/<dir>/**` for <dir> one of FORMULATION_DIRS (the dynamics, the costs and
                   constraints, the end-effector kinematics, the ACoM, the parameter updaters, and the helpers the
                   CppAD tapes are recorded through: the Pinocchio model's kinematics and dynamics, the foot contact
-                  geometry) - in the formulation files FORMULATION_FILES, in the trees FORMULATION_TREES of lib/ocs2
+                  geometry) - in the formulation files FORMULATION_FILES (the precomputations, the heading-tilt
+                  residual BaseOrientation, the taped end-effector kinematics), in the trees FORMULATION_TREES of lib/ocs2
                   (the centroidal model's flow map and mapping, taped by the centroidal MPC), and in the robot-model
                   headers ROBOT_MODEL_HEADERS:
                     - an identifier that names the Euler API: one containing `EulerZyx`, `EulerAnglesZyx` or
@@ -45,10 +46,9 @@ accessors. This check keeps the Euler API out of the code that must not convert:
                     - an #include of `RotationDerivativesTransforms.h` or `orientation/EulerBoundary.h`.
                   Comments and string literals are not read.
 
-The robot-model headers are the one place in scope that converts: their Euler boundary accessors (the
-EulerBoundary.h include, the `*EulerZyx` accessors, `stateFromTuning`, `tuningFromState` and
-`setBaseAngularVelocityFromWorldYawRate`) carry `NOLINT(euler-boundary): Euler boundary accessor (design section
-4.2)`. Any other finding is a conversion in the formulation: read the quaternion (`getBaseOrientation`), the heading
+The robot-model headers are the one place in scope that converts: their boundary lines carry `NOLINT(euler-boundary):
+Euler boundary accessor (design section 4.2)` where they name the Euler API (the EulerBoundary.h include and the
+`*EulerZyx` accessors). Any other finding is a conversion in the formulation: read the quaternion (`getBaseOrientation`), the heading
 (`getBaseHeading`) or the body angular velocity instead.
 
     python3 -m tools.hooks.lint_code --only euler-boundary
@@ -74,10 +74,18 @@ FORMULATION_DIRS = (
     "pinocchio_model",
     "contact",
 )
-# Formulation files outside those directories: the precomputation the constraints read their kinematics from.
+# Formulation files outside those directories: the precomputations the constraints read their kinematics and the
+# swing-foot constraint configs from, the heading-tilt residual, and the end-effector kinematics the centroidal MPC
+# tapes (only those files of lib/ocs2/pinocchio/pinocchio_interface/, whose other files are not taped).
 FORMULATION_FILES = (
     "humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/HumanoidPreComputation.h",
     "humanoid_nmpc/humanoid_common_mpc/src/HumanoidPreComputation.cpp",
+    "humanoid_nmpc/humanoid_wb_mpc/include/humanoid_wb_mpc/WBMpcPreComputation.h",
+    "humanoid_nmpc/humanoid_wb_mpc/src/WBMpcPreComputation.cpp",
+    "humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/orientation/BaseOrientation.h",
+    "humanoid_nmpc/humanoid_common_mpc/src/orientation/BaseOrientation.cpp",
+    "lib/ocs2/pinocchio/pinocchio_interface/include/ocs2_pinocchio_interface/PinocchioEndEffectorKinematicsCppAd.h",
+    "lib/ocs2/pinocchio/pinocchio_interface/src/PinocchioEndEffectorKinematicsCppAd.cpp",
 )
 # Trees of lib/ocs2 the MPCs tape: the centroidal model's flow map, mapping and kinematics.
 FORMULATION_TREES = ("lib/ocs2/pinocchio/centroidal_model/",)
@@ -89,12 +97,10 @@ ROBOT_MODEL_HEADERS = (
     "CentroidalMpcRobotModel.h",
     "WBAccelMpcRobotModel.h",
 )
-# LINT.ThenChange(//humanoid_nmpc/docs/quaternion_base_orientation/README.md:euler_boundary)
+# LINT.ThenChange(//humanoid_nmpc/docs/quaternion_base_orientation/README.md:euler_boundary, //AGENTS.md:orientation_rules)
 
 _FORMULATION_PATH = re.compile(
-    r"^humanoid_nmpc/(?:.*/)?(?:src|include/[^/]+)/(?:"
-    + "|".join(FORMULATION_DIRS)
-    + r")/"
+    rf"^humanoid_nmpc/(?:.*/)?(?:src|include/[^/]+)/(?:{'|'.join(FORMULATION_DIRS)})/"
 )
 _EULER_IDENTIFIER = re.compile(
     r"euler_?(?:angles_?)?zyx|zyx_?euler_?angles", re.IGNORECASE

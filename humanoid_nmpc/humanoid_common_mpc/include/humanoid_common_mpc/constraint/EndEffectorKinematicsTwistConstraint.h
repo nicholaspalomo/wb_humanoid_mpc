@@ -34,6 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <memory>
 
 #include "absl/base/nullability.h"
+#include "ocs2_core/Dimensions.h"
 #include "ocs2_core/constraint/StateInputConstraint.h"
 #include "ocs2_robotic_tools/common/RotationTransforms.h"
 #include "ocs2_robotic_tools/end_effector/EndEffectorKinematics.h"
@@ -41,6 +42,20 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/common/Types.h"
 
 namespace ocs2::humanoid {
+
+/**
+ * 1 + v.n below this value: the end-effector normal v points (almost) away from the plane normal n, where the
+ * orientation error with respect to the plane is not differentiable, and its rates fall back to half the angular
+ * velocity and acceleration (kQuaternionHalfAngleFactor): getAngularVelocityToOrientationErrorRateMap() here, and the
+ * whole-body MPC's stance rates (humanoid_wb_mpc/end_effector/OrientationErrorWrtPlaneRates.h).
+ */
+inline constexpr scalar_t kOrientationErrorWrtPlaneAntiParallelThreshold = 1.0e-6;
+
+/**
+ * Where the orientation rows of Ax and the angular velocity rows of Av start in the full 6D pose rows of an
+ * EndEffectorKinematicsTwistConstraint::Config: after the position and linear velocity rows x, y, z.
+ */
+inline constexpr int kTwistConstraintOrientationRowsStartIndex = kPositionDim;
 
 /**
  * Defines a linear constraint on an end-effector position (xee) and linear velocity (vee).
@@ -57,6 +72,9 @@ namespace ocs2::humanoid {
  * degrees of freedom and its rate alone leaves the rotation about the contact normal unconstrained. The mapping
  * therefore also carries the rotation rate about the end-effector normal in the plane-normal direction, which for a
  * stance foot is what stops it from pivoting on the spot. See getAngularVelocityToOrientationErrorRateMap().
+ *
+ * Not thread-safe: its end-effector kinematics evaluate on the Pinocchio data of one worker's PreComputation, so the
+ * solver gives each worker thread its own clone().
  */
 class EndEffectorKinematicsTwistConstraint final : public StateInputConstraint {
  public:

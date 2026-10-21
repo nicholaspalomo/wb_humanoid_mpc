@@ -12,7 +12,8 @@ import "nproto/retired_field_options.proto";
 //
 // A leg's torque cost weighs the joints it lists, in the order it lists them, each at most once, and needs at least
 // one; joint_torque_weights names each joint of the MPC model exactly once, in any order. Both refuse a fixed joint
-// and a name the model does not have.
+// and a name the model does not have. A reload of a leg's torque cost maps its weights by joint name onto the joints
+// chosen at start-up; a reload that names another set of joints keeps the running weights and waits for the next start.
 // Next ID: 3
 message JointWeights {
   option (nproto.generate_struct) = "ocs2::humanoid::mpc_config::JointWeights";

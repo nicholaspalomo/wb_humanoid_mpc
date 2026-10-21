@@ -402,9 +402,10 @@ absl::Status validateTargetTrajectories(const humanoid_mpc_msgs::TargetTrajector
 absl::Status validatePostEventIndices(const IndexField& indices, int nodes) {
   for (int i = 0; i < indices.size(); ++i) {
     const uint64_t index = indices.Get(i);
-    if (index < 1 || index > static_cast<uint64_t>(nodes)) {
+    // A post-event index names the node after its pre-event node, so it is a node of the policy: at most nodes - 1.
+    if (index < 1 || index >= static_cast<uint64_t>(nodes)) {
       return absl::InvalidArgumentError(absl::StrCat(kPolicy, ".post_event_indices[", i, "] is ", index,
-                                                     "; a post-event index lies in [1, ", nodes, "], the number of nodes"));
+                                                     "; a post-event index lies in [1, ", nodes - 1, "], a node after its pre-event node"));
     }
     if (i > 0 && index <= indices.Get(i - 1)) {
       return absl::InvalidArgumentError(absl::StrCat(kPolicy, ".post_event_indices[", i, "] = ", index,

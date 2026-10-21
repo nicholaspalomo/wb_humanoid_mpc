@@ -74,6 +74,13 @@ enum class ControllerEventCode : uint8_t {
    * takes is in use. Posted once per run of refused cycles. values[0]: why, a PolicyRefusal.
    */
   kPolicyRefused,
+  /**
+   * The control thread's try-lock of the MRT's policy buffer (MRT_BASE::updatePolicy()) failed more than
+   * MRT_BASE::kPolicyUpdateLockContentionThreshold times in a row, so no new policy could be taken into use for that
+   * many cycles. Posted once per run of failed try-locks. values: the failed try-locks of the run so far and of the
+   * MRT's lifetime.
+   */
+  kPolicyUpdateLockContended,
 };
 
 /** Why the realtime policy evaluator refused a policy: values[0] of a kPolicyRefused event. */
@@ -86,13 +93,17 @@ enum class PolicyRefusal : uint8_t {
 
 /** One report of a controller: plain data, so that posting it copies a few words and allocates nothing. */
 struct ControllerEvent {
+  /** The values an event carries (makeControllerEvent()'s value0 and value1), and the bytes of its text, NUL included. */
+  static constexpr int kValueCount = 2;
+  static constexpr int kTextCapacity = 32;
+
   ControllerEventCode code = ControllerEventCode::kPolicyDiverged;
   /** The class that reports it, e.g. "CentroidalMpcMrtJointController": a string literal, never owned. */
   // NOLINTNEXTLINE(totw-string-constant): a field of the event, set per event; "" is its default, not a constant.
   const char* absl_nonnull controller = "";
-  std::array<double, 2> values{};
+  std::array<double, kValueCount> values{};
   /** A name, NUL-terminated and cut to fit. */
-  std::array<char, 32> text{};
+  std::array<char, kTextCapacity> text{};
 };
 
 /** An event of `code` from `controller` with `values` and `text` (cut to fit). */

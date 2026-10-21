@@ -36,9 +36,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid::node {
 
 void targetContactPatchToProto(const TargetContactPose& pose, humanoid_mpc_msgs::TargetContactPatch* absl_nonnull patch) {
-  patch->set_valid(pose.valid && pose.position.allFinite() && std::isfinite(pose.height) && std::isfinite(pose.yaw));
-  // Every enumerator is listed, so that -Wswitch reports a new one; a value outside them is drawn as a stance foot.
-  humanoid_mpc_msgs::TargetContactPatch::Kind kind = humanoid_mpc_msgs::TargetContactPatch::KIND_STANCE;
+  patch->Clear();
+  // Every enumerator is listed, so that -Wswitch reports a new one.
+  humanoid_mpc_msgs::TargetContactPatch::Kind kind = humanoid_mpc_msgs::TargetContactPatch::KIND_UNSPECIFIED;
   switch (pose.kind) {
     case TargetContactPose::Kind::kSwingInFlight:
       kind = humanoid_mpc_msgs::TargetContactPatch::KIND_SWING_IN_FLIGHT;
@@ -51,11 +51,14 @@ void targetContactPatchToProto(const TargetContactPose& pose, humanoid_mpc_msgs:
       break;
   }
   patch->set_kind(kind);
-  patch->set_x(pose.position(0));
-  patch->set_y(pose.position(1));
-  patch->set_z(pose.height);
-  patch->set_yaw(pose.yaw);
-  patch->set_yaw_planned(pose.yawPlanned);
+  // A pose that is not valid or not finite is sent as no pose: the viewer draws nothing for the foot.
+  if (!pose.valid || !pose.position.allFinite() || !std::isfinite(pose.height) || !std::isfinite(pose.yaw)) return;
+  humanoid_mpc_msgs::TargetContactPatch::Pose* absl_nonnull placement = patch->mutable_pose();
+  placement->set_x(pose.position(0));
+  placement->set_y(pose.position(1));
+  placement->set_z(pose.height);
+  placement->set_yaw(pose.yaw);
+  placement->set_yaw_planned(pose.yawPlanned);
 }
 
 void fillViewerAnnotations(const feet_array_t<TargetContactPose>* absl_nullable targetContactPoses,

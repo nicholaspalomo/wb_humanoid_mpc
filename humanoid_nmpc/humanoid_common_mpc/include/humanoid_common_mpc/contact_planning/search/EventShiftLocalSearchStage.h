@@ -44,6 +44,8 @@ namespace ocs2::humanoid {
  * It searches on the grid in force (SearchRun::problem, SearchRun::chosenDt): listed after a cadence_stretch it
  * re-times candidates on the stretched grid, and a candidate is only admitted if its phases fit the gait limits at
  * that node duration (CadenceStretchStage::admissibleStretch), since the propagation counts nodes of planner.dt.
+ *
+ * Not thread-safe, like every ContactPlanningTerm: the planner that owns it configures and evaluates it from one thread at a time.
  */
 class EventShiftLocalSearchStage final : public SearchStage {
  public:

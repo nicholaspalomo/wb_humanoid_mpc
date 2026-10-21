@@ -301,6 +301,8 @@ class LevelPoseCalculator final : public TargetTrajectoriesCalculatorBase {
   }
 
   using TargetTrajectoriesCalculatorBase::getCurrentBasePoseTarget;
+  using TargetTrajectoriesCalculatorBase::VelocityCommandKnot;
+  using TargetTrajectoriesCalculatorBase::velocityCommandKnots;
 };
 
 /** Whether `a` and `b` have the same size and the same bits. */
@@ -369,7 +371,7 @@ class ReferenceConsumersTest : public ::testing::Test {
     EXPECT_TRUE(gaitSchedule.ok()) << gaitSchedule.status();
     if (!gaitSchedule.ok()) return nullptr;
     return std::make_unique<SwitchedModelReferenceManager>(
-        *std::move(gaitSchedule), std::make_shared<SwingTrajectoryPlanner>(SwingTrajectoryPlanner::Config(), /*numFeet=*/2),
+        *std::move(gaitSchedule), std::make_unique<SwingTrajectoryPlanner>(SwingTrajectoryPlanner::Config(), /*numFeet=*/2),
         *pinocchioInterface_, model);
   }
 
@@ -380,7 +382,7 @@ class ReferenceConsumersTest : public ::testing::Test {
     EXPECT_TRUE(gaitSchedule.ok()) << gaitSchedule.status();
     if (!gaitSchedule.ok()) return nullptr;
     absl::StatusOr<std::shared_ptr<ContactPlanningReferenceManager>> manager = ContactPlanningReferenceManager::Create(
-        *std::move(gaitSchedule), std::make_shared<SwingTrajectoryPlanner>(SwingTrajectoryPlanner::Config(), /*numFeet=*/2),
+        *std::move(gaitSchedule), std::make_unique<SwingTrajectoryPlanner>(SwingTrajectoryPlanner::Config(), /*numFeet=*/2),
         *pinocchioInterface_, model, config);
     EXPECT_TRUE(manager.ok()) << manager.status();
     return manager.ok() ? *std::move(manager) : nullptr;
@@ -432,6 +434,47 @@ TEST_F(ReferenceConsumersTest, ATargetStartsFromTheModelsHeadingWithTheBaseLevel
   vector6_t expected;
   expected << 1.0, 2.0, 0.9, heading, 0.0, 0.0;
   EXPECT_EQ(calculator.getCurrentBasePoseTarget(state_), expected) << "the base position, the heading and no roll or pitch";
+}
+
+TEST_F(ReferenceConsumersTest, TheVelocityCommandKnotsDoNotDependOnTheSolveRate) {
+  // A step in the command at t = 1 s, solved at 100 Hz by one calculator and at 25 Hz by another: at t = 1.2 s, a solve
+  // time of both, the knots must be the same, and those of a fresh calculator. A per-call low-pass filter of the command
+  // (alpha = 0.8, as the calculator once had) let 1 - 0.8^21 of the step through at 100 Hz and 1 - 0.8^6 at 25 Hz.
+  const ProbeRobotModel model(*settings_, ProbeAnswers());
+  const vector4_t step(0.5, -0.1, 0.0, 0.4);
+  const BasePlanarMotion measured{.velocityInHeadingFrame = vector2_t(0.1, 0.0), .headingRate = 0.05};
+  constexpr scalar_t kStepTime = 1.0;
+  constexpr scalar_t kQueryTime = 1.2;
+  const std::vector<std::vector<LevelPoseCalculator::VelocityCommandKnot>> answers = [&]() {
+    std::vector<std::vector<LevelPoseCalculator::VelocityCommandKnot>> result;
+    for (const int solvesPerSecond : {100, 25, 0}) {
+      LevelPoseCalculator calculator(model);
+      if (solvesPerSecond > 0) {
+        const scalar_t period = 1.0 / solvesPerSecond;
+        for (int k = 0; k * period < kQueryTime - 1.0e-9; ++k) {
+          const scalar_t time = k * period;
+          calculator.velocityCommandKnots(time < kStepTime ? vector4_t::Zero() : step, time, state_, measured);
+        }
+      }
+      result.push_back(calculator.velocityCommandKnots(step, kQueryTime, state_, measured));
+    }
+    return result;
+  }();
+  for (size_t run = 1; run < answers.size(); ++run) {
+    ASSERT_EQ(answers[run].size(), answers[0].size());
+    for (size_t k = 0; k < answers[0].size(); ++k) {
+      EXPECT_EQ(answers[run][k].time, answers[0][k].time);
+      EXPECT_EQ(answers[run][k].basePose, answers[0][k].basePose) << "run " << run << " knot " << k;
+      EXPECT_EQ(answers[run][k].commandedVelocityWorld, answers[0][k].commandedVelocityWorld) << "run " << run << " knot " << k;
+      EXPECT_EQ(answers[run][k].commandedYawRate, answers[0][k].commandedYawRate) << "run " << run << " knot " << k;
+    }
+  }
+  // And the knot's command is the step itself, turned into the world at the start heading.
+  const scalar_t heading = model.getBaseHeading(state_);
+  const vector2_t expectedWorld(std::cos(heading) * step(0) - std::sin(heading) * step(1),
+                                std::sin(heading) * step(0) + std::cos(heading) * step(1));
+  EXPECT_LT((answers[0].front().commandedVelocityWorld - expectedWorld).norm(), 1.0e-12);
+  EXPECT_EQ(answers[0].front().commandedYawRate, step(3));
 }
 
 TEST_F(ReferenceConsumersTest, ThePlannersHeadingIsTheModelsHeadingWithoutAnAcom) {

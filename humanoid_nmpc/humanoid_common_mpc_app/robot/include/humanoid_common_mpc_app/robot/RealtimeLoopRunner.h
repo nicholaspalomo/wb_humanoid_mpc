@@ -32,6 +32,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <array>
 #include <atomic>
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <string>
@@ -55,8 +56,11 @@ robot::realtime::RealtimeThreadConfig defaultRealtimeThreadConfig();
 
 /** How the realtime loop of the robot process runs. */
 struct RealtimeLoopConfig {
+  /** The default of period: 500 Hz. */
+  static constexpr std::chrono::milliseconds kDefaultPeriod{2};
+
   /** The control period, 1 / mpc.mrt_desired_frequency. */
-  std::chrono::nanoseconds period{std::chrono::milliseconds(2)};
+  std::chrono::nanoseconds period{kDefaultPeriod};
   /**
    * The thread's name, SCHED_FIFO priority (0: not realtime, --realtime_priority) and cores (empty: not pinned). With a
    * priority the process's memory is locked and the stack prefaulted (robot_realtime/RealtimeThread.h).
@@ -130,6 +134,9 @@ class RealtimeLoopRunner {
   const RealtimeLoopConfig& config() const { return config_; }
 
  private:
+  /** The characters faultMessage_ holds, its NUL terminator included. */
+  static constexpr size_t kFaultMessageCapacity = 256;
+
   void run();
   /** The realtime thread's handling of a cycle that threw `message`. */
   void recordFault(const char* absl_nonnull message);
@@ -138,7 +145,7 @@ class RealtimeLoopRunner {
   CycleFunction cycle_;
   FaultFunction fault_;
   std::atomic<bool> faulted_{false};
-  std::array<char, 256> faultMessage_{};  // written by the realtime thread before faulted_ is set
+  std::array<char, kFaultMessageCapacity> faultMessage_{};  // written by the realtime thread before faulted_ is set
   std::atomic<bool> stopRequested_{false};
   std::atomic<bool> running_{false};
   std::atomic<uint64_t> cycles_{0};

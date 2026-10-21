@@ -45,12 +45,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_oc/oc_data/PrimalSolution.h"
 #include "pinocchio/algorithm/center-of-mass.hpp"
 #include "pinocchio/algorithm/centroidal.hpp"
+#include "pinocchio/algorithm/frames.hpp"
+#include "pinocchio/algorithm/kinematics.hpp"
 
+#include "humanoid_common_mpc/acom/AngularCenterOfMass.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
+#include "humanoid_common_mpc/orientation/EulerBoundary.h"
 #include "humanoid_common_mpc_app/visualization/PolicySnapshot.h"
 #include "humanoid_common_mpc_app/visualization/RobotStateDecoder.h"
+#include "humanoid_common_mpc_app/visualization/SolutionTermEvaluator.h"
 #include "humanoid_common_mpc_app/visualization/TelemetryBuilder.h"
 #include "humanoid_common_mpc_app/visualization/VisualizationConfig.h"
 #include "humanoid_mpc_msgs/robot_state_sample.nproto.pb.h"
@@ -144,6 +149,16 @@ std::vector<std::string> contractPaths(const std::vector<std::string>& frames) {
                                     "foot_kinematics/right_acceleration_z",
                                     "foot_kinematics/left_velocity_z",
                                     "foot_kinematics/right_velocity_z",
+                                    "com/position_x",
+                                    "com/position_y",
+                                    "com/position_z",
+                                    "dcm/x",
+                                    "dcm/y",
+                                    "zmp/x",
+                                    "zmp/y",
+                                    "acom/roll",
+                                    "acom/pitch",
+                                    "acom/yaw",
                                     "joints/position/measured",
                                     "joints/position/target",
                                     "joints/velocity/measured",
@@ -164,7 +179,10 @@ std::vector<std::string> contractPaths(const std::vector<std::string>& frames) {
                                     "contact_wrenches/right/measured",
                                     "mpc_observation/state",
                                     "mpc_observation/input",
-                                    "mpc_observation/mode"};
+                                    "mpc_observation/mode",
+                                    "mpc_solution/performance",
+                                    "mpc_solution/costs",
+                                    "mpc_solution/constraints"};
   for (const std::string& frame : frames) {
     for (const char* absl_nonnull kind : {"pose", "twist", "acceleration", "wrench"}) {
       for (const char* absl_nonnull source : {"measured", "reference", "plan"}) {
@@ -173,6 +191,29 @@ std::vector<std::string> contractPaths(const std::vector<std::string>& frames) {
     }
   }
   return paths;
+}
+
+/** `proto` with each foot's force sensor carrying `normalForce` [N] straight up. */
+humanoid_mpc_msgs::RobotStateSample withFootForces(humanoid_mpc_msgs::RobotStateSample proto, scalar_t normalForce) {
+  for (int contact = 0; contact < proto.measured_contact_wrenches_size(); ++contact) {
+    proto.mutable_measured_contact_wrenches(contact)->mutable_force()->set_z(normalForce);
+  }
+  return proto;
+}
+
+/** The groups that are NaN by contract in the tests' data: the reference's target carries no contact forces, so its ZMP. */
+bool isNotANumberByContract(const std::string& path, bool hasAcom) {
+  return path == "zmp/x" || path == "zmp/y" || (!hasAcom && (path == "acom/roll" || path == "acom/pitch" || path == "acom/yaw"));
+}
+
+/** The net contact moment about `point` of world wrenches about `positions`. */
+vector3_t momentAbout(const vector3_t& point, const feet_array_t<vector3_t>& positions, const feet_array_t<vector6_t>& wrenches) {
+  vector3_t moment = vector3_t::Zero();
+  for (size_t contact = 0; contact < kNumContacts; ++contact) {
+    moment += (positions[contact] - point).cross(vector3_t(wrenches[contact].head<kForceDim>())) +
+              vector3_t(wrenches[contact].tail<kTorqueDim>());
+  }
+  return moment;
 }
 
 class TelemetryBuilderTest : public ::testing::Test {
@@ -204,25 +245,105 @@ class TelemetryBuilderTest : public ::testing::Test {
     return state;
   }
 
+  /** Whether the robot has an ACoM network for the MPC model's joints. */
+  bool hasAcom() const {
+    return AngularCenterOfMass::Create(robot_->modelSettings().robotName, robot_->modelSettings().mpcModelJointNames).ok();
+  }
+
+  /** [1/s] sqrt(g / z0) of the nominal state, from a model of its own: its CoM above the mean of its contact frames. */
+  scalar_t nominalPendulumFrequency() const {
+    PinocchioInterface reference = robot_->makeReferencePinocchioInterface();
+    const vector_t q = robot_->robotModel().getGeneralizedCoordinates(robot_->nominalState());
+    const vector3_t com = pinocchio::centerOfMass(reference.getModel(), reference.getData(), q, /*computeSubtreeComs=*/false);
+    pinocchio::updateFramePlacements(reference.getModel(), reference.getData());
+    scalar_t footHeight = 0.0;
+    for (size_t contact = 0; contact < kNumContacts; ++contact) {
+      footHeight +=
+          reference.getData().oMf[reference.getModel().getFrameId(robot_->modelSettings().contactNames[contact])].translation().z() /
+          static_cast<scalar_t>(kNumContacts);
+    }
+    return std::sqrt(reference.getModel().gravity.linear().norm() / (com.z() - footHeight));
+  }
+
+  /**
+   * The plan's balance groups at `time` against a model of their own: the CoM and its velocity of the policy's state
+   * and input, the DCM of the nominal pendulum, the ZMP as the point about which the plan's contact moment is vertical,
+   * and the ACoM attitude through the robot model's accessors.
+   */
+  void expectBalanceOfThePlan(const humanoid_mpc_msgs::TelemetrySeries& series, scalar_t time) const {
+    vector_t state;
+    vector_t input;
+    samplePlan(policy_, robot_->stateManifold(), time, &state, &input);
+    const MpcRobotModelBase<scalar_t>& model = robot_->robotModel();
+    PinocchioInterface reference = robot_->makeReferencePinocchioInterface();
+    const vector_t q = model.getGeneralizedCoordinates(state);
+    // getGeneralizedVelocities() is not const: a copy of the model of its own.
+    const std::unique_ptr<MpcRobotModelBase<scalar_t>> velocityModel(model.clone());
+    const vector_t v = velocityModel->getGeneralizedVelocities(state, input);
+    pinocchio::centerOfMass(reference.getModel(), reference.getData(), q, v, /*computeSubtreeComs=*/false);
+    const vector3_t com = reference.getData().com[0];
+    const vector3_t comVelocity = reference.getData().vcom[0];
+    EXPECT_NEAR(valueOf(series, "com/position_x", "plan"), com.x(), kTolerance);
+    EXPECT_NEAR(valueOf(series, "com/position_y", "plan"), com.y(), kTolerance);
+    EXPECT_NEAR(valueOf(series, "com/position_z", "plan"), com.z(), kTolerance);
+    const scalar_t omega = nominalPendulumFrequency();
+    EXPECT_NEAR(valueOf(series, "dcm/x", "plan"), com.x() + comVelocity.x() / omega, 1.0e-8);
+    EXPECT_NEAR(valueOf(series, "dcm/y", "plan"), com.y() + comVelocity.y() / omega, 1.0e-8);
+
+    pinocchio::forwardKinematics(reference.getModel(), reference.getData(), q);
+    pinocchio::updateFramePlacements(reference.getModel(), reference.getData());
+    feet_array_t<vector3_t> positions;
+    feet_array_t<vector6_t> wrenches;
+    scalar_t normalForce = 0.0;
+    scalar_t weightedHeight = 0.0;
+    for (size_t contact = 0; contact < kNumContacts; ++contact) {
+      positions[contact] =
+          reference.getData().oMf[reference.getModel().getFrameId(robot_->modelSettings().contactNames[contact])].translation();
+      wrenches[contact] = model.getContactWrenchInWorldFrame(state, input, contact);
+      normalForce += wrenches[contact][kWrenchForceZIndex];
+      weightedHeight += wrenches[contact][kWrenchForceZIndex] * positions[contact].z();
+    }
+    const vector3_t zmp(valueOf(series, "zmp/x", "plan"), valueOf(series, "zmp/y", "plan"), weightedHeight / normalForce);
+    const vector3_t moment = momentAbout(zmp, positions, wrenches);
+    EXPECT_NEAR(moment.x(), 0.0, 1.0e-7);
+    EXPECT_NEAR(moment.y(), 0.0, 1.0e-7);
+
+    if (!hasAcom()) {
+      EXPECT_TRUE(std::isnan(valueOf(series, "acom/yaw", "plan")));
+      return;
+    }
+    const std::unique_ptr<AngularCenterOfMass> acom =
+        *AngularCenterOfMass::Create(robot_->modelSettings().robotName, robot_->modelSettings().mpcModelJointNames);
+    const vector3_t yawPitchRoll = eulerZyxFromQuaternion(acom->acomAttitude(model.getBaseOrientation(state), model.getJointAngles(state)));
+    EXPECT_NEAR(valueOf(series, "acom/yaw", "plan"), yawPitchRoll[kBaseRotYawIndex], kTolerance);
+    EXPECT_NEAR(valueOf(series, "acom/pitch", "plan"), yawPitchRoll[kBaseRotPitchIndex], kTolerance);
+    EXPECT_NEAR(valueOf(series, "acom/roll", "plan"), yawPitchRoll[kBaseRotRollIndex], kTolerance);
+  }
+
   std::unique_ptr<test::TestRobot> robot_;
   VisualizationConfig config_;
   std::unique_ptr<TelemetryBuilder> builder_;
   std::unique_ptr<RobotStateDecoder> decoder_;
   PolicySnapshot policy_;
   SystemObservation observation_;
+  /** The terms of a solution: a performance index only, as for a problem without terms. */
+  SolutionTerms solutionTerms_;
 };
 
 TEST_F(TelemetryBuilderTest, TheGroupsAreTheContractsInItsOrder) {
   EXPECT_EQ(builder_->groupPaths(), contractPaths(config_.telemetryFrames));
-  // 32 panel groups, 21 complete groups of the robot and 12 per tracked frame.
-  EXPECT_EQ(builder_->groupPaths().size(), 32 + 21 + 12 * config_.telemetryFrames.size());
+  // 42 panel groups, 24 complete groups of the robot and 12 per tracked frame.
+  EXPECT_EQ(builder_->groupPaths().size(), 42 + 24 + 12 * config_.telemetryFrames.size());
   const humanoid_mpc_msgs::TelemetrySeries& series =
       builder_->build(decode(robot_->robotState(/*time=*/0.1, vector3_t::Zero(), vector3_t::Zero())), &observation_, &policy_);
   absl::flat_hash_set<std::string> paths;
   for (const humanoid_mpc_msgs::ScalarGroup& group : series.groups()) {
     EXPECT_TRUE(paths.insert(group.path()).second) << group.path();
     EXPECT_EQ(group.names_size(), group.values_size()) << group.path();
-    EXPECT_GT(group.names_size(), 0) << group.path();
+    // The term groups have a series per term of the solver's problem, which this builder was not given.
+    if (group.path() != "mpc_solution/costs" && group.path() != "mpc_solution/constraints") {
+      EXPECT_GT(group.names_size(), 0) << group.path();
+    }
   }
   const std::vector<std::string>& joints = robot_->modelSettings().fullJointNames;
   const humanoid_mpc_msgs::ScalarGroup* absl_nullable jointPositions = findGroup(series, "joints/position/measured");
@@ -429,8 +550,10 @@ TEST_F(TelemetryBuilderTest, TheCentroidalReferencesAngularVelocityIsTheTurnItsM
 TEST_F(TelemetryBuilderTest, AtThePitchSingularityOnlyTheEulerRatesAreNotANumber) {
   humanoid_mpc_msgs::RobotStateSample proto = robot_->robotState(/*time=*/0.1, vector3_t(0.0, 0.0, 0.7), vector3_t(0.2, M_PI / 2.0, 0.3));
   proto.mutable_base_angular_velocity_local()->set_y(0.4);
-  const humanoid_mpc_msgs::TelemetrySeries& series = builder_->build(decode(proto), &observation_, &policy_);
+  const humanoid_mpc_msgs::TelemetrySeries& series =
+      builder_->build(decode(withFootForces(proto, /*normalForce=*/300.0)), &observation_, &policy_, &solutionTerms_);
   for (const humanoid_mpc_msgs::ScalarGroup& group : series.groups()) {
+    if (isNotANumberByContract(group.path(), hasAcom())) continue;
     for (int index = 0; index < group.values_size(); ++index) {
       const bool eulerRate = group.path() == "base_pose/roll_rate" || group.path() == "base_pose/pitch_rate" ||
                              group.path() == "base_pose/yaw_rate" || group.path() == "generalized_base/pitch_rate" ||
@@ -539,17 +662,119 @@ TEST_F(TelemetryBuilderTest, TheJointGroupsAreTheDecodedJoints) {
   EXPECT_TRUE((referenceForces.tail(referenceForces.size() - baseVelocityDim).array() == 2.0).all());
 }
 
+TEST_F(TelemetryBuilderTest, TheBalanceOfThePlanIsItsComDcmZmpAndAcom) {
+  for (const scalar_t time : {0.1, 0.45}) {  // in double stance, and with the left foot in swing
+    SCOPED_TRACE(time);
+    expectBalanceOfThePlan(builder_->build(decode(robot_->robotState(time, vector3_t::Zero(), vector3_t::Zero())), &observation_, &policy_),
+                           time);
+  }
+}
+
+TEST_F(TelemetryBuilderTest, TheMeasuredBalanceIsTheSamplesComAndTheSensorsZmp) {
+  const DecodedRobotState measured = decode(
+      withFootForces(robot_->robotState(/*time=*/0.1, vector3_t(0.2, -0.1, 0.75), vector3_t(0.05, -0.02, 0.3)), /*normalForce=*/250.0));
+  const humanoid_mpc_msgs::TelemetrySeries& series = builder_->build(measured, &observation_, &policy_);
+  PinocchioInterface reference = robot_->makeReferencePinocchioInterface();
+  pinocchio::centerOfMass(reference.getModel(), reference.getData(), measured.generalizedCoordinates, measured.generalizedVelocities,
+                          /*computeSubtreeComs=*/false);
+  const vector3_t com = reference.getData().com[0];
+  const vector3_t comVelocity = reference.getData().vcom[0];
+  // The joints move at 0.1 rad/s, so the CoM moves and the DCM is not the CoM.
+  ASSERT_GT(comVelocity.head<kHorizontalPositionDim>().norm(), 1.0e-4);
+  EXPECT_NEAR(valueOf(series, "com/position_z", "measured"), com.z(), kTolerance);
+  const scalar_t omega = nominalPendulumFrequency();
+  EXPECT_NEAR(valueOf(series, "dcm/x", "measured"), com.x() + comVelocity.x() / omega, 1.0e-8);
+  EXPECT_NEAR(valueOf(series, "dcm/y", "measured"), com.y() + comVelocity.y() / omega, 1.0e-8);
+  // Equal forces without torques: the ZMP is the midpoint of the measured contact frames.
+  pinocchio::forwardKinematics(reference.getModel(), reference.getData(), measured.generalizedCoordinates);
+  pinocchio::updateFramePlacements(reference.getModel(), reference.getData());
+  vector3_t midpoint = vector3_t::Zero();
+  for (size_t contact = 0; contact < kNumContacts; ++contact) {
+    midpoint += reference.getData().oMf[reference.getModel().getFrameId(robot_->modelSettings().contactNames[contact])].translation() /
+                static_cast<scalar_t>(kNumContacts);
+  }
+  EXPECT_NEAR(valueOf(series, "zmp/x", "measured"), midpoint.x(), kTolerance);
+  EXPECT_NEAR(valueOf(series, "zmp/y", "measured"), midpoint.y(), kTolerance);
+  // Without force on the sensors there is no measured ZMP.
+  const humanoid_mpc_msgs::TelemetrySeries& unloaded =
+      builder_->build(decode(robot_->robotState(/*time=*/0.2, vector3_t::Zero(), vector3_t::Zero())), &observation_, &policy_);
+  EXPECT_TRUE(std::isnan(valueOf(unloaded, "zmp/x", "measured")));
+}
+
+// A rotation of the whole robot about the vertical turns the ACoM with it: its yaw by the same angle, its tilt not at all
+// (AngularCenterOfMass: xi_a(q (x) xi, q_j) = q (x) xi_a(xi, q_j)).
+TEST_F(TelemetryBuilderTest, TheMeasuredAcomTurnsWithTheRobot) {
+  ASSERT_TRUE(hasAcom()) << "the G1 has an ACoM network";
+  constexpr scalar_t kTurn = 0.4;
+  const vector3_t tilt(0.05, -0.08, 0.1);
+  const humanoid_mpc_msgs::TelemetrySeries first =
+      builder_->build(decode(robot_->robotState(/*time=*/0.1, vector3_t::Zero(), tilt)), &observation_, &policy_);
+  const humanoid_mpc_msgs::TelemetrySeries turned = builder_->build(
+      decode(robot_->robotState(/*time=*/0.2, vector3_t::Zero(), tilt + vector3_t(0.0, 0.0, kTurn))), &observation_, &policy_);
+  EXPECT_NEAR(std::remainder(valueOf(turned, "acom/yaw", "measured") - valueOf(first, "acom/yaw", "measured") - kTurn, 2.0 * M_PI), 0.0,
+              1.0e-9);
+  EXPECT_NEAR(valueOf(turned, "acom/pitch", "measured"), valueOf(first, "acom/pitch", "measured"), 1.0e-9);
+  EXPECT_NEAR(valueOf(turned, "acom/roll", "measured"), valueOf(first, "acom/roll", "measured"), 1.0e-9);
+  // The joints bend the ACoM away from the base: it is not the base's attitude.
+  EXPECT_GT(std::abs(valueOf(first, "acom/pitch", "measured") - valueOf(first, "base_pose/pitch", "measured")) +
+                std::abs(valueOf(first, "acom/roll", "measured") - valueOf(first, "base_pose/roll", "measured")),
+            1.0e-4);
+}
+
+TEST_F(TelemetryBuilderTest, WithoutANominalStateTheDcmIsNotANumber) {
+  VisualizationModel model = robot_->model();
+  model.nominalState = vector_t();
+  std::unique_ptr<TelemetryBuilder> builder = *TelemetryBuilder::Create(model, config_);
+  const humanoid_mpc_msgs::TelemetrySeries& series =
+      builder->build(decode(robot_->robotState(/*time=*/0.1, vector3_t::Zero(), vector3_t::Zero())), &observation_, &policy_);
+  EXPECT_TRUE(std::isnan(valueOf(series, "dcm/x", "plan")));
+  EXPECT_TRUE(std::isfinite(valueOf(series, "com/position_x", "plan")));
+}
+
+TEST_F(TelemetryBuilderTest, TheSolutionGroupsAreTheLatestTermsAndNotANumberWithout) {
+  const TelemetryBuilder::SolutionTermNames names{.costs = {"intermediate/tracking", "final/terminal"}, .constraints = {"equality/eq"}};
+  std::unique_ptr<TelemetryBuilder> builder = *TelemetryBuilder::Create(robot_->model(), config_, names);
+  const DecodedRobotState measured = decode(robot_->robotState(/*time=*/0.1, vector3_t::Zero(), vector3_t::Zero()));
+  const humanoid_mpc_msgs::TelemetrySeries& before = builder->build(measured, &observation_, &policy_);
+  EXPECT_TRUE(std::isnan(valueOf(before, "mpc_solution/performance", "merit")));
+  EXPECT_TRUE(std::isnan(valueOf(before, "mpc_solution/costs", "final/terminal")));
+  EXPECT_TRUE(std::isnan(valueOf(before, "mpc_solution/constraints", "equality/eq")));
+
+  SolutionTerms terms;
+  terms.performance.merit = 4.0;
+  terms.performance.inequalityConstraintsSSE = 0.25;
+  terms.costs = (vector_t(2) << 1.5, 2.5).finished();
+  terms.constraintViolations = (vector_t(1) << 0.125).finished();
+  const humanoid_mpc_msgs::TelemetrySeries& after = builder->build(measured, &observation_, &policy_, &terms);
+  EXPECT_EQ(valueOf(after, "mpc_solution/performance", "merit"), 4.0);
+  EXPECT_EQ(valueOf(after, "mpc_solution/performance", "inequality_constraints_sse"), 0.25);
+  EXPECT_EQ(valueOf(after, "mpc_solution/costs", "intermediate/tracking"), 1.5);
+  EXPECT_EQ(valueOf(after, "mpc_solution/costs", "final/terminal"), 2.5);
+  EXPECT_EQ(valueOf(after, "mpc_solution/constraints", "equality/eq"), 0.125);
+
+  // Terms of another layout are not plotted against the wrong names.
+  terms.costs = (vector_t(3) << 1.0, 2.0, 3.0).finished();
+  const humanoid_mpc_msgs::TelemetrySeries& mismatched = builder->build(measured, &observation_, &policy_, &terms);
+  EXPECT_TRUE(std::isnan(valueOf(mismatched, "mpc_solution/costs", "intermediate/tracking")));
+  EXPECT_EQ(valueOf(mismatched, "mpc_solution/constraints", "equality/eq"), 0.125);
+}
+
 TEST_F(TelemetryBuilderTest, EveryValueIsFinite) {
   for (const PolicySnapshot* absl_nullable policy :
        {static_cast<const PolicySnapshot*>(nullptr), static_cast<const PolicySnapshot*>(&policy_)}) {
     for (const scalar_t time : {-1.0, 0.0, 0.3, 0.6, 2.0}) {
-      const humanoid_mpc_msgs::TelemetrySeries& series =
-          builder_->build(decode(robot_->robotState(time, vector3_t(0.0, 0.0, 0.7), vector3_t(0.0, 0.1, 0.0))), &observation_, policy);
+      const humanoid_mpc_msgs::TelemetrySeries& series = builder_->build(
+          decode(withFootForces(robot_->robotState(time, vector3_t(0.0, 0.0, 0.7), vector3_t(0.0, 0.1, 0.0)), /*normalForce=*/300.0)),
+          &observation_, policy, &solutionTerms_);
       for (const humanoid_mpc_msgs::ScalarGroup& group : series.groups()) {
+        if (isNotANumberByContract(group.path(), hasAcom())) continue;
         for (const double value : group.values()) {
           ASSERT_TRUE(std::isfinite(value)) << group.path() << " at " << time;
         }
       }
+      // The measured ZMP (the sensors carry 300 N each) and the plan's (a stance foot carries 300 N at every time).
+      EXPECT_TRUE(std::isfinite(valueOf(series, "zmp/x", "measured")));
+      if (policy != nullptr) EXPECT_TRUE(std::isfinite(valueOf(series, "zmp/y", "plan")));
     }
   }
 }
@@ -561,14 +786,17 @@ TEST_F(TelemetryBuilderTest, EveryFormulationGivesTheContractsGroups) {
     SCOPED_TRACE(configuration.first.taskFile);
     load(configuration.first, configuration.second);
     EXPECT_EQ(builder_->groupPaths(), contractPaths(config_.telemetryFrames));
-    const humanoid_mpc_msgs::TelemetrySeries& series =
-        builder_->build(decode(robot_->robotState(/*time=*/0.1, vector3_t(0.0, 0.0, 0.8), vector3_t::Zero())), &observation_, &policy_);
+    const humanoid_mpc_msgs::TelemetrySeries& series = builder_->build(
+        decode(withFootForces(robot_->robotState(/*time=*/0.1, vector3_t(0.0, 0.0, 0.8), vector3_t::Zero()), /*normalForce=*/300.0)),
+        &observation_, &policy_, &solutionTerms_);
     vector_t state;
     vector_t input;
     samplePlan(policy_, robot_->stateManifold(), /*time=*/0.1, &state, &input);
     EXPECT_TRUE(valuesOf(series, "contact_wrenches/right/mpc")
                     .isApprox(robot_->robotModel().getContactWrenchInWorldFrame(state, input, kContactRightIndex), kTolerance));
+    expectBalanceOfThePlan(series, /*time=*/0.1);
     for (const humanoid_mpc_msgs::ScalarGroup& group : series.groups()) {
+      if (isNotANumberByContract(group.path(), hasAcom())) continue;
       for (const double value : group.values()) {
         ASSERT_TRUE(std::isfinite(value)) << group.path();
       }

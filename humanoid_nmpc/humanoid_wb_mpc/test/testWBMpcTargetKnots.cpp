@@ -43,6 +43,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/config/ConfigFiles.h"
 #include "humanoid_common_mpc/config/reference/ReferenceFromConfig.h"
 #include "humanoid_mpc_config/reference_file.nproto.h"
+#include "humanoid_nmpc/humanoid_common_mpc/test/support/StatusTestMacros.h"
 #include "humanoid_wb_mpc/command/WBMpcTargetTrajectoriesCalculator.h"
 #include "humanoid_wb_mpc/common/WBAccelMpcRobotModel.h"
 #include "robot_core/ResourcePaths.h"
@@ -50,7 +51,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 /*
  * The knots of the whole-body target calculator, written through the robot model's layout-agnostic accessors
  * (setBasePoseEulerZyx(), setBaseComLinearVelocity(), setBaseAngularVelocityFromWorldYawRate()) and read back through
- * them: a velocity command's knots move the base at the filtered command in each knot's own heading frame and turn it
+ * them: a velocity command's knots move the base at the command in each knot's own heading frame and turn it
  * about the world z axis at the commanded yaw rate, consistently with how their poses advance along the arc of that
  * twist (design README section 2.9), with the joints at the reference file's default posture and still; a pose command's knots hold
  * everything still. Builds no Pinocchio or CppAD model.
@@ -61,9 +62,9 @@ namespace {
 constexpr scalar_t kHorizon = 1.0;   // [s]
 constexpr scalar_t kInitTime = 2.0;  // [s]
 constexpr scalar_t kTolerance = 1.0e-12;
-// The calculator's command filter (WBMpcTargetTrajectoriesCalculator::commandedVelocityToTargetTrajectories()): a first
-// command after construction reaches the knots scaled by 1 - 0.8.
-constexpr scalar_t kFirstCommandFactor = 1.0 - 0.8;
+// The share of the command that reaches the knots: all of it, since the calculator does not filter the command
+// (ProceduralMpcMotionManager does, on the solver time).
+constexpr scalar_t kFirstCommandFactor = 1.0;
 // The intermediate knot's share of the horizon.
 constexpr scalar_t kIntermediateShare = 0.7;
 
@@ -72,17 +73,16 @@ class G1Calculator {
  public:
   G1Calculator() {
     // LINT.IfChange(robot_files)
-    const std::string taskFile = robot::resolveResourcePath("robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.textproto").value();
-    const std::string urdfFile = robot::resolveResourcePath("robot_models/unitree_g1/g1_description/urdf/g1_29dof.urdf").value();
+    const std::string taskFile = checkedValue(robot::resolveResourcePath("robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.textproto"));
+    const std::string urdfFile = checkedValue(robot::resolveResourcePath("robot_models/unitree_g1/g1_description/urdf/g1_29dof.urdf"));
     const std::string referenceFile =
-        robot::resolveResourcePath("robot_models/unitree_g1/g1_wb_mpc/config/command/reference.textproto").value();
+        checkedValue(robot::resolveResourcePath("robot_models/unitree_g1/g1_wb_mpc/config/command/reference.textproto"));
     // LINT.ThenChange(//humanoid_nmpc/humanoid_wb_mpc/BUILD.bazel:target_knots_test_data)
-    modelSettings_ = std::make_unique<ModelSettings>(ModelSettings::Create(taskFile, urdfFile, "wb_mpc_", /*verbose=*/false).value());
+    modelSettings_ = std::make_unique<ModelSettings>(checkedValue(ModelSettings::Create(taskFile, urdfFile, "wb_mpc_", /*verbose=*/false)));
     model_ = std::make_unique<WBAccelMpcRobotModel<scalar_t>>(*modelSettings_);
-    calculator_ = WBMpcTargetTrajectoriesCalculator::Create(referenceFile, *model_, kHorizon).value();
-    defaultJointState_ = defaultJointStateFromConfig(loadReferenceFile(referenceFile).value(), modelSettings_->mpcModelJointNames,
-                                                     modelSettings_->fixedJointNames)
-                             .value();
+    calculator_ = checkedValue(WBMpcTargetTrajectoriesCalculator::Create(referenceFile, *model_, kHorizon));
+    defaultJointState_ = checkedValue(defaultJointStateFromConfig(checkedValue(loadReferenceFile(referenceFile)),
+                                                                  modelSettings_->mpcModelJointNames, modelSettings_->fixedJointNames));
   }
   ~G1Calculator() = default;
   G1Calculator(const G1Calculator&) = delete;
@@ -118,7 +118,8 @@ TEST(WBMpcTargetKnots, AVelocityCommandsKnotsMoveAndTurnTheBaseAtTheFilteredComm
   // Turned past the heading of +-pi/2, so that the pelvis-frame command and the world frame differ in sign.
   const scalar_t heading = 2.5;
   const vector_t initState = g1.restingState((vector6_t() << 0.3, -0.2, 0.75, heading, 0.0, 0.0).finished());
-  const vector4_t command(0.4, 0.1, 0.0, 0.5);  // [v_x, v_y in the pelvis frame, dz, yaw rate]
+  // The command the calculator used to see after its per-call filter (1 - 0.8 of it), so that the knots stay unsubdivided.
+  const vector4_t command(0.08, 0.02, 0.0, 0.1);  // [v_x, v_y in the pelvis frame, dz, yaw rate]
   const TargetTrajectories targets =
       g1.calculator().commandedVelocityToTargetTrajectories(command, kInitTime, initState, /*measuredMotion=*/BasePlanarMotion{});
 

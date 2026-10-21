@@ -75,6 +75,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact/ContactCenterPoint.h"
 #include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
 #include "humanoid_mpc_config/task_file.nproto.h"
+#include "humanoid_nmpc/humanoid_common_mpc/test/support/StatusTestMacros.h"
 
 /*
  * The root joint of the quaternion base orientation design (humanoid_nmpc/docs/quaternion_base_orientation/README.md,
@@ -374,9 +375,9 @@ class G1Models {
     const std::string taskFile = runfilePath(kTaskFile);
     urdfFile_ = runfilePath(kUrdfFile);
     CHECK(!taskFile.empty() && !urdfFile_.empty()) << "the G1 files are not in the runfiles";
-    task_ = loadTaskFile(taskFile).value();
+    task_ = checkedValue(loadTaskFile(taskFile));
     settings_ = std::make_unique<ModelSettings>(
-        ModelSettings::Create(task_, urdfFile_, "testQuaternionRootJointCppAd_", /*verbose=*/false).value());
+        checkedValue(ModelSettings::Create(task_, urdfFile_, "testQuaternionRootJointCppAd_", /*verbose=*/false)));
 
     // What loadCustomPinocchioInterface (createPinocchioModel.cpp) builds, with the root joint of decision D1.
     const urdf::ModelInterfaceSharedPtr urdfTree = urdf::parseURDFFile(urdfFile_);
@@ -391,7 +392,7 @@ class G1Models {
     pinocchio::Model quaternionModel;
     pinocchio::urdf::buildModel(reducedTree, translationSphericalRoot(), quaternionModel);
     for (size_t contact = 0; contact < kNumContacts; ++contact) {
-      const ContactCenterPoint center = contactCenterPointFromConfig(task_.contacts, *settings_, static_cast<int>(contact)).value();
+      const ContactCenterPoint center = checkedValue(contactCenterPointFromConfig(task_.contacts, *settings_, static_cast<int>(contact)));
       quaternionModel.addFrame(pinocchio::Frame(
           center.frameName, quaternionModel.getJointId(center.parentJointName), quaternionModel.getFrameId(center.parentJointName),
           pinocchio::SE3(matrix3_t::Identity(), center.translationFromParent), pinocchio::FIXED_JOINT));
@@ -400,7 +401,7 @@ class G1Models {
     quaternionRoot_ = std::make_unique<PinocchioInterface>(quaternionModel);
     quaternionRootAd_ = std::make_shared<const PinocchioInterfaceCppAd>(quaternionRoot_->toCppAd());
 
-    productionRoot_ = std::make_unique<PinocchioInterface>(loadCustomPinocchioInterface(task_, urdfFile_, *settings_).value());
+    productionRoot_ = std::make_unique<PinocchioInterface>(checkedValue(loadCustomPinocchioInterface(task_, urdfFile_, *settings_)));
     mass_ = pinocchio::computeTotalMass(quaternionRoot_->getModel());
   }
 

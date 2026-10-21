@@ -35,11 +35,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
 #include "absl/strings/string_view.h"
+#include "ocs2_core/Dimensions.h"
 
 #include "web_viewer/ViewerCameraMode.h"
 
 namespace robot::web_viewer {
 namespace {
+
+// The quotes around a JSON string.
+constexpr size_t kJsonStringQuotes = 2;
+// JSON escapes the control characters, U+0000 to U+001F: the characters below this.
+constexpr int kJsonControlCharacterEnd = 0x20;
 
 // A JSON number, or null for one JSON cannot spell (NaN, infinity).
 std::string jsonNumber(double value) {
@@ -54,7 +60,8 @@ absl::string_view jsonBool(bool value) {
 std::string cameraJson(const ViewerStatus::Camera& camera) {
   return absl::StrCat(R"({"mode":)", jsonString(viewerCameraModeName(camera.mode)), R"(,"azimuth":)", jsonNumber(camera.azimuth),
                       R"(,"elevation":)", jsonNumber(camera.elevation), R"(,"distance":)", jsonNumber(camera.distance), R"(,"lookat":[)",
-                      jsonNumber(camera.lookat[0]), ",", jsonNumber(camera.lookat[1]), ",", jsonNumber(camera.lookat[2]), "]}");
+                      jsonNumber(camera.lookat[ocs2::kXAxisIndex]), ",", jsonNumber(camera.lookat[ocs2::kYAxisIndex]), ",",
+                      jsonNumber(camera.lookat[ocs2::kZAxisIndex]), "]}");
 }
 
 std::string renderJson(const ViewerStatus::Render& render) {
@@ -72,7 +79,7 @@ std::string visualizationJson(const ViewerStatus::Visualization& visualization) 
 
 std::string jsonString(absl::string_view text) {
   std::string json = "\"";
-  json.reserve(text.size() + 2);
+  json.reserve(text.size() + kJsonStringQuotes);
   for (const char character : text) {
     switch (character) {
       case '"':
@@ -91,7 +98,7 @@ std::string jsonString(absl::string_view text) {
         json += R"(\t)";
         break;
       default:
-        if (static_cast<unsigned char>(character) < 0x20) {
+        if (static_cast<unsigned char>(character) < kJsonControlCharacterEnd) {
           absl::StrAppendFormat(&json, R"(\u%04x)", static_cast<int>(character));
         } else {
           json += character;

@@ -142,7 +142,7 @@ class VariableTest(ScriptTestCase):
         path = self.launch(
             'variables { name: "config_dir" value: "robots/a" }\n'
             'variables { name: "task_file" value: "{config_dir}/task.textproto" }',
-            PRINT_ARGUMENTS + ', "--task_file={task_file}"',
+            f'{PRINT_ARGUMENTS}, "--task_file={{task_file}}"',
         )
         script = self.export(path, env_prefix="WB_ROBOT_")
         self.assertEqual(
@@ -160,7 +160,7 @@ class VariableTest(ScriptTestCase):
     def test_the_dependency_order_does_not_depend_on_the_file_order(self) -> None:
         path = self.launch(
             'variables { name: "b" value: "{a}-b" }\nvariables { name: "a" value: "a" }',
-            PRINT_ARGUMENTS + ', "{b}"',
+            f'{PRINT_ARGUMENTS}, "{{b}}"',
         )
         self.assertEqual(self.arguments(self.export(path)), ["a-b"])
 
@@ -168,7 +168,7 @@ class VariableTest(ScriptTestCase):
         tricky = "a b 'c' \\\"d\\\" $HOME `x` \\\\ {{literal}}"
         path = self.launch(
             f'variables {{ name: "v" value: "{tricky}" }}',
-            PRINT_ARGUMENTS + f', "{tricky}", "=={{v}}=="',
+            f'{PRINT_ARGUMENTS}, "{tricky}", "=={{v}}=="',
         )
         expected = "a b 'c' \"d\" $HOME `x` \\ {literal}"
         self.assertEqual(
@@ -181,7 +181,7 @@ class VariableTest(ScriptTestCase):
         )
 
     def test_the_repository_root_is_the_root_of_the_script(self) -> None:
-        path = self.launch("", PRINT_ARGUMENTS + ', "{repo_root}"')
+        path = self.launch("", f'{PRINT_ARGUMENTS}, "{{repo_root}}"')
         relative = self.export(path, root="..")
         self.assertEqual(
             [os.path.realpath(argument) for argument in self.arguments(relative)],

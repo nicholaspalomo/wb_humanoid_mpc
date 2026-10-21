@@ -172,10 +172,10 @@ class InProcessMpcLink final : public MpcLink {
   SolverIterationResult solveOnce();
 
   /**
-   * The thread that solves: MPC_MRT_Interface::resetMpcNode() (`full`) or resetMpcSolver() from the observation current
-   * now. Logged while the MPC is healthy.
+   * The thread that solves: MPC_MRT_Interface::resetMpcNode() (ResetKind::kFull) or resetMpcSolver() (kSolver) from the
+   * observation current now. Logged while the MPC is healthy.
    */
-  void resetMpcToCurrentObservation(bool full, absl::string_view reason);
+  void resetMpcToCurrentObservation(MpcResetSupervisor::ResetKind kind, absl::string_view reason);
 
   MPC_MRT_Interface mpcMrtInterface_;
   const ResetTargetFunction resetTarget_;

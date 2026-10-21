@@ -50,6 +50,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_mpc_config/task_file.nproto.h"
 #include "humanoid_mpc_config/task_file.nproto.pb.h"
 #include "humanoid_mpc_config/task_file.pb.h"
+#include "humanoid_nmpc/humanoid_common_mpc/test/support/StatusTestMacros.h"
 #include "nproto/Textproto.h"
 #include "support/TypedConfigFiles.h"
 
@@ -101,19 +102,21 @@ TEST(ActiveInStanceTest, VerifyFootCostIsActiveBehaviorWithAtlasModel) {
   const absl::StatusOr<CentroidalMpcConfig> config = loadConfigOf(files);
   ASSERT_TRUE(config.ok()) << config.status();
 
-  ModelSettings modelSettings = ModelSettings::Create(config->task, files.urdfFile, "drc_atlas", /*verbose=*/false).value();
+  HUMANOID_ASSERT_OK_AND_ASSIGN(ModelSettings modelSettings,
+                                ModelSettings::Create(config->task, files.urdfFile, "drc_atlas", /*verbose=*/false));
   PinocchioInterface pinocchioInterface(
-      loadCustomPinocchioInterface(config->task, files.urdfFile, modelSettings, /*scaleTotalMass=*/false).value());
+      checkedValue(loadCustomPinocchioInterface(config->task, files.urdfFile, modelSettings, /*scaleTotalMass=*/false)));
 
-  CentroidalModelInfo centroidalModelInfo = centroidalModelInfoOf(*config, pinocchioInterface, modelSettings).value();
+  HUMANOID_ASSERT_OK_AND_ASSIGN(CentroidalModelInfo centroidalModelInfo, centroidalModelInfoOf(*config, pinocchioInterface, modelSettings));
 
   CentroidalMpcRobotModel<scalar_t> mpcRobotModel(modelSettings, pinocchioInterface, centroidalModelInfo);
   CentroidalMpcRobotModel<ad_scalar_t> mpcRobotModelAD(modelSettings, pinocchioInterface.toCppAd(), centroidalModelInfo.toCppAd());
 
   std::unique_ptr<SwingTrajectoryPlanner> swingTrajectoryPlanner(
-      new SwingTrajectoryPlanner(swingTrajectorySettingsFromConfig(config->task.swing_trajectory_config).value(), /*numFeet=*/2));
+      new SwingTrajectoryPlanner(checkedValue(swingTrajectorySettingsFromConfig(config->task.swing_trajectory_config)), /*numFeet=*/2));
 
-  std::shared_ptr<GaitSchedule> gaitSchedule = GaitSchedule::Create(config->reference, modelSettings, /*verbose=*/false).value();
+  HUMANOID_ASSERT_OK_AND_ASSIGN(std::shared_ptr<GaitSchedule> gaitSchedule,
+                                GaitSchedule::Create(config->reference, modelSettings, /*verbose=*/false));
   ModeSchedule initialModeSchedule = gaitSchedule->getModeSchedule(0.0, 1.0);
 
   auto referenceManager = std::make_shared<SwitchedModelReferenceManager>(std::move(gaitSchedule), std::move(swingTrajectoryPlanner),
@@ -126,18 +129,20 @@ TEST(ActiveInStanceTest, VerifyFootCostIsActiveBehaviorWithAtlasModel) {
   ASSERT_TRUE(referenceManager->isInContact(stanceTime, /*contactIndex=*/0)) << "Atlas left foot should be in contact at t=0";
   ASSERT_TRUE(referenceManager->isInContact(stanceTime, /*contactIndex=*/1)) << "Atlas right foot should be in contact at t=0";
 
-  EndEffectorKinematicsWeights weights = taskSpaceFootCostFromConfig(config->task.task_space_foot_cost).value().weights;
+  HUMANOID_ASSERT_OK_AND_ASSIGN(TaskSpaceFootCostSettings settings, taskSpaceFootCostFromConfig(config->task.task_space_foot_cost));
 
   // 1. Check with activeInStance = false:
-  CentroidalMpcEndEffectorFootCost footCostInactive(*referenceManager, weights, pinocchioInterface, mpcRobotModelAD, /*contactIndex=*/0,
-                                                    "foot_l_contact_TaskSpaceKinematicsCost", modelSettings, /*activeInStance=*/false);
+  settings.activeInStance = false;
+  CentroidalMpcEndEffectorFootCost footCostInactive(*referenceManager, settings, pinocchioInterface, mpcRobotModelAD, /*contactIndex=*/0,
+                                                    "foot_l_contact_TaskSpaceKinematicsCost", modelSettings);
 
   EXPECT_FALSE(footCostInactive.getActiveInStance());
   EXPECT_FALSE(footCostInactive.isActive(stanceTime)) << "When activeInStance is false, foot cost MUST be inactive during stance";
 
   // 2. Check with activeInStance = true:
-  CentroidalMpcEndEffectorFootCost footCostActive(*referenceManager, weights, pinocchioInterface, mpcRobotModelAD, /*contactIndex=*/0,
-                                                  "foot_l_contact_TaskSpaceKinematicsCost", modelSettings, /*activeInStance=*/true);
+  settings.activeInStance = true;
+  CentroidalMpcEndEffectorFootCost footCostActive(*referenceManager, settings, pinocchioInterface, mpcRobotModelAD, /*contactIndex=*/0,
+                                                  "foot_l_contact_TaskSpaceKinematicsCost", modelSettings);
 
   EXPECT_TRUE(footCostActive.getActiveInStance());
   EXPECT_TRUE(footCostActive.isActive(stanceTime)) << "When activeInStance is true, foot cost MUST BE ACTIVE during stance!";

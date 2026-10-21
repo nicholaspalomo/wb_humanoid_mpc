@@ -47,6 +47,8 @@ namespace ocs2::humanoid::validation {
  * Objects keep their members in insertion order, so a file written twice from the same values is byte-identical and
  * diffs well. Numbers are doubles, written with the fewest significant digits that read back to the same double; a
  * number that is not finite has no JSON form and is written as null.
+ *
+ * A value type: not thread-safe to modify; its const methods may be called concurrently.
  */
 class JsonValue {
  public:
@@ -101,8 +103,8 @@ class JsonValue {
   static absl::StatusOr<JsonValue> parse(absl::string_view text);
 
   /** Structural equality: same types, numbers equal as doubles, object members equal in the same order. */
-  bool operator==(const JsonValue& other) const;
-  bool operator!=(const JsonValue& other) const { return !(*this == other); }
+  friend bool operator==(const JsonValue& lhs, const JsonValue& rhs);
+  friend bool operator!=(const JsonValue& lhs, const JsonValue& rhs) { return !(lhs == rhs); }
 
  private:
   void serializeTo(std::string& out, int indent) const;

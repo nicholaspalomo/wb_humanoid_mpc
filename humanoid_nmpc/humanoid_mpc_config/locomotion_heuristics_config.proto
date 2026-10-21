@@ -4,6 +4,7 @@ package humanoid_mpc_config;
 
 import "humanoid_mpc_config/config_options.proto";
 import "nproto/options.proto";
+import "nproto/retired_field_options.proto";
 
 // The locomotion heuristics of the centroidal MPC's reference (the task file's locomotion_heuristics block,
 // LocomotionHeuristicConfig; humanoid_nmpc/docs/locomotion_heuristics/README.md): the ten heuristics of Bledt's
@@ -115,17 +116,23 @@ message LocomotionHeuristicsConfig {
     double longitudinal_scale = 2 [default = 1.0];
   }
 
-  // H_r(pdot, Phi) = gain sqrt(p_z / g) (pdot - pdot_d) (Table C.1): the capture point of the velocity error.
+  // H_r(pdot, Phi) = gain sqrt(p_z / g) (pdot - pdot_d) (Table C.1): the capture point of the velocity error, g
+  // the robot model's gravity.
   // Next ID: 5
   message CapturePoint {
+    option (nproto.retired_field) = {
+      name: "gravity"
+      replacement: "the capture point's gravity is the robot model's (LocomotionHeuristicModelParameters), the one the dynamics use; delete the line"
+    };
+
     reserved 5 to max;
+    // 3 was gravity [m/s^2], now taken from the robot model.
+    reserved 3;
 
     // 1 is the textbook capture point; not negative.
     double gain = 1 [default = 1.0];
-    // [m] 0: the center-of-mass height measured at each solve; positive: this fixed height.
-    double com_height_override = 2 [default = 0.0, (humanoid_mpc_config.tuning) = { unit: "m" }];
-    // [m/s^2] Positive.
-    double gravity = 3 [default = 9.81, (humanoid_mpc_config.tuning) = { unit: "m/s^2" }];
+    // [m] A fixed center-of-mass height, positive; absent: the height measured at each solve.
+    double com_height_override = 2 [(humanoid_mpc_config.tuning) = { unit: "m" }];
     // [m] The offset is clamped to this magnitude; positive.
     double maximum_offset = 4 [default = 0.25, (humanoid_mpc_config.tuning) = { unit: "m" }];
   }
@@ -203,9 +210,12 @@ message LocomotionHeuristicsConfig {
 
     // Scales m omega x v; 0 disables it. Not negative.
     double scale = 1 [default = 1.0];
-    // [N] The horizontal force per foot is clamped to this magnitude; 0 uses maximum_force_ratio_of_weight instead.
-    double maximum_force = 2 [default = 0.0, (humanoid_mpc_config.tuning) = { unit: "N" }];
-    // The clamp as a fraction of the robot's weight, used while maximum_force is 0; one of the two must be positive.
+    // [N] The TOTAL horizontal force, before it is shared equally over the stance feet, is clamped to this magnitude,
+    // positive; absent: maximum_force_ratio_of_weight sets the clamp instead. A total, so that the clamp is the same
+    // fraction of each foot's friction budget (mu W / n_stance) in single and in double support.
+    double maximum_force = 2 [(humanoid_mpc_config.tuning) = { unit: "N" }];
+    // The clamp on the total as a fraction of the robot's weight, used while maximum_force is absent, when it must be
+    // positive.
     double maximum_force_ratio_of_weight = 3 [default = 0.3];
   }
 

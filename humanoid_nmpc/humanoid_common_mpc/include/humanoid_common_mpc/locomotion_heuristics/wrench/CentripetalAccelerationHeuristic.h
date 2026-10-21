@@ -39,7 +39,9 @@ namespace ocs2::humanoid {
 /**
  * `centripetal_acceleration`: H_f(Theta x pdot) = m omega x pdot (Bledt, Appendix C, Table C.1).
  *
- * The horizontal force that holds the robot on a circular path, shared over the stance feet.
+ * The horizontal force that holds the robot on a circular path, clamped in magnitude as a total and then shared
+ * equally over the stance feet, so that the clamp is the same fraction of each foot's friction budget whatever the
+ * number of feet on the ground.
  *
  * Analytic, and the companion of the `high_speed_turning` foot placement: one says where to put the foot for a turn
  * at speed, the other says which way to push once it is there. With omega = psidot e_z and a horizontal velocity the
@@ -61,6 +63,9 @@ namespace ocs2::humanoid {
  * optimizer would have been slow to find it, and can fight the momentum cost wherever the two disagree, which they do
  * in double support and wherever the friction cone binds. It is implemented because it is one of Bledt's ten and the
  * seam for it is clean; whether it earns its place here is a question for simulation, and `scale` is the knob.
+ *
+ * Like every LocomotionHeuristic, its const methods are safe to call concurrently; configure() is not, and must not run
+ * while they do.
  */
 class CentripetalAccelerationHeuristic final : public WrenchHeuristic {
  public:
@@ -75,6 +80,9 @@ class CentripetalAccelerationHeuristic final : public WrenchHeuristic {
   bool producesHorizontalForce() const override { return true; }
 
  private:
+  /** [N] The clamp on the magnitude of the total horizontal force, before it is shared over the stance feet. */
+  scalar_t totalForceLimit() const;
+
   CentripetalAccelerationParameters parameters_;
   scalar_t totalMass_ = 0.0;
   scalar_t totalWeight_ = 0.0;

@@ -102,6 +102,14 @@ class StateManifold {
   /** The largest rotation angle [rad] any rotation block of the tangent vector dx describes; 0 without rotations. */
   virtual scalar_t getMaximumRotationAngle(const vector_t& dx) const = 0;
 
+  /**
+   * Whether every rotation block of the ambient state x describes a rotation; true without rotation blocks. A unit
+   * quaternion block at or below kQuaternionNormalizationEpsilon (UnitQuaternionMath.h), the zero quaternion included,
+   * does not: retract() cannot move it off its scale and difference() reads every attitude as no rotation away from it,
+   * so a solver iterating from it would keep it whatever it measures later.
+   */
+  virtual bool hasRepresentableRotations(const vector_t& x) const = 0;
+
   /** J <- J E(x): the columns of a Jacobian (any rows x ambient) become tangent columns (rows x tangent). */
   virtual void pullBackStateColumns(const vector_t& x, matrix_t& J) const = 0;
 

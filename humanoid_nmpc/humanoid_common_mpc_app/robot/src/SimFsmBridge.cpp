@@ -40,50 +40,30 @@ namespace ocs2::humanoid {
 
 SimFsmBridge::SimFsmBridge(const robot::model::RobotDescription& robotDescription,
                            const robot::model::RobotState& initState,
-                           OperatorCommandMailbox& commands,
-                           FsmStateMailbox& fsmStates,
+                           OperatorCommandMailbox* absl_nonnull commands,
+                           FsmStateMailbox* absl_nonnull fsmStates,
+                           robot::mujoco_sim_interface::MujocoSimInterface* absl_nonnull simulator,
                            RealtimeEventLog* absl_nullable eventLog)
-    : commands_(commands), fsmStates_(fsmStates), eventLog_(eventLog) {
-  nominalJointPositions_.resize(robotDescription.getNumJoints(), 0.0);
-  for (size_t i = 0; i < robotDescription.getNumJoints(); ++i) {
-    nominalJointPositions_[i] = initState.getCheckedJointPosition(i);
-  }
-  // The initial state: zero torque, held by the gantry.
-  publishFsmState(control_mode::kZeroTorque, /*gantryLocked=*/true);
-}
+    : simulator_(simulator),
+      eventLog_(eventLog),
+      state_(robotDescription, initState, commands, fsmStates, /*gantryLocked=*/simulator->isGantryLocked()) {}
 
-void SimFsmBridge::publishFsmState(absl::string_view modeName, bool gantryLocked) {
-  fsmStates_.write(modeName, gantryLocked, controllerResets_, mpcHealthy_);
-}
-
-void SimFsmBridge::publishControllerReset(absl::string_view modeName, bool gantryLocked) {
-  ++controllerResets_;
-  publishFsmState(modeName, gantryLocked);
-}
-
-void SimFsmBridge::setMpcHealthy(bool mpcHealthy, absl::string_view modeName, bool gantryLocked) {
-  if (mpcHealthy == mpcHealthy_) {
-    return;
-  }
-  mpcHealthy_ = mpcHealthy;
-  publishFsmState(modeName, gantryLocked);
-}
-
-bool SimFsmBridge::processCommands(std::string& currentModeName, robot::mujoco_sim_interface::MujocoSimInterface& robotInterface) {
+bool SimFsmBridge::processCommands(std::string& currentModeName) {
+  OperatorCommandMailbox& commands = state_.commands();
   // Handed over first and unconditionally: a throw is independent of the FSM, and the early return below fires on
   // every cycle in which no mode change is pending - which is almost all of them.
   robot::mujoco_sim_interface::MujocoSimInterface::DodgeballThrow throwCommand;
-  if (commands_.takeDodgeballThrow(throwCommand)) {
-    robotInterface.throwDodgeball(throwCommand);
+  if (commands.takeDodgeballThrow(throwCommand)) {
+    simulator_->throwDodgeball(throwCommand);
   }
 
   FsmCommandEvent command;
-  if (!commands_.takeFsmCommand(command)) {
+  if (!commands.takeFsmCommand(command)) {
     // No FSM command pending, but the gantry still follows the height slider while it is locked - once the GUI has
     // sent a height at all.
-    if (robotInterface.isGantryLocked()) {
-      const std::optional<double> height = commands_.desiredGantryHeight();
-      if (height.has_value()) robotInterface.setGantryHeight(*height);
+    if (simulator_->isGantryLocked()) {
+      const std::optional<double> height = commands.desiredGantryHeight();
+      if (height.has_value()) simulator_->setGantryHeight(*height);
     }
     return false;
   }
@@ -92,46 +72,42 @@ bool SimFsmBridge::processCommands(std::string& currentModeName, robot::mujoco_s
   switch (command.kind) {
     case FsmCommandKind::kZeroTorque:
       // 1. Zero-torque mode commands
-      if (!robotInterface.isZeroTorqueMode()) {
+      if (!simulator_->isZeroTorqueMode()) {
         if (eventLog_ != nullptr) eventLog_->post(RealtimeEventCode::kTorquesDisabled, /*detail=*/0, name);
-        robotInterface.disableTorques();
+        simulator_->disableTorques();
       }
       currentModeName.assign(control_mode::kZeroTorque.data(), control_mode::kZeroTorque.size());
-      publishFsmState(currentModeName, robotInterface.isGantryLocked());
+      publishFsmState(currentModeName);
       return true;
     case FsmCommandKind::kJointPd:
     case FsmCommandKind::kGravityComp:
     case FsmCommandKind::kWbMpc:
     case FsmCommandKind::kSafety: {
       // 2. Active torque modes (JOINT_PD, GRAVITY_COMP, WB_MPC, SAFETY, MPC_ACTIVE, ENABLE_TORQUES)
-      if (robotInterface.isZeroTorqueMode()) {
+      if (simulator_->isZeroTorqueMode()) {
         if (eventLog_ != nullptr) eventLog_->post(RealtimeEventCode::kTorquesEnabled, /*detail=*/0, name);
-        robotInterface.enableTorques();
+        simulator_->enableTorques();
       }
       const absl::string_view mode = fsmCommandModeName(command.kind);
       currentModeName.assign(mode.data(), mode.size());
-      publishFsmState(currentModeName, robotInterface.isGantryLocked());
+      publishFsmState(currentModeName);
       return true;
     }
     case FsmCommandKind::kLockGantry:
       // 3. Virtual gantry locking / unlocking commands
-      if (robotInterface.isGantryLocked()) return false;
+      if (simulator_->isGantryLocked()) return false;
       if (eventLog_ != nullptr) eventLog_->post(RealtimeEventCode::kGantryLockCommanded);
-      robotInterface.lockGantry();
-      publishFsmState(currentModeName, robotInterface.isGantryLocked());
+      simulator_->lockGantry();
+      publishFsmState(currentModeName);
       return true;
     case FsmCommandKind::kUnlockGantry:
-      if (!robotInterface.isGantryLocked()) return false;
+      if (!simulator_->isGantryLocked()) return false;
       if (eventLog_ != nullptr) eventLog_->post(RealtimeEventCode::kGantryUnlockCommanded);
-      robotInterface.unlockGantry();
-      publishFsmState(currentModeName, robotInterface.isGantryLocked());
+      simulator_->unlockGantry();
+      publishFsmState(currentModeName);
       return true;
   }
   return false;
-}
-
-void SimFsmBridge::applyJointTargetUpdates() {
-  commands_.takeNominalPosture(nominalJointPositions_);
 }
 
 }  // namespace ocs2::humanoid

@@ -132,19 +132,19 @@ absl::StatusOr<CentroidalModelInfo> centroidalModelInfoOf(const CentroidalMpcCon
 std::string taskFileText(const mpc_config::TaskFile& task) {
   humanoid_mpc_config::TaskFile message;
   mpc_config::ToProto(task, &message);
-  return nproto::WriteTextproto(message);
+  return nproto::WriteTextprotoFile(message);
 }
 
 std::string referenceFileText(const mpc_config::ReferenceFile& reference) {
   humanoid_mpc_config::ReferenceFile message;
   mpc_config::ToProto(reference, &message);
-  return nproto::WriteTextproto(message);
+  return nproto::WriteTextprotoFile(message);
 }
 
 std::string contactPlanningFileText(const mpc_config::ContactPlanningFile& contactPlanning) {
   humanoid_mpc_config::ContactPlanningFile message;
   mpc_config::ToProto(contactPlanning, &message);
-  return nproto::WriteTextproto(message);
+  return nproto::WriteTextprotoFile(message);
 }
 
 absl::Status writeTextFile(const std::string& path, absl::string_view text) {

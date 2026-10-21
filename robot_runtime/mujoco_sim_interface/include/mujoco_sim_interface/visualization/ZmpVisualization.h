@@ -39,6 +39,8 @@ namespace robot::mujoco_sim_interface {
  * Zero moment point of the physical ground reaction: a red disc on the ground plane where the horizontal moment of the
  * contact forces on the robot vanishes (the center of pressure while every contact is on the ground). Hidden while the
  * robot carries less than a few newtons, e.g. on the gantry.
+ *
+ * Not thread-safe: the viewer drives it from one thread.
  */
 class ZmpVisualization final : public MujocoVisualization {
  public:

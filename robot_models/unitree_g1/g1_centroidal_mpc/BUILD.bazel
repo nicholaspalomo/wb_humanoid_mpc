@@ -43,6 +43,7 @@ cc_binary(
         "@abseil-cpp//absl/log:log",
         "@abseil-cpp//absl/log:globals",
         "@abseil-cpp//absl/log:initialize",
+        "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings:str_format",
         "@abseil-cpp//absl/strings:string_view",

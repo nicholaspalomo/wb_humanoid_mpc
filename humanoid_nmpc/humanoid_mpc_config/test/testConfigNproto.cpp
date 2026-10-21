@@ -47,6 +47,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_mpc_config/contact_planning_file.nproto.pb.h"
 #include "humanoid_mpc_config/gait_file.nproto.pb.h"
 #include "humanoid_mpc_config/joint_pd_gains_file.nproto.pb.h"
+#include "humanoid_mpc_config/joint_pd_gains_update.nproto.pb.h"
 #include "humanoid_mpc_config/joint_value.nproto.pb.h"
 #include "humanoid_mpc_config/mpc_parameter_update.nproto.pb.h"
 #include "humanoid_mpc_config/reference_file.nproto.pb.h"
@@ -83,6 +84,7 @@ static_assert(kIs<decltype(ReferenceFile::default_joint_state), std::vector<Join
 static_assert(kIs<decltype(ReferenceFile::max_displacement_velocity_x), std::optional<double>>);
 static_assert(kIs<decltype(GaitFile::gaits), std::vector<ModeSequenceTemplateConfig>>);
 static_assert(kIs<decltype(JointPdGainsFile::joint_gains), std::vector<JointPdGainsFile::JointGains>>);
+static_assert(kIs<decltype(JointPdGainsUpdate::gains), JointPdGainsFile>);
 static_assert(kIs<decltype(Xyz::x), double> && kIs<decltype(YawPitchRoll::yaw), double> && kIs<decltype(JointValue::joint), std::string>);
 static_assert(kIs<decltype(TuningOptions::slider_min), std::optional<double>>);
 static_assert(kIs<decltype(TuningOptions::reload), TuningOptions::Reload>);
@@ -99,6 +101,7 @@ struct Conversion {
 using AllMessages = ::testing::Types<Conversion<TaskFile, humanoid_mpc_config::TaskFile>,
                                      Conversion<ReferenceFile, humanoid_mpc_config::ReferenceFile>,
                                      Conversion<JointPdGainsFile, humanoid_mpc_config::JointPdGainsFile>,
+                                     Conversion<JointPdGainsUpdate, humanoid_mpc_config::JointPdGainsUpdate>,
                                      Conversion<ContactPlanningFile, humanoid_mpc_config::ContactPlanningFile>,
                                      Conversion<GaitFile, humanoid_mpc_config::GaitFile>,
                                      Conversion<MpcParameterUpdate, humanoid_mpc_config::MpcParameterUpdate>,

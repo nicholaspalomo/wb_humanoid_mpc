@@ -6,14 +6,18 @@ import "humanoid_mpc_msgs/reset_requests.proto";
 import "humanoid_mpc_msgs/system_observation.proto";
 import "nproto/options.proto";
 
-// Next ID: 4
+// Next ID: 5
 message MpcObservation {
   option (nproto.generate_struct) = "ocs2::humanoid::msgs::MpcObservation";
 
-  reserved 4 to max;
+  reserved 5 to max;
 
   SystemObservation observation = 1;
   ResetRequests resets = 2;
   // Control cycles since the robot process started; lets the MPC side count lost observations.
   uint64 sequence = 3;
+  // The robot model's layout the observation is of (modelLayoutFingerprint(), humanoid_common_mpc/common/ModelSettings.h):
+  // the robot, the state layout and the order of the MPC model's joints and contacts. An MPC node of another layout
+  // refuses it, as one of other dimensions. 0: not stamped.
+  fixed64 model_fingerprint = 4;
 }

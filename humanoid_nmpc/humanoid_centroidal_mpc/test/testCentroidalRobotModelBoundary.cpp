@@ -49,6 +49,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_core/automatic_differentiation/Types.h"
 #include "ocs2_core/manifold/StateManifold.h"
 #include "ocs2_core/manifold/UnitQuaternionMath.h"
+#include "ocs2_core/misc/LinearInterpolation.h"
 #include "ocs2_core/reference/TargetTrajectories.h"
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
 #include "pinocchio/algorithm/centroidal.hpp"
@@ -353,6 +354,35 @@ TEST(CentroidalRobotModelBoundary, TheEulerBoundaryAccessorsRoundTripThePoseModu
   }
 }
 
+/**
+ * Expects the model's interpolation of `targets` (two knots) at each of `times` to be the manifold's slerp on the
+ * orientation block, bit for bit, and TargetTrajectories' linear interpolation on every other row, bit for bit.
+ */
+void expectSlerpedOrientationAndLinearRows(const MpcRobotModelBase<scalar_t>& model,
+                                           const StateManifold& manifold,
+                                           const TargetTrajectories& targets,
+                                           const std::vector<scalar_t>& times) {
+  const Eigen::Index orientationStart = static_cast<Eigen::Index>(model.getBaseOrientationStartIndex());
+  const vector_t& first = targets.stateTrajectory.front();
+  const vector_t& second = targets.stateTrajectory.back();
+  for (const scalar_t time : times) {
+    SCOPED_TRACE(time);
+    const vector_t interpolated = model.getDesiredState(targets, time);
+    // LinearInterpolation's weight of the first knot: the slerp moves by its complement.
+    const scalar_t alpha = 1.0 - LinearInterpolation::timeSegment(time, targets.timeTrajectory).second;
+    const vector4_t slerped =
+        quaternionSlerp<scalar_t>(vector4_t(first.segment<4>(orientationStart)), vector4_t(second.segment<4>(orientationStart)), alpha);
+    EXPECT_EQ(vector4_t(interpolated.segment<4>(orientationStart)), slerped);
+    EXPECT_EQ(vector4_t(interpolated.segment<4>(orientationStart)),
+              vector4_t(manifold.interpolate(first, second, alpha).segment<4>(orientationStart)));
+    // NOLINTNEXTLINE(state-interpolation): every row but the orientation is held to the linear interpolation, bit for bit
+    const vector_t linear = targets.getDesiredState(time);
+    vector_t others = interpolated;
+    others.segment<4>(orientationStart) = linear.segment<4>(orientationStart);
+    EXPECT_EQ(others, linear);
+  }
+}
+
 TEST(CentroidalRobotModelBoundary, InterpolationSlerpsTheAttitudeAcrossPi) {
   for (const LoadedRobot& robot : loadRobots()) {
     SCOPED_TRACE(robot.name);
@@ -372,13 +402,15 @@ TEST(CentroidalRobotModelBoundary, InterpolationSlerpsTheAttitudeAcrossPi) {
     EXPECT_EQ(vector3_t(model.getBasePosition(midpoint)), vector3_t(0.2, 0.05, 0.9));
     // A quarter of the way: the slerp's heading is linear in time.
     EXPECT_NEAR(model.getBaseHeading(model.getDesiredState(targets, /*time=*/0.25)), wrapped(3.125), 1.0e-12);
-    // The manifold's interpolation bit for bit, held outside the knots.
+    // The orientation block is the manifold's slerp bit for bit, every other row LinearInterpolation's bit for bit. The
+    // whole vector is not the manifold's interpolate(): its (1 - a) x0 + a x1 differs from alpha x0 + (1 - alpha) x1 in
+    // the last bit where fl(1 - fl(1 - a)) != a, as at t = 0.3 here and on the second, non-unit interval below.
     const absl::StatusOr<std::shared_ptr<const StateManifold>> manifold = stateManifoldOf(model);
     ASSERT_TRUE(manifold.ok()) << manifold.status();
     ASSERT_NE(*manifold, nullptr);
-    for (const scalar_t time : {0.0, 0.25, 0.5, 0.9, 1.0}) {
-      EXPECT_EQ(model.getDesiredState(targets, time), (*manifold)->interpolate(first, second, time)) << "time " << time;
-    }
+    expectSlerpedOrientationAndLinearRows(model, **manifold, targets, {0.0, 0.1, 0.2, 0.25, 0.3, 0.5, 0.9, 1.0});
+    const TargetTrajectories offsetTargets({2.5050634136244057, 3.4157122070329633}, {first, second}, {input, input});
+    expectSlerpedOrientationAndLinearRows(model, **manifold, offsetTargets, {2.6, 3.0, 3.4000358215575495});
     EXPECT_EQ(model.getDesiredState(targets, /*time=*/-1.0), first);
     EXPECT_EQ(model.getDesiredState(targets, /*time=*/2.0), second);
   }

@@ -32,11 +32,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_wb_mpc/cost/JointTorqueCostCppAd.h"
 
+#include <cmath>
+#include <memory>
 #include <string>
 
-#include "absl/log/absl_check.h"
 #include "absl/log/log.h"
+#include "absl/memory/memory.h"
 #include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
 #include "ocs2_robotic_tools/common/RotationTransforms.h"
@@ -46,9 +49,46 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "pinocchio/multibody/model.hpp"
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
+#include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_wb_mpc/dynamics/DynamicsHelperFunctions.h"
 
 namespace ocs2::humanoid {
+namespace {
+
+/**
+ * Returns InvalidArgument unless `weights` has `numJoints` entries, each finite and non-negative: the cost weighs each
+ * torque by the square root of its weight, which is NaN for a negative one.
+ */
+absl::Status checkWeights(const vector_t& weights, size_t numJoints) {
+  if (static_cast<size_t>(weights.size()) != numJoints) {
+    return absl::InvalidArgumentError(absl::StrCat("[JointTorqueCostCppAd] ", weights.size(), " weights for a cost of ", numJoints,
+                                                   " joints: one weight per joint; the running weights are kept."));
+  }
+  for (Eigen::Index i = 0; i < weights.size(); ++i) {
+    // Negated, so that NaN is refused too.
+    if (!(weights(i) >= 0.0) || !std::isfinite(weights(i))) {
+      return absl::InvalidArgumentError(absl::StrCat("[JointTorqueCostCppAd] the weight of joint ", i, " is ", weights(i),
+                                                     ": every weight must be finite and non-negative; the running weights are kept."));
+    }
+  }
+  return absl::OkStatus();
+}
+
+}  // namespace
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+
+absl::StatusOr<std::unique_ptr<JointTorqueCostCppAd>> JointTorqueCostCppAd::Create(const vector_t& weights,
+                                                                                   const PinocchioInterface& pinocchioInterface,
+                                                                                   const WBAccelMpcRobotModel<ad_scalar_t>& mpcRobotModel,
+                                                                                   const std::string& costName,
+                                                                                   const ModelSettings& modelSettings) {
+  RETURN_IF_ERROR(checkWeights(weights, mpcRobotModel.getJointDim()));
+  // The constructor is private, so std::make_unique cannot reach it.
+  return absl::WrapUnique(new JointTorqueCostCppAd(weights, pinocchioInterface, mpcRobotModel, costName, modelSettings));
+}
 
 /******************************************************************************************************/
 /******************************************************************************************************/
@@ -63,7 +103,6 @@ JointTorqueCostCppAd::JointTorqueCostCppAd(const vector_t& weights,
       sqrtWeights_(weights.cwiseSqrt()),
       pinocchioInterfaceCppAd_(pinocchioInterface.toCppAd()),
       mpcRobotModelPtr_(mpcRobotModel.clone()) {
-  ABSL_CHECK_EQ(static_cast<size_t>(weights.size()), mpcRobotModel.getJointDim()) << "JointTorqueCostCppAd: one weight per joint";
   initialize(mpcRobotModel.getStateDim(), mpcRobotModel.getInputDim(), mpcRobotModel.getJointDim(), libraryName(costName),
              modelSettings.modelFolderCppAd, modelSettings.recompileLibrariesCppAd);
   LOG(INFO) << "Initialized JointTorqueCostCppAd with weights: " << weights.transpose();
@@ -82,10 +121,7 @@ std::string JointTorqueCostCppAd::libraryName(absl::string_view costName) {
 /******************************************************************************************************/
 
 absl::Status JointTorqueCostCppAd::setWeights(const vector_t& weights) {
-  if (weights.size() != sqrtWeights_.size()) {
-    return absl::InvalidArgumentError(absl::StrCat("[JointTorqueCostCppAd] ", weights.size(), " weights for a cost of ",
-                                                   sqrtWeights_.size(), " joints: one weight per joint; the running weights are kept."));
-  }
+  RETURN_IF_ERROR(checkWeights(weights, static_cast<size_t>(sqrtWeights_.size())));
   sqrtWeights_ = weights.cwiseSqrt();
   return absl::OkStatus();
 }

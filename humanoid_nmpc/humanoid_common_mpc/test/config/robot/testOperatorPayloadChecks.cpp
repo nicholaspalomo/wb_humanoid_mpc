@@ -39,6 +39,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/config/OperatorPayloadChecks.h"
 #include "humanoid_mpc_config/joint_pd_gains_file.pb.h"
+#include "humanoid_mpc_config/joint_pd_gains_update.pb.h"
 #include "humanoid_mpc_config/mpc_parameter_update.pb.h"
 
 namespace ocs2::humanoid {
@@ -133,6 +134,62 @@ TEST(OperatorPayloadChecks, AnUpdateWithoutAConfigPathIsRefusedByAReceiverWithAn
   const absl::Status refused = checkMpcParameterUpdate(updateOf("g1"), "g1", kWholeBodyG1);
   EXPECT_EQ(refused.code(), absl::StatusCode::kFailedPrecondition);
   EXPECT_THAT(refused.message(), AllOf(HasSubstr("<no config_path>"), HasSubstr(kWholeBodyG1)));
+}
+
+constexpr char kWholeBodyG1PdGains[] = "robot_models/unitree_g1/g1_wb_mpc/config/controller/joint_pd_gains.textproto";
+constexpr char kCentroidalG1PdGains[] = "robot_models/unitree_g1/g1_centroidal_mpc/config/controller/joint_pd_gains.textproto";
+
+humanoid_mpc_config::JointPdGainsUpdate pdGainsUpdateOf(const std::string& path) {
+  humanoid_mpc_config::JointPdGainsUpdate update;
+  update.mutable_gains()->mutable_default_gains()->set_kp(100.0);
+  update.set_config_path(path);
+  update.set_schema_fingerprint(jointPdGainsFileSchemaFingerprint());
+  return update;
+}
+
+TEST(OperatorPayloadChecks, AJointPdGainsUpdateOfThisBuildAndConfigurationPasses) {
+  EXPECT_TRUE(checkJointPdGainsUpdate(pdGainsUpdateOf(kWholeBodyG1PdGains), kWholeBodyG1PdGains).ok());
+  EXPECT_EQ(jointPdGainsFileSchemaFingerprint().size(), 16U);
+}
+
+TEST(OperatorPayloadChecks, AJointPdGainsUpdateWithUnknownFieldIsRefused) {
+  humanoid_mpc_config::JointPdGainsUpdate sent = pdGainsUpdateOf(kWholeBodyG1PdGains);
+  std::string gainsWithUnknown = sent.gains().SerializeAsString() + std::string(kUnknownField103, sizeof(kUnknownField103) - 1);
+  humanoid_mpc_config::JointPdGainsUpdate received = sent;
+  ASSERT_TRUE(received.mutable_gains()->ParseFromString(gainsWithUnknown));
+  const absl::Status refused = checkJointPdGainsUpdate(received, kWholeBodyG1PdGains);
+  EXPECT_EQ(refused.code(), absl::StatusCode::kFailedPrecondition);
+  EXPECT_THAT(refused.message(), AllOf(HasSubstr(": field 103"), HasSubstr("another schema version")));
+}
+
+TEST(OperatorPayloadChecks, AJointPdGainsUpdateOfAnotherSchemaFingerprintIsRefused) {
+  for (const std::string& fingerprint : {std::string(), std::string("0123456789abcdef")}) {
+    humanoid_mpc_config::JointPdGainsUpdate update = pdGainsUpdateOf(kWholeBodyG1PdGains);
+    update.set_schema_fingerprint(fingerprint);
+    const absl::Status refused = checkJointPdGainsUpdate(update, kWholeBodyG1PdGains);
+    EXPECT_EQ(refused.code(), absl::StatusCode::kFailedPrecondition) << fingerprint;
+    EXPECT_THAT(refused.message(), HasSubstr(jointPdGainsFileSchemaFingerprint())) << fingerprint;
+  }
+}
+
+TEST(OperatorPayloadChecks, AJointPdGainsUpdateOfAnotherConfigurationIsRefusedWithBothPaths) {
+  humanoid_mpc_config::JointPdGainsUpdate update = pdGainsUpdateOf(kCentroidalG1PdGains);
+  const absl::Status refused = checkJointPdGainsUpdate(update, kWholeBodyG1PdGains);
+  EXPECT_EQ(refused.code(), absl::StatusCode::kFailedPrecondition);
+  EXPECT_THAT(refused.message(), AllOf(HasSubstr(kCentroidalG1PdGains), HasSubstr(kWholeBodyG1PdGains)));
+}
+
+TEST(OperatorPayloadChecks, WithoutAReceiverIdentityThePdGainsConfigurationIsNotChecked) {
+  humanoid_mpc_config::JointPdGainsUpdate update = pdGainsUpdateOf(kCentroidalG1PdGains);
+  EXPECT_TRUE(checkJointPdGainsUpdate(update, /*pdGainsFileIdentity=*/"").ok());
+  EXPECT_TRUE(checkJointPdGainsUpdate(pdGainsUpdateOf(""), /*pdGainsFileIdentity=*/"").ok());
+}
+
+TEST(OperatorPayloadChecks, AJointPdGainsUpdateWithoutAConfigPathIsRefusedByAReceiverWithAnIdentity) {
+  humanoid_mpc_config::JointPdGainsUpdate update = pdGainsUpdateOf("");
+  const absl::Status refused = checkJointPdGainsUpdate(update, kWholeBodyG1PdGains);
+  EXPECT_EQ(refused.code(), absl::StatusCode::kFailedPrecondition);
+  EXPECT_THAT(refused.message(), AllOf(HasSubstr("<no config_path>"), HasSubstr(kWholeBodyG1PdGains)));
 }
 
 }  // namespace

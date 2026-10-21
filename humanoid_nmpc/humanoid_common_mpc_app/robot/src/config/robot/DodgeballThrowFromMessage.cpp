@@ -36,6 +36,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "ocs2_core/Dimensions.h"
 
 #include "humanoid_mpc_msgs/dodgeball_throw.nproto.h"
 #include "humanoid_mpc_msgs/vector3.nproto.h"
@@ -56,13 +57,13 @@ absl::StatusOr<double> requiredNumber(std::optional<double> value, absl::string_
   return *value;
 }
 
-absl::Status requiredVector(std::optional<msgs::Vector3> value, absl::string_view field, double (&out)[3]) {
+absl::Status requiredVector(std::optional<msgs::Vector3> value, absl::string_view field, double (&out)[kPositionDim]) {
   if (!value.has_value()) {
     return absl::InvalidArgumentError(absl::StrCat("Dodgeball throw ignored: the throw has no ", field, "."));
   }
-  const double components[3] = {value->x, value->y, value->z};
-  constexpr absl::string_view kAxes[3] = {"x", "y", "z"};
-  for (size_t axis = 0; axis < 3; ++axis) {
+  const double components[kPositionDim] = {value->x, value->y, value->z};
+  constexpr absl::string_view kAxes[kPositionDim] = {"x", "y", "z"};
+  for (int axis = 0; axis < kPositionDim; ++axis) {
     if (!std::isfinite(components[axis])) {
       return absl::InvalidArgumentError(
           absl::StrCat("Dodgeball throw ignored: ", field, ".", kAxes[axis], " is ", components[axis], ", not a finite number."));

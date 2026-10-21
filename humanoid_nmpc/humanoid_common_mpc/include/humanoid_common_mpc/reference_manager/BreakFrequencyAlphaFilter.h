@@ -60,11 +60,19 @@ namespace ocs2::humanoid {
  * never updated either: the "5 Hz" command filter of every robot scaled the command by t / (t + 0.032 s), within 3% of
  * the identity a second after start-up. The robots now configure the filter in reference.textproto
  * (velocity_command_filter_break_frequency) and ship it off.
+ *
+ * Not thread-safe.
  */
 class BreakFrequencyAlphaFilter final {
  public:
   /** A filter that is off (break frequency 0), whose output starts at `initialOutput`. */
   explicit BreakFrequencyAlphaFilter(vector_t initialOutput) : initialOutput_(initialOutput), output_(std::move(initialOutput)) {}
+
+  BreakFrequencyAlphaFilter(const BreakFrequencyAlphaFilter&) = default;
+  BreakFrequencyAlphaFilter& operator=(const BreakFrequencyAlphaFilter&) = default;
+  BreakFrequencyAlphaFilter(BreakFrequencyAlphaFilter&&) = default;
+  BreakFrequencyAlphaFilter& operator=(BreakFrequencyAlphaFilter&&) = default;
+  ~BreakFrequencyAlphaFilter() = default;
 
   /** OK for a finite break frequency >= 0 [Hz], 0 meaning off; InvalidArgument otherwise. */
   static absl::Status validateBreakFrequency(scalar_t breakFrequency) {

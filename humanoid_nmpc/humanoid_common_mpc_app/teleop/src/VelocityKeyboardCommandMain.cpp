@@ -47,6 +47,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_join.h"
 
 #include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc_app/node/ExitCodes.h"
 #include "humanoid_common_mpc_app/node/MpcFiles.h"
 #include "humanoid_common_mpc_app/node/NodeBus.h"
 #include "humanoid_common_mpc_app/node/ShutdownSignal.h"
@@ -84,22 +85,22 @@ int main(int argc, char* absl_nonnull* absl_nonnull argv) {
   const std::string referenceFile = absl::GetFlag(FLAGS_reference_file);
   if (const absl::Status valid = ocs2::humanoid::node::validateFileFlag("--reference_file", referenceFile); !valid.ok()) {
     LOG(ERROR) << valid.message();
-    return 2;
+    return ocs2::humanoid::node::kUsageErrorExitCode;
   }
   absl::StatusOr<ocs2::humanoid::teleop::KeyboardCommandLimits> limits = ocs2::humanoid::teleop::loadKeyboardCommandLimits(referenceFile);
   if (!limits.ok()) {
     LOG(ERROR) << limits.status();
-    return 2;
+    return ocs2::humanoid::node::kUsageErrorExitCode;
   }
 
   absl::StatusOr<std::unique_ptr<robot::ipc::Bus>> bus =
       ocs2::humanoid::node::createNodeBus(absl::GetFlag(FLAGS_network_config), absl::GetFlag(FLAGS_ipc_node));
   if (!bus.ok()) {
     LOG(ERROR) << "The bus: " << bus.status();
-    return 2;
+    return ocs2::humanoid::node::kUsageErrorExitCode;
   }
   absl::StatusOr<std::unique_ptr<ocs2::humanoid::teleop::VelocityCommandRepeater>> repeater =
-      ocs2::humanoid::teleop::VelocityCommandRepeater::Create(**bus);
+      ocs2::humanoid::teleop::VelocityCommandRepeater::Create(**bus, referenceFile, *limits);
   if (!repeater.ok()) {
     LOG(ERROR) << repeater.status();
     return 1;
@@ -133,8 +134,10 @@ int main(int argc, char* absl_nonnull* absl_nonnull argv) {
     }
     const ocs2::vector4_t clamped = command->cwiseMin(limits->limits).cwiseMax(-limits->limits);
     LOG(INFO) << "Publishing [" << absl::StrJoin(clamped.data(), clamped.data() + clamped.size(), ", ") << "]";
-    (*repeater)->setCommand(ocs2::humanoid::teleop::keyboardCommandToMessage(*command, *limits));
+    (*repeater)->setCommand(clamped, *limits);
   }
+  // The MPC keeps the last walking command it received: leave the stop command behind before the bus closes.
+  if ((*repeater)->publishStopCommand()) LOG(INFO) << "Sent the stop command.";
   (*bus)->stop();
   return 0;
 }

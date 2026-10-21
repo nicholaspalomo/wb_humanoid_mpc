@@ -40,6 +40,8 @@ namespace ocs2::humanoid {
  * the scuffing window) is switched to contact at once, in place; late touch-down, a foot that misses the ground at its
  * scheduled touch-down keeps swinging in small steps, up to a bounded total extension, every later event delayed by
  * the same amount, its height reference descending at the search velocity.
+ *
+ * Not thread-safe, like every ContactPlanningTerm: the planner that owns it configures and evaluates it from one thread at a time.
  */
 class PhaseResettingRule final : public ExecutionRule {
  public:

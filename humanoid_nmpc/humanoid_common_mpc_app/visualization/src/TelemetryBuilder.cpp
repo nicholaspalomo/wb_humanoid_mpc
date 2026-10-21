@@ -33,21 +33,28 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc_app/visualization/TelemetryBuilder.h"
 
 #include <algorithm>
+#include <limits>
 #include <memory>
+#include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "absl/base/nullability.h"
+#include "absl/log/log.h"
 #include "absl/memory/memory.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "pinocchio/algorithm/center-of-mass.hpp"
 #include "pinocchio/algorithm/frames.hpp"
 #include "pinocchio/algorithm/kinematics.hpp"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/orientation/BaseOrientation.h"
 #include "humanoid_common_mpc/orientation/EulerBoundary.h"
+#include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
+#include "humanoid_common_mpc_app/visualization/BalanceQuantities.h"
 #include "humanoid_mpc_msgs/scalar_group.pb.h"
 
 namespace ocs2::humanoid::visualization {
@@ -77,9 +84,30 @@ constexpr size_t kJointVelocityTarget = 3;
 constexpr size_t kJointEffortMeasured = 4;
 constexpr size_t kJointEffortTarget = 5;
 
+// The entries of a tangential contact force group, in the contract's order.
+constexpr size_t kTangentialMpcX = 0;
+constexpr size_t kTangentialMeasuredX = 1;
+constexpr size_t kTangentialMpcY = 2;
+constexpr size_t kTangentialMeasuredY = 3;
+
+// The entries of mpc_solution/performance, in the contract's order.
+constexpr size_t kPerformanceMerit = 0;
+constexpr size_t kPerformanceCost = 1;
+constexpr size_t kPerformanceDynamicsViolation = 2;
+constexpr size_t kPerformanceEqualityConstraints = 3;
+constexpr size_t kPerformanceInequalityConstraints = 4;
+constexpr size_t kPerformanceEqualityLagrangian = 5;
+constexpr size_t kPerformanceInequalityLagrangian = 6;
+constexpr size_t kPerformanceEntries = 7;
+
+constexpr scalar_t kNotANumber = std::numeric_limits<scalar_t>::quiet_NaN();
+
+// The base panels and the pose groups take an axis of space and the Euler angle about it in one loop.
+static_assert(kEulerAnglesZyxDim == kPositionDim, "one angle per axis of space");
+
 // The base orientation in q: the quaternion (x, y, z, w) of the Composite(Translation, Spherical) root after the
 // position; in the display coordinates the ZYX Euler angles (yaw, pitch, roll) in its place (getBaseDofNames()).
-constexpr size_t kBaseQuaternionDim = kBaseConfigurationDim - kBaseTranslationDim;
+static_assert(kBaseConfigurationDim == kBaseTranslationDim + kQuaternionCoefficients, "q holds the position, then the quaternion");
 constexpr size_t kDisplayBaseDim = kBaseTranslationDim + kBaseRotationDim;
 
 // The entries of the display coordinates the "Generalized Coordinates (Pinocchio)" panels plot: base_z, base_pitch,
@@ -94,7 +122,7 @@ vector3_t rollPitchYawOf(const vector3_t& eulerZyx) {
 
 /** The base orientation of the Pinocchio configuration `q`, as quaternion coefficients (x, y, z, w), normalized. */
 vector4_t baseOrientationOf(const vector_t& q) {
-  return safelyNormalizedQuaternion(vector4_t(q.segment<kBaseQuaternionDim>(kBaseTranslationDim)));
+  return safelyNormalizedQuaternion(vector4_t(q.segment<kQuaternionCoefficients>(kBaseTranslationDim)));
 }
 
 /** The ZYX Euler angles (yaw, pitch, roll) of a rotation matrix, through its quaternion (orientation/EulerBoundary.h). */
@@ -115,20 +143,27 @@ std::vector<std::string> indexedNames(absl::string_view prefix, size_t size) {
 }  // namespace
 
 TelemetryBuilder::TelemetryBuilder(const VisualizationModel& model, const VisualizationConfig& /*config*/)
-    : pinocchioInterface_(*model.pinocchioInterface),
-      robotModel_(model.mpcRobotModel->clone()),
-      modelSettings_(robotModel_->modelSettings),
-      stateManifold_(model.stateManifold) {
+    : pinocchioInterface_(*model.pinocchioInterface), robotModel_(model.mpcRobotModel->clone()), stateManifold_(model.stateManifold) {
   for (Source& source : sources_) {
     source.data = std::make_unique<Data>(pinocchioInterface_.getModel());
+  }
+  if (model.nominalState.size() > 0) {
+    // The pendulum of the DCM: the repository's one pendulum height, at the nominal state, and the model's gravity.
+    const scalar_t gravity = pinocchioInterface_.getModel().gravity.linear().norm();
+    const scalar_t height =
+        computeComHeightAboveFeet(robotModel_->getGeneralizedCoordinates(model.nominalState), pinocchioInterface_, *robotModel_);
+    pendulumFrequency_ = pendulumFrequency(gravity, height);
+    LOG(INFO) << "[TelemetryBuilder] the DCM's pendulum: height " << height << " m (the nominal state's CoM above its feet), gravity "
+              << gravity << " m/s^2 (the Pinocchio model's), omega " << pendulumFrequency_.value_or(kNotANumber) << " 1/s.";
   }
 }
 
 absl::StatusOr<std::unique_ptr<TelemetryBuilder>> TelemetryBuilder::Create(const VisualizationModel& model,
-                                                                           const VisualizationConfig& config) {
+                                                                           const VisualizationConfig& config,
+                                                                           const SolutionTermNames& termNames) {
   RETURN_IF_ERROR(checkVisualizationModel(model));
   std::unique_ptr<TelemetryBuilder> builder = absl::WrapUnique(new TelemetryBuilder(model, config));
-  RETURN_IF_ERROR(builder->initialize(config));
+  RETURN_IF_ERROR(builder->initialize(config, termNames));
   return builder;
 }
 
@@ -152,18 +187,29 @@ void TelemetryBuilder::setValues(int group, const vector_t& vector) {
   std::fill(groupValues->mutable_data() + size, groupValues->mutable_data() + groupValues->size(), 0.0);
 }
 
-absl::Status TelemetryBuilder::initialize(const VisualizationConfig& config) {
+absl::Status TelemetryBuilder::initialize(const VisualizationConfig& config, const SolutionTermNames& termNames) {
+  static_assert(kPlan + 1 == kNumSources, "one source of the plots per index");
+  static_assert(kWrench + 1 == kNumFrameKinds, "one kind of a frame's groups per index");
+  static_assert(kJointEffortTarget + 1 == kNumJointGroups, "one joint group per index");
   const Model& model = pinocchioInterface_.getModel();
-  if (modelSettings_.contactNames.size() < kNumContacts) {
-    return absl::InvalidArgumentError(
-        absl::StrCat("the model settings name ", modelSettings_.contactNames.size(), " contacts; the telemetry needs ", kNumContacts, "."));
+  if (modelSettings().contactNames.size() < kNumContacts) {
+    return absl::InvalidArgumentError(absl::StrCat("the model settings name ", modelSettings().contactNames.size(),
+                                                   " contacts; the telemetry needs ", kNumContacts, "."));
   }
   for (size_t contact = 0; contact < kNumContacts; ++contact) {
-    if (!model.existFrame(modelSettings_.contactNames[contact])) {
+    if (!model.existFrame(modelSettings().contactNames[contact])) {
       return absl::InvalidArgumentError(
-          absl::StrCat("the contact frame '", modelSettings_.contactNames[contact], "' is not a frame of the MPC's robot model."));
+          absl::StrCat("the contact frame '", modelSettings().contactNames[contact], "' is not a frame of the MPC's robot model."));
     }
-    contactFrames_[contact] = model.getFrameId(modelSettings_.contactNames[contact]);
+    contactFrames_[contact] = model.getFrameId(modelSettings().contactNames[contact]);
+  }
+  // The ACoM of the robot's network, the MPC's own (ComAndAcomTrackingCost); a robot without one plots NaN.
+  absl::StatusOr<std::unique_ptr<AngularCenterOfMass>> acom =
+      AngularCenterOfMass::Create(modelSettings().robotName, modelSettings().mpcModelJointNames);
+  if (acom.ok()) {
+    acom_ = std::move(*acom);
+  } else {
+    LOG(INFO) << "[TelemetryBuilder] no ACoM plots (acom/*): " << acom.status().message();
   }
 
   // The groups of the telemetry contract, in its order: the panel groups, then the complete groups.
@@ -175,28 +221,30 @@ absl::Status TelemetryBuilder::initialize(const VisualizationConfig& config) {
   const std::vector<std::string> twistNames = {"linear_x", "linear_y", "linear_z", "angular_x", "angular_y", "angular_z"};
   const std::vector<std::string> wrenchNames = {"force_x", "force_y", "force_z", "torque_x", "torque_y", "torque_z"};
   const std::vector<std::string> forceNames = {"force_x", "force_y", "force_z"};
-  const std::array<const char* absl_nonnull, 3> axes = {"x", "y", "z"};
-  const std::array<const char* absl_nonnull, 3> angles = {"roll", "pitch", "yaw"};
+  const std::array<const char* absl_nonnull, kPositionDim> axes = {"x", "y", "z"};
+  const std::array<const char* absl_nonnull, kEulerAnglesZyxDim> angles = {"roll", "pitch", "yaw"};
   const std::array<const char* absl_nonnull, kNumContacts> sides = {"left", "right"};
-  const std::array<const char* absl_nonnull, 3> sources = {"measured", "reference", "plan"};
-  const std::array<const char* absl_nonnull, 4> frameKinds = {"pose", "twist", "acceleration", "wrench"};
+  const std::array<const char* absl_nonnull, kNumSources> sources = {"measured", "reference", "plan"};
+  const std::array<const char* absl_nonnull, kNumFrameKinds> frameKinds = {"pose", "twist", "acceleration", "wrench"};
+  const std::vector<std::string> sourceNames(sources.begin(), sources.end());
+  const std::array<const char* absl_nonnull, kHorizontalPositionDim> horizontalAxes = {"x", "y"};
 
-  for (size_t axis = 0; axis < 3; ++axis) {
+  for (size_t axis = 0; axis < kPositionDim; ++axis) {
     basePosition_[axis] = addGroup(absl::StrCat("base_pose/position_", axes[axis]), measuredReference);
   }
-  for (size_t angle = 0; angle < 3; ++angle) {
+  for (size_t angle = 0; angle < kEulerAnglesZyxDim; ++angle) {
     baseRollPitchYaw_[angle] = addGroup(absl::StrCat("base_pose/", angles[angle]), measuredReference);
   }
-  for (size_t angle = 0; angle < 3; ++angle) {
+  for (size_t angle = 0; angle < kEulerAnglesZyxDim; ++angle) {
     baseRollPitchYawRates_[angle] = addGroup(absl::StrCat("base_pose/", angles[angle], "_rate"), measuredReference);
   }
-  for (size_t axis = 0; axis < 3; ++axis) {
+  for (size_t axis = 0; axis < kRotationTangentDim; ++axis) {
     baseAngularVelocityLocal_[axis] = addGroup(absl::StrCat("base_pose/angular_velocity_", axes[axis]), measuredReference);
   }
-  for (size_t axis = 0; axis < 3; ++axis) {
+  for (size_t axis = 0; axis < kPositionDim; ++axis) {
     baseLinearVelocity_[axis] = addGroup(absl::StrCat("base_twist/linear_", axes[axis]), measuredReference);
   }
-  for (size_t axis = 0; axis < 3; ++axis) {
+  for (size_t axis = 0; axis < kRotationTangentDim; ++axis) {
     baseAngularVelocity_[axis] = addGroup(absl::StrCat("base_twist/angular_", axes[axis]), measuredReference);
   }
   for (size_t contact = 0; contact < kNumContacts; ++contact) {
@@ -217,23 +265,35 @@ absl::Status TelemetryBuilder::initialize(const VisualizationConfig& config) {
   for (size_t contact = 0; contact < kNumContacts; ++contact) {
     footVelocity_[contact] = addGroup(absl::StrCat("foot_kinematics/", sides[contact], "_velocity_z"), measuredReference);
   }
+  for (size_t axis = 0; axis < kPositionDim; ++axis) {
+    comPosition_[axis] = addGroup(absl::StrCat("com/position_", axes[axis]), sourceNames);
+  }
+  for (size_t axis = 0; axis < kHorizontalPositionDim; ++axis) {
+    dcm_[axis] = addGroup(absl::StrCat("dcm/", horizontalAxes[axis]), sourceNames);
+  }
+  for (size_t axis = 0; axis < kHorizontalPositionDim; ++axis) {
+    zmp_[axis] = addGroup(absl::StrCat("zmp/", horizontalAxes[axis]), sourceNames);
+  }
+  for (size_t angle = 0; angle < kEulerAnglesZyxDim; ++angle) {
+    acomAngles_[angle] = addGroup(absl::StrCat("acom/", angles[angle]), sourceNames);
+  }
 
-  const std::vector<std::string>& jointNames = modelSettings_.fullJointNames;
+  const std::vector<std::string>& jointNames = modelSettings().fullJointNames;
   joints_ = {addGroup("joints/position/measured", jointNames), addGroup("joints/position/target", jointNames),
              addGroup("joints/velocity/measured", jointNames), addGroup("joints/velocity/target", jointNames),
              addGroup("joints/effort/measured", jointNames),   addGroup("joints/effort/target", jointNames)};
   // The display coordinates name the base's Euler angles; v and the forces dual to it the base's twist.
   std::vector<std::string> dofNames = getBaseDofNames();
-  dofNames.insert(dofNames.end(), modelSettings_.mpcModelJointNames.begin(), modelSettings_.mpcModelJointNames.end());
+  dofNames.insert(dofNames.end(), modelSettings().mpcModelJointNames.begin(), modelSettings().mpcModelJointNames.end());
   std::vector<std::string> velocityDofNames = getBaseVelocityDofNames();
-  velocityDofNames.insert(velocityDofNames.end(), modelSettings_.mpcModelJointNames.begin(), modelSettings_.mpcModelJointNames.end());
-  for (size_t source = 0; source < 3; ++source) {
+  velocityDofNames.insert(velocityDofNames.end(), modelSettings().mpcModelJointNames.begin(), modelSettings().mpcModelJointNames.end());
+  for (size_t source = 0; source < kNumSources; ++source) {
     dofPositions_[source] = addGroup(absl::StrCat("dofs/position/", sources[source]), dofNames);
   }
-  for (size_t source = 0; source < 3; ++source) {
+  for (size_t source = 0; source < kNumSources; ++source) {
     dofVelocities_[source] = addGroup(absl::StrCat("dofs/velocity/", sources[source]), velocityDofNames);
   }
-  for (size_t source = 0; source < 2; ++source) {
+  for (size_t source = 0; source < kNumForceSources; ++source) {
     dofForces_[source] = addGroup(absl::StrCat("dofs/force/", sources[source]), velocityDofNames);
   }
   for (size_t contact = 0; contact < kNumContacts; ++contact) {
@@ -243,6 +303,13 @@ absl::Status TelemetryBuilder::initialize(const VisualizationConfig& config) {
   observationState_ = addGroup("mpc_observation/state", indexedNames("x", robotModel_->getStateDim()));
   observationInput_ = addGroup("mpc_observation/input", indexedNames("u", robotModel_->getInputDim()));
   observationMode_ = addGroup("mpc_observation/mode", {"mode"});
+  solutionPerformance_ =
+      addGroup("mpc_solution/performance", {"merit", "cost", "dynamics_violation_sse", "equality_constraints_sse",
+                                            "inequality_constraints_sse", "equality_lagrangian", "inequality_lagrangian"});
+  solutionCosts_ = addGroup("mpc_solution/costs", termNames.costs);
+  solutionConstraints_ = addGroup("mpc_solution/constraints", termNames.constraints);
+  solutionCostCount_ = termNames.costs.size();
+  solutionConstraintCount_ = termNames.constraints.size();
 
   for (const std::string& frame : config.telemetryFrames) {
     if (!model.existFrame(frame)) {
@@ -251,11 +318,12 @@ absl::Status TelemetryBuilder::initialize(const VisualizationConfig& config) {
     }
     FrameGroups groups{.frame = model.getFrameId(frame), .contact = -1, .groups = {}};
     for (size_t contact = 0; contact < kNumContacts; ++contact) {
-      if (modelSettings_.contactNames[contact] == frame) {
+      if (modelSettings().contactNames[contact] == frame) {
         groups.contact = static_cast<int>(contact);
       }
     }
-    const std::array<const std::vector<std::string>* absl_nonnull, 4> kindNames = {&poseNames, &twistNames, &twistNames, &wrenchNames};
+    const std::array<const std::vector<std::string>* absl_nonnull, kNumFrameKinds> kindNames = {&poseNames, &twistNames, &twistNames,
+                                                                                                &wrenchNames};
     for (size_t kind = 0; kind < frameKinds.size(); ++kind) {
       for (size_t source = 0; source < sources.size(); ++source) {
         groups.groups[kind][source] =
@@ -273,6 +341,7 @@ absl::Status TelemetryBuilder::initialize(const VisualizationConfig& config) {
     source.v.setZero(robotModel_->getVelocityDim());
     source.a.setZero(robotModel_->getVelocityDim());
     source.displayCoordinates.setZero(static_cast<Eigen::Index>(kDisplayBaseDim + robotModel_->getJointDim()));
+    source.jointPositions.setZero(static_cast<Eigen::Index>(robotModel_->getJointDim()));
   }
   return absl::OkStatus();
 }
@@ -291,11 +360,65 @@ vector_t TelemetryBuilder::generalizedVelocities(const vector_t& state, const ve
 }
 
 void TelemetryBuilder::updateDisplayValues(Source* absl_nonnull source) {
-  source->eulerZyxRates = eulerZyxRatesForDisplay(source->eulerAnglesZyx, source->v.segment<3>(kBaseTranslationDim));
+  source->eulerZyxRates = eulerZyxRatesForDisplay(source->eulerAnglesZyx, source->v.segment<kRotationTangentDim>(kBaseTranslationDim));
   const Eigen::Index jointDim = source->displayCoordinates.size() - static_cast<Eigen::Index>(kDisplayBaseDim);
   source->displayCoordinates.head<kBaseTranslationDim>() = source->q.head<kBaseTranslationDim>();
   source->displayCoordinates.segment<kBaseRotationDim>(kBaseTranslationDim) = source->eulerAnglesZyx;
   source->displayCoordinates.tail(jointDim) = source->q.tail(jointDim);
+}
+
+void TelemetryBuilder::updateBalance(Source* absl_nonnull source) {
+  const Model& model = pinocchioInterface_.getModel();
+  Data& data = *source->data;
+  // The CoM and its velocity of the kinematics updateKinematics() computed (world frame, data.com[0] and data.vcom[0]).
+  pinocchio::centerOfMass(model, data, pinocchio::VELOCITY, /*computeSubtreeComs=*/false);
+  source->com = data.com[0];
+  source->dcm = pendulumFrequency_.has_value() ? divergentComponentOfMotion(data.com[0], data.vcom[0], *pendulumFrequency_)
+                                               : vector2_t(vector2_t::Constant(kNotANumber));
+  feet_array_t<vector3_t> contactPositions;
+  for (size_t contact = 0; contact < kNumContacts; ++contact) {
+    contactPositions[contact] = data.oMf[contactFrames_[contact]].translation();
+  }
+  const std::optional<vector3_t> zmp = zeroMomentPoint(contactPositions, source->contactWrenches, kMinNormalForceForZmp);
+  source->zmp = zmp.has_value() ? vector2_t(zmp->head<kHorizontalPositionDim>()) : vector2_t(vector2_t::Constant(kNotANumber));
+  if (acom_ == nullptr) {
+    source->acomRollPitchYaw.setConstant(kNotANumber);
+    return;
+  }
+  source->jointPositions = source->q.tail(source->jointPositions.size());
+  source->acomRollPitchYaw =
+      rollPitchYawOf(eulerZyxFromQuaternion(acom_->acomAttitude(baseOrientationOf(source->q), source->jointPositions)));
+}
+
+void TelemetryBuilder::writeSolutionTerms(const SolutionTerms* absl_nullable terms) {
+  double* absl_nonnull performance = values(solutionPerformance_);
+  static_assert(kPerformanceInequalityLagrangian + 1 == kPerformanceEntries, "one entry per performance index field");
+  if (terms == nullptr) {
+    std::fill(performance, performance + kPerformanceEntries, kNotANumber);
+  } else {
+    performance[kPerformanceMerit] = terms->performance.merit;
+    performance[kPerformanceCost] = terms->performance.cost;
+    performance[kPerformanceDynamicsViolation] = terms->performance.dynamicsViolationSSE;
+    performance[kPerformanceEqualityConstraints] = terms->performance.equalityConstraintsSSE;
+    performance[kPerformanceInequalityConstraints] = terms->performance.inequalityConstraintsSSE;
+    performance[kPerformanceEqualityLagrangian] = terms->performance.equalityLagrangian;
+    performance[kPerformanceInequalityLagrangian] = terms->performance.inequalityLagrangian;
+  }
+  // A group without series has no values to write (values() needs at least one).
+  if (solutionCostCount_ > 0) {
+    if (terms != nullptr && static_cast<size_t>(terms->costs.size()) == solutionCostCount_) {
+      setValues(solutionCosts_, terms->costs);
+    } else {
+      std::fill(values(solutionCosts_), values(solutionCosts_) + solutionCostCount_, kNotANumber);
+    }
+  }
+  if (solutionConstraintCount_ > 0) {
+    if (terms != nullptr && static_cast<size_t>(terms->constraintViolations.size()) == solutionConstraintCount_) {
+      setValues(solutionConstraints_, terms->constraintViolations);
+    } else {
+      std::fill(values(solutionConstraints_), values(solutionConstraints_) + solutionConstraintCount_, kNotANumber);
+    }
+  }
 }
 
 void TelemetryBuilder::updateKinematics(Source* absl_nonnull source) {
@@ -383,17 +506,8 @@ void TelemetryBuilder::computePlan(const DecodedRobotState& measured, const Poli
   }
 }
 
-const humanoid_mpc_msgs::TelemetrySeries& TelemetryBuilder::build(const DecodedRobotState& measured,
-                                                                  const SystemObservation* absl_nullable observation,
-                                                                  const PolicySnapshot* absl_nullable policy) {
-  const Model& model = pinocchioInterface_.getModel();
-  const size_t stateDim = robotModel_->getStateDim();
-  const size_t inputDim = robotModel_->getInputDim();
-  const bool hasObservation = observation != nullptr && static_cast<size_t>(observation->state.size()) == stateDim;
-  const PolicySnapshot* absl_nullable plan = policy != nullptr && isConsistentPlan(*policy, stateDim, inputDim) ? policy : nullptr;
+void TelemetryBuilder::updateMeasuredSource(const DecodedRobotState& measured) {
   const scalar_t time = measured.time;
-  series_.set_time(time);
-
   Source& measuredSource = sources_[kMeasured];
   measuredSource.q = measured.generalizedCoordinates;
   measuredSource.v = measured.generalizedVelocities;
@@ -409,12 +523,11 @@ const humanoid_mpc_msgs::TelemetrySeries& TelemetryBuilder::build(const DecodedR
   previousVelocities_ = measuredSource.v;
   measuredSource.contactWrenches = measured.measuredContactWrenches;
   measuredSource.eulerAnglesZyx = measured.baseEulerAnglesZyx;
-  computeReference(measured, plan);
-  computePlan(measured, plan);
-  for (Source& source : sources_) {
-    updateDisplayValues(&source);
-    updateKinematics(&source);
-  }
+}
+
+void TelemetryBuilder::writeBasePanels(const DecodedRobotState& measured) {
+  const Model& model = pinocchioInterface_.getModel();
+  const Source& measuredSource = sources_[kMeasured];
   const Source& referenceSource = sources_[kReference];
   const Source& planSource = sources_[kPlan];
 
@@ -424,10 +537,10 @@ const humanoid_mpc_msgs::TelemetrySeries& TelemetryBuilder::build(const DecodedR
   const vector3_t referenceRollPitchYaw = rollPitchYawOf(referenceSource.eulerAnglesZyx);
   const vector3_t measuredRollPitchYawRates = rollPitchYawOf(measuredSource.eulerZyxRates);
   const vector3_t referenceRollPitchYawRates = rollPitchYawOf(referenceSource.eulerZyxRates);
-  const vector3_t referenceAngularVelocityLocal = referenceSource.v.segment<3>(kBaseTranslationDim);
+  const vector3_t referenceAngularVelocityLocal = referenceSource.v.segment<kRotationTangentDim>(kBaseTranslationDim);
   const vector3_t referenceAngularVelocityWorld =
       quaternion_t(baseOrientationOf(referenceSource.q)).toRotationMatrix() * referenceAngularVelocityLocal;
-  for (size_t axis = 0; axis < 3; ++axis) {
+  for (size_t axis = 0; axis < kPositionDim; ++axis) {
     double* absl_nonnull position = values(basePosition_[axis]);
     position[0] = measured.basePosition[axis];
     position[1] = referenceBasePosition_[axis];
@@ -454,12 +567,13 @@ const humanoid_mpc_msgs::TelemetrySeries& TelemetryBuilder::build(const DecodedR
     normal[0] = mpc[kWrenchForceZIndex];
     normal[1] = sensor[kWrenchForceZIndex];
     double* absl_nonnull tangentialForce = values(tangentialForce_[contact]);
-    tangentialForce[0] = mpc[kWrenchForceXIndex];
-    tangentialForce[1] = sensor[kWrenchForceXIndex];
-    tangentialForce[2] = mpc[kWrenchForceYIndex];
-    tangentialForce[3] = sensor[kWrenchForceYIndex];
+    tangentialForce[kTangentialMpcX] = mpc[kWrenchForceXIndex];
+    tangentialForce[kTangentialMeasuredX] = sensor[kWrenchForceXIndex];
+    tangentialForce[kTangentialMpcY] = mpc[kWrenchForceYIndex];
+    tangentialForce[kTangentialMeasuredY] = sensor[kWrenchForceYIndex];
   }
   // The coordinates of the display buffers; the vertical velocity of v, and the Euler rates of the angles.
+  static_assert(kGeneralizedBaseDofs.size() == kNumGeneralizedBasePanels, "one panel per generalized base coordinate");
   for (size_t dof = 0; dof < kGeneralizedBaseDofs.size(); ++dof) {
     double* absl_nonnull coordinate = values(generalizedBaseCoordinate_[dof]);
     coordinate[0] = measuredSource.displayCoordinates[kGeneralizedBaseDofs[dof]];
@@ -483,7 +597,24 @@ const humanoid_mpc_msgs::TelemetrySeries& TelemetryBuilder::build(const DecodedR
       velocity[source] = pinocchio::getFrameVelocity(model, data, frame, pinocchio::LOCAL_WORLD_ALIGNED).linear().z();
     }
   }
+}
 
+void TelemetryBuilder::writeBalancePanels() {
+  // The balance panels: measured, reference, plan.
+  for (size_t source = 0; source < kNumSources; ++source) {
+    for (size_t axis = 0; axis < kPositionDim; ++axis) {
+      values(comPosition_[axis])[source] = sources_[source].com[static_cast<Eigen::Index>(axis)];
+      values(acomAngles_[axis])[source] = sources_[source].acomRollPitchYaw[static_cast<Eigen::Index>(axis)];
+    }
+    for (size_t axis = 0; axis < kHorizontalPositionDim; ++axis) {
+      values(dcm_[axis])[source] = sources_[source].dcm[static_cast<Eigen::Index>(axis)];
+      values(zmp_[axis])[source] = sources_[source].zmp[static_cast<Eigen::Index>(axis)];
+    }
+  }
+}
+
+void TelemetryBuilder::writeCompleteGroups(const DecodedRobotState& measured) {
+  const Source& planSource = sources_[kPlan];
   // Complete groups.
   setValues(joints_[kJointPositionMeasured], measured.jointPositions);
   setValues(joints_[kJointPositionTarget], measured.jointPositionTargets);
@@ -500,15 +631,21 @@ const humanoid_mpc_msgs::TelemetrySeries& TelemetryBuilder::build(const DecodedR
   // dual to the velocity v.
   double* absl_nonnull referenceForce = values(dofForces_[kReference]);
   std::fill(referenceForce, referenceForce + kBaseVelocityDim, 0.0);
-  for (size_t joint = 0; joint < modelSettings_.mpc_joint_dim; ++joint) {
-    const size_t fullJoint = modelSettings_.mpcModelToFullJointsIndices[joint];
+  for (size_t joint = 0; joint < modelSettings().mpc_joint_dim; ++joint) {
+    const size_t fullJoint = modelSettings().mpcModelToFullJointsIndices[joint];
     referenceForce[kJointVelocityOffset + joint] =
         fullJoint < static_cast<size_t>(measured.jointFeedForwardEfforts.size()) ? measured.jointFeedForwardEfforts[fullJoint] : 0.0;
   }
   for (size_t contact = 0; contact < kNumContacts; ++contact) {
     setValues(contactWrenchMpc_[contact], planSource.contactWrenches[contact]);
-    setValues(contactWrenchMeasured_[contact], measured.measuredContactWrenches[contact].head<3>());
+    setValues(contactWrenchMeasured_[contact], measured.measuredContactWrenches[contact].head<kForceDim>());
   }
+}
+
+void TelemetryBuilder::writeObservation(const SystemObservation* absl_nullable observation, const PolicySnapshot* absl_nullable plan) {
+  const size_t stateDim = robotModel_->getStateDim();
+  const size_t inputDim = robotModel_->getInputDim();
+  const bool hasObservation = observation != nullptr && static_cast<size_t>(observation->state.size()) == stateDim;
   double* absl_nonnull observationState = values(observationState_);
   double* absl_nonnull observationInput = values(observationInput_);
   std::fill(observationState, observationState + stateDim, 0.0);
@@ -524,16 +661,19 @@ const humanoid_mpc_msgs::TelemetrySeries& TelemetryBuilder::build(const DecodedR
       setValues(observationInput_, planInput);
     }
   }
+}
 
+void TelemetryBuilder::writeFramePanels() {
+  const Model& model = pinocchioInterface_.getModel();
   for (const FrameGroups& frame : frames_) {
     for (size_t source = 0; source < sources_.size(); ++source) {
       const Data& data = *sources_[source].data;
       const pinocchio::SE3Tpl<scalar_t>& placement = data.oMf[frame.frame];
       const vector3_t rollPitchYaw = rollPitchYawOf(eulerZyxOfRotation(placement.rotation()));
       double* absl_nonnull pose = values(frame.groups[kPose][source]);
-      for (size_t axis = 0; axis < 3; ++axis) {
+      for (size_t axis = 0; axis < kPositionDim; ++axis) {
         pose[axis] = placement.translation()[axis];
-        pose[3 + axis] = rollPitchYaw[axis];
+        pose[kPositionDim + axis] = rollPitchYaw[axis];
       }
       const Motion twist = pinocchio::getFrameVelocity(model, data, frame.frame, pinocchio::LOCAL_WORLD_ALIGNED);
       setValues(frame.groups[kTwist][source], twist.toVector());
@@ -544,6 +684,31 @@ const humanoid_mpc_msgs::TelemetrySeries& TelemetryBuilder::build(const DecodedR
       setValues(frame.groups[kWrench][source], wrench);
     }
   }
+}
+
+const humanoid_mpc_msgs::TelemetrySeries& TelemetryBuilder::build(const DecodedRobotState& measured,
+                                                                  const SystemObservation* absl_nullable observation,
+                                                                  const PolicySnapshot* absl_nullable policy,
+                                                                  const SolutionTerms* absl_nullable solutionTerms) {
+  const size_t stateDim = robotModel_->getStateDim();
+  const size_t inputDim = robotModel_->getInputDim();
+  const PolicySnapshot* absl_nullable plan = policy != nullptr && isConsistentPlan(*policy, stateDim, inputDim) ? policy : nullptr;
+  series_.set_time(measured.time);
+
+  updateMeasuredSource(measured);
+  computeReference(measured, plan);
+  computePlan(measured, plan);
+  for (Source& source : sources_) {
+    updateDisplayValues(&source);
+    updateKinematics(&source);
+    updateBalance(&source);
+  }
+  writeBasePanels(measured);
+  writeBalancePanels();
+  writeCompleteGroups(measured);
+  writeObservation(observation, plan);
+  writeSolutionTerms(solutionTerms);
+  writeFramePanels();
   return series_;
 }
 

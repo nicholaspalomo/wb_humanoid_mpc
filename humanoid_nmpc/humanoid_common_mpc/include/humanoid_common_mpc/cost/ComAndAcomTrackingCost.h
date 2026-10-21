@@ -74,6 +74,9 @@ namespace ocs2::humanoid {
  * the heaviest of the horizon; so with terminal_cost the problem also carries a second instance in its final cost,
  * weighted by terminalCostScaling * Q_com and terminalCostScaling * Q_acom - exactly how Q_final relates to Q for the
  * rest of the state. Under the DCM terminal cost there is no Q_final and no terminal instance.
+ *
+ * Not thread-safe: the const evaluations write its mutable Pinocchio data, so the solver gives each worker thread its
+ * own clone().
  */
 class ComAndAcomTrackingCost : public StateCost {
  public:

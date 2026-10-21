@@ -29,7 +29,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <limits>
+#include <random>
 #include <string>
 
 #include "Eigen/Core"
@@ -106,6 +108,41 @@ TEST(ValueDumpTest, AFingerprintChangesWithAnyBitAndWithTheShape) {
   ValueDump dump;
   dump.addFingerprint("m", matrix);
   EXPECT_TRUE(absl::StartsWith(dump.text(), "m = 3x4 nonzeros 12 sum 0x1.8p+1 hash ")) << dump.text();
+}
+
+TEST(ValueDumpTest, AFingerprintHashesEqualValuesEqually) {
+  std::mt19937_64 generator(/*seed=*/5);
+  std::uniform_real_distribution<double> uniform(/*a=*/-1.0, /*b=*/1.0);
+  Eigen::MatrixXd matrix(6, 5);
+  for (Eigen::Index i = 0; i < matrix.size(); ++i) matrix(i) = (i % 3 == 0) ? 0.0 : uniform(generator);
+  matrix(1, 1) = std::numeric_limits<double>::quiet_NaN();
+  const uint64_t hash = matrixHash(matrix);
+
+  Eigen::MatrixXd signedZeros = matrix;
+  for (Eigen::Index i = 0; i < signedZeros.size(); ++i) {
+    if (signedZeros(i) == 0.0) signedZeros(i) = -0.0;
+  }
+  ASSERT_TRUE(std::signbit(signedZeros(0, 0)));
+  EXPECT_EQ(matrixHash(signedZeros), hash) << "-0.0 equals 0.0";
+
+  Eigen::MatrixXd otherNan = matrix;
+  uint64_t payload = 0;
+  const double quietNan = std::numeric_limits<double>::quiet_NaN();
+  std::memcpy(&payload, &quietNan, sizeof(payload));
+  payload |= 0x8000000000000001ULL;  // the sign bit and a payload bit
+  double negativePayloadNan = 0.0;
+  std::memcpy(&negativePayloadNan, &payload, sizeof(payload));
+  ASSERT_TRUE(std::isnan(negativePayloadNan));
+  otherNan(1, 1) = negativePayloadNan;
+  EXPECT_EQ(matrixHash(otherNan), hash) << "every NaN is the one NaN";
+
+  // Any other change of value still changes the hash, the smallest included.
+  for (Eigen::Index i = 0; i < matrix.size(); ++i) {
+    if (std::isnan(matrix(i))) continue;
+    Eigen::MatrixXd changed = matrix;
+    changed(i) = nextUp(changed(i));
+    EXPECT_NE(matrixHash(changed), hash) << "element " << i;
+  }
 }
 
 }  // namespace

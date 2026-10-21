@@ -125,17 +125,17 @@ TEST(WBReferenceManagerCommandedTwist, TheCommandIsTheTargetsBaseVelocityAndTurn
   // Away from the origin and turned, so that no base position or heading can pass for the command.
   vector_t state = g1->initialState;
   model.setBasePoseEulerZyx(state, (vector6_t() << 1.0, 2.0, model.getBasePosition(state)(2), 0.7, 0.0, 0.0).finished());
-  const TargetTrajectories target = g1->calculator->commandedVelocityToTargetTrajectories(vector4_t(0.4, -0.2, 0.0, 0.5), kInitTime, state,
-                                                                                          /*measuredMotion=*/BasePlanarMotion{});
+  const TargetTrajectories target =
+      g1->calculator->commandedVelocityToTargetTrajectories(vector4_t(0.08, -0.04, 0.0, 0.1), kInitTime, state,
+                                                            /*measuredMotion=*/BasePlanarMotion{});
   ASSERT_EQ(target.stateTrajectory.size(), 3);
   g1->referenceManager->setTargetTrajectories(target);
   g1->referenceManager->preSolverRun(kInitTime, kInitTime + kHorizon, state, ModeNumber::kStance);
 
-  // Every knot moves at the command (filtered) in its own heading frame and turns at it (design README section 2.9); the reference
+  // Every knot moves at the command in its own heading frame and turns at it (design README section 2.9); the reference
   // manager reads the interpolated target, so between knots it answers the linear interpolation of the knots' commands.
-  constexpr scalar_t kFirstCommandFactor = 0.2;  // the calculator's filter on its first command (1 - 0.8)
-  const vector2_t commandVelocity = kFirstCommandFactor * vector2_t(0.4, -0.2);
-  const scalar_t commandYawRate = kFirstCommandFactor * 0.5;
+  const vector2_t commandVelocity(0.08, -0.04);
+  const scalar_t commandYawRate = 0.1;
   std::vector<vector2_t> knotVelocities;
   for (const vector_t& knot : target.stateTrajectory) {
     const scalar_t yaw = model.getBasePoseEulerZyx(knot)(3);
@@ -256,8 +256,9 @@ TEST(WBReferenceManagerCommandedTwist, TheBasePoseSeamKeepsTheReferencesTurnInTh
   ASSERT_TRUE(g1->referenceManager->getLocomotionHeuristicLayer()->basePoseEmpty()) << "the shipped whole body lists no heuristic";
   vector_t state = g1->initialState;
   model.setBasePoseEulerZyx(state, (vector6_t() << 1.0, 2.0, model.getBasePosition(state)(2), 0.7, 0.0, 0.0).finished());
-  const TargetTrajectories target = g1->calculator->commandedVelocityToTargetTrajectories(vector4_t(0.4, -0.2, 0.0, 0.5), kInitTime, state,
-                                                                                          /*measuredMotion=*/BasePlanarMotion{});
+  const TargetTrajectories target =
+      g1->calculator->commandedVelocityToTargetTrajectories(vector4_t(0.08, -0.04, 0.0, 0.1), kInitTime, state,
+                                                            /*measuredMotion=*/BasePlanarMotion{});
   g1->referenceManager->setTargetTrajectories(target);
   g1->referenceManager->preSolverRun(kInitTime, kInitTime + kHorizon, state, ModeNumber::kStance);
   const vector_t& knot = target.stateTrajectory.back();

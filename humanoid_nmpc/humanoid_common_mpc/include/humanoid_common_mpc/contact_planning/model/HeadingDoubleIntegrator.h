@@ -46,6 +46,8 @@ namespace ocs2::humanoid {
  *   psi_{i,k+1} = psi_{i,k} + dpsi_{i,k}.
  * The torque bound is the ground's: no foot ever carries more than the whole weight's torsion alone or half of the
  * double-support budget (the yaw_torque_budget rows do the rest).
+ *
+ * Not thread-safe, like every ContactPlanningTerm: the planner that owns it configures and evaluates it from one thread at a time.
  */
 class HeadingDoubleIntegrator final : public LipModelBlock {
  public:

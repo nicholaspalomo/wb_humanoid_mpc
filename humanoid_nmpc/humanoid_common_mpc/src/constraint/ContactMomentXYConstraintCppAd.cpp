@@ -100,7 +100,7 @@ ad_vector_t ContactMomentXYConstraintCppAd::constraintFunction(ad_scalar_t /*tim
   const ad_vector3_t localMoments =
       rotateVectorWorldToLocal(mpcRobotModelPtr_->getContactMomentInWorldFrame(state, input, contactPointIndex_), data, frameID);
 
-  ad_vector_t constraintValue(4);
+  ad_vector_t constraintValue(kNumConstraints);
   constraintValue << localMoments.x() - contactRectangle_.getBounds().y_min * localForce.z(),
       -localMoments.x() + contactRectangle_.getBounds().y_max * localForce.z(),
       -localMoments.y() - contactRectangle_.getBounds().x_min * localForce.z(),

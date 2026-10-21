@@ -83,6 +83,59 @@ class SinkRegistryTest(unittest.TestCase):
         self.assertIn("world/x", contents.entities)
         self.assertIn(blueprint.SCENE_VIEW_NAME, contents.view_names())
 
+    def test_a_later_run_is_saved_to_a_numbered_file_next_to_the_first(self) -> None:
+        path = os.path.join(self.directory, "walk.rrd")
+        sink = rerun_sinks.make_sink(
+            "save", self.layout, rerun_sinks.SinkOptions(rrd_path=path)
+        )
+        first = self.recording
+        sink.attach(first)
+        first.log("world/first", rr.Points3D([[0.0, 0.0, 0.0]]))
+        second = bridge.new_recording("test_rerun_sinks")
+        self.addCleanup(second.disconnect)
+        self.assertIn(
+            os.path.join(self.directory, "walk.run2.rrd"), sink.attach(second)
+        )
+        second.log("world/second", rr.Points3D([[0.0, 0.0, 0.0]]))
+        sink.disconnect_all()
+        self.assertEqual(sink.recordings, (first, second))
+        first_contents = rrd_contents.RrdContents(path)
+        second_contents = rrd_contents.RrdContents(rerun_sinks.run_path(path, 2))
+        self.assertIn("world/first", first_contents.entities)
+        self.assertNotIn("world/second", first_contents.entities)
+        self.assertIn("world/second", second_contents.entities)
+        self.assertIn(blueprint.SCENE_VIEW_NAME, second_contents.view_names())
+
+    def test_the_run_paths(self) -> None:
+        self.assertEqual(rerun_sinks.run_path("/tmp/walk.rrd", 1), "/tmp/walk.rrd")
+        self.assertEqual(rerun_sinks.run_path("/tmp/walk.rrd", 3), "/tmp/walk.run3.rrd")
+        self.assertEqual(rerun_sinks.run_path("walk", 2), "walk.run2")
+
+    def test_the_viewers_the_sinks_stream_to(self) -> None:
+        options = rerun_sinks.SinkOptions(
+            url="rerun+http://192.168.1.20:9000/proxy", grpc_port=9100
+        )
+        expected = {
+            "spawn": (("127.0.0.1", 9100), True),
+            "connect": (("192.168.1.20", 9000), False),
+            "serve_web": (None, False),
+            "save": (None, False),
+        }
+        for name, (endpoint, owns_viewer) in expected.items():
+            with self.subTest(sink=name):
+                sink = rerun_sinks.make_sink(name, self.layout, options)
+                self.assertEqual(sink.viewer_endpoint, endpoint)
+                self.assertEqual(sink.owns_viewer, owns_viewer)
+
+    def test_the_endpoint_of_a_url(self) -> None:
+        self.assertEqual(
+            rerun_sinks.url_endpoint(rerun_sinks.DEFAULT_CONNECT_URL),
+            ("127.0.0.1", rerun_sinks.DEFAULT_GRPC_PORT),
+        )
+        for url in ("rerun+http://viewer/proxy", "not a url", "rerun+http://:x/proxy"):
+            with self.subTest(url=url):
+                self.assertIsNone(rerun_sinks.url_endpoint(url))
+
     def test_save_needs_a_path(self) -> None:
         with self.assertRaises(ValueError):
             rerun_sinks.attach_sink(

@@ -21,12 +21,14 @@ message PlotConfig {
   // Defaults to "Signals" when empty.
   string custom_tab_title = 2;
 
-  // The robot model instances to draw in the 3D scene (e.g. "measured", "terminal_state").
-  // When empty, defaults to ("measured", "terminal_state").
+  // The robot model instances to draw in the 3D scene (e.g. "measured", "terminal_state", "terminal_target"). Empty:
+  // every instance the scene carries (the blueprint still hides terminal_target until it is shown). Ignored when
+  // draw_terminal_state is false.
   repeated string robot_instances = 3;
 
-  // Whether to draw the end-of-trajectory / horizon robot visualization ("terminal_state").
-  // Defaults to true when unset.
+  // Whether to draw the end-of-trajectory robots ("terminal_state", "terminal_target"): false draws only "measured",
+  // whatever robot_instances says; true or unset leaves the choice to robot_instances. The bridge's --terminal_state
+  // and --robot_instances override it (plot_config.resolve_allowed_instances()).
   optional bool draw_terminal_state = 4;
 
   // The MuJoCo viewer of the robot process, by registry name (robot_runtime/mujoco_sim_interface/README.md, "Viewers"):

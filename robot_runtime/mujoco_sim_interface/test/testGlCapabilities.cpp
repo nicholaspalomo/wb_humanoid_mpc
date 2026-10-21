@@ -38,7 +38,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 /*
  * The GL preflight of the web viewer on synthetic capabilities: every condition under which MuJoCo would end the process
- * while creating or resizing its offscreen buffer is refused first, with a message that names the limit and the fix.
+ * while creating or resizing its offscreen buffer or its shadow map is refused first, with a message that names the
+ * limit and the fix.
  * The live case (a real context asked for too many samples) is testWebMujocoViewer.cpp's.
  */
 
@@ -59,6 +60,7 @@ GlCapabilities capable() {
   capabilities.extensions = "GL_ARB_multisample GL_ARB_framebuffer_object GL_EXT_texture";
   capabilities.maxRenderbufferSize = 16384;
   capabilities.maxSamples = 8;
+  capabilities.maxTextureSize = 16384;
   return capabilities;
 }
 
@@ -130,6 +132,24 @@ TEST(GlCapabilities, MoreSamplesThanTheContextOffersAreRefused) {
   noSamples.maxSamples = 0;
   options.msaaSamples = 0;
   EXPECT_THAT(checkGlCapabilities(noSamples, options), IsOk());
+}
+
+// MuJoCo makes the shadow map a depth texture of shadowSize x shadowSize and ends the process ("Shadow framebuffer is
+// not complete") when the context cannot make one that large; the preflight did not look at it.
+TEST(GlCapabilities, AShadowMapPastTheTextureLimitIsRefused) {
+  GlCapabilities capabilities = capable();
+  capabilities.maxTextureSize = 4096;
+  WebViewerOptions options;
+  options.shadowSize = 8192;
+  EXPECT_THAT(checkGlCapabilities(capabilities, options),
+              StatusIs(absl::StatusCode::kFailedPrecondition,
+                       AllOf(HasSubstr("shadowSize of 8192"), HasSubstr("GL_MAX_TEXTURE_SIZE of 4096"), namesTheFix())));
+  options.shadowSize = 4096;
+  EXPECT_THAT(checkGlCapabilities(capabilities, options), IsOk());
+  // No shadows need no texture, whatever the context reports.
+  capabilities.maxTextureSize = 0;
+  options.shadowSize = 0;
+  EXPECT_THAT(checkGlCapabilities(capabilities, options), IsOk());
 }
 
 }  // namespace

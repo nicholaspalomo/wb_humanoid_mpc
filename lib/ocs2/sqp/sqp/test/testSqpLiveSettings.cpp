@@ -31,7 +31,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * SqpSolver::setLiveSettings(), the narrow live retuning of the SQP solver (the parameter updater of humanoid_nmpc):
  * the four live settings reach both the settings and the filter line search, which copies g_max and g_min at
  * construction, so that a solve after setLiveSettings() is the solve of a solver constructed with those values, bit for
- * bit; and no other setting changes.
+ * bit; and no other setting changes. And SqpSolver::getIterationRecords(), what the line search those settings steer
+ * did at each iteration of the last solve: the performance it started from, the full step's verdict, the step it took
+ * and the convergence test after it.
  */
 
 #include <gtest/gtest.h>
@@ -39,6 +41,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cmath>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "absl/base/nullability.h"
 
@@ -46,7 +49,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ocs2_core/cost/QuadraticStateInputCost.h>
 #include <ocs2_core/dynamics/SystemDynamicsBase.h>
 #include <ocs2_core/initialization/DefaultInitializer.h>
+#include <ocs2_oc/oc_data/PerformanceIndex.h>
 #include <ocs2_oc/oc_data/PrimalSolution.h>
+#include <ocs2_oc/search_strategy/FilterLinesearch.h>
 #include <ocs2_oc/synchronized_module/ReferenceManager.h>
 
 #include "ocs2_sqp/SqpSolver.h"
@@ -243,6 +248,66 @@ TEST(SqpLiveSettings, TheConstructedValuesAgainLeaveTheSolveAsItWas) {
       .sqpIteration = settings.sqpIteration, .deltaTol = settings.deltaTol, .gMax = settings.g_max, .gMin = settings.g_min});
   SqpSolver untouched(settings, problem, initializer);
   EXPECT_TRUE(sameTrajectories(solveOnce(rewritten), solveOnce(untouched)));
+}
+
+TEST(SqpIterationRecords, EveryIterationOfTheLastSolveIsRecordedAsTheLineSearchEndedIt) {
+  // The tight filter of the live settings, so that the line search refuses full steps: both of its branches recorded.
+  const OptimalControlProblem problem = makeProblem();
+  const DefaultInitializer initializer(kInputDim);
+  const sqp::Settings settings = withLiveSettings(baseSettings(), liveSettings());
+  SqpSolver solver(settings, problem, initializer);
+  EXPECT_TRUE(solver.getIterationRecords().empty()) << "no solve yet";
+  solveOnce(solver);
+
+  const std::vector<sqp::IterationRecord>& records = solver.getIterationRecords();
+  const std::vector<PerformanceIndex>& log = solver.getIterationsLog();
+  ASSERT_EQ(records.size(), log.size());
+  ASSERT_EQ(records.size(), solver.getNumIterations()) << "one record per iteration of the solve";
+  size_t refusedFullSteps = 0;
+  for (size_t k = 0; k < records.size(); ++k) {
+    SCOPED_TRACE(k);
+    const sqp::IterationRecord& record = records[k];
+    const sqp::StepInfo& step = record.stepInfo;
+    // The performance after the step is the iterations log's, bit for bit.
+    EXPECT_EQ(step.performanceAfterStep.merit, log[k].merit);
+    EXPECT_EQ(step.performanceAfterStep.dynamicsViolationSSE, log[k].dynamicsViolationSSE);
+    EXPECT_EQ(step.totalConstraintViolationAfterStep, FilterLinesearch::totalConstraintViolation(log[k]));
+    EXPECT_EQ(record.baselineConstraintViolation, FilterLinesearch::totalConstraintViolation(record.baselinePerformance));
+    // The convergence test ends the solve at its last iteration only.
+    EXPECT_EQ(record.convergence == sqp::Convergence::FALSE, k + 1 < records.size()) << sqp::toString(record.convergence);
+    // The full step is always tried. Taken, it is the step and its verdict; refused, a smaller step or none was taken.
+    EXPECT_NE(step.fullStepType, FilterLinesearch::StepType::UNKNOWN);
+    if (step.stepSize == 1.0) {
+      EXPECT_EQ(step.fullStepType, step.stepType);
+      EXPECT_EQ(step.fullStepConstraintViolation, step.totalConstraintViolationAfterStep);
+    } else {
+      ++refusedFullSteps;
+      EXPECT_LT(step.stepSize, 1.0);
+      if (step.fullStepType == FilterLinesearch::StepType::CONSTRAINT) {
+        EXPECT_GT(step.fullStepConstraintViolation, settings.g_max) << "a CONSTRAINT verdict is the rule above g_max";
+      }
+    }
+  }
+  EXPECT_GT(refusedFullSteps, size_t{0}) << "no full step was refused, so the test cannot tell the refused branch is recorded";
+
+  // The next solve's iterations replace the last solve's; a reset forgets them.
+  solveOnce(solver);
+  EXPECT_EQ(solver.getIterationRecords().size(), solver.getIterationsLog().size());
+  solver.reset();
+  EXPECT_TRUE(solver.getIterationRecords().empty());
+}
+
+TEST(SqpIterationRecords, RecordingChangesNoSolve) {
+  // The records are written beside the solve: two solvers, one of whose records are read between its solves, solve
+  // the same, bit for bit (the flat parity golden of test_sqp_flat_parity holds the solve itself).
+  const OptimalControlProblem problem = makeProblem();
+  const DefaultInitializer initializer(kInputDim);
+  SqpSolver read(baseSettings(), problem, initializer);
+  SqpSolver unread(baseSettings(), problem, initializer);
+  const PrimalSolution first = solveOnce(read);
+  EXPECT_FALSE(read.getIterationRecords().empty());
+  EXPECT_TRUE(sameTrajectories(first, solveOnce(unread)));
+  EXPECT_TRUE(sameTrajectories(solveOnce(read), solveOnce(unread)));
 }
 
 }  // namespace

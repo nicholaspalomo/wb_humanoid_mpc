@@ -37,10 +37,19 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-/** Collects general constraint rows of one stage and writes them into the OcpQpStage, hard or soft with a penalty. */
+/**
+ * Collects general constraint rows of one stage and writes them into the OcpQpStage, hard or soft with a penalty.
+ *
+ * Not thread-safe: one thread fills a builder.
+ */
 class RowBuilder {
  public:
   RowBuilder(int nx, int nu) : nx_(nx), nu_(nu) {}
+  RowBuilder(const RowBuilder&) = default;
+  RowBuilder& operator=(const RowBuilder&) = default;
+  RowBuilder(RowBuilder&&) = default;
+  RowBuilder& operator=(RowBuilder&&) = default;
+  ~RowBuilder() = default;
 
   /** A hard row lower <= C x + D u <= upper. */
   void addHard(const Coefficients& xCoefficients, const Coefficients& uCoefficients, scalar_t lower, scalar_t upper) {

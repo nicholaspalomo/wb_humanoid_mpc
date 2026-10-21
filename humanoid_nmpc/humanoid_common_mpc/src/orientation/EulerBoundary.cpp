@@ -38,6 +38,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
 #include "absl/strings/string_view.h"
+#include "ocs2_core/Dimensions.h"
 #include "ocs2_robotic_tools/common/RotationDerivativesTransforms.h"
 #include "ocs2_robotic_tools/common/RotationTransforms.h"
 
@@ -47,10 +48,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 namespace {
-
-constexpr Eigen::Index kEulerDim = 3;
-constexpr Eigen::Index kQuaternionDim = 4;
-constexpr Eigen::Index kAngularVelocityDim = 3;
 
 /** "base_orientation 3 (yaw, pitch, roll)" in the tuning layout, "base_orientation 4 (quaternion x, y, z, w)" in the state. */
 std::string describeSegment(const TuningSegment& segment, bool inState) {
@@ -82,10 +79,10 @@ std::string describeLayout(const TuningLayout& layout, bool inState) {
 /** A rotation block has exactly the 3 rows of its Euler angles or angular velocity. */
 absl::Status checkRotationSegments(const TuningLayout& layout, absl::string_view caller) {
   for (const TuningSegment& segment : layout.segments) {
-    if (segment.kind != TuningSegmentKind::kEuclidean && segment.tuningDim != static_cast<size_t>(kEulerDim)) {
+    if (segment.kind != TuningSegmentKind::kEuclidean && segment.tuningDim != kRotationTuningDim) {
       return absl::InvalidArgumentError(absl::StrCat("[", caller, "] the block '", segment.name, "' of the ",
                                                      describeLayout(layout, /*inState=*/false), " is a rotation with ", segment.tuningDim,
-                                                     " rows; a rotation block has ", kEulerDim, "."));
+                                                     " rows; a rotation block has ", static_cast<Eigen::Index>(kRotationTuningDim), "."));
     }
   }
   return absl::OkStatus();
@@ -115,10 +112,10 @@ vector4_t quaternionFromEulerZyx(const vector3_t& eulerZyx) {
 }
 
 vector3_t eulerZyxFromQuaternion(const vector4_t& xi) {
-  const scalar_t x = xi(0);
-  const scalar_t y = xi(1);
-  const scalar_t z = xi(2);
-  const scalar_t w = xi(3);
+  const scalar_t x = xi(kQuaternionXIndex);
+  const scalar_t y = xi(kQuaternionYIndex);
+  const scalar_t z = xi(kQuaternionZIndex);
+  const scalar_t w = xi(kQuaternionWIndex);
   // R(0, 0) and R(1, 0) = cos(theta) (cos(psi), sin(psi)). The expressions are those of the conversion of before the
   // switch, so that its output is reproduced bit for bit.
   const scalar_t r00 = 1.0 - 2.0 * (y * y + z * z);
@@ -157,12 +154,12 @@ vector3_t eulerZyxRatesFromLocalAngularVelocity(const vector3_t& eulerZyx, const
 
 matrix3_t localAngularVelocityEulerZyxJacobian(const vector3_t& eulerZyx, const vector3_t& eulerZyxRates) {
   // w_B = (-sin(theta) dpsi + dphi, cos(theta) sin(phi) dpsi + cos(phi) dtheta, cos(theta) cos(phi) dpsi - sin(phi) dtheta).
-  const scalar_t sinPitch = std::sin(eulerZyx(1));
-  const scalar_t cosPitch = std::cos(eulerZyx(1));
-  const scalar_t sinRoll = std::sin(eulerZyx(2));
-  const scalar_t cosRoll = std::cos(eulerZyx(2));
-  const scalar_t yawRate = eulerZyxRates(0);
-  const scalar_t pitchRate = eulerZyxRates(1);
+  const scalar_t sinPitch = std::sin(eulerZyx(kEulerAnglesZyxYIndex));
+  const scalar_t cosPitch = std::cos(eulerZyx(kEulerAnglesZyxYIndex));
+  const scalar_t sinRoll = std::sin(eulerZyx(kEulerAnglesZyxXIndex));
+  const scalar_t cosRoll = std::cos(eulerZyx(kEulerAnglesZyxXIndex));
+  const scalar_t yawRate = eulerZyxRates(kEulerAnglesZyxZIndex);
+  const scalar_t pitchRate = eulerZyxRates(kEulerAnglesZyxYIndex);
   matrix3_t jacobian;
   // clang-format off
   jacobian << 0.0, -cosPitch * yawRate,           0.0,
@@ -232,10 +229,11 @@ absl::StatusOr<vector_t> stateFromTuningLayout(const vector_t& tuningVector, con
         state.segment(stateRow, rows) = tuningVector.segment(tuningRow, rows);
         break;
       case TuningSegmentKind::kEulerZyxOrientation:
-        state.segment<kQuaternionDim>(stateRow) = quaternionFromEulerZyx(vector3_t(tuningVector.segment<kEulerDim>(tuningRow)));
+        state.segment<kQuaternionCoefficients>(stateRow) =
+            quaternionFromEulerZyx(vector3_t(tuningVector.segment<kEulerAnglesZyxDim>(tuningRow)));
         break;
       case TuningSegmentKind::kZyxOrderedAngularVelocity:
-        state.segment<kAngularVelocityDim>(stateRow) = tuningVector.segment<kAngularVelocityDim>(tuningRow).reverse();
+        state.segment<kRotationTangentDim>(stateRow) = tuningVector.segment<kRotationTangentDim>(tuningRow).reverse();
         break;
     }
     tuningRow += rows;
@@ -262,11 +260,11 @@ absl::StatusOr<vector_t> tuningLayoutFromState(const vector_t& state, const Tuni
         tuningVector.segment(tuningRow, rows) = state.segment(stateRow, rows);
         break;
       case TuningSegmentKind::kEulerZyxOrientation:
-        tuningVector.segment<kEulerDim>(tuningRow) =
-            eulerZyxFromQuaternion(safelyNormalizedQuaternion(vector4_t(state.segment<kQuaternionDim>(stateRow))));
+        tuningVector.segment<kEulerAnglesZyxDim>(tuningRow) =
+            eulerZyxFromQuaternion(safelyNormalizedQuaternion(vector4_t(state.segment<kQuaternionCoefficients>(stateRow))));
         break;
       case TuningSegmentKind::kZyxOrderedAngularVelocity:
-        tuningVector.segment<kAngularVelocityDim>(tuningRow) = state.segment<kAngularVelocityDim>(stateRow).reverse();
+        tuningVector.segment<kRotationTangentDim>(tuningRow) = state.segment<kRotationTangentDim>(stateRow).reverse();
         break;
     }
     tuningRow += rows;

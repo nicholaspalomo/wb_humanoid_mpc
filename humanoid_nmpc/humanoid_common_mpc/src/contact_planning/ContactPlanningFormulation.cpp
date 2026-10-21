@@ -45,6 +45,9 @@ namespace ocs2::humanoid {
 
 namespace {
 
+// The blocks the dynamics list starts with, lip_com and foothold_integrator, which own the layout.
+constexpr int kLeadingDynamicsBlocks = 2;
+
 absl::Status invalidFormulation(absl::string_view message) {
   return absl::InvalidArgumentError(absl::StrCat("[ContactPlanningFormulation] ", message));
 }
@@ -66,7 +69,7 @@ const absl::flat_hash_set<std::string>& headingModelTerms() {
 }
 
 /** Position of `name` in `list` (matched like every other lookup), or list.size() when it is not listed. */
-size_t positionIn(const std::vector<std::string>& list, const std::string& name) {
+size_t positionIn(const std::vector<std::string>& list, absl::string_view name) {
   for (size_t i = 0; i < list.size(); ++i) {
     if (sameTermName(list[i], name)) return i;
   }
@@ -75,7 +78,7 @@ size_t positionIn(const std::vector<std::string>& list, const std::string& name)
 
 }  // namespace
 
-std::string normalizeTermName(const std::string& name) {
+std::string normalizeTermName(absl::string_view name) {
   std::string out;
   out.reserve(name.size());
   for (const char c : name) {
@@ -85,7 +88,7 @@ std::string normalizeTermName(const std::string& name) {
   return out;
 }
 
-bool sameTermName(const std::string& a, const std::string& b) {
+bool sameTermName(absl::string_view a, absl::string_view b) {
   return normalizeTermName(a) == normalizeTermName(b);
 }
 
@@ -167,14 +170,14 @@ const std::vector<std::string>& knownTermNames(TermKind kind) {
   return kBlocks;
 }
 
-std::string canonicalTermName(TermKind kind, const std::string& name) {
+std::string canonicalTermName(TermKind kind, absl::string_view name) {
   for (const std::string& known : knownTermNames(kind)) {
     if (sameTermName(known, name)) return known;
   }
   return std::string();
 }
 
-std::string requiredModelBlock(TermKind kind, const std::string& name) {
+std::string requiredModelBlock(TermKind kind, absl::string_view name) {
   if (kind == TermKind::kModelBlock) return std::string();
   const std::string canonical = canonicalTermName(kind, name);
   if (canonical.empty()) return std::string();
@@ -207,13 +210,13 @@ const std::vector<std::string>& ContactPlanningFormulation::list(TermKind kind) 
   return const_cast<ContactPlanningFormulation*>(this)->list(kind);
 }
 
-bool ContactPlanningFormulation::listed(const std::vector<std::string>& list, const std::string& name) {
+bool ContactPlanningFormulation::listed(const std::vector<std::string>& list, absl::string_view name) {
   return positionIn(list, name) < list.size();
 }
 
-void ContactPlanningFormulation::setListed(std::vector<std::string>& list, const std::string& name, bool on) {
+void ContactPlanningFormulation::setListed(std::vector<std::string>& list, absl::string_view name, bool on) {
   const size_t position = positionIn(list, name);
-  if (on && position == list.size()) list.push_back(name);
+  if (on && position == list.size()) list.emplace_back(name);
   if (!on && position < list.size()) list.erase(list.begin() + static_cast<ptrdiff_t>(position));
 }
 
@@ -255,7 +258,8 @@ absl::Status ContactPlanningFormulation::validateStatus() const {
       }
     }
   }
-  if (dynamics.size() < 2 || !sameTermName(dynamics[0], term::kLipCom) || !sameTermName(dynamics[1], term::kFootholdIntegrator)) {
+  if (dynamics.size() < kLeadingDynamicsBlocks || !sameTermName(dynamics[0], term::kLipCom) ||
+      !sameTermName(dynamics[1], term::kFootholdIntegrator)) {
     return invalidFormulation(absl::StrCat("the dynamics list must start with '", term::kLipCom, "', '", term::kFootholdIntegrator,
                                            "' (they own the layout of the LIP block and the contact binaries)"));
   }
@@ -275,10 +279,10 @@ std::string ContactPlanningFormulation::summary() const {
   return out;
 }
 
-bool ContactPlanningFormulation::operator==(const ContactPlanningFormulation& other) const {
+bool operator==(const ContactPlanningFormulation& lhs, const ContactPlanningFormulation& rhs) {
   for (const TermKind kind : allTermKinds()) {
-    const std::vector<std::string>& mine = list(kind);
-    const std::vector<std::string>& theirs = other.list(kind);
+    const std::vector<std::string>& mine = lhs.list(kind);
+    const std::vector<std::string>& theirs = rhs.list(kind);
     if (mine.size() != theirs.size()) return false;
     for (size_t i = 0; i < mine.size(); ++i) {
       if (!sameTermName(mine[i], theirs[i])) return false;

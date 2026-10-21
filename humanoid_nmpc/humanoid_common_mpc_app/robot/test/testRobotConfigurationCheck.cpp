@@ -39,6 +39,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "gmock/gmock.h"
@@ -69,14 +70,23 @@ namespace {
 using ::testing::AllOf;
 using ::testing::HasSubstr;
 
-constexpr char kTask[] = R"(model_settings { robot_name: "g1" }
+constexpr char kTask[] = R"(# proto-message: humanoid_mpc_config.TaskFile
+model_settings { robot_name: "g1" }
 contact_estimator: "robot_state"
 telemetry_sinks: "bus"
 )";
-constexpr char kGains[] = "default_gains { kp: 100.0 kd: 2.0 }\n";
+constexpr char kGains[] = "# proto-message: humanoid_mpc_config.JointPdGainsFile\ndefault_gains { kp: 100.0 kd: 2.0 torque_limit: 50.0 }\n";
 
 /** The files of a configuration that passes, with `taskText` as its task file. */
-RobotConfigFiles filesWith(absl::string_view taskText, absl::string_view gainsText = kGains) {
+/** `text` as a configuration file of `message`: its `# proto-message:` header first, unless it opens with one. */
+std::string withHeader(absl::string_view text, absl::string_view message) {
+  if (absl::StartsWith(text, "# proto-message:")) return std::string(text);
+  return absl::StrCat("# proto-message: ", message, "\n", text);
+}
+
+RobotConfigFiles filesWith(absl::string_view taskTextIn, absl::string_view gainsTextIn = kGains) {
+  const std::string taskText = withHeader(taskTextIn, "humanoid_mpc_config.TaskFile");
+  const std::string gainsText = withHeader(gainsTextIn, "humanoid_mpc_config.JointPdGainsFile");
   RobotConfigFiles files;
   absl::StatusOr<mpc_config::TaskFile> task = parseTaskFile(taskText, /*source=*/"task.textproto");
   EXPECT_TRUE(task.ok()) << task.status();
@@ -96,8 +106,6 @@ RobotConfigurationCheckContext fullContext(const robot::model::ContactEstimatorR
   context.robotName = "g1";
   context.mpcJointNames = {"left_knee", "right_knee"};
   context.otherJointNames = {"neck"};
-  // A controller that commands a torque limit (the centroidal one's defaults).
-  context.pdGainsDefaults = JointPdGainsDefaults{.kp = 250.0, .kd = 15.0, .torqueLimit = 500.0};
   context.contactEstimators = &registry;
   context.backendName = "mujoco";
   context.backendOptions.mjcfFile = robot_test::kAtlasScene;
@@ -145,15 +153,14 @@ TEST(RobotConfigurationCheck, TheFormulationsCheckRunsOnTheFiles) {
 TEST(RobotConfigurationCheck, PdGainsTheControllerRefusesAreRefused) {
   const robot::model::ContactEstimatorRegistry registry;
   const absl::Status otherRobot =
-      checkRobotConfiguration(filesWith(kTask, R"(joint_gains { joint: "tail" kp: 1.0 })"), fullContext(registry));
+      checkRobotConfiguration(filesWith(kTask, absl::StrCat(kGains, R"(joint_gains { joint: "tail" kp: 1.0 })")), fullContext(registry));
   EXPECT_THAT(otherRobot.message(), AllOf(HasSubstr("joint_pd_gains.textproto"), HasSubstr("joint_gains"), HasSubstr("tail")));
 
-  // A torque limit is read only by a controller that commands one.
-  const RobotConfigFiles negativeLimit = filesWith(kTask, "default_gains { torque_limit: -1.0 }\n");
-  RobotConfigurationCheckContext context = fullContext(registry);
-  EXPECT_THAT(checkRobotConfiguration(negativeLimit, context).message(), HasSubstr("default_gains.torque_limit"));
-  context.pdGainsDefaults.torqueLimit = std::nullopt;
-  EXPECT_TRUE(checkRobotConfiguration(negativeLimit, context).ok());
+  // Both controllers read the torque limits, and neither has gains of its own to stand in for one left out.
+  const RobotConfigFiles negativeLimit = filesWith(kTask, "default_gains { kp: 1.0 kd: 1.0 torque_limit: -1.0 }\n");
+  EXPECT_THAT(checkRobotConfiguration(negativeLimit, fullContext(registry)).message(), HasSubstr("default_gains.torque_limit"));
+  const RobotConfigFiles noLimit = filesWith(kTask, "default_gains { kp: 1.0 kd: 1.0 }\n");
+  EXPECT_THAT(checkRobotConfiguration(noLimit, fullContext(registry)).message(), HasSubstr("default_gains.torque_limit is not set"));
 }
 
 TEST(RobotConfigurationCheck, AContactEstimatorTheBackendDidNotRegisterIsRefused) {
@@ -214,7 +221,7 @@ TEST(CheckConfigFileCandidate, ASavedFileIsCheckedInPlaceOfItsStoredCopy) {
                                            .referenceFile = directory + "/command/reference.textproto",
                                            .pdGainsFile = directory + "/controller/joint_pd_gains.textproto"};
   writeFile(stored.taskFile, kTask);
-  writeFile(stored.referenceFile, "target_displacement_velocity: 0.5\n");
+  writeFile(stored.referenceFile, "# proto-message: humanoid_mpc_config.ReferenceFile\ntarget_displacement_velocity: 0.5\n");
   writeFile(stored.pdGainsFile, kGains);
   const robot::model::ContactEstimatorRegistry registry;
   const RobotConfigurationCheckContext context = fullContext(registry);
@@ -222,7 +229,8 @@ TEST(CheckConfigFileCandidate, ASavedFileIsCheckedInPlaceOfItsStoredCopy) {
   ConfigFileCandidate gains;
   gains.kind = msgs::ConfigFileKind::kJointPdGains;
   gains.source = "robot_models/unitree_g1/g1_wb_mpc/config/controller/joint_pd_gains.textproto (operator/config_save)";
-  absl::StatusOr<mpc_config::JointPdGainsFile> otherRobots = parseJointPdGainsFile(R"(joint_gains { joint: "tail" })", gains.source);
+  absl::StatusOr<mpc_config::JointPdGainsFile> otherRobots =
+      parseJointPdGainsFile(absl::StrCat(kGains, R"(joint_gains { joint: "tail" })"), gains.source);
   ASSERT_TRUE(otherRobots.ok()) << otherRobots.status();
   gains.pdGains = *std::move(otherRobots);
   const absl::Status refused = checkConfigFileCandidate(stored, gains, context);

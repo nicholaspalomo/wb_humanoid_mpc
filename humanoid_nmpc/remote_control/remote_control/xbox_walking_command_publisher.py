@@ -28,17 +28,27 @@
 
 """Publishes the Xbox controller's walking commands on the bus, without the GUI.
 
-    bazel run //humanoid_nmpc/remote_control:xbox_velocity_publisher -- [--network_config=...] [--ipc_node=teleop]
+    bazel run //humanoid_nmpc/remote_control:xbox_velocity_publisher -- --reference_file=<reference.textproto> \\
+        [--network_config=...] [--ipc_node=teleop]
 
 Publishes operator/walking_velocity_command as the `teleop` node at the topic's 25 Hz while a controller is connected,
-and scans for one every two seconds while none is. Nothing is published without a controller, so that a GUI started
-next to it stays in charge of the robot.
+and scans for one every two seconds while none is. The pelvis height target starts at the reference file's
+default_base_height. The MPC keeps the last command it received, so when the controller goes away, and when the
+publisher ends, it publishes the stop command (zero velocities, the pelvis height kept) for a second; then nothing until
+a controller is found again.
+
+Do not run it next to a GUI that publishes walking commands (base_velocity_controller_gui --walking_commands=publish,
+the launch files' default): both publish the same topic, and the MPC alternates between the two. Start the GUI with
+--walking_commands=off, or untick its "Publish walking commands", to keep its FSM and tuning tabs. A GUI started next
+to it is in charge only while no controller is connected here.
 """
 
 import argparse
 import logging
 import signal
 import threading
+
+from humanoid_mpc_msgs import walking_velocity_command_pb2
 
 from remote_control import operator_bus
 from remote_control import teleop
@@ -48,25 +58,53 @@ _LOGGER = logging.getLogger(__name__)
 
 
 class XBoxWalkingCommandPublisher:
-    """One tick: the controller's command, published when there is one.
+    """One tick: the controller's command, published when there is one, and the stop command after it went away.
 
     Args:
         publisher: the walking command publisher.
         poller: the controller (GamepadPoller).
+        stop_ticks: how many ticks the stop command is published after the controller went away.
     """
 
     def __init__(
         self,
         publisher: operator_bus.TopicPublisher,
         poller: xbox_controller_interface.GamepadPoller,
+        stop_ticks: int = teleop.STOP_COMMAND_TICKS,
     ) -> None:
+        if stop_ticks < 1:
+            raise ValueError(f"stop_ticks must be positive, got {stop_ticks}")
         self._publisher = publisher
         self._poller = poller
+        self._stop_ticks = stop_ticks
+        # The last command of the controller, None before the first; the stop command keeps its pelvis height.
+        self._last_command: (
+            walking_velocity_command_pb2.WalkingVelocityCommand | None
+        ) = None
+        # Ticks of the stop command still to publish; stop_ticks while the controller is read.
+        self._stop_ticks_left = 0
 
     def tick(self) -> None:
         command = self._poller.tick()
         if command is not None:
+            self._last_command = command
+            self._stop_ticks_left = self._stop_ticks
+        elif self._last_command is not None and self._stop_ticks_left > 0:
+            self._stop_ticks_left -= 1
+            command = teleop.stop_command(self._last_command.desired_pelvis_height)
+        if command is not None:
             self._publisher.publish(command)
+
+    def stop_pelvis_height(self) -> float | None:
+        """The pelvis height of the stop command to send when the publisher ends [m].
+
+        Returns:
+            The last command's pelvis height while this publisher commands the robot (a controller is read, or the stop
+            command is still being published); None once it has handed the topic back, or before any command.
+        """
+        if self._last_command is None or self._stop_ticks_left == 0:
+            return None
+        return self._last_command.desired_pelvis_height
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -74,6 +112,7 @@ def build_parser() -> argparse.ArgumentParser:
         description="Publishes the Xbox controller's walking commands on the IPC bus."
     )
     teleop.add_bus_flags(parser, default_node=operator_bus.TELEOP_NODE)
+    teleop.add_reference_file_flag(parser)
     return parser
 
 
@@ -91,15 +130,17 @@ def main(argv: list[str] | None = None) -> int:
     )
     try:
         controller = xbox_controller_interface.XBoxControllerInterface(
-            teleop.WALKING_COMMAND_RATE_HZ
+            teleop.WALKING_COMMAND_RATE_HZ,
+            initial_pelvis_height=teleop.initial_pelvis_height(args.reference_file),
         )
-        node = XBoxWalkingCommandPublisher(
-            publisher,
-            xbox_controller_interface.GamepadPoller(
-                controller, teleop.WALKING_COMMAND_RATE_HZ
-            ),
-        )
-        teleop.run_periodically(teleop.WALKING_COMMAND_RATE_HZ, node.tick, stop)
-    finally:
+    except BaseException:
         publisher.bus.close()
+        raise
+    node = XBoxWalkingCommandPublisher(
+        publisher,
+        xbox_controller_interface.GamepadPoller(
+            controller, teleop.WALKING_COMMAND_RATE_HZ
+        ),
+    )
+    teleop.publish_until_stopped(publisher, node.tick, stop, node.stop_pelvis_height)
     return 0

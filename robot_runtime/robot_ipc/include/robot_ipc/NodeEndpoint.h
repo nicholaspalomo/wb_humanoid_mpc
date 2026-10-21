@@ -35,44 +35,28 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace robot::ipc {
 
-/**
- * A port that only a network built in code may name (never a network file, where a port of 0 is a missing port): the
- * node binds an ephemeral port that the kernel picks, which Bus::boundEndpoint() reports, and no other node can
- * connect to it from the network alone (Bus::connect() can). Tests use it so that they never collide on a port.
- */
-inline constexpr int kEphemeralPort = 0;
+/** The host of a single-machine network: every process on the loopback interface. */
+inline constexpr absl::string_view kLoopbackHost = "127.0.0.1";
 
-/** The largest TCP port. */
-inline constexpr int kMaxPort = 65535;
+/** True for an address of the loopback interface ("127.0.0.1", any 127.x.y.z, and "localhost"). */
+bool isLoopbackHost(absl::string_view host);
 
-/** True for "*" and "0.0.0.0", the hosts that bind every interface. */
-bool isWildcardHost(absl::string_view host);
+/** True for a dotted-quad IPv4 address, such as "192.168.1.10" (a host name is not). */
+bool isIpv4Address(absl::string_view host);
 
 /**
- * One node of the network: where its PUB socket binds, and where every SUB socket of the network connects. Built from a
+ * One node of the network: a process that publishes under this name, and the machine it runs on. Built from a
  * robot_ipc_proto.NetworkConfig.Node of the network file (robot_runtime/robot_ipc/proto/network_config.proto).
+ *
+ * DDS needs no address per node: the bus sends its discovery packets to the host of every node (the unicast peer
+ * list), and a process publishing as a node uses the network interface of its node's host when that host is an IPv4
+ * address. The ports follow from NetworkConfig::domainId (DomainConfig.h).
  */
 struct NodeEndpoint {
   /** The node name a process publishes as (BusOptions::nodeName), e.g. "robot". */
   std::string name;
-  /**
-   * The address the other processes connect to, and the one this node binds unless bindHost is set. A wildcard host
-   * ("0.0.0.0" or "*") binds every interface, and the other processes then connect over the loopback interface, which
-   * only suits a single machine.
-   */
+  /** The machine of the node: an IPv4 address or a host name, e.g. "192.168.1.10" or "127.0.0.1". */
   std::string host;
-  /** The TCP port, in [1, kMaxPort], or kEphemeralPort. */
-  int port = kEphemeralPort;
-  /**
-   * The interface to bind instead of host, e.g. "0.0.0.0" on a machine whose address peers know. Empty: host. Defaulted
-   * here, so that the designated initializers that leave it out (`{.name = ..., .host = ..., .port = ...}`) set it.
-   */
-  std::string bindHost = "";
-
-  /** "tcp://<bindHost or host>:<port>", with "*" for a wildcard host and for kEphemeralPort. */
-  std::string bindEndpoint() const;
-  /** "tcp://<host>:<port>", with 127.0.0.1 for a wildcard host. */
-  std::string connectEndpoint() const;
 
   bool operator==(const NodeEndpoint& other) const = default;
 };

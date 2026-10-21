@@ -47,7 +47,7 @@ runtime what it is made of (`MpcNodeRuntime::Components`):
 - `attachVisualization` (optional): the visualization publisher's attacher, below.
 
 The solver thread is configured by `defaultSolverThreadConfig(realtimePriority)`: named `mpc_solver`, pinned to the MPC
-cores of `humanoid_common_mpc/common/ThreadAffinity.h`, `SCHED_FIFO` when the node's `--realtime_priority` is positive,
+cores of `humanoid_common_mpc/common/ThreadAffinity.h`, `SCHED_FIFO` when the task file's `multiple_shooting.thread_priority` is positive,
 and without `mlockall()` (`MemoryLock::kNone`), because the solver allocates as it runs. The node binaries also pin
 their main thread to the MPC cores before they build the MPC, so that the SQP solver's worker threads and the bus's IO
 thread inherit them.

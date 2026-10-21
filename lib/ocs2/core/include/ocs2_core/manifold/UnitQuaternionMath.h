@@ -31,6 +31,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <cmath>
 
+#include "ocs2_core/Dimensions.h"
+
 #include <Eigen/Core>
 
 /*
@@ -66,10 +68,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2 {
 
 template <typename SCALAR_T>
-using quaternion_coeffs_t = Eigen::Matrix<SCALAR_T, 4, 1>;  // (x, y, z, w)
+using quaternion_coeffs_t = Eigen::Matrix<SCALAR_T, kQuaternionCoefficients, 1>;  // (x, y, z, w)
 
 template <typename SCALAR_T>
-using rotation_vector_t = Eigen::Matrix<SCALAR_T, 3, 1>;
+using rotation_vector_t = Eigen::Matrix<SCALAR_T, kRotationTangentDim, 1>;
 
 /**
  * At or below this norm a quaternion is not normalized: quaternionSafeNormalize() returns it unchanged, and the
@@ -93,9 +95,12 @@ SCALAR_T ifGreaterThan(const SCALAR_T& left, const SCALAR_T& right, const SCALAR
 
 /** [v]x, the cross-product matrix. */
 template <typename SCALAR_T>
-Eigen::Matrix<SCALAR_T, 3, 3> crossProductMatrix(const rotation_vector_t<SCALAR_T>& v) {
-  Eigen::Matrix<SCALAR_T, 3, 3> matrix;
-  matrix << SCALAR_T(0.0), -v(2), v(1), v(2), SCALAR_T(0.0), -v(0), -v(1), v(0), SCALAR_T(0.0);
+Eigen::Matrix<SCALAR_T, kRotationTangentDim, kRotationTangentDim> crossProductMatrix(const rotation_vector_t<SCALAR_T>& v) {
+  const SCALAR_T& x = v(kXAxisIndex);
+  const SCALAR_T& y = v(kYAxisIndex);
+  const SCALAR_T& z = v(kZAxisIndex);
+  Eigen::Matrix<SCALAR_T, kRotationTangentDim, kRotationTangentDim> matrix;
+  matrix << SCALAR_T(0.0), -z, y, z, SCALAR_T(0.0), -x, -y, x, SCALAR_T(0.0);
   return matrix;
 }
 
@@ -120,18 +125,30 @@ constexpr double kJacobianSeriesThreshold = 0.1;
 }  // namespace unit_quaternion_internal
 
 /**
+ * A unit quaternion represents the rotation by an angle a through the half angle a / 2 (the double cover): Exp(phi) has
+ * the coefficients sin(a / 2) and cos(a / 2), E(xi) = G(xi) / 2 and with it the attitude kinematics
+ * xi' = 1/2 G(xi) omega_body, a quaternion-distance orientation error (the vector part of an error quaternion, half the
+ * rotation angle to first order) moves at half the angular velocity, and Jr^-1 has the terms (a / 2) [phi / a]x and
+ * (1 - (a / 2) cot(a / 2)) [phi / a]x^2. kQuaternionDoubleAngleFactor takes a half angle back to its angle: Log(xi) =
+ * 2 atan2(|v|, w) v / |v|, E+(xi) = 2 G(xi)' / |xi|^2, the cot(a / 2) / (2 a) of Jr^-1, and the double-angle identities
+ * sin a = 2 sin(a / 2) cos(a / 2) and 1 - cos a = 2 sin^2(a / 2), which give R(xi) and Jr their factors 2.
+ */
+inline constexpr double kQuaternionHalfAngleFactor = 0.5;
+inline constexpr double kQuaternionDoubleAngleFactor = 2.0;
+
+/**
  * The rate matrix G(xi), with xi (x) (omega, 0) = G(xi) * omega:
  *   G = [ w -z  y ;  z  w -x ; -y  x  w ; -x -y -z ].
  * It is linear in xi, satisfies G' G = |xi|^2 I and G' xi = 0, and xi_dot = 0.5 G(xi) omega_body is the attitude
  * kinematics. Polynomial, so it is safe on any tape and at any xi, including the raw (unnormalized) state.
  */
 template <typename SCALAR_T>
-Eigen::Matrix<SCALAR_T, 4, 3> quaternionRateMatrix(const quaternion_coeffs_t<SCALAR_T>& xi) {
-  const SCALAR_T& x = xi(0);
-  const SCALAR_T& y = xi(1);
-  const SCALAR_T& z = xi(2);
-  const SCALAR_T& w = xi(3);
-  Eigen::Matrix<SCALAR_T, 4, 3> G;
+Eigen::Matrix<SCALAR_T, kQuaternionCoefficients, kRotationTangentDim> quaternionRateMatrix(const quaternion_coeffs_t<SCALAR_T>& xi) {
+  const SCALAR_T& x = xi(kQuaternionXIndex);
+  const SCALAR_T& y = xi(kQuaternionYIndex);
+  const SCALAR_T& z = xi(kQuaternionZIndex);
+  const SCALAR_T& w = xi(kQuaternionWIndex);
+  Eigen::Matrix<SCALAR_T, kQuaternionCoefficients, kRotationTangentDim> G;
   G << w, -z, y, z, w, -x, -y, x, w, -x, -y, -z;
   return G;
 }
@@ -139,11 +156,19 @@ Eigen::Matrix<SCALAR_T, 4, 3> quaternionRateMatrix(const quaternion_coeffs_t<SCA
 /** The Hamilton product a (x) b of coefficient vectors. */
 template <typename SCALAR_T>
 quaternion_coeffs_t<SCALAR_T> quaternionProduct(const quaternion_coeffs_t<SCALAR_T>& a, const quaternion_coeffs_t<SCALAR_T>& b) {
+  const SCALAR_T& ax = a(kQuaternionXIndex);
+  const SCALAR_T& ay = a(kQuaternionYIndex);
+  const SCALAR_T& az = a(kQuaternionZIndex);
+  const SCALAR_T& aw = a(kQuaternionWIndex);
+  const SCALAR_T& bx = b(kQuaternionXIndex);
+  const SCALAR_T& by = b(kQuaternionYIndex);
+  const SCALAR_T& bz = b(kQuaternionZIndex);
+  const SCALAR_T& bw = b(kQuaternionWIndex);
   quaternion_coeffs_t<SCALAR_T> product;
-  product(0) = a(3) * b(0) + a(0) * b(3) + a(1) * b(2) - a(2) * b(1);
-  product(1) = a(3) * b(1) - a(0) * b(2) + a(1) * b(3) + a(2) * b(0);
-  product(2) = a(3) * b(2) + a(0) * b(1) - a(1) * b(0) + a(2) * b(3);
-  product(3) = a(3) * b(3) - a(0) * b(0) - a(1) * b(1) - a(2) * b(2);
+  product(kQuaternionXIndex) = aw * bx + ax * bw + ay * bz - az * by;
+  product(kQuaternionYIndex) = aw * by - ax * bz + ay * bw + az * bx;
+  product(kQuaternionZIndex) = aw * bz + ax * by - ay * bx + az * bw;
+  product(kQuaternionWIndex) = aw * bw - ax * bx - ay * by - az * bz;
   return product;
 }
 
@@ -151,7 +176,7 @@ quaternion_coeffs_t<SCALAR_T> quaternionProduct(const quaternion_coeffs_t<SCALAR
 template <typename SCALAR_T>
 quaternion_coeffs_t<SCALAR_T> quaternionConjugate(const quaternion_coeffs_t<SCALAR_T>& xi) {
   quaternion_coeffs_t<SCALAR_T> conjugate;
-  conjugate << -xi(0), -xi(1), -xi(2), xi(3);
+  conjugate << -xi(kQuaternionXIndex), -xi(kQuaternionYIndex), -xi(kQuaternionZIndex), xi(kQuaternionWIndex);
   return conjugate;
 }
 
@@ -178,8 +203,8 @@ quaternion_coeffs_t<SCALAR_T> quaternionSafeNormalize(const quaternion_coeffs_t<
  * E(xi) = 0.5 G(xi) (4 x 3): maps a body perturbation delta to the first-order change of xi (x) Exp(delta).
  */
 template <typename SCALAR_T>
-Eigen::Matrix<SCALAR_T, 4, 3> quaternionTangentMap(const quaternion_coeffs_t<SCALAR_T>& xi) {
-  return SCALAR_T(0.5) * quaternionRateMatrix(xi);
+Eigen::Matrix<SCALAR_T, kQuaternionCoefficients, kRotationTangentDim> quaternionTangentMap(const quaternion_coeffs_t<SCALAR_T>& xi) {
+  return SCALAR_T(kQuaternionHalfAngleFactor) * quaternionRateMatrix(xi);
 }
 
 /**
@@ -189,9 +214,10 @@ Eigen::Matrix<SCALAR_T, 4, 3> quaternionTangentMap(const quaternion_coeffs_t<SCA
  * vector J_t on the tangent lifts to the ambient row vector J_t E+.
  */
 template <typename SCALAR_T>
-Eigen::Matrix<SCALAR_T, 3, 4> quaternionTangentMapPseudoInverse(const quaternion_coeffs_t<SCALAR_T>& xi) {
+Eigen::Matrix<SCALAR_T, kRotationTangentDim, kQuaternionCoefficients> quaternionTangentMapPseudoInverse(
+    const quaternion_coeffs_t<SCALAR_T>& xi) {
   const SCALAR_T norm = quaternionSafeNorm(xi);
-  return (SCALAR_T(2.0) / (norm * norm)) * quaternionRateMatrix(xi).transpose();
+  return (SCALAR_T(kQuaternionDoubleAngleFactor) / (norm * norm)) * quaternionRateMatrix(xi).transpose();
 }
 
 /**
@@ -200,17 +226,18 @@ Eigen::Matrix<SCALAR_T, 3, 4> quaternionTangentMapPseudoInverse(const quaternion
  * unit, pass quaternionSafeNormalize(xi).
  */
 template <typename SCALAR_T>
-Eigen::Matrix<SCALAR_T, 3, 3> quaternionRotationMatrix(const quaternion_coeffs_t<SCALAR_T>& xi) {
-  const SCALAR_T& x = xi(0);
-  const SCALAR_T& y = xi(1);
-  const SCALAR_T& z = xi(2);
-  const SCALAR_T& w = xi(3);
+Eigen::Matrix<SCALAR_T, kPositionDim, kPositionDim> quaternionRotationMatrix(const quaternion_coeffs_t<SCALAR_T>& xi) {
+  const SCALAR_T& x = xi(kQuaternionXIndex);
+  const SCALAR_T& y = xi(kQuaternionYIndex);
+  const SCALAR_T& z = xi(kQuaternionZIndex);
+  const SCALAR_T& w = xi(kQuaternionWIndex);
   const SCALAR_T one(1.0);
-  const SCALAR_T two(2.0);
-  Eigen::Matrix<SCALAR_T, 3, 3> R;
-  R << one - two * (y * y + z * z), two * (x * y - z * w), two * (x * z + y * w),  //
-      two * (x * y + z * w), one - two * (x * x + z * z), two * (y * z - x * w),   //
-      two * (x * z - y * w), two * (y * z + x * w), one - two * (x * x + y * y);
+  // The factors 2 of the double-angle identities sin a = 2 sin(a / 2) cos(a / 2) and 1 - cos a = 2 sin^2(a / 2).
+  const SCALAR_T doubleAngleFactor(kQuaternionDoubleAngleFactor);
+  Eigen::Matrix<SCALAR_T, kPositionDim, kPositionDim> R;
+  R << one - doubleAngleFactor * (y * y + z * z), doubleAngleFactor * (x * y - z * w), doubleAngleFactor * (x * z + y * w),  //
+      doubleAngleFactor * (x * y + z * w), one - doubleAngleFactor * (x * x + z * z), doubleAngleFactor * (y * z - x * w),   //
+      doubleAngleFactor * (x * z - y * w), doubleAngleFactor * (y * z + x * w), one - doubleAngleFactor * (x * x + y * y);
   return R;
 }
 
@@ -223,14 +250,21 @@ quaternion_coeffs_t<SCALAR_T> quaternionExp(const rotation_vector_t<SCALAR_T>& p
   const SCALAR_T angleSquared = phi.squaredNorm();
   const SCALAR_T angle = unit_quaternion_internal::guardedNorm(angleSquared, unit_quaternion_internal::kExpLogSeriesThreshold);
   const SCALAR_T threshold(unit_quaternion_internal::kExpLogSeriesThreshold * unit_quaternion_internal::kExpLogSeriesThreshold);
-  // sin(a / 2) / a = 1/2 - a^2/48 + a^4/3840, cos(a / 2) = 1 - a^2/8 + a^4/384.
+  // sin(a / 2) / a = 1/2 - a^2/48 + a^4/3840, cos(a / 2) = 1 - a^2/8 + a^4/384, the Taylor series of sin and cos at the
+  // half angle: sin(a / 2) / a = (1 - (a / 2)^2 / 3! + (a / 2)^4 / 5!) / 2 and cos(a / 2) = 1 - (a / 2)^2 / 2! + (a / 2)^4 / 4!.
+  constexpr double kVectorScaleSecondOrderDenominator = 48.0;
+  constexpr double kVectorScaleFourthOrderDenominator = 3840.0;
+  constexpr double kScalarPartSecondOrderDenominator = 8.0;
+  constexpr double kScalarPartFourthOrderDenominator = 384.0;
   const SCALAR_T vectorScale =
-      ifGreaterThan(angleSquared, threshold, sin(SCALAR_T(0.5) * angle) / angle,
-                    SCALAR_T(0.5) - angleSquared / SCALAR_T(48.0) + angleSquared * angleSquared / SCALAR_T(3840.0));
-  const SCALAR_T scalarPart = ifGreaterThan(angleSquared, threshold, cos(SCALAR_T(0.5) * angle),
-                                            SCALAR_T(1.0) - angleSquared / SCALAR_T(8.0) + angleSquared * angleSquared / SCALAR_T(384.0));
+      ifGreaterThan(angleSquared, threshold, sin(SCALAR_T(kQuaternionHalfAngleFactor) * angle) / angle,
+                    SCALAR_T(kQuaternionHalfAngleFactor) - angleSquared / SCALAR_T(kVectorScaleSecondOrderDenominator) +
+                        angleSquared * angleSquared / SCALAR_T(kVectorScaleFourthOrderDenominator));
+  const SCALAR_T scalarPart = ifGreaterThan(angleSquared, threshold, cos(SCALAR_T(kQuaternionHalfAngleFactor) * angle),
+                                            SCALAR_T(1.0) - angleSquared / SCALAR_T(kScalarPartSecondOrderDenominator) +
+                                                angleSquared * angleSquared / SCALAR_T(kScalarPartFourthOrderDenominator));
   quaternion_coeffs_t<SCALAR_T> xi;
-  xi << vectorScale * phi(0), vectorScale * phi(1), vectorScale * phi(2), scalarPart;
+  xi << vectorScale * phi(kXAxisIndex), vectorScale * phi(kYAxisIndex), vectorScale * phi(kZAxisIndex), scalarPart;
   return xi;
 }
 
@@ -258,9 +292,9 @@ rotation_vector_t<SCALAR_T> quaternionLog(const quaternion_coeffs_t<SCALAR_T>& x
   using std::atan2;
   using std::sqrt;
   using unit_quaternion_internal::ifGreaterThan;
-  const SCALAR_T sign = ifGreaterThan(SCALAR_T(0.0), xi(3), SCALAR_T(-1.0), SCALAR_T(1.0));
-  const rotation_vector_t<SCALAR_T> v = sign * xi.template head<3>();
-  const SCALAR_T w = sign * xi(3);  // >= 0
+  const SCALAR_T sign = ifGreaterThan(SCALAR_T(0.0), xi(kQuaternionWIndex), SCALAR_T(-1.0), SCALAR_T(1.0));
+  const rotation_vector_t<SCALAR_T> v = sign * xi.template head<kRotationTangentDim>();
+  const SCALAR_T w = sign * xi(kQuaternionWIndex);  // >= 0
   const SCALAR_T vectorNormSquared = v.squaredNorm();
   // th^2 |xi|^2: the series threshold th = kExpLogSeriesThreshold scaled with xi, so that no selection below changes when
   // xi is multiplied by c > 0.
@@ -276,9 +310,12 @@ rotation_vector_t<SCALAR_T> quaternionLog(const quaternion_coeffs_t<SCALAR_T>& x
   // |xi|^2, n^2 and th^2 |xi|^2 are subnormal or zero, so the selection no longer follows the angle and a reverse sweep
   // can divide by an underflowed w^3 (0 * inf, a NaN Jacobian); above it |xi|^2 overflows (the class comment).
   const SCALAR_T guardedW = ifGreaterThan(w * w, threshold, w, SCALAR_T(1.0));
+  // The series is that of atan(t) = t - t^3 / 3 + O(t^5) at t = n / w.
+  constexpr double kArctanThirdOrderDenominator = 3.0;
   const SCALAR_T scale =
-      ifGreaterThan(vectorNormSquared, threshold, SCALAR_T(2.0) * atan2(vectorNorm, w) / vectorNorm,
-                    (SCALAR_T(2.0) / guardedW) * (SCALAR_T(1.0) - vectorNormSquared / (SCALAR_T(3.0) * guardedW * guardedW)));
+      ifGreaterThan(vectorNormSquared, threshold, SCALAR_T(kQuaternionDoubleAngleFactor) * atan2(vectorNorm, w) / vectorNorm,
+                    (SCALAR_T(kQuaternionDoubleAngleFactor) / guardedW) *
+                        (SCALAR_T(1.0) - vectorNormSquared / (SCALAR_T(kArctanThirdOrderDenominator) * guardedW * guardedW)));
   return scale * v;
 }
 
@@ -287,25 +324,36 @@ rotation_vector_t<SCALAR_T> quaternionLog(const quaternion_coeffs_t<SCALAR_T>& x
  *   Jr(phi) = I - (1 - cos a) / a^2 [phi]x + (a - sin a) / a^3 [phi]x^2,  a = |phi|.
  */
 template <typename SCALAR_T>
-Eigen::Matrix<SCALAR_T, 3, 3> so3RightJacobian(const rotation_vector_t<SCALAR_T>& phi) {
+Eigen::Matrix<SCALAR_T, kRotationTangentDim, kRotationTangentDim> so3RightJacobian(const rotation_vector_t<SCALAR_T>& phi) {
   using std::sin;
   using unit_quaternion_internal::ifGreaterThan;
+  // The Taylor coefficients of first and second, below their thresholds, are inverse factorials.
+  constexpr double kInverseFactorial2 = 0.5;
+  constexpr double kInverseFactorial3 = 1.0 / 6.0;
+  constexpr double kFactorial4 = 24.0;
+  constexpr double kFactorial5 = 120.0;
+  constexpr double kFactorial6 = 720.0;
+  constexpr double kFactorial7 = 5040.0;
+  constexpr double kFactorial9 = 362880.0;
+  constexpr double kFactorial11 = 39916800.0;
   const SCALAR_T a2 = phi.squaredNorm();
   const SCALAR_T a = unit_quaternion_internal::guardedNorm(a2, unit_quaternion_internal::kExpLogSeriesThreshold);
   const SCALAR_T aJacobian = unit_quaternion_internal::guardedNorm(a2, unit_quaternion_internal::kJacobianSeriesThreshold);
-  // (1 - cos a) / a^2 = 2 sin^2(a / 2) / a^2, which has no cancellation; series 1/2 - a^2/24 + a^4/720.
-  const SCALAR_T sinHalf = sin(SCALAR_T(0.5) * a);
+  // (1 - cos a) / a^2 = 2 sin^2(a / 2) / a^2, which has no cancellation; series 1/2! - a^2/4! + a^4/6!.
+  const SCALAR_T sinHalf = sin(SCALAR_T(kQuaternionHalfAngleFactor) * a);
   const SCALAR_T first =
       ifGreaterThan(a2, SCALAR_T(unit_quaternion_internal::kExpLogSeriesThreshold * unit_quaternion_internal::kExpLogSeriesThreshold),
-                    SCALAR_T(2.0) * sinHalf * sinHalf / (a * a), SCALAR_T(0.5) - a2 / SCALAR_T(24.0) + a2 * a2 / SCALAR_T(720.0));
-  // (a - sin a) / a^3 = 1/6 - a^2/120 + a^4/5040 - a^6/362880 + a^8/39916800.
+                    SCALAR_T(kQuaternionDoubleAngleFactor) * sinHalf * sinHalf / (a * a),
+                    SCALAR_T(kInverseFactorial2) - a2 / SCALAR_T(kFactorial4) + a2 * a2 / SCALAR_T(kFactorial6));
+  // (a - sin a) / a^3 = 1/3! - a^2/5! + a^4/7! - a^6/9! + a^8/11!.
   const SCALAR_T a4 = a2 * a2;
-  const SCALAR_T second = ifGreaterThan(
-      a2, SCALAR_T(unit_quaternion_internal::kJacobianSeriesThreshold * unit_quaternion_internal::kJacobianSeriesThreshold),
-      (aJacobian - sin(aJacobian)) / (aJacobian * aJacobian * aJacobian),
-      SCALAR_T(1.0 / 6.0) - a2 / SCALAR_T(120.0) + a4 / SCALAR_T(5040.0) - a4 * a2 / SCALAR_T(362880.0) + a4 * a4 / SCALAR_T(39916800.0));
-  const Eigen::Matrix<SCALAR_T, 3, 3> cross = unit_quaternion_internal::crossProductMatrix(phi);
-  return Eigen::Matrix<SCALAR_T, 3, 3>::Identity() - first * cross + second * cross * cross;
+  const SCALAR_T second =
+      ifGreaterThan(a2, SCALAR_T(unit_quaternion_internal::kJacobianSeriesThreshold * unit_quaternion_internal::kJacobianSeriesThreshold),
+                    (aJacobian - sin(aJacobian)) / (aJacobian * aJacobian * aJacobian),
+                    SCALAR_T(kInverseFactorial3) - a2 / SCALAR_T(kFactorial5) + a4 / SCALAR_T(kFactorial7) -
+                        a4 * a2 / SCALAR_T(kFactorial9) + a4 * a4 / SCALAR_T(kFactorial11));
+  const Eigen::Matrix<SCALAR_T, kRotationTangentDim, kRotationTangentDim> cross = unit_quaternion_internal::crossProductMatrix(phi);
+  return Eigen::Matrix<SCALAR_T, kRotationTangentDim, kRotationTangentDim>::Identity() - first * cross + second * cross * cross;
 }
 
 /**
@@ -314,21 +362,28 @@ Eigen::Matrix<SCALAR_T, 3, 3> so3RightJacobian(const rotation_vector_t<SCALAR_T>
  * The coefficient is written with cot(a / 2), so it is regular at a = pi (where (1 + cos a) / (2 a sin a) is 0 / 0).
  */
 template <typename SCALAR_T>
-Eigen::Matrix<SCALAR_T, 3, 3> so3RightJacobianInverse(const rotation_vector_t<SCALAR_T>& phi) {
+Eigen::Matrix<SCALAR_T, kRotationTangentDim, kRotationTangentDim> so3RightJacobianInverse(const rotation_vector_t<SCALAR_T>& phi) {
   using std::cos;
   using std::sin;
   using unit_quaternion_internal::ifGreaterThan;
+  // The series of the coefficient, whose terms are |B_2k| a^(2k - 2) / (2k)! with B the Bernoulli numbers.
+  constexpr double kSeriesConstantTerm = 1.0 / 12.0;
+  constexpr double kSeriesSecondOrderDenominator = 720.0;
+  constexpr double kSeriesFourthOrderDenominator = 30240.0;
+  constexpr double kSeriesSixthOrderDenominator = 1209600.0;
   const SCALAR_T a2 = phi.squaredNorm();
   const SCALAR_T a = unit_quaternion_internal::guardedNorm(a2, unit_quaternion_internal::kJacobianSeriesThreshold);
-  const SCALAR_T halfAngle = SCALAR_T(0.5) * a;
+  const SCALAR_T halfAngle = SCALAR_T(kQuaternionHalfAngleFactor) * a;
   // 1/a^2 - cot(a/2) / (2a) = 1/12 + a^2/720 + a^4/30240 + a^6/1209600.
   const SCALAR_T a4 = a2 * a2;
   const SCALAR_T coefficient =
       ifGreaterThan(a2, SCALAR_T(unit_quaternion_internal::kJacobianSeriesThreshold * unit_quaternion_internal::kJacobianSeriesThreshold),
-                    SCALAR_T(1.0) / (a * a) - cos(halfAngle) / (SCALAR_T(2.0) * a * sin(halfAngle)),
-                    SCALAR_T(1.0 / 12.0) + a2 / SCALAR_T(720.0) + a4 / SCALAR_T(30240.0) + a4 * a2 / SCALAR_T(1209600.0));
-  const Eigen::Matrix<SCALAR_T, 3, 3> cross = unit_quaternion_internal::crossProductMatrix(phi);
-  return Eigen::Matrix<SCALAR_T, 3, 3>::Identity() + SCALAR_T(0.5) * cross + coefficient * cross * cross;
+                    SCALAR_T(1.0) / (a * a) - cos(halfAngle) / (SCALAR_T(kQuaternionDoubleAngleFactor) * a * sin(halfAngle)),
+                    SCALAR_T(kSeriesConstantTerm) + a2 / SCALAR_T(kSeriesSecondOrderDenominator) +
+                        a4 / SCALAR_T(kSeriesFourthOrderDenominator) + a4 * a2 / SCALAR_T(kSeriesSixthOrderDenominator));
+  const Eigen::Matrix<SCALAR_T, kRotationTangentDim, kRotationTangentDim> cross = unit_quaternion_internal::crossProductMatrix(phi);
+  return Eigen::Matrix<SCALAR_T, kRotationTangentDim, kRotationTangentDim>::Identity() + SCALAR_T(kQuaternionHalfAngleFactor) * cross +
+         coefficient * cross * cross;
 }
 
 /**

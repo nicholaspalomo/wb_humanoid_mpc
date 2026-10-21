@@ -30,6 +30,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include <array>
+#include <optional>
 #include <vector>
 
 #include "absl/base/nullability.h"
@@ -52,17 +53,29 @@ namespace ocs2::humanoid {
  * rule once forced a lift-off inside a double-support hold it could not see.
  *
  * The binaries are laid out node-major: index kNumContacts * node + foot (contactBinaryIndex).
+ *
+ * Passive data, read-only once make() has built it, so concurrent calls of its const helpers are safe. `input` and
+ * `previousAssignment` must outlive it.
  */
 struct ContactLogicState {
+  /** How a phase duration in fractional nodes is rounded to whole nodes. */
+  enum class NodeRounding {
+    kDown,  // conservative for a minimum-duration rule
+    kUp,    // conservative for a maximum-duration rule
+  };
+
+  // [nodes] initialTouchDownNode without a double support in progress: a touch-down too far in the past to hold anything.
+  static constexpr scalar_t kNoTouchDownNode = -1000.0;
+
   const ContactPlannerInput* absl_nullable input = nullptr;
   int numNodes = 0;
-  scalar_t dt = 0.1;
+  scalar_t dt = PlannerSettings::kDefaultNodeDuration;
   int nSwingMin = 1, nSwingMax = 1, nContactMin = 1, nContactMax = 0, nDoubleSupportHold = 0;
   scalar_t minDoubleSupportNodes = 0.0;  // fractional, minDoubleSupportDuration / dt
   int numCommitted = 0;
-  scalar_t initialTouchDownNode = -1000.0;  // touch-down node of a double support already in progress at planning time
-  // Previous plan, for the plan-consistency cost: -1 / null when there is no usable one.
-  int previousPlanShift = -1;
+  scalar_t initialTouchDownNode = kNoTouchDownNode;  // touch-down node of a double support already in progress at planning time
+  // Previous plan, for the plan-consistency cost: empty / null when there is no usable one.
+  std::optional<int> previousPlanShift;
   const MiqpAssignment* absl_nullable previousAssignment = nullptr;
 
   static constexpr int kBinariesPerNode = static_cast<int>(kNumContacts);
@@ -71,14 +84,13 @@ struct ContactLogicState {
 
   static ContactLogicState make(const ContactPlannerInput& input,
                                 const ContactPlanningConfig& config,
-                                int previousPlanShift,
+                                std::optional<int> previousPlanShift,
                                 const MiqpAssignment* absl_nullable previousAssignment);
 
   /**
-   * Nodes already spent in the phase active at planning time. Rounded down by default, which is conservative for a
-   * minimum-duration rule; `roundUp` rounds up, which is conservative for a maximum-duration rule.
+   * Nodes already spent in the phase active at planning time, rounded as `rounding` says.
    */
-  int initialPhaseNodes(size_t foot, bool roundUp) const;
+  int initialPhaseNodes(size_t foot, NodeRounding rounding) const;
   /**
    * Time at which a phase that switches at node k begins: the node start, except along the committed prefix, where the
    * executed schedule knows the real event time (input.committedPhaseStartTimes).
@@ -87,7 +99,7 @@ struct ContactLogicState {
   /** Switch time of node k in node units from the grid start (k itself for a switch at the node start). */
   scalar_t switchNode(int k, size_t foot) const;
   /** Nodes spent in the phase that switched at node k, at the start of node k + 1 (rounded like initialPhaseNodes). */
-  int switchedPhaseNodes(int k, size_t foot, bool roundUp) const;
+  int switchedPhaseNodes(int k, size_t foot, NodeRounding rounding) const;
   /** Whether a foot in contact at node k is held down by the minimum double support after a touch-down at `latestTouchDownNode`. */
   bool heldAfterTouchDown(int k, scalar_t latestTouchDownNode) const;
   /** Contact state of a foot just before `node` along the fixed prefix: 1 in contact, 0 in the air, -1 unknown. */

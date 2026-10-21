@@ -45,11 +45,25 @@ namespace ocs2::humanoid::teleop {
  * copy, so the two must be the same numbers.
  */
 struct KeyboardCommandLimits {
+  /** The entries of a keyboard command and of `limits`, in this order, and their count. */
+  static constexpr int kVelocityXIndex = 0;
+  static constexpr int kVelocityYIndex = 1;
+  static constexpr int kPelvisHeightChangeIndex = 2;
+  static constexpr int kYawRateIndex = 3;
+  static constexpr int kNumEntries = kYawRateIndex + 1;
+
+  /** The defaults of the entries of `limits`, in their order and units, and of defaultBaseHeight [m]. */
+  static constexpr scalar_t kDefaultMaxVelocityX = 0.5;
+  static constexpr scalar_t kDefaultMaxVelocityY = 0.3;
+  static constexpr scalar_t kDefaultMaxDeltaPelvisHeight = 0.4;
+  static constexpr scalar_t kDefaultMaxYawRate = 0.5;
+  static constexpr scalar_t kDefaultBaseHeight = 0.7;
+
   /** [v_x m/s, v_y m/s, pelvis height change m, yaw rate rad/s]: max_displacement_velocity_x,
    *  max_displacement_velocity_y, max_delta_pelvis_height, max_rotation_velocity. */
-  vector4_t limits = vector4_t(0.5, 0.3, 0.4, 0.5);
+  vector4_t limits = vector4_t(kDefaultMaxVelocityX, kDefaultMaxVelocityY, kDefaultMaxDeltaPelvisHeight, kDefaultMaxYawRate);
   /** [m] default_base_height: the pelvis height a zero height change commands. */
-  scalar_t defaultBaseHeight = 0.7;
+  scalar_t defaultBaseHeight = kDefaultBaseHeight;
 };
 
 /**

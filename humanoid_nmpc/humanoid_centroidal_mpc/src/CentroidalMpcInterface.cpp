@@ -29,6 +29,7 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
+#include <algorithm>
 #include <exception>
 #include <filesystem>
 #include <functional>
@@ -54,7 +55,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_centroidal_model/CentroidalModelPinocchioMapping.h"
 #include "ocs2_centroidal_model/FactoryFunctions.h"
 #include "ocs2_centroidal_model/ModelHelperFunctions.h"
-#include "ocs2_core/misc/Numerics.h"
+#include "ocs2_core/Dimensions.h"
+#include "ocs2_core/PhysicalConstants.h"
 #include "ocs2_core/penalties/Penalties.h"
 #include "ocs2_core/soft_constraint/StateInputSoftConstraint.h"
 #include "ocs2_core/soft_constraint/StateSoftConstraint.h"
@@ -63,15 +65,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_centroidal_mpc/CentroidalMpcInterface.h"
 #include "humanoid_centroidal_mpc/config/costs/DcmTerminalCostFromConfig.h"
-#include "humanoid_centroidal_mpc/config/costs/IcpCostFromConfig.h"
 #include "humanoid_centroidal_mpc/constraint/JointMimicKinematicConstraint.h"
 #include "humanoid_centroidal_mpc/constraint/NormalVelocityConstraintCppAd.h"
 #include "humanoid_centroidal_mpc/constraint/ZeroVelocityConstraintCppAd.h"
 #include "humanoid_centroidal_mpc/cost/CentroidalMpcEndEffectorFootCost.h"
 #include "humanoid_centroidal_mpc/cost/DcmTerminalCost.h"
-#include "humanoid_centroidal_mpc/cost/ICPCost.h"
 #include "humanoid_centroidal_mpc/dynamics/CentroidalDynamicsAD.h"
 #include "humanoid_centroidal_mpc/dynamics/CentroidalDynamicsBasisInputsAD.h"
+#include "humanoid_centroidal_mpc/parameter_update/ZeroVelocityGainsApplier.h"
 #include "humanoid_common_mpc/HumanoidCostConstraintFactory.h"
 #include "humanoid_common_mpc/HumanoidPreComputation.h"
 #include "humanoid_common_mpc/common/BasisInputsCostTransform.h"
@@ -200,6 +201,9 @@ absl::Status CentroidalMpcInterface::setupModels() {
   ASSIGN_OR_RETURN(PinocchioInterface pinocchioInterface,
                    loadCustomPinocchioInterface(config_.task, urdfFile_, modelSettings_, /*scaleTotalMass=*/false));
   pinocchioInterfacePtr_ = std::make_unique<PinocchioInterface>(std::move(pinocchioInterface));
+  // Every term that reads a contact frame - the centroidal model info, the dynamics, the foot costs and constraints -
+  // looks it up by model_settings' name; a name the model does not have would be read out of bounds.
+  RETURN_IF_ERROR(checkContactFramesExist(pinocchioInterfacePtr_->getModel(), modelSettings_.contactNames));
 
   // CentroidalModelInfo
   ASSIGN_OR_RETURN(const CentroidalModelType centroidalModelType, centroidalModelTypeFromConfig(config_.task));
@@ -319,6 +323,26 @@ absl::StatusOr<bool> footPositionIsTracked(const mpc_config::TaskFile& task, con
   if (!formulationTasks.hasCost(MpcCostType::kTaskSpaceFootCost)) return false;
   ASSIGN_OR_RETURN(const TaskSpaceFootCostSettings footCost, taskSpaceFootCostFromConfig(task.task_space_foot_cost));
   return footCost.weights.contactPositionErrorWeight(0) != 0.0 || footCost.weights.contactPositionErrorWeight(1) != 0.0;
+}
+
+/**
+ * Warns when task_space_foot_cost.weights.orientation_z weighs nothing: the third orientation residual of
+ * CentroidalMpcEndEffectorFootCost tracks a planned foot yaw, which only the contact planner's heading model plans, and
+ * without one it is identically 0 (CentroidalMpcEndEffectorFootCost::footYawError()). `planningReferenceManager` is
+ * the reference manager under contact planning, null otherwise; it is not retained.
+ */
+void warnIfFootYawIsUnplanned(const MpcFormulationTasks& formulationTasks,
+                              const TaskSpaceFootCostSettings& footCost,
+                              const ContactPlanningReferenceManager* absl_nullable planningReferenceManager) {
+  if (!formulationTasks.hasCost(MpcCostType::kTaskSpaceFootCost)) return;
+  const scalar_t yawWeight = footCost.weights.contactOrientationErrorWeight(kZAxisIndex);
+  if (yawWeight == 0.0) return;
+  if (planningReferenceManager != nullptr && planningReferenceManager->getConfig().usesHeadingModel()) return;
+  LOG(WARNING) << "[CentroidalMpcInterface] task_space_foot_cost.weights.orientation_z is " << yawWeight
+               << ", but nothing plans a foot yaw for it to weigh: only the contact planner's heading model does "
+                  "(contact_schedule_source: contact_planner, its dynamics listing heading_double_integrator). Without one the "
+                  "foot cost's yaw residual is identically 0, and so is what this weight adds; the foot's yaw is left to the "
+                  "stance constraints and the joint regularization.";
 }
 
 }  // namespace
@@ -450,19 +474,30 @@ absl::Status CentroidalMpcInterface::setupReferenceManager() {
   // field is refused rather than planned against the library default of mu 0.7.
   ASSIGN_OR_RETURN(const ContactWrenchConeConstraint::Config coneConfig, contactWrenchConeConfigFromConfig(config_.task.contacts));
   ContactPlanningGroundParameters ground;
-  ground.frictionCoefficient = coneConfig.frictionCoefficient;
+  // The planner models friction as a circle: the radius the inscribed friction pyramid admits in every direction.
+  ground.frictionCoefficient = inscribedFrictionCoefficient(coneConfig);
   ground.torsionalFrictionCoefficient = coneConfig.torsionalFrictionCoefficient;
   // Without a footprint the planner derives no ZMP box from it.
   const absl::StatusOr<ContactRectangle> footprint = contactRectangleFromConfig(config_.task.contacts, modelSettings_, /*contactIndex=*/0);
   if (footprint.ok()) {
     ground.footprintHalfLengthX = 0.5 * (footprint->getBounds().x_max - footprint->getBounds().x_min);
     ground.footprintHalfWidthY = 0.5 * (footprint->getBounds().y_max - footprint->getBounds().y_min);
+    // The wrench cone's torsion limit follows from the corner friction; the planner's budget must not exceed it.
+    if (ContactWrenchConeConstraint::validateFootprint(*footprint).ok()) {
+      const vector3_t footprintCenter = contactPatchReferencePoint(ContactWrenchConeConstraint::Config(), *footprint);
+      const std::optional<TorsionInterval> torsionLimits = torsionLimitsOfNormalForceAt(
+          buildLocalWrenchConeRows(coneConfig, *footprint), vector2_t(footprintCenter.x(), footprintCenter.y()));
+      if (torsionLimits.has_value()) {
+        ground.torsionalFrictionCoefficient = std::min({ground.torsionalFrictionCoefficient, torsionLimits->upper, -torsionLimits->lower});
+      }
+    }
   } else {
     LOG(WARNING) << "[CentroidalMpcInterface] no footprint for the contact planner's ZMP box: " << footprint.status().message();
   }
-  contactPlanningModelParameters_ = deriveContactPlanningModelParameters(
-      *pinocchioInterfacePtr_, *effectiveMpcRobotModelPtr_, initialState_, modelSettings_.contactParentJointNames, ground,
-      contactPlanningConfig.shared.gravity, contactPlanningConfig.stepWidth.nominalStepWidth);
+  // The planner's gravity is the model's (ContactPlanningModelParameters::applyTo()); refused here if it does not point down.
+  RETURN_IF_ERROR(modelGravity(pinocchioInterfacePtr_->getModel()).status());
+  contactPlanningModelParameters_ = deriveContactPlanningModelParameters(*pinocchioInterfacePtr_, *effectiveMpcRobotModelPtr_,
+                                                                         initialState_, modelSettings_.contactParentJointNames, ground);
   contactPlanningModelParameters_->applyTo(contactPlanningConfig);
   LOG(INFO) << "[CentroidalMpcInterface] contact planner model parameters: " << contactPlanningModelParameters_->summary();
   RETURN_IF_ERROR(contactPlanningConfig.validateStatus());
@@ -538,6 +573,24 @@ absl::Status CentroidalMpcInterface::setupLocomotionHeuristics() {
 /******************************************************************************************************/
 /******************************************************************************************************/
 
+// What setupOptimalControlProblem() builds every contact's terms from: pointers to its locals, which outlive the
+// per-contact helpers it is handed to. No field has a default, since a nonnull pointer has none to give: the one
+// initializer below names every field.
+struct CentroidalMpcInterface::ContactTermInputs {
+  const MpcFormulationTasks* absl_nonnull formulationTasks;
+  const HumanoidCostConstraintFactory* absl_nonnull factory;
+  // The kinematics' state-input mapping and the callback their taped functions update the model with.
+  const PinocchioStateInputMapping<ad_scalar_t>* absl_nonnull pinocchioMappingCppAd;
+  const PinocchioEndEffectorKinematicsCppAd::update_pinocchio_interface_callback* absl_nonnull velocityUpdateCallback;
+  // contacts.basis_non_negativity_barrier, and the wrench parameterization's cone mu it is compared with.
+  const PieceWisePolynomialBarrierPenalty::Config* absl_nonnull lambdaBarrierConfig;
+  scalar_t wrenchConeBarrierMu;
+  bool scheduleGatedContactConstraints;
+  // The knee mimic joints, in the order of the contacts, when the hard constraint is listed.
+  const feet_array_t<JointMimicSettings>* absl_nonnull kneeMimicJoints;
+  const TaskSpaceFootCostSettings* absl_nonnull footCost;
+};
+
 absl::Status CentroidalMpcInterface::setupOptimalControlProblem() {
   RETURN_IF_ERROR(setupLocomotionHeuristics());
 
@@ -556,21 +609,7 @@ absl::Status CentroidalMpcInterface::setupOptimalControlProblem() {
     RETURN_IF_ERROR(validateContactImplicitConfig(modelSettings_.contactImplicitConfig));
   }
 
-  // The planner's footholds are its whole stabilizing mechanism - the H-LIP deadbeat step is a foot placement - and they
-  // reach this problem only through the foot cost's xy weights. At 0 the planner runs, prints its formulation and
-  // re-times the schedule while the MPC places the swing foot wherever the other costs prefer; say so rather than let
-  // it look like a planner that does not work.
-  ASSIGN_OR_RETURN(const bool footPositionTracked, footPositionIsTracked(task, formulationTasks));
-  if (contactScheduleSource_ == ContactScheduleSource::kContactPlanner && !footPositionTracked) {
-    LOG(WARNING) << "[CentroidalMpcInterface] contact_schedule_source is " << kContactPlannerContactScheduleSource
-                 << ", but the planned footholds carry no weight: they reach the MPC only through task_space_foot_cost, "
-                 << (formulationTasks.hasCost(MpcCostType::kTaskSpaceFootCost)
-                         ? "whose task_space_foot_cost.weights.pos_x and pos_y are both 0. Raise task_space_foot_cost.weights.pos_x / "
-                           "pos_y"
-                         : "which `costs` does not list. List task_space_foot_cost and give task_space_foot_cost.weights.pos_x / pos_y "
-                           "a weight")
-                 << " before relying on the planner's foot placement.";
-  }
+  RETURN_IF_ERROR(warnIfPlannedFootholdsCarryNoWeight(formulationTasks));
 
   // The parameters of the lambda >= 0 barrier that the basis-vector parameterization builds for every contact below
   // (contacts.basis_non_negativity_barrier). They are converted here, before any CppAD model is built, so that a value
@@ -600,6 +639,7 @@ absl::Status CentroidalMpcInterface::setupOptimalControlProblem() {
   if (planningReferenceManager != nullptr) {
     RETURN_IF_ERROR(planningReferenceManager->loadHeadingModelEvaluator());
   }
+  warnIfFootYawIsUnplanned(formulationTasks, footCost, planningReferenceManager.get());
 
   // CoM + ACoM tracking is a cost of the `costs` list, and everything it implies follows from that one entry: the
   // ComAndAcomTrackingCost itself, the zeroed base-pose blocks of Q and Q_final (the factory), the terminal instance
@@ -608,6 +648,9 @@ absl::Status CentroidalMpcInterface::setupOptimalControlProblem() {
   // arm to swing either way.
   const bool comAndAcomTracking = formulationTasks.hasCost(MpcCostType::kComAndAcomTrackingCost);
   referenceManagerPtr_->setArmSwingReferenceActive(modelSettings_.hasArmSwingJoints && !comAndAcomTracking);
+  // The arm swing's generator and tuning (arm_swing), and which way each arm joint turns, from the model at the
+  // initial posture.
+  RETURN_IF_ERROR(referenceManagerPtr_->configureArmSwing(task.arm_swing, initialState_));
 
   HumanoidCostConstraintFactory factory(&task, StateInputLayout::Mpc::kCentroidal, *referenceManagerPtr_, *pinocchioInterfacePtr_,
                                         *effectiveMpcRobotModelPtr_, *effectiveMpcRobotModelADPtr_, modelSettings_, verbose_,
@@ -618,6 +661,113 @@ absl::Status CentroidalMpcInterface::setupOptimalControlProblem() {
   problemPtr_ = std::make_unique<OptimalControlProblem>();
   problemPtr_->stateManifoldPtr = stateManifold_;
 
+  RETURN_IF_ERROR(setupDynamics(formulationTasks, factory));
+  RETURN_IF_ERROR(addCostTerms(formulationTasks, factory));
+
+  const CentroidalModelInfoCppAd infoCppAd = centroidalModelInfo_.toCppAd();
+  const CentroidalModelPinocchioMappingCppAd pinocchioMappingCppAdBase(infoCppAd);
+
+  // When using basis-vector inputs, wrap the pinocchio mapping so that CppAD-compiled
+  // EE kinematics (zero-velocity, normal-velocity constraints, foot tracking cost)
+  // first convert u_basis → u_wrench = M * u_basis before extracting joint velocities at
+  // wrench-space offsets. Only the joint-velocity block of M matters here (the kinematics
+  // never read the contact block), so the local-frame map is sufficient.
+  std::unique_ptr<PinocchioStateInputMapping<ad_scalar_t>> effectiveMappingPtr;
+  if (usesContactBasisVectorInputs()) {
+    if (!basisToWrenchMap_.has_value()) {
+      return absl::InternalError("[CentroidalMpcInterface] basis-vector contact inputs without their basis: set up the models first");
+    }
+    effectiveMappingPtr = std::make_unique<BasisInputsMappingDecorator<ad_scalar_t>>(
+        std::unique_ptr<PinocchioStateInputMapping<ad_scalar_t>>(pinocchioMappingCppAdBase.clone()), *basisToWrenchMap_,
+        getWrenchInputDim(), modelSettings_.mpc_joint_dim);
+  } else {
+    effectiveMappingPtr = std::unique_ptr<PinocchioStateInputMapping<ad_scalar_t>>(pinocchioMappingCppAdBase.clone());
+  }
+  const PinocchioStateInputMapping<ad_scalar_t>& pinocchioMappingCppAd = *effectiveMappingPtr;
+
+  // The momentum map of the configuration the kinematics read, the mapping's, whose quaternion is normalized
+  // (CentroidalModelPinocchioMapping::getPinocchioJointPosition()): the foot velocity constraints then read only the attitude
+  // of the stored quaternion, as every other term does, on the unit sphere and off it. The kinematics' taped functions
+  // keep copies of the callback, so it holds its own copies of the model info and of the mapping (a std::shared_ptr, as
+  // the std::function it is stored in must be copyable) rather than references to this function's locals.
+  const std::shared_ptr<const CentroidalModelPinocchioMappingCppAd> callbackMapping(pinocchioMappingCppAdBase.clone());
+  const PinocchioEndEffectorKinematicsCppAd::update_pinocchio_interface_callback velocityUpdateCallback =
+      [infoCppAd, callbackMapping](const ad_vector_t& state, PinocchioInterfaceCppAd& pinocchioInterfaceAd) {
+        updateCentroidalDynamics(pinocchioInterfaceAd, infoCppAd, callbackMapping->getPinocchioJointPosition(state));
+      };
+
+  if (formulationTasks.hasCost(MpcCostType::kTaskSpaceTorsoCost)) {
+    RETURN_IF_ERROR(addTaskSpaceKinematicsCosts(pinocchioMappingCppAd, velocityUpdateCallback));
+  }
+
+  // Soft constraints
+  if (formulationTasks.hasSoftConstraint(MpcSoftConstraintType::kJointLimits)) {
+    ASSIGN_OR_RETURN(std::unique_ptr<StateCost> jointLimits, factory.makeJointLimitsConstraint());
+    problemPtr_->stateSoftConstraintPtr->add(kJointLimitsTerm, std::move(jointLimits));
+  }
+  if (formulationTasks.hasSoftConstraint(MpcSoftConstraintType::kFootCollision)) {
+    ASSIGN_OR_RETURN(std::unique_ptr<StateCost> footCollision, factory.makeFootCollisionConstraint());
+    problemPtr_->stateSoftConstraintPtr->add(kFootCollisionTerm, std::move(footCollision));
+  }
+
+  // The knee mimic joints, in the order of the contacts, when the hard constraint is listed.
+  feet_array_t<JointMimicSettings> kneeMimicJoints;
+  if (formulationTasks.hasHardConstraint(MpcHardConstraintType::kKneeJointMimic)) {
+    ASSIGN_OR_RETURN(kneeMimicJoints, kneeMimicKinematicJointsFromConfig(task.mimic_joints));
+  }
+
+  // Constraint terms
+  const ContactTermInputs contactTermInputs{.formulationTasks = &formulationTasks,
+                                            .factory = &factory,
+                                            .pinocchioMappingCppAd = &pinocchioMappingCppAd,
+                                            .velocityUpdateCallback = &velocityUpdateCallback,
+                                            .lambdaBarrierConfig = &lambdaBarrierConfig,
+                                            .wrenchConeBarrierMu = wrenchConeBarrierMu,
+                                            .scheduleGatedContactConstraints = scheduleGatedContactConstraints,
+                                            .kneeMimicJoints = &kneeMimicJoints,
+                                            .footCost = &footCost};
+  for (size_t i = 0; i < kNumContacts; ++i) {
+    RETURN_IF_ERROR(addContactTerms(i, contactTermInputs));
+  }
+
+  // Pre-computation
+  problemPtr_->preComputationPtr = std::make_unique<HumanoidPreComputation>(
+      *pinocchioInterfacePtr_, *referenceManagerPtr_->getSwingTrajectoryPlanner(), *effectiveMpcRobotModelPtr_);
+
+  // Rollout, projecting every state it outputs onto the manifold
+  rolloutPtr_ = std::make_unique<TimeTriggeredRollout>(*problemPtr_->dynamicsPtr, solverSettings_.rolloutSettings);
+  rolloutPtr_->setStateManifold(stateManifold_);
+
+  // Initialization
+  constexpr bool extendNormalizedMomentum = true;
+  initializerPtr_ = std::make_unique<CentroidalWeightCompInitializer>(centroidalModelInfo_, *referenceManagerPtr_,
+                                                                      *effectiveMpcRobotModelPtr_, extendNormalizedMomentum);
+
+  return absl::OkStatus();
+}
+
+absl::Status CentroidalMpcInterface::warnIfPlannedFootholdsCarryNoWeight(const MpcFormulationTasks& formulationTasks) const {
+  const mpc_config::TaskFile& task = config_.task;
+  // The planner's footholds are its whole stabilizing mechanism - the H-LIP deadbeat step is a foot placement - and they
+  // reach this problem only through the foot cost's xy weights. At 0 the planner runs, prints its formulation and
+  // re-times the schedule while the MPC places the swing foot wherever the other costs prefer; say so rather than let
+  // it look like a planner that does not work.
+  ASSIGN_OR_RETURN(const bool footPositionTracked, footPositionIsTracked(task, formulationTasks));
+  if (contactScheduleSource_ == ContactScheduleSource::kContactPlanner && !footPositionTracked) {
+    LOG(WARNING) << "[CentroidalMpcInterface] contact_schedule_source is " << kContactPlannerContactScheduleSource
+                 << ", but the planned footholds carry no weight: they reach the MPC only through task_space_foot_cost, "
+                 << (formulationTasks.hasCost(MpcCostType::kTaskSpaceFootCost)
+                         ? "whose task_space_foot_cost.weights.pos_x and pos_y are both 0. Raise task_space_foot_cost.weights.pos_x / "
+                           "pos_y"
+                         : "which `costs` does not list. List task_space_foot_cost and give task_space_foot_cost.weights.pos_x / pos_y "
+                           "a weight")
+                 << " before relying on the planner's foot placement.";
+  }
+  return absl::OkStatus();
+}
+
+absl::Status CentroidalMpcInterface::setupDynamics(const MpcFormulationTasks& formulationTasks, HumanoidCostConstraintFactory& factory) {
+  const mpc_config::TaskFile& task = config_.task;
   // Dynamics
   std::unique_ptr<SystemDynamicsBase> dynamicsPtr;
   const std::string modelName = "dynamics";
@@ -653,7 +803,13 @@ absl::Status CentroidalMpcInterface::setupOptimalControlProblem() {
     dynamicsPtr = std::make_unique<CentroidalDynamicsAD>(*pinocchioInterfacePtr_, centroidalModelInfo_, modelName, modelSettings_);
   }
   problemPtr_->dynamicsPtr = std::move(dynamicsPtr);
+  return absl::OkStatus();
+}
 
+absl::Status CentroidalMpcInterface::addCostTerms(const MpcFormulationTasks& formulationTasks,
+                                                  const HumanoidCostConstraintFactory& factory) {
+  const mpc_config::TaskFile& task = config_.task;
+  const bool comAndAcomTracking = formulationTasks.hasCost(MpcCostType::kComAndAcomTrackingCost);
   // Cost terms
   if (formulationTasks.hasCost(MpcCostType::kStateInputQuadraticCost)) {
     ASSIGN_OR_RETURN(std::unique_ptr<StateInputCost> stateInputQuadraticCost, factory.makeStateInputQuadraticCost());
@@ -683,9 +839,9 @@ absl::Status CentroidalMpcInterface::setupOptimalControlProblem() {
                      DcmTerminalCost::Create(*referenceManagerPtr_, dcmConfig, nominalComHeight_, *pinocchioInterfacePtr_,
                                              *effectiveMpcRobotModelADPtr_, DcmTerminalCost::kLibraryName, modelSettings_));
     LOG(INFO) << "[CentroidalMpcInterface] DCM terminal cost pendulum: dcm_terminal_cost.com_height "
-              << dcmTerminalCost->getConfig().comHeight.value_or(std::numeric_limits<scalar_t>::quiet_NaN()) << " m"
+              << dcmTerminalCost->getConfig().comHeight.value_or(dcmTerminalCost->getModelComHeight()) << " m"
               << (dcmConfig.comHeight.has_value() ? " (explicit)" : " (the model's center of mass above its feet at initial_state)")
-              << ", omega " << dcmTerminalCost->getConfig().omega() << " rad/s.";
+              << ", omega " << dcmTerminalCost->omega() << " rad/s.";
     problemPtr_->finalCostPtr->add(DcmTerminalCost::kTermName, std::move(dcmTerminalCost));
   } else if (formulationTasks.hasCost(MpcCostType::kTerminalCost)) {
     ASSIGN_OR_RETURN(std::unique_ptr<StateCost> terminalCost, factory.makeTerminalCost());
@@ -698,272 +854,236 @@ absl::Status CentroidalMpcInterface::setupOptimalControlProblem() {
       problemPtr_->finalCostPtr->add(std::string(ComAndAcomTrackingCost::kTerminalTermName), std::move(terminalComAndAcomTrackingCost));
     }
   }
+  return absl::OkStatus();
+}
 
-  const CentroidalModelInfoCppAd infoCppAd = centroidalModelInfo_.toCppAd();
-  const CentroidalModelPinocchioMappingCppAd pinocchioMappingCppAdBase(infoCppAd);
+absl::Status CentroidalMpcInterface::addContactTerms(size_t i, const ContactTermInputs& inputs) {
+  const MpcFormulationTasks& formulationTasks = *inputs.formulationTasks;
+  const std::string& footName = modelSettings_.contactNames[i];
 
-  // When using basis-vector inputs, wrap the pinocchio mapping so that CppAD-compiled
-  // EE kinematics (zero-velocity, normal-velocity constraints, foot tracking cost)
-  // first convert u_basis → u_wrench = M * u_basis before extracting joint velocities at
-  // wrench-space offsets. Only the joint-velocity block of M matters here (the kinematics
-  // never read the contact block), so the local-frame map is sufficient.
-  std::unique_ptr<PinocchioStateInputMapping<ad_scalar_t>> effectiveMappingPtr;
+  // The kinematics of the CONTACT FRAME, i.e. the center of the sole. `ground_penetration` is deliberately absent
+  // from this list: it is evaluated at the footprint's corner frames instead and builds its own kinematics below, so
+  // listing it here would generate a whole extra CppAD model per foot that nothing reads.
+  std::unique_ptr<EndEffectorKinematics<scalar_t>> eeKinematicsPtr;
+  const bool needsEeKinematics = formulationTasks.hasHardConstraint(MpcHardConstraintType::kZeroVelocity) ||
+                                 formulationTasks.hasSoftConstraint(MpcSoftConstraintType::kZeroVelocity) ||
+                                 formulationTasks.hasHardConstraint(MpcHardConstraintType::kNormalVelocity) ||
+                                 formulationTasks.hasSoftConstraint(MpcSoftConstraintType::kNormalVelocity) ||
+                                 formulationTasks.hasSoftConstraint(MpcSoftConstraintType::kForceWeightedSlip);
+  // Neither contact_complementarity nor ground_penetration appears here: both read the footprint CORNERS through a
+  // FootprintCornerHeights of their own, not this contact-frame kinematics.
+  if (needsEeKinematics) {
+    const size_t effectiveInputDim = effectiveMpcRobotModelPtr_->getInputDim();
+    eeKinematicsPtr = std::make_unique<PinocchioEndEffectorKinematicsCppAd>(
+        *pinocchioInterfacePtr_, *inputs.pinocchioMappingCppAd, std::vector<std::string>{footName}, centroidalModelInfo_.stateDim,
+        effectiveInputDim, *inputs.velocityUpdateCallback, footName, modelSettings_.modelFolderCppAd,
+        modelSettings_.recompileLibrariesCppAd, modelSettings_.verboseCppAd);
+  }
+
+  RETURN_IF_ERROR(addContactConeTerms(i, inputs, eeKinematicsPtr.get()));
+  RETURN_IF_ERROR(addContactImplicitTerms(i, inputs, eeKinematicsPtr.get()));
+  return addContactHardConstraintsAndFootCosts(i, inputs, eeKinematicsPtr.get());
+}
+
+absl::Status CentroidalMpcInterface::addContactConeTerms(size_t i,
+                                                         const ContactTermInputs& inputs,
+                                                         const EndEffectorKinematics<scalar_t>* absl_nullable eeKinematicsPtr) {
+  const MpcFormulationTasks& formulationTasks = *inputs.formulationTasks;
+  const HumanoidCostConstraintFactory& factory = *inputs.factory;
+  const PieceWisePolynomialBarrierPenalty::Config& lambdaBarrierConfig = *inputs.lambdaBarrierConfig;
+  const scalar_t wrenchConeBarrierMu = inputs.wrenchConeBarrierMu;
+  const bool scheduleGatedContactConstraints = inputs.scheduleGatedContactConstraints;
+  const std::string& footName = modelSettings_.contactNames[i];
   if (usesContactBasisVectorInputs()) {
-    if (!basisToWrenchMap_.has_value()) {
-      return absl::InternalError("[CentroidalMpcInterface] basis-vector contact inputs without their basis: set up the models first");
+    // In basis-vector mode the friction, CoP and torsional limits are enforced structurally: every generator lies
+    // inside the cone (ContactWrenchConeBasisMatrix verifies this against the constraint's own rows at construction)
+    // and the cone is convex, so λ ≥ 0 ⟹ W ∈ cone. The ContactWrenchConeConstraint is wrench-space specific and cannot
+    // operate on basis-vector inputs, so a listed `contact_wrench_cone` builds nothing here. The minimum normal force
+    // and the gripper force are the exception and are not enforced; a warning is logged where the basis is built.
+    if (formulationTasks.hasSoftConstraint(MpcSoftConstraintType::kContactWrenchCone)) {
+      LOG(INFO) << "[CentroidalMPC] Skipping contact_wrench_cone soft constraint for " << footName
+                << " (friction, CoP and torsional limits enforced structurally via basis-vector inputs).";
     }
-    effectiveMappingPtr = std::make_unique<BasisInputsMappingDecorator<ad_scalar_t>>(
-        std::unique_ptr<PinocchioStateInputMapping<ad_scalar_t>>(pinocchioMappingCppAdBase.clone()), *basisToWrenchMap_,
-        getWrenchInputDim(), modelSettings_.mpc_joint_dim);
-  } else {
-    effectiveMappingPtr = std::unique_ptr<PinocchioStateInputMapping<ad_scalar_t>>(pinocchioMappingCppAdBase.clone());
-  }
-  const PinocchioStateInputMapping<ad_scalar_t>& pinocchioMappingCppAd = *effectiveMappingPtr;
 
-  // The momentum map of the configuration the kinematics read, the mapping's, whose quaternion is normalized
-  // (CentroidalModelPinocchioMapping::getPinocchioJointPosition()): the foot velocity constraints then read only the attitude
-  // of the stored quaternion, as every other term does, on the unit sphere and off it.
-  const PinocchioEndEffectorKinematicsCppAd::update_pinocchio_interface_callback velocityUpdateCallback =
-      [&infoCppAd, &pinocchioMappingCppAdBase](const ad_vector_t& state, PinocchioInterfaceCppAd& pinocchioInterfaceAd) {
-        updateCentroidalDynamics(pinocchioInterfaceAd, infoCppAd, pinocchioMappingCppAdBase.getPinocchioJointPosition(state));
-      };
+    // The λ ≥ 0 barrier IS the contact wrench cone of this parameterization, so it is built for every contact whatever
+    // the soft-constraint lists say, gated exactly as `zero_wrench` dictates. Nothing else bounds the individual
+    // scalings - `friction_force_cone` bounds only the assembled force - and without it a negative scaling is
+    // adhesion, a center of pressure outside the sole or unbounded torsion. (It used to be built only when
+    // `contact_wrench_cone` was listed, so dropping that entry silently removed the cone.) Its parameters,
+    // contacts.basis_non_negativity_barrier, were converted before the problem was built (lambdaBarrierConfig).
 
-  if (formulationTasks.hasCost(MpcCostType::kTaskSpaceTorsoCost)) {
-    RETURN_IF_ERROR(addTaskSpaceKinematicsCosts(pinocchioMappingCppAd, velocityUpdateCallback));
+    // WHAT `mu` IS NOW BEING ASKED TO DO. Gated, this term is a redundant bound: the swing foot's scalings are
+    // pinned to zero by `zero_wrench` and the stance foot's are pulled positive by R's weight-compensating
+    // nominal, so 0.01 was tuned as a regularizer. Un-gated it becomes the ONLY thing holding every contact
+    // wrench inside its cone, at every node, which is the job `contact_wrench_cone_soft_constraint.mu` does in the
+    // wrench parameterization - and there it is 0.2. A scaling pair (+a, -a) costs only `mu * a^2` and leaves the
+    // load indicator f_n = sum(lambda) at zero, so both contact-implicit products stay blind to it.
+    //
+    // Raising it is a closed-loop tuning decision and not one this loader may take on the operator's behalf, so
+    // the mismatch is reported rather than patched. See humanoid_nmpc/docs/contact_implicit_mpc/README.md.
+    if (!scheduleGatedContactConstraints && lambdaBarrierConfig.mu < wrenchConeBarrierMu) {
+      LOG(WARNING) << "[CentroidalMpcInterface] " << footName << ": contacts.basis_non_negativity_barrier.mu = " << lambdaBarrierConfig.mu
+                   << " is the ONLY bound on this contact's wrench once the schedule gate is off, and it is softer than the "
+                   << "contacts.contact_wrench_cone_soft_constraint.mu = " << wrenchConeBarrierMu
+                   << " that does the same job in the wrench parameterization. Tune it against a foot in flight before "
+                   << "trusting the contact-implicit formulation on hardware.";
+    }
+
+    const size_t lambdaStartIdx = basisDecoratorPtr_->getContactWrenchStartIndices(i);
+    const size_t numBasis = basisDecoratorPtr_->getNumBasisPerFoot();
+
+    problemPtr_->costPtr->add(basisNonNegativityTermName(footName),
+                              std::make_unique<BasisScalingNonNegativityConstraint>(*referenceManagerPtr_, i, lambdaStartIdx, numBasis,
+                                                                                    lambdaBarrierConfig, scheduleGatedContactConstraints));
+
+    LOG(INFO) << "[CentroidalMPC] Added λ ≥ 0 non-negativity barrier for " << footName << " (" << numBasis << " basis vectors, start idx "
+              << lambdaStartIdx << ").";
+  } else if (formulationTasks.hasSoftConstraint(MpcSoftConstraintType::kContactWrenchCone)) {
+    ASSIGN_OR_RETURN(std::unique_ptr<StateInputCost> contactWrenchCone, factory.makeContactWrenchConeConstraint(i));
+    problemPtr_->softConstraintPtr->add(contact_term::name(footName, contact_term::kContactWrenchCone), std::move(contactWrenchCone));
+  }
+  if (formulationTasks.hasSoftConstraint(MpcSoftConstraintType::kFrictionForceCone)) {
+    ASSIGN_OR_RETURN(std::unique_ptr<StateInputCost> frictionForceCone, factory.makeFrictionForceConeConstraint(i));
+    problemPtr_->softConstraintPtr->add(contact_term::name(footName, contact_term::kFrictionForceCone), std::move(frictionForceCone));
+  }
+  if (formulationTasks.hasSoftConstraint(MpcSoftConstraintType::kContactMomentXy)) {
+    ASSIGN_OR_RETURN(std::unique_ptr<StateInputCost> contactMomentXYConstraint,
+                     factory.makeContactMomentXYConstraint(i, absl::StrCat(footName, "_contact_moment_XY_constraint")));
+    problemPtr_->softConstraintPtr->add(contact_term::name(footName, contact_term::kContactMomentXY), std::move(contactMomentXYConstraint));
+  }
+  if (formulationTasks.hasSoftConstraint(MpcSoftConstraintType::kZeroVelocity) && eeKinematicsPtr) {
+    std::unique_ptr<StateInputConstraint> stanceConstraint = getStanceFootConstraint(*eeKinematicsPtr, i);
+    auto penalty = std::make_unique<QuadraticPenalty>(modelSettings_.footConstraintConfig.softConstraintWeight);
+    problemPtr_->softConstraintPtr->add(zeroVelocityTermName(footName),
+                                        std::make_unique<StateInputSoftConstraint>(std::move(stanceConstraint), std::move(penalty)));
   }
 
-  if (formulationTasks.hasCost(MpcCostType::kIcpCost)) {
-    ASSIGN_OR_RETURN(const vector2_t icpWeights, icpCostWeightsFromConfig(task.icp_cost_weights));
-    problemPtr_->costPtr->add(
-        kIcpCostTerm, std::make_unique<ICPCost>(*referenceManagerPtr_, icpWeights, *pinocchioInterfacePtr_, *effectiveMpcRobotModelADPtr_,
-                                                ICPCost::kLibraryName, modelSettings_));
+  return absl::OkStatus();
+}
+
+absl::Status CentroidalMpcInterface::addContactImplicitTerms(size_t i,
+                                                             const ContactTermInputs& inputs,
+                                                             const EndEffectorKinematics<scalar_t>* absl_nullable eeKinematicsPtr) {
+  const MpcFormulationTasks& formulationTasks = *inputs.formulationTasks;
+  const mpc_config::TaskFile& task = config_.task;
+  const std::string& footName = modelSettings_.contactNames[i];
+  // The relaxed complementarity conditions of rigid contact: with all three listed (and zero_wrench / zero_velocity
+  // dropped, which checkMpcFormulationTasks enforces) the mode schedule no longer gates any contact constraint and
+  // the solver decides where each foot carries load. See humanoid_nmpc/docs/contact_implicit_mpc/README.md.
+  const ModelSettings::ContactImplicitConfig& contactImplicit = modelSettings_.contactImplicitConfig;
+  // The force both residuals are measured in is the robot's own weight, read from the model rather than configured,
+  // so it cannot fall out of step with the URDF. It is what makes the two weights mean the same thing on a 40 kg
+  // robot and a 160 kg one.
+  const scalar_t forceReference = centroidalModelInfo_.robotMass * kGravitationalAcceleration;
+
+  // Where the foot is, as far as contact is concerned: the CORNERS of the footprint, not the center of the sole.
+  // createPinocchioModel() already adds a frame at each point of the contact polygon. Both the penetration hinge and
+  // the complementarity product are built on this one object, so they cannot end up measuring different heights -
+  // they used to, and a foot rocked onto its heel then read a positive height while carrying the whole robot.
+  // Constraining the sole center alone would also leave the toe and the heel free to go through the floor, because
+  // this formulation deliberately lets the foot rock (ForceWeightedSlipConstraint leaves the rocking rates free),
+  // and on this robot the corners are 0.12 m fore and aft of the center.
+  // The ground both terms are built on is the reference manager's, which owns it from here on and builds the swing
+  // trajectories on it; the parameter updater (ContactImplicitApplier) keeps the terms on the ground it applies.
+  const scalar_t terrainHeight = referenceManagerPtr_->getTerrainHeight();
+  std::unique_ptr<FootprintCornerHeights> cornerHeightsPtr;
+  if (formulationTasks.hasSoftConstraint(MpcSoftConstraintType::kContactComplementarity) ||
+      formulationTasks.hasSoftConstraint(MpcSoftConstraintType::kGroundPenetration)) {
+    ASSIGN_OR_RETURN(const ContactRectangle footprint, contactRectangleFromConfig(task.contacts, modelSettings_, static_cast<int>(i)));
+    std::vector<std::string> cornerFrames;
+    cornerFrames.reserve(footprint.getNumberOfContactPoints());
+    for (size_t corner = 0; corner < footprint.getNumberOfContactPoints(); ++corner) {
+      cornerFrames.push_back(footprint.getPolygonPointFrameName(static_cast<int>(corner)));
+    }
+    cornerHeightsPtr =
+        std::make_unique<FootprintCornerHeights>(*pinocchioInterfacePtr_, *effectiveMpcRobotModelADPtr_, std::move(cornerFrames),
+                                                 absl::StrCat(footName, "_footprintCorners"), modelSettings_);
   }
 
-  // Soft constraints
-  if (formulationTasks.hasSoftConstraint(MpcSoftConstraintType::kJointLimits)) {
-    ASSIGN_OR_RETURN(std::unique_ptr<StateCost> jointLimits, factory.makeJointLimitsConstraint());
-    problemPtr_->stateSoftConstraintPtr->add(kJointLimitsTerm, std::move(jointLimits));
+  if (formulationTasks.hasSoftConstraint(MpcSoftConstraintType::kContactComplementarity)) {
+    ASSIGN_OR_RETURN(
+        std::unique_ptr<StateInputConstraint> complementarity,
+        ContactComplementarityConstraint::Create(*cornerHeightsPtr, *effectiveMpcRobotModelPtr_, i, terrainHeight, forceReference,
+                                                 contactImplicit.heightReference, contactImplicit.gapSmoothing));
+    auto penalty = std::make_unique<QuadraticPenalty>(contactImplicit.complementarityWeight);
+    problemPtr_->softConstraintPtr->add(contact_term::name(footName, contact_term::kContactComplementarity),
+                                        std::make_unique<StateInputSoftConstraint>(std::move(complementarity), std::move(penalty)));
   }
-  if (formulationTasks.hasSoftConstraint(MpcSoftConstraintType::kFootCollision)) {
-    ASSIGN_OR_RETURN(std::unique_ptr<StateCost> footCollision, factory.makeFootCollisionConstraint());
-    problemPtr_->stateSoftConstraintPtr->add(kFootCollisionTerm, std::move(footCollision));
+  if (formulationTasks.hasSoftConstraint(MpcSoftConstraintType::kForceWeightedSlip)) {
+    // Not `&& eeKinematicsPtr`, which is how the neighboring terms guard themselves: this one is load bearing.
+    // checkMpcFormulationTasks() refuses `contact_complementarity` without `force_weighted_slip`, because nothing
+    // else holds a LOADED foot still once the schedule-gated zero-velocity constraint is gone. Silently skipping it
+    // because `needsEeKinematics` above had drifted would defeat that guarantee and leave a foot carrying full body
+    // weight free to slide.
+    CHECK(eeKinematicsPtr != nullptr) << "[CentroidalMpcInterface] 'force_weighted_slip' needs the contact frame's kinematics; "
+                                         "needsEeKinematics must list it.";
+    ASSIGN_OR_RETURN(std::unique_ptr<StateInputConstraint> slip,
+                     ForceWeightedSlipConstraint::Create(*eeKinematicsPtr, *effectiveMpcRobotModelPtr_, i, forceReference,
+                                                         contactImplicit.velocityReference, contactImplicit.angularVelocityReference));
+    auto penalty = std::make_unique<QuadraticPenalty>(contactImplicit.slipWeight);
+    problemPtr_->softConstraintPtr->add(contact_term::name(footName, contact_term::kForceWeightedSlip),
+                                        std::make_unique<StateInputSoftConstraint>(std::move(slip), std::move(penalty)));
+  }
+  if (formulationTasks.hasSoftConstraint(MpcSoftConstraintType::kGroundPenetration)) {
+    ASSIGN_OR_RETURN(std::unique_ptr<StateConstraint> penetration, GroundPenetrationConstraint::Create(*cornerHeightsPtr, terrainHeight));
+    // A one-sided quadratic hinge, NOT a relaxed log barrier: the delta of 0 puts its zero exactly on the ground, so
+    // the term is silent for a foot resting on the ground and only bites below it. A log barrier here pushed every
+    // loaded foot into a hover; see ModelSettings::ContactImplicitConfig::penetrationWeight.
+    auto penalty =
+        std::make_unique<SquaredHingePenalty>(SquaredHingePenalty::Config(contactImplicit.penetrationWeight, /*deltaParam=*/0.0));
+    problemPtr_->stateSoftConstraintPtr->add(contact_term::name(footName, contact_term::kGroundPenetration),
+                                             std::make_unique<StateSoftConstraint>(std::move(penetration), std::move(penalty)));
   }
 
-  // The knee mimic joints, in the order of the contacts, when the hard constraint is listed.
-  feet_array_t<JointMimicSettings> kneeMimicJoints;
+  return absl::OkStatus();
+}
+
+absl::Status CentroidalMpcInterface::addContactHardConstraintsAndFootCosts(
+    size_t i, const ContactTermInputs& inputs, const EndEffectorKinematics<scalar_t>* absl_nullable eeKinematicsPtr) {
+  const MpcFormulationTasks& formulationTasks = *inputs.formulationTasks;
+  const HumanoidCostConstraintFactory& factory = *inputs.factory;
+  const feet_array_t<JointMimicSettings>& kneeMimicJoints = *inputs.kneeMimicJoints;
+  const TaskSpaceFootCostSettings& footCost = *inputs.footCost;
+  const std::string& footName = modelSettings_.contactNames[i];
+  if (formulationTasks.hasHardConstraint(MpcHardConstraintType::kZeroWrench)) {
+    problemPtr_->equalityConstraintPtr->add(absl::StrCat(footName, "_zeroWrench"), factory.getZeroWrenchConstraint(i));
+  }
+  if (formulationTasks.hasHardConstraint(MpcHardConstraintType::kZeroVelocity) && eeKinematicsPtr) {
+    problemPtr_->equalityConstraintPtr->add(zeroVelocityTermName(footName), getStanceFootConstraint(*eeKinematicsPtr, i));
+  }
+  if (formulationTasks.hasHardConstraint(MpcHardConstraintType::kNormalVelocity) && eeKinematicsPtr) {
+    problemPtr_->equalityConstraintPtr->add(contact_term::name(footName, contact_term::kNormalVelocity),
+                                            getNormalVelocityConstraint(*eeKinematicsPtr, i));
+  }
+  // The same row, priced instead of imposed. Imposed, it fixes the whole height profile of a scheduled swing and the
+  // solver can neither land early nor late; priced, it shapes the swing and is overruled whenever anything else pays
+  // more, which is what the contact-implicit formulation needs of a reduced-order plan's guidance.
+  if (formulationTasks.hasSoftConstraint(MpcSoftConstraintType::kNormalVelocity) && eeKinematicsPtr) {
+    auto penalty = std::make_unique<QuadraticPenalty>(modelSettings_.footConstraintConfig.normalVelocitySoftConstraintWeight);
+    problemPtr_->softConstraintPtr->add(
+        contact_term::name(footName, contact_term::kNormalVelocitySoft),
+        std::make_unique<StateInputSoftConstraint>(getNormalVelocityConstraint(*eeKinematicsPtr, i), std::move(penalty)));
+  }
   if (formulationTasks.hasHardConstraint(MpcHardConstraintType::kKneeJointMimic)) {
-    ASSIGN_OR_RETURN(kneeMimicJoints, kneeMimicKinematicJointsFromConfig(task.mimic_joints));
+    const JointMimicSettings& mimic = kneeMimicJoints[i];
+    ASSIGN_OR_RETURN(std::unique_ptr<JointMimicKinematicConstraint> kneeJointMimic,
+                     JointMimicKinematicConstraint::Create(*effectiveMpcRobotModelPtr_, mimic.parentJointName, mimic.childJointName,
+                                                           mimic.multiplier, mimic.positionGain));
+    problemPtr_->equalityConstraintPtr->add(absl::StrCat(footName, "_kneeJointMimic"), std::move(kneeJointMimic));
   }
 
-  // Constraint terms
-  for (size_t i = 0; i < kNumContacts; ++i) {
-    const std::string& footName = modelSettings_.contactNames[i];
-
-    // The kinematics of the CONTACT FRAME, i.e. the center of the sole. `ground_penetration` is deliberately absent
-    // from this list: it is evaluated at the footprint's corner frames instead and builds its own kinematics below, so
-    // listing it here would generate a whole extra CppAD model per foot that nothing reads.
-    std::unique_ptr<EndEffectorKinematics<scalar_t>> eeKinematicsPtr;
-    const bool needsEeKinematics = formulationTasks.hasHardConstraint(MpcHardConstraintType::kZeroVelocity) ||
-                                   formulationTasks.hasSoftConstraint(MpcSoftConstraintType::kZeroVelocity) ||
-                                   formulationTasks.hasHardConstraint(MpcHardConstraintType::kNormalVelocity) ||
-                                   formulationTasks.hasSoftConstraint(MpcSoftConstraintType::kNormalVelocity) ||
-                                   formulationTasks.hasSoftConstraint(MpcSoftConstraintType::kForceWeightedSlip);
-    // Neither contact_complementarity nor ground_penetration appears here: both read the footprint CORNERS through a
-    // FootprintCornerHeights of their own, not this contact-frame kinematics.
-    if (needsEeKinematics) {
-      const size_t effectiveInputDim = effectiveMpcRobotModelPtr_->getInputDim();
-      eeKinematicsPtr = std::make_unique<PinocchioEndEffectorKinematicsCppAd>(
-          *pinocchioInterfacePtr_, pinocchioMappingCppAd, std::vector<std::string>{footName}, centroidalModelInfo_.stateDim,
-          effectiveInputDim, velocityUpdateCallback, footName, modelSettings_.modelFolderCppAd, modelSettings_.recompileLibrariesCppAd,
-          modelSettings_.verboseCppAd);
-    }
-
-    if (usesContactBasisVectorInputs()) {
-      // In basis-vector mode the friction, CoP and torsional limits are enforced structurally: every generator lies
-      // inside the cone (ContactWrenchConeBasisMatrix verifies this against the constraint's own rows at construction)
-      // and the cone is convex, so λ ≥ 0 ⟹ W ∈ cone. The ContactWrenchConeConstraint is wrench-space specific and cannot
-      // operate on basis-vector inputs, so a listed `contact_wrench_cone` builds nothing here. The minimum normal force
-      // and the gripper force are the exception and are not enforced; a warning is logged where the basis is built.
-      if (formulationTasks.hasSoftConstraint(MpcSoftConstraintType::kContactWrenchCone)) {
-        LOG(INFO) << "[CentroidalMPC] Skipping contact_wrench_cone soft constraint for " << footName
-                  << " (friction, CoP and torsional limits enforced structurally via basis-vector inputs).";
-      }
-
-      // The λ ≥ 0 barrier IS the contact wrench cone of this parameterization, so it is built for every contact whatever
-      // the soft-constraint lists say, gated exactly as `zero_wrench` dictates. Nothing else bounds the individual
-      // scalings - `friction_force_cone` bounds only the assembled force - and without it a negative scaling is
-      // adhesion, a center of pressure outside the sole or unbounded torsion. (It used to be built only when
-      // `contact_wrench_cone` was listed, so dropping that entry silently removed the cone.) Its parameters,
-      // contacts.basis_non_negativity_barrier, were converted before the problem was built (lambdaBarrierConfig).
-
-      // WHAT `mu` IS NOW BEING ASKED TO DO. Gated, this term is a redundant bound: the swing foot's scalings are
-      // pinned to zero by `zero_wrench` and the stance foot's are pulled positive by R's weight-compensating
-      // nominal, so 0.01 was tuned as a regularizer. Un-gated it becomes the ONLY thing holding every contact
-      // wrench inside its cone, at every node, which is the job `contact_wrench_cone_soft_constraint.mu` does in the
-      // wrench parameterization - and there it is 0.2. A scaling pair (+a, -a) costs only `mu * a^2` and leaves the
-      // load indicator f_n = sum(lambda) at zero, so both contact-implicit products stay blind to it.
-      //
-      // Raising it is a closed-loop tuning decision and not one this loader may take on the operator's behalf, so
-      // the mismatch is reported rather than patched. See humanoid_nmpc/docs/contact_implicit_mpc/README.md.
-      if (!scheduleGatedContactConstraints && lambdaBarrierConfig.mu < wrenchConeBarrierMu) {
-        LOG(WARNING) << "[CentroidalMpcInterface] " << footName << ": contacts.basis_non_negativity_barrier.mu = " << lambdaBarrierConfig.mu
-                     << " is the ONLY bound on this contact's wrench once the schedule gate is off, and it is softer than the "
-                     << "contacts.contact_wrench_cone_soft_constraint.mu = " << wrenchConeBarrierMu
-                     << " that does the same job in the wrench parameterization. Tune it against a foot in flight before "
-                     << "trusting the contact-implicit formulation on hardware.";
-      }
-
-      const size_t lambdaStartIdx = basisDecoratorPtr_->getContactWrenchStartIndices(i);
-      const size_t numBasis = basisDecoratorPtr_->getNumBasisPerFoot();
-
-      problemPtr_->costPtr->add(basisNonNegativityTermName(footName), std::make_unique<BasisScalingNonNegativityConstraint>(
-                                                                          *referenceManagerPtr_, i, lambdaStartIdx, numBasis,
-                                                                          lambdaBarrierConfig, scheduleGatedContactConstraints));
-
-      LOG(INFO) << "[CentroidalMPC] Added λ ≥ 0 non-negativity barrier for " << footName << " (" << numBasis << " basis vectors, start idx "
-                << lambdaStartIdx << ").";
-    } else if (formulationTasks.hasSoftConstraint(MpcSoftConstraintType::kContactWrenchCone)) {
-      ASSIGN_OR_RETURN(std::unique_ptr<StateInputCost> contactWrenchCone, factory.makeContactWrenchConeConstraint(i));
-      problemPtr_->softConstraintPtr->add(contact_term::name(footName, contact_term::kContactWrenchCone), std::move(contactWrenchCone));
-    }
-    if (formulationTasks.hasSoftConstraint(MpcSoftConstraintType::kFrictionForceCone)) {
-      ASSIGN_OR_RETURN(std::unique_ptr<StateInputCost> frictionForceCone, factory.makeFrictionForceConeConstraint(i));
-      problemPtr_->softConstraintPtr->add(contact_term::name(footName, contact_term::kFrictionForceCone), std::move(frictionForceCone));
-    }
-    if (formulationTasks.hasSoftConstraint(MpcSoftConstraintType::kContactMomentXy)) {
-      ASSIGN_OR_RETURN(std::unique_ptr<StateInputCost> contactMomentXYConstraint,
-                       factory.makeContactMomentXYConstraint(i, absl::StrCat(footName, "_contact_moment_XY_constraint")));
-      problemPtr_->softConstraintPtr->add(contact_term::name(footName, contact_term::kContactMomentXY),
-                                          std::move(contactMomentXYConstraint));
-    }
-    if (formulationTasks.hasSoftConstraint(MpcSoftConstraintType::kZeroVelocity) && eeKinematicsPtr) {
-      std::unique_ptr<StateInputConstraint> stanceConstraint = getStanceFootConstraint(*eeKinematicsPtr, i);
-      auto penalty = std::make_unique<QuadraticPenalty>(modelSettings_.footConstraintConfig.softConstraintWeight);
-      problemPtr_->softConstraintPtr->add(zeroVelocityTermName(footName),
-                                          std::make_unique<StateInputSoftConstraint>(std::move(stanceConstraint), std::move(penalty)));
-    }
-
-    // The relaxed complementarity conditions of rigid contact: with all three listed (and zero_wrench / zero_velocity
-    // dropped, which checkMpcFormulationTasks enforces) the mode schedule no longer gates any contact constraint and
-    // the solver decides where each foot carries load. See humanoid_nmpc/docs/contact_implicit_mpc/README.md.
-    const ModelSettings::ContactImplicitConfig& contactImplicit = modelSettings_.contactImplicitConfig;
-    // The force both residuals are measured in is the robot's own weight, read from the model rather than configured,
-    // so it cannot fall out of step with the URDF. It is what makes the two weights mean the same thing on a 40 kg
-    // robot and a 160 kg one.
-    constexpr scalar_t kStandardGravity = 9.81;  // [m/s^2]
-    const scalar_t forceReference = centroidalModelInfo_.robotMass * kStandardGravity;
-
-    // Where the foot is, as far as contact is concerned: the CORNERS of the footprint, not the center of the sole.
-    // createPinocchioModel() already adds a frame at each point of the contact polygon. Both the penetration hinge and
-    // the complementarity product are built on this one object, so they cannot end up measuring different heights -
-    // they used to, and a foot rocked onto its heel then read a positive height while carrying the whole robot.
-    // Constraining the sole center alone would also leave the toe and the heel free to go through the floor, because
-    // this formulation deliberately lets the foot rock (ForceWeightedSlipConstraint leaves the rocking rates free),
-    // and on this robot the corners are 0.12 m fore and aft of the center.
-    // The ground both terms are built on is the reference manager's, which owns it from here on and builds the swing
-    // trajectories on it; the parameter updater (ContactImplicitApplier) keeps the terms on the ground it applies.
-    const scalar_t terrainHeight = referenceManagerPtr_->getTerrainHeight();
-    std::unique_ptr<FootprintCornerHeights> cornerHeightsPtr;
-    if (formulationTasks.hasSoftConstraint(MpcSoftConstraintType::kContactComplementarity) ||
-        formulationTasks.hasSoftConstraint(MpcSoftConstraintType::kGroundPenetration)) {
-      ASSIGN_OR_RETURN(const ContactRectangle footprint, contactRectangleFromConfig(task.contacts, modelSettings_, static_cast<int>(i)));
-      std::vector<std::string> cornerFrames;
-      cornerFrames.reserve(footprint.getNumberOfContactPoints());
-      for (size_t corner = 0; corner < footprint.getNumberOfContactPoints(); ++corner) {
-        cornerFrames.push_back(footprint.getPolygonPointFrameName(static_cast<int>(corner)));
-      }
-      cornerHeightsPtr =
-          std::make_unique<FootprintCornerHeights>(*pinocchioInterfacePtr_, *effectiveMpcRobotModelADPtr_, std::move(cornerFrames),
-                                                   absl::StrCat(footName, "_footprintCorners"), modelSettings_);
-    }
-
-    if (formulationTasks.hasSoftConstraint(MpcSoftConstraintType::kContactComplementarity)) {
-      std::unique_ptr<StateInputConstraint> complementarity =
-          std::make_unique<ContactComplementarityConstraint>(*cornerHeightsPtr, *effectiveMpcRobotModelPtr_, i, terrainHeight,
-                                                             forceReference, contactImplicit.heightReference, contactImplicit.gapSmoothing);
-      auto penalty = std::make_unique<QuadraticPenalty>(contactImplicit.complementarityWeight);
-      problemPtr_->softConstraintPtr->add(contact_term::name(footName, contact_term::kContactComplementarity),
-                                          std::make_unique<StateInputSoftConstraint>(std::move(complementarity), std::move(penalty)));
-    }
-    if (formulationTasks.hasSoftConstraint(MpcSoftConstraintType::kForceWeightedSlip)) {
-      // Not `&& eeKinematicsPtr`, which is how the neighboring terms guard themselves: this one is load bearing.
-      // checkMpcFormulationTasks() refuses `contact_complementarity` without `force_weighted_slip`, because nothing
-      // else holds a LOADED foot still once the schedule-gated zero-velocity constraint is gone. Silently skipping it
-      // because `needsEeKinematics` above had drifted would defeat that guarantee and leave a foot carrying full body
-      // weight free to slide.
-      CHECK(eeKinematicsPtr != nullptr) << "[CentroidalMpcInterface] 'force_weighted_slip' needs the contact frame's kinematics; "
-                                           "needsEeKinematics must list it.";
-      std::unique_ptr<StateInputConstraint> slip =
-          std::make_unique<ForceWeightedSlipConstraint>(*eeKinematicsPtr, *effectiveMpcRobotModelPtr_, i, forceReference,
-                                                        contactImplicit.velocityReference, contactImplicit.angularVelocityReference);
-      auto penalty = std::make_unique<QuadraticPenalty>(contactImplicit.slipWeight);
-      problemPtr_->softConstraintPtr->add(contact_term::name(footName, contact_term::kForceWeightedSlip),
-                                          std::make_unique<StateInputSoftConstraint>(std::move(slip), std::move(penalty)));
-    }
-    if (formulationTasks.hasSoftConstraint(MpcSoftConstraintType::kGroundPenetration)) {
-      std::unique_ptr<StateConstraint> penetration = std::make_unique<GroundPenetrationConstraint>(*cornerHeightsPtr, terrainHeight);
-      // A one-sided quadratic hinge, NOT a relaxed log barrier: the delta of 0 puts its zero exactly on the ground, so
-      // the term is silent for a foot resting on the ground and only bites below it. A log barrier here pushed every
-      // loaded foot into a hover; see ModelSettings::ContactImplicitConfig::penetrationWeight.
-      auto penalty =
-          std::make_unique<SquaredHingePenalty>(SquaredHingePenalty::Config(contactImplicit.penetrationWeight, /*deltaParam=*/0.0));
-      problemPtr_->stateSoftConstraintPtr->add(contact_term::name(footName, contact_term::kGroundPenetration),
-                                               std::make_unique<StateSoftConstraint>(std::move(penetration), std::move(penalty)));
-    }
-
-    if (formulationTasks.hasHardConstraint(MpcHardConstraintType::kZeroWrench)) {
-      problemPtr_->equalityConstraintPtr->add(absl::StrCat(footName, "_zeroWrench"), factory.getZeroWrenchConstraint(i));
-    }
-    if (formulationTasks.hasHardConstraint(MpcHardConstraintType::kZeroVelocity) && eeKinematicsPtr) {
-      problemPtr_->equalityConstraintPtr->add(zeroVelocityTermName(footName), getStanceFootConstraint(*eeKinematicsPtr, i));
-    }
-    if (formulationTasks.hasHardConstraint(MpcHardConstraintType::kNormalVelocity) && eeKinematicsPtr) {
-      problemPtr_->equalityConstraintPtr->add(absl::StrCat(footName, "_normalVelocity"), getNormalVelocityConstraint(*eeKinematicsPtr, i));
-    }
-    // The same row, priced instead of imposed. Imposed, it fixes the whole height profile of a scheduled swing and the
-    // solver can neither land early nor late; priced, it shapes the swing and is overruled whenever anything else pays
-    // more, which is what the contact-implicit formulation needs of a reduced-order plan's guidance.
-    if (formulationTasks.hasSoftConstraint(MpcSoftConstraintType::kNormalVelocity) && eeKinematicsPtr) {
-      auto penalty = std::make_unique<QuadraticPenalty>(modelSettings_.footConstraintConfig.normalVelocitySoftConstraintWeight);
-      problemPtr_->softConstraintPtr->add(
-          contact_term::name(footName, contact_term::kNormalVelocitySoft),
-          std::make_unique<StateInputSoftConstraint>(getNormalVelocityConstraint(*eeKinematicsPtr, i), std::move(penalty)));
-    }
-    if (formulationTasks.hasHardConstraint(MpcHardConstraintType::kKneeJointMimic)) {
-      const JointMimicSettings& mimic = kneeMimicJoints[i];
-      ASSIGN_OR_RETURN(std::unique_ptr<JointMimicKinematicConstraint> kneeJointMimic,
-                       JointMimicKinematicConstraint::Create(*effectiveMpcRobotModelPtr_, mimic.parentJointName, mimic.childJointName,
-                                                             mimic.multiplier, mimic.positionGain));
-      problemPtr_->equalityConstraintPtr->add(absl::StrCat(footName, "_kneeJointMimic"), std::move(kneeJointMimic));
-    }
-
-    if (formulationTasks.hasCost(MpcCostType::kTaskSpaceFootCost)) {
-      // The collection name and the CppAD library name are the same string today, defined twice on purpose: a rename of
-      // the term must not rename (and regenerate) the library.
-      problemPtr_->costPtr->add(taskSpaceKinematicsCostName(footName),
-                                std::make_unique<CentroidalMpcEndEffectorFootCost>(
-                                    *referenceManagerPtr_, footCost.weights, *pinocchioInterfacePtr_, *effectiveMpcRobotModelADPtr_, i,
-                                    CentroidalMpcEndEffectorFootCost::libraryName(footName), modelSettings_, footCost.activeInStance));
-    }
-    if (formulationTasks.hasCost(MpcCostType::kExternalTorqueCost)) {
-      ASSIGN_OR_RETURN(std::unique_ptr<StateInputCost> externalTorqueCost, factory.makeExternalTorqueQuadraticCost(i));
-      problemPtr_->costPtr->add(externalTorqueCostName(footName), std::move(externalTorqueCost));
-    }
+  if (formulationTasks.hasCost(MpcCostType::kTaskSpaceFootCost)) {
+    // The collection name and the CppAD library name are the same string today, defined twice on purpose: a rename of
+    // the term must not rename (and regenerate) the library.
+    problemPtr_->costPtr->add(taskSpaceKinematicsCostName(footName),
+                              std::make_unique<CentroidalMpcEndEffectorFootCost>(
+                                  *referenceManagerPtr_, footCost, *pinocchioInterfacePtr_, *effectiveMpcRobotModelADPtr_, i,
+                                  CentroidalMpcEndEffectorFootCost::libraryName(footName), modelSettings_));
   }
-
-  // Pre-computation
-  problemPtr_->preComputationPtr = std::make_unique<HumanoidPreComputation>(
-      *pinocchioInterfacePtr_, *referenceManagerPtr_->getSwingTrajectoryPlanner(), *effectiveMpcRobotModelPtr_);
-
-  // Rollout, projecting every state it outputs onto the manifold
-  rolloutPtr_ = std::make_unique<TimeTriggeredRollout>(*problemPtr_->dynamicsPtr, solverSettings_.rolloutSettings);
-  rolloutPtr_->setStateManifold(stateManifold_);
-
-  // Initialization
-  constexpr bool extendNormalizedMomentum = true;
-  initializerPtr_ = std::make_unique<CentroidalWeightCompInitializer>(centroidalModelInfo_, *referenceManagerPtr_,
-                                                                      *effectiveMpcRobotModelPtr_, extendNormalizedMomentum);
-
+  if (formulationTasks.hasCost(MpcCostType::kExternalTorqueCost)) {
+    ASSIGN_OR_RETURN(std::unique_ptr<StateInputCost> externalTorqueCost, factory.makeExternalTorqueQuadraticCost(i));
+    problemPtr_->costPtr->add(externalTorqueCostName(footName), std::move(externalTorqueCost));
+  }
   return absl::OkStatus();
 }
 
@@ -973,41 +1093,14 @@ absl::Status CentroidalMpcInterface::setupOptimalControlProblem() {
 
 std::unique_ptr<StateInputConstraint> CentroidalMpcInterface::getStanceFootConstraint(const EndEffectorKinematics<scalar_t>& eeKinematics,
                                                                                       size_t contactPointIndex) {
+  // The gains are mapped onto the twist constraint by the same two functions the hot reload applies them with
+  // (ZeroVelocityGainsApplier), so that a reloaded file and a fresh start build the same constraint.
   const ModelSettings::FootConstraintConfig& footConfig = modelSettings_.footConstraintConfig;
-  const size_t numConstraints = footConfig.constrainOrientation ? 6 : 3;
-
-  const std::function<EndEffectorKinematicsTwistConstraint::Config(const ModelSettings::FootConstraintConfig&)> eeZeroVelConConfig =
-      [](const ModelSettings::FootConstraintConfig& footConfig) {
-        EndEffectorKinematicsTwistConstraint::Config config;
-        config.b.setZero(6);
-        config.Ax.setZero(6, 6);
-        config.Av.setZero(6, 6);
-
-        // Position error gain: only z-axis (foot height tracking during stance)
-        if (!numerics::almost_eq(footConfig.positionErrorGain_z, /*y=*/0.0)) {
-          config.Ax(2, 2) = footConfig.positionErrorGain_z;
-        }
-        // Orientation error gain: all 3 rotation axes (only effective when constrainOrientation is true)
-        if (!numerics::almost_eq(footConfig.orientationErrorGain, /*y=*/0.0)) {
-          config.Ax.block(3, 3, 3, 3) = Eigen::MatrixXd::Identity(3, 3) * footConfig.orientationErrorGain;
-        }
-
-        // Linear velocity gains: xy and z separately
-        config.Av(0, 0) = footConfig.linearVelocityErrorGain_xy;
-        config.Av(1, 1) = footConfig.linearVelocityErrorGain_xy;
-        config.Av(2, 2) = footConfig.linearVelocityErrorGain_z;
-
-        // Angular velocity gain: all 3 rotation axes (only effective when constrainOrientation is true)
-        config.Av(3, 3) = footConfig.angularVelocityErrorGain;
-        config.Av(4, 4) = footConfig.angularVelocityErrorGain;
-        config.Av(5, 5) = footConfig.angularVelocityErrorGain;
-
-        return config;
-      };
-
-  auto constraint = std::make_unique<ZeroVelocityConstraintCppAd>(*referenceManagerPtr_, eeKinematics, contactPointIndex, numConstraints,
-                                                                  eeZeroVelConConfig(footConfig));
-  constraint->getTwistConstraint().setConstrainYawRateAboutNormal(footConfig.constrainYawRateAboutContactNormal);
+  const EndEffectorKinematicsTwistConstraint::Config twistConfig = footTwistConfig(footConfig);
+  const size_t numConstraints = footConfig.constrainOrientation ? kPoseTangentDim : kPositionDim;
+  auto constraint =
+      std::make_unique<ZeroVelocityConstraintCppAd>(*referenceManagerPtr_, eeKinematics, contactPointIndex, numConstraints, twistConfig);
+  configureZeroVelocityConstraint(*constraint, footConfig, twistConfig);
   return constraint;
 }
 

@@ -45,6 +45,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cmath>
 #include <iostream>
 #include <memory>
+#include <stdexcept>
 #include <vector>
 
 #include "absl/base/nullability.h"
@@ -342,6 +343,56 @@ TEST(SqpOnSO3, AWarmStartMoreThanAQuarterTurnAwayIsDiscarded) {
   freshNear.run(/*initTime=*/kMpcPeriod, near, /*initMode=*/0, /*finalTime=*/kMpcPeriod + kHorizon);
   EXPECT_NE(warmNear.primalSolution(kMpcPeriod + kHorizon).stateTrajectory_,
             freshNear.primalSolution(kMpcPeriod + kHorizon).stateTrajectory_);
+}
+
+TEST(SqpOnSO3, AnInitialStateWithoutARotationIsRefused) {
+  // A quaternion at or below kQuaternionNormalizationEpsilon has no rotation the manifold can move: retract() leaves the
+  // zero quaternion at zero and difference() reads every attitude as no rotation away from it, so a plan from it would
+  // keep its attitude whatever is measured later.
+  AttitudeProblem attitude;
+  const DefaultInitializer initializer(3);
+  SqpSolver solver(solverSettings(), attitude.problem, initializer);
+  solver.setReferenceManager(std::make_shared<ReferenceManager>(attitude.targets));
+  vector_t zero = initialState(1.0);
+  zero.head<4>().setZero();
+  EXPECT_THROW(solver.run(/*initTime=*/0.0, zero, /*initMode=*/0, /*finalTime=*/kHorizon), std::runtime_error);
+  vector_t insideTheGuard = initialState(1.0);
+  insideTheGuard.head<4>() *= 0.1 * kQuaternionNormalizationEpsilon;
+  EXPECT_THROW(solver.run(/*initTime=*/0.0, insideTheGuard, /*initMode=*/0, /*finalTime=*/kHorizon), std::runtime_error);
+
+  // Just outside the guard the attitude is read through its direction, and the solve runs.
+  vector_t outsideTheGuard = initialState(1.0);
+  outsideTheGuard.head<4>() *= 1.1 * kQuaternionNormalizationEpsilon;
+  EXPECT_NO_THROW(solver.run(/*initTime=*/0.0, outsideTheGuard, /*initMode=*/0, /*finalTime=*/kHorizon));
+  EXPECT_NO_THROW(solver.run(/*initTime=*/0.0, initialState(1.0), /*initMode=*/0, /*finalTime=*/kHorizon));
+}
+
+TEST(SqpOnSO3, AWarmStartWithoutARotationIsDiscarded) {
+  // A warm start whose quaternions are zero is no rotation away from any measured attitude, so the quarter-turn rule
+  // alone would keep it, and the initial gap would read zero: the plan would stay at the zero quaternion.
+  AttitudeProblem attitude;
+  const DefaultInitializer initializer(3);
+  const std::shared_ptr<ReferenceManager> referenceManager = std::make_shared<ReferenceManager>(attitude.targets);
+  SqpSolver planner(solverSettings(), attitude.problem, initializer);
+  planner.setReferenceManager(referenceManager);
+  planner.run(/*initTime=*/0.0, initialState(1.0), /*initMode=*/0, /*finalTime=*/kHorizon);
+  PrimalSolution withoutRotation = planner.primalSolution(kHorizon);
+  for (vector_t& state : withoutRotation.stateTrajectory_) {
+    state.head<4>().setZero();
+  }
+
+  vector_t measured = initialState(1.0);
+  measured.head<4>() = quaternionExp(rotation_t(0.3, 0.0, 0.0));
+  SqpSolver warm(solverSettings(), attitude.problem, initializer);
+  warm.setReferenceManager(referenceManager);
+  warm.run(/*initTime=*/kMpcPeriod, measured, /*initMode=*/0, /*finalTime=*/kMpcPeriod + kHorizon, withoutRotation);
+  SqpSolver fresh(solverSettings(), attitude.problem, initializer);
+  fresh.setReferenceManager(referenceManager);
+  fresh.run(/*initTime=*/kMpcPeriod, measured, /*initMode=*/0, /*finalTime=*/kMpcPeriod + kHorizon);
+  const vector_array_t warmPlan = warm.primalSolution(kMpcPeriod + kHorizon).stateTrajectory_;
+  EXPECT_EQ(warmPlan, fresh.primalSolution(kMpcPeriod + kHorizon).stateTrajectory_);
+  ASSERT_FALSE(warmPlan.empty());
+  EXPECT_NEAR(warmPlan.front().head<4>().norm(), 1.0, 1e-12);
 }
 
 /** One node of a published manifold policy, with the pre-step iterate of the QP it came from. */

@@ -39,7 +39,8 @@ alternatives of one oneof, a field number instead of a name, a deprecated field 
 The schema answers what it can, with the C++ parser's words: a field the message lists as an (nproto.retired_field) is
 "'<name>' is retired: <replacement>"; otherwise an unknown field says "Did you mean ..." when its snake-cased name is a
 field, and ends with the message's (nproto.retired_layout_hint). A text whose leading comment block names another
-message (`# proto-message: pkg.Other`) is refused before it is parsed.
+message (`# proto-message: pkg.Other`) is refused before it is parsed, and a file (load_textproto()) whose leading
+comment block names no message at all is refused too (check_proto_message_header()).
 
 The C++ parser reports every problem of a text; this one, built on google.protobuf.text_format, reports the first.
 """
@@ -163,13 +164,13 @@ def explain_problem(pool: descriptor_pool.DescriptorPool, problem: str) -> str:
     for name, replacement in retired_fields(descriptor):
         if snake_case(name) == key:
             return f"'{field_name}' is retired: {replacement}"
-    explained = problem
+    sentences = [problem]
     if key != field_name and key in descriptor.fields_by_name:
-        explained += f' Did you mean "{key}"?'
+        sentences.append(f'Did you mean "{key}"?')
     hint = layout_hint(descriptor)
     if hint:
-        explained += f" {hint}"
-    return explained
+        sentences.append(hint)
+    return " ".join(sentences)
 
 
 # LINT.ThenChange(//tools/nproto/retired_field_options.proto:retired_options, //tools/nproto/src/Textproto.cpp:retired_options)
@@ -332,6 +333,64 @@ def parse_textproto(text: str, message: message_module.Message, source: str) -> 
         )
 
 
+def read_textproto_file(path: str) -> str:
+    """Reads the textproto file at `path` as UTF-8 text.
+
+    Args:
+      path: The file.
+
+    Returns:
+      The contents as a str.
+
+    Raises:
+      OSError: The file cannot be read.
+      TextprotoError: The file cannot be decoded as UTF-8.
+    """
+    try:
+        with open(path, "r", encoding="utf-8", newline="") as file:
+            return file.read()
+    except UnicodeDecodeError as error:
+        raise TextprotoError(f"{path}:1:1: cannot decode as UTF-8: {error}") from error
+
+
+def check_proto_message_header(
+    text: str, message: message_module.Message, source: str
+) -> None:
+    """Checks that the textproto `text` of a configuration file names its schema with a `# proto-message:` line.
+
+    The twin of nproto::CheckProtoMessageHeader(). A file that names no message could be read as any message whose
+    fields it matches; text from memory (a bus payload, a test's string) is parsed with parse_textproto() alone.
+    Whether the line names the message of `message` is parse_textproto()'s check.
+
+    Args:
+      text: The file's text.
+      message: A message of the schema the file should name, for the error.
+      source: Names the text in errors, usually its path.
+
+    Raises:
+      TextprotoError: The leading comment block of `text` has no `# proto-message:` line.
+    """
+    if header_message(text) is None:
+        raise TextprotoError(
+            f"{source}:1:1: {source} names no schema: a configuration file opens with "
+            f"'# {PROTO_MESSAGE_HEADER} {message.DESCRIPTOR.full_name}' in its leading comment block"
+        )
+
+
+def file_text(message: message_module.Message) -> str:
+    """`message` as the text of a configuration file: the `# proto-message:` line that names its schema, then its fields.
+
+    The twin of nproto::WriteTextprotoFile(); load_textproto() reads a file of it back.
+
+    Args:
+      message: The message.
+
+    Returns:
+      The header line and text_format's text of `message`.
+    """
+    return f"# {PROTO_MESSAGE_HEADER} {message.DESCRIPTOR.full_name}\n{text_format.MessageToString(message)}"
+
+
 def load_textproto(path: str, message_class: type[MessageT]) -> MessageT:
     """The textproto file at `path` as a `message_class`, parsed strictly; errors name the path.
 
@@ -344,10 +403,11 @@ def load_textproto(path: str, message_class: type[MessageT]) -> MessageT:
 
     Raises:
       OSError: The file cannot be read.
-      TextprotoError: It does not match the schema (parse_textproto()).
+      TextprotoError: It names no schema (check_proto_message_header()), does not match the schema
+        (parse_textproto()), or is not valid UTF-8.
     """
-    with open(path, encoding="utf-8") as file:
-        text = file.read()
+    text = read_textproto_file(path)
     message = message_class()
+    check_proto_message_header(text, message, path)
     parse_textproto(text, message, path)
     return message

@@ -48,6 +48,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 #include "mujoco/mujoco.h"
+#include "ocs2_core/Dimensions.h"
 
 #include "mujoco_sim_interface/MujocoContactPatch.h"
 #include "mujoco_sim_interface/MujocoUtils.h"
@@ -113,10 +114,23 @@ absl::Status checkSceneSupportsGantryHold(const mjModel* absl_nonnull model, Gan
  * task file and command line. Passive data: the simulator copies it.
  */
 struct MujocoSimConfig {
+  /** [s] The physics step of a configuration that sets none: 2 kHz. */
+  static constexpr double kDefaultTimestep = 0.0005;
+  /** [Hz] How often the viewer gets a new state, unless configured otherwise. */
+  static constexpr double kDefaultRenderFrequencyHz = 60.0;
+  /** [N] The normal force above which a contact point counts as touching, unless configured otherwise. */
+  static constexpr double kDefaultContactForceThreshold = 5.0;
+  /** [N m s/rad] The joint damping of the zero-torque ragdoll mode, unless configured otherwise. */
+  static constexpr double kDefaultRagdollJointDamping = 20.0;
+  /** [m] The base height below which the robot counts as fallen and is reset, unless configured otherwise. */
+  static constexpr double kDefaultAutoResetBaseHeight = 0.2;
+
   std::string scenePath;
-  std::shared_ptr<model::RobotState> initStatePtr_;
-  double dt = 0.0005;
-  double renderFrequencyHz = 60.0;
+  /// The state the robot starts in and every reset returns it to. Absent: all joints at zero and the base 1 m above the
+  /// origin, upright.
+  std::optional<model::RobotState> initialState;
+  double dt = kDefaultTimestep;
+  double renderFrequencyHz = kDefaultRenderFrequencyHz;
   /// The viewer initSim() starts, by registry name in order of preference, and the web viewer's options
   /// (viewer/ViewerSettings.h). Create() refuses settings validateViewerSettings() refuses.
   ViewerSettings viewer;
@@ -138,8 +152,16 @@ struct MujocoSimConfig {
   // controller adds to its own kinematic model does not exist in the URDF or the MuJoCo scene; the MuJoCo body driven
   // by that joint is the contact body then.
   std::vector<std::string> contactParentJointNames;
-  double contactForceThreshold = 5.0;  // [N] normal force above which a contact point counts as touching
-  double contactTimelineWindow = 5.0;  // [s] sliding window of the contact timeline overlay
+  double contactForceThreshold = kDefaultContactForceThreshold;           // [N] normal force above which a contact point counts as touching
+  double contactTimelineWindow = ContactTimeline::kDefaultWindowSeconds;  // [s] sliding window of the contact timeline overlay
+
+  /// [N m s/rad] (N s/m on a slide joint) The damping of every robot joint while the torques are off (zero-torque mode),
+  /// so that the passive robot settles rather than swings; the ball's dofs never get it. While the torques are on, every
+  /// joint has the scene's own dof_damping, as the MJCF declares it. Task file `sim_ragdoll_joint_damping`; >= 0.
+  double ragdollJointDamping = kDefaultRagdollJointDamping;
+  /// [m] The height of the base (its free joint's z) below which the robot has fallen: it is reset and caught on the
+  /// gantry. Task file `sim_auto_reset_base_height`; finite.
+  double autoResetBaseHeight = kDefaultAutoResetBaseHeight;
 
   // Contact patch of every contact point (same order) in its contact frame, drawn by the viewer at the target contact
   // pose the controller reports through setTargetContactPatches (MujocoContactPatch.h). A contact point without an
@@ -164,9 +186,10 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
    * Loads the scene `config` names - compiled with the projectile `config.projectile` names, if any - and builds a
    * simulator of `urdfPath`'s robot on it, in its initial state and with the physics thread not started (startSim()).
    * Fails with InvalidArgumentError when the scene does not load, parse or compile, `config` names an unknown
-   * projectile or gantry hold, or its viewer settings are invalid (validateViewerSettings()), with InternalError when
-   * MuJoCo cannot create the simulation data, and with what RobotDescription::Create() returns when `urdfPath` does
-   * not describe a robot.
+   * projectile or gantry hold, its viewer settings are invalid (validateViewerSettings()) or a number of it is out of
+   * range, or the scene is one the simulator cannot drive (buildJointMap()); with InternalError when MuJoCo cannot
+   * create the simulation data or the compiled-in projectile cannot be found; and with what RobotDescription::Create()
+   * returns when `urdfPath` does not describe a robot.
    */
   static absl::StatusOr<std::unique_ptr<MujocoSimInterface>> Create(const MujocoSimConfig& config, const std::string& urdfPath);
 
@@ -182,7 +205,9 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
    * Takes the first physics step and starts the viewer: each name of MujocoSimConfig::viewer in turn until one starts,
    * destroying a viewer that failed before trying the next (so a port it bound is free again). viewerStatus() tells
    * the outcome; the simulation runs whether or not a viewer started. Call it once, before startSim() (which calls it
-   * when it was not), on the thread that owns the simulator.
+   * when it was not), on the thread that owns the simulator. A lifecycle step, not the second half of construction:
+   * the simulator Create() returns is complete (its state, its setters and RobotHWInterfaceBase work), and this starts
+   * what runs beside it (the viewer's threads, which a test that only steps the physics never needs).
    */
   void initSim();
 
@@ -205,7 +230,7 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
 
   void startSim();
 
-  std::thread& getSimulationThread() { return simulate_thread_; }
+  std::thread& getSimulationThread() { return simulationThread_; }
 
   void simulationStep();
 
@@ -233,12 +258,13 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
    * For tests and tools that step the simulation themselves: it writes mjData without synchronization, so it must not
    * be called while the thread startSim() started is running.
    */
-  void setBaseStateForTesting(const std::array<double, 7>& basePose, const std::array<double, 6>& baseVelocity);
+  void setBaseStateForTesting(const std::array<double, kMjFreeJointQposSize>& basePose,
+                              const std::array<double, kMjFreeJointDofs>& baseVelocity);
 
   // Virtual Gantry Controls
   /**
    * Catches the robot on the gantry, WHERE IT IS: with the `weld_constraint` hold the weld holds the base at its
-   * horizontal position and heading at the moment of the catch, at the gantry height, rather than at the scene's
+   * horizontal position and twist heading (design D9) at the moment of the catch, at the gantry height, rather than at the scene's
    * anchor. A weld to a fixed anchor pulled a robot caught a long walk from the origin across the world, fast enough to
    * make the step numerically unstable. (The legacy `kinematic_teleport` hold still teleports to the origin; it is kept
    * only to reproduce recorded runs.)
@@ -264,8 +290,9 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
 
   /**
    * Zero-torque mode: while it is on, simulationStep() commands no actuator. The sim starts in it, so that the MPC
-   * solver can warm up. Switching it swaps MuJoCo's dof_damping as well (the boosted ragdoll damping while the torques
-   * are off).
+   * solver can warm up. Switching it swaps MuJoCo's dof_damping as well: MujocoSimConfig::ragdollJointDamping on the
+   * robot's joints while the torques are off, and the scene's own dof_damping, captured when it was loaded, while they
+   * are on.
    *
    * Callable from any thread, and realtime-safe: the switch is an atomic, and the physics thread writes dof_damping
    * before its next step, so that no other thread writes the model while mj_step reads it. enableTorques() also discards
@@ -291,7 +318,8 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
 
   /**
    * The forces the feet's force sensors measured in the newest physics step [N] (zero without a sensor), as the
-   * physics thread published them. For one consumer thread (the robot process's realtime loop); lock-free, and it reads
+   * physics thread published them: the force each foot carries, in the world frame, +z up while it stands
+   * (footForceInWorldFrame()). For one consumer thread (the robot process's realtime loop); lock-free, and it reads
    * no mjData, which the physics thread writes meanwhile.
    */
   void takeMeasuredFootForces(vector3_t& left, vector3_t& right);
@@ -343,10 +371,10 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
    * gravity compensation and is unit-tested. This struct is the wire format between the two.
    */
   struct DodgeballThrow {
-    double spawnOffset[3]{0.0, 0.0, 0.0};     // [m] from the base, in the base's yaw frame
-    double launchVelocity[3]{0.0, 0.0, 0.0};  // [m/s] in the base's yaw frame
-    double flightTime = 0.0;                  // [s] until it reaches the base
-    double mass = 0.0;                        // [kg] always sent by the GUI; clamped to kMin/kMaxProjectileMass on use
+    double spawnOffset[ocs2::kPositionDim]{0.0, 0.0, 0.0};     // [m] from the base, in the base's yaw frame
+    double launchVelocity[ocs2::kPositionDim]{0.0, 0.0, 0.0};  // [m/s] in the base's yaw frame
+    double flightTime = 0.0;                                   // [s] until it reaches the base
+    double mass = 0.0;                                         // [kg] always sent by the GUI; clamped to kMin/kMaxProjectileMass on use
   };
 
   /**
@@ -364,10 +392,12 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
    * `groundTruthContactMask` and from the ZMP marker so a ball against a swing foot is never mistaken for the ground,
    * and it is appended LAST so it cannot displace the robot as the first free-joint body.
    *
-   * WITHOUT ONE: the flight is ballistic and known in closed form, so the momentum the ball carries on arrival,
-   * m (v_launch - g t z), is scheduled for `flightTime` from now and applied to the base as a one-step external force.
-   * It is a LOWER bound on the push rather than an equivalent of it: a ball that bounces off hands over up to (1 + e)
-   * times its momentum. The force lasts one physics step, so the viewer, which samples the state about every thirty
+   * WITHOUT ONE: the flight is ballistic and known in closed form, so the ball's arrival velocity v = v_launch - g t z
+   * is scheduled for `flightTime` from now. Then the impulse of a frictionless impact of a dodgeball of that mass
+   * (projectileImpactImpulse(): (1 + e) mu v_n, with the dodgeball's restitution e and the robot's effective mass along
+   * v at the base) is applied along v through the base's origin, which the throw was aimed at: as a one-step force at the
+   * base's center of mass and the moment of that force about it, so the robot gets the linear AND the angular momentum
+   * of a push at that point. The force lasts one physics step, so the viewer, which samples the state about every thirty
    * steps, will usually not draw it.
    *
    * `mass` is clamped with clampProjectileMass on both paths, because a topic can be published by hand.
@@ -384,19 +414,78 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
   double getTargetYawRate() const { return targetYawRate_.load(std::memory_order_relaxed); }
 
  private:
+  /** A joint of the robot description in the scene: where MuJoCo keeps its coordinate and its velocity. */
+  struct MappedJoint {
+    joint_index_t robotJoint = 0;
+    int qposAddress = 0;
+    int dofAddress = 0;
+  };
+  /** An actuator of the scene that commands a joint of the robot description with its torque. */
+  struct MappedActuator {
+    int actuatorId = 0;
+    int mujocoJointId = 0;
+    joint_index_t robotJoint = 0;
+  };
+  /** How the scene's joints and actuators map to the robot description's joints (buildJointMap()). */
+  struct JointMap {
+    std::vector<MappedJoint> joints;
+    std::vector<MappedActuator> actuators;
+  };
+  /** Where the compiled-in projectile lives in the model; all -1 when `sim_projectile` named none. */
+  struct ProjectileAddresses {
+    int bodyId = -1;
+    int jointId = -1;
+    int qposAddress = -1;
+    int dofAddress = -1;
+  };
+
   /** What Create() loads before the simulator is built: everything that can fail. */
   struct LoadedScene {
     MjModelPtr model;
     MjDataPtr data;
     Projectile projectile;  // a default Projectile (no ball) when `sim_projectile` named none
+    ProjectileAddresses projectileAddresses;
+    /// The restitution of the impact the no-ball fallback impulse models: the dodgeball's (throwDodgeball()).
+    double fallbackRestitution = 0.0;
+    /// The hold the gantry uses: the configured one, or kKinematicTeleport when the scene cannot hold the weld.
     GantryHold gantryHold = GantryHold::kWeldConstraint;
+    JointMap jointMap;
   };
 
-  /** Loads and compiles the scene of `config`, with its projectile, and resolves its gantry hold (see Create()). */
-  static absl::StatusOr<LoadedScene> loadScene(const MujocoSimConfig& config);
+  /**
+   * Loads and compiles the scene of `config`, with its projectile, resolves its gantry hold and the projectile's
+   * addresses, and maps it onto `description` (see Create()).
+   */
+  static absl::StatusOr<LoadedScene> loadScene(const MujocoSimConfig& config, const robot::model::RobotDescription& description);
+
+  /**
+   * Maps the joints and actuators of `model` onto `description`, by name, at MuJoCo's own addresses (nothing assumes
+   * the scene's order). The scene must have the robot's free joint at qpos 0 and dof 0; every scene joint that the
+   * description names must be a hinge or a slide; and every actuator on such a joint must be a plain torque motor
+   * (`<motor>`: joint transmission of gear 1, fixed gain 1, no bias and no activation dynamics), at most one per joint,
+   * because the simulator writes a joint's torque into its ctrl. InvalidArgumentError naming the joint or actuator
+   * otherwise. Scene joints and actuators the description does not name, and the projectile's free joint
+   * (`projectileBodyId`, -1 for none), are left alone (logged).
+   */
+  static absl::StatusOr<JointMap> buildJointMap(const mjModel* absl_nonnull model,
+                                                const robot::model::RobotDescription& description,
+                                                int projectileBodyId);
+
+  /** The addresses of the projectile body kProjectileBodyName compiled into `model`; InternalError when it is missing. */
+  static absl::StatusOr<ProjectileAddresses> findProjectile(const mjModel* absl_nonnull model);
+
+  /** Checks the numbers of `config` the simulator relies on: InvalidArgumentError naming the first out of range. */
+  static absl::Status checkConfigNumbers(const MujocoSimConfig& config);
 
   /** Builds the simulator of the robot `robotDescription` describes on a loaded scene; cannot fail. */
   MujocoSimInterface(const MujocoSimConfig& config, robot::model::RobotDescription robotDescription, LoadedScene scene);
+
+  /// Constructor steps: the solver options; the initial state; the foot sensors; the gantry; the render buffer.
+  void configureSolverOptions();
+  void setInitialState();
+  void findFootSensors();
+  void setupGantry();
+  void setupRenderBuffer();
 
   void setupContactDetection();
   void updateGroundTruthContacts();
@@ -412,6 +501,10 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
   /// schedules the fallback impulse), parks a ball that has finished, and applies or clears the impulse. See
   /// throwDodgeball() for the two paths.
   void applyDodgeball();
+  /// Simulation thread: throws `staged`, rotated from the robot's yaw frame into the world. With a projectile in the
+  /// scene, launches the ball and returns true (applyDodgeball() is done for this step, thrown or refused); without one,
+  /// schedules the impact of the ballistic flight (applyFallbackImpulse()) and returns false.
+  bool throwStagedDodgeball(const DodgeballThrow& staged);
   /// Simulation thread only: parks the ball and drops any staged throw and scheduled impulse. See lockGantry().
   void cancelDodgeball();
   /// True when a projectile was compiled into this scene, i.e. `sim_projectile` named one.
@@ -422,10 +515,9 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
   void parkProjectile();
   /// Body id of the robot's floating base, i.e. the first body carrying a free joint; -1 if the model has none.
   int robotRootBodyId() const;
-  /// [rad] Heading of that base, from its free joint's quaternion at qpos[3..6].
+  /// [rad] Heading of that base, from its free joint's quaternion at qpos[3..6]: the twist heading, the angle of its
+  /// attitude's rotation about the vertical (design D9), which the gantry anchors at; the ZYX yaw upside down.
   double baseYaw() const;
-
-  void setupJointIndexMaps();
 
   void setSimState(const model::RobotState& robotState);
 
@@ -434,8 +526,9 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
   /// Simulation thread only: brings dof_damping in line with the torque switch, when it changed since the last step.
   void applyTorqueSwitch();
 
-  /// Simulation thread only: the force a foot force sensor at `sensorAddress` reads; zero for kNoSensor.
-  vector3_t footSensorForce(size_t sensorAddress) const;
+  /// Simulation thread only: the world-frame force the foot of force sensor `sensorId` carries
+  /// (footForceInWorldFrame()); zero for kNoFootForceSensor.
+  vector3_t footSensorForce(int sensorId) const;
 
   void simulationLoop();
 
@@ -446,17 +539,13 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
   MujocoSimConfig config_;
 
   model::RobotState robotStateInternal_;
-  std::vector<mjtNum> qpos_init_;  // the initial position a reset returns to (nq)
-  std::vector<mjtNum> qvel_init_;  // the initial velocity a reset returns to (nv)
+  std::vector<mjtNum> initialQpos_;  // the initial position a reset returns to (nq)
+  std::vector<mjtNum> initialQvel_;  // the initial velocity a reset returns to (nv)
   model::RobotJointAction robotJointActionInternal_;
 
   size_t timeStepMicro_ = 0;
-  size_t nActiveJoints_ = 0;
-  size_t nActuators_ = 0;
-  std::vector<std::string> activeMuJoCoJointNames_;
-  std::vector<std::string> activeMuJoCoActuatorNames_;
-  std::vector<joint_index_t> activeRobotJointStateIndices_;
-  std::vector<joint_index_t> activeRobotActuatorIndices_;
+  /// The scene's joints and actuators of the robot description, at their MuJoCo addresses (buildJointMap()).
+  JointMap jointMap_;
 
   // Never null in a constructed simulator: Create() fails when the scene does not load or compile (getModel()).
   MjModelPtr mujocoModel_;
@@ -466,7 +555,7 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
   const bool verbose_;
   std::atomic<bool> terminate_{false};
 
-  std::thread simulate_thread_;
+  std::thread simulationThread_;
   /// The viewer initSim() started; null before it and when none started. Reset before any member it reads.
   std::unique_ptr<MujocoViewer> viewer_;
   /// initSim()'s outcome of starting viewer_ (viewerStatus()).
@@ -474,7 +563,9 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
   /// Written by the physics thread at every step, read by any thread.
   StepLatenessHistogram stepLateness_;
 
-  FPSTracker simFps_{/*alpha=*/0.02};
+  /// The smoothing factor of simFps_, the weight of each new step's rate in its moving average.
+  static constexpr double kSimFpsSmoothing = 0.02;
+  FPSTracker simFps_{/*alpha=*/kSimFpsSmoothing};
   std::chrono::steady_clock::time_point lastRealTime_;
   std::chrono::steady_clock::time_point loopStartTime_;
   double simTimeAtLoopStart_ = 0.0;
@@ -484,11 +575,14 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
   // to be left uninitialized, which read sensordata at a garbage index (a segfault on scenes without sensors, such as
   // the DRC Atlas one) whenever the object's layout happened to leave a large value there.
   static constexpr size_t kNoSensor = static_cast<size_t>(-1);
-  size_t right_foot_sensor_addr_{kNoSensor};
-  size_t left_foot_sensor_addr_{kNoSensor};
+  // The feet's force sensors, by sensor id: a <force> sensor on a site of the foot (isFootForceSensor()), or
+  // kNoFootForceSensor when the scene has none.
+  static constexpr int kNoFootForceSensor = -1;
+  int rightFootForceSensor_ = kNoFootForceSensor;
+  int leftFootForceSensor_ = kNoFootForceSensor;
 
-  size_t right_foot_touch_sensor_addr_{kNoSensor};
-  size_t left_foot_touch_sensor_addr_{kNoSensor};
+  size_t rightFootTouchSensorAddress_{kNoSensor};
+  size_t leftFootTouchSensorAddress_{kNoSensor};
 
   std::atomic<bool> isGantryLocked_{true};
   std::atomic<double> gantryHeight_{0.0};
@@ -509,7 +603,8 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
   std::atomic<bool> zeroTorqueMode_{true};  // Start in zero-torque mode by default
   /// Simulation thread only: whether dof_damping holds the ragdoll damping of zero-torque mode (applyTorqueSwitch()).
   bool ragdollDampingApplied_ = true;
-  std::vector<mjtNum> originalDofDamping_;  // Saved dof_damping values for restore on enableTorques
+  /// The scene's own dof_damping (nv), captured before anything wrote it: what every dof has while the torques are on.
+  std::vector<mjtNum> sceneDofDamping_;
 
   /// The feet's measured forces of the newest step, from the simulation thread to takeMeasuredFootForces().
   struct MeasuredFootForces {
@@ -551,10 +646,23 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
   TripleBuffer<DodgeballThrow> dodgeballMailbox_;
   /// Resolved into the world frame and scheduled once the simulation thread has seen it. Only that thread touches
   /// these, so they need no lock.
-  double scheduledImpulseWorld_[3]{0.0, 0.0, 0.0};  // [N s]
-  double scheduledImpactTime_ = -1.0;               // [s] of simulation time; negative means nothing is in flight
+  std::array<double, ocs2::kPositionDim> scheduledArrivalVelocity_{{0.0, 0.0, 0.0}};  // [m/s] of the ball, world frame
+  double scheduledBallMass_ = 0.0;                                                    // [kg] clamped
+  double scheduledImpactTime_ = -1.0;  // [s] of simulation time; negative means nothing is in flight
+  /// The restitution of the impact the fallback impulse models (LoadedScene::fallbackRestitution).
+  double fallbackRestitution_ = 0.0;
+  /// Preallocated scratch of the fallback impulse, so that the physics thread does not allocate: the translational
+  /// Jacobian of the base point (3 x nv), J^T n and M^-1 J^T n (nv each).
+  std::vector<mjtNum> impactJacobian_;
+  std::vector<mjtNum> impactGeneralizedDirection_;
+  std::vector<mjtNum> impactMobility_;
+  /// Simulation thread only: applies the scheduled fallback impulse to the base (throwDodgeball(), "WITHOUT ONE").
+  void applyFallbackImpulse(int baseBody);
   /// Set for exactly the step on which the impulse is applied, so the next step can clear xfrc_applied again.
   bool dodgeballImpulseApplied_ = false;
+  /// The last push applied through xfrc_applied, published with every snapshot for the external_forces marker (the
+  /// force itself is cleared after one step); reset by resetAndCatch().
+  AppliedPush lastPush_;
   /// The projectile compiled into the scene, and its addresses in the model. All -1 when `sim_projectile` named
   /// none, in which case a throw falls back to a scheduled impulse on the base and there is nothing to look at.
   Projectile projectile_;

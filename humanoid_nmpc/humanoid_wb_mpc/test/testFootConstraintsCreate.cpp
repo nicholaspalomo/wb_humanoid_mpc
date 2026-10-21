@@ -38,7 +38,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/PreComputation.h"
 
+#include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_nmpc/humanoid_wb_mpc/test/AffineEndEffectorDynamics.h"
 #include "humanoid_wb_mpc/WBMpcInterface.h"
 #include "humanoid_wb_mpc/constraint/SwingLegVerticalConstraintCppAd.h"
@@ -48,7 +51,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * The foot constraints of the whole-body MPC on the G1 reference manager: ZeroAccelerationConstraintCppAd::Create() and
  * SwingLegVerticalConstraintCppAd::Create() hand back the refusal of the single-end-effector constraint they are built
  * on, where their constructors used to throw it, and make the constraint on one end effector, active in stance and in
- * swing respectively. An affine stand-in plays the end-effector dynamics. Builds no CppAD model.
+ * swing respectively; the stance constraint with the shipped gains acts on the pose rates of its dynamics (the rate and
+ * acceleration of the orientation error), not on its linear velocity and acceleration, and servoes the height row to the
+ * ground.
+ * An affine stand-in plays the end-effector dynamics. Builds no CppAD model.
  */
 
 namespace ocs2::humanoid {
@@ -85,6 +91,52 @@ TEST(FootConstraintsCreate, TheStanceFootConstraintRefusesDynamicsOfTwoEndEffect
   ASSERT_TRUE(created.ok()) << created.status();
   EXPECT_EQ((*created)->getNumConstraints(/*time=*/0.0), 6u);
   EXPECT_EQ((*created)->isActive(/*time=*/0.0), referenceManager.isInContact(/*time=*/0.0, kContactIndex));
+}
+
+TEST(FootConstraintsCreate, TheStanceFootConstraintActsOnThePoseRatesOfItsDynamics) {
+  const std::unique_ptr<WBMpcInterface> interface = controllerModels();
+  ASSERT_NE(interface, nullptr);
+  SwitchedModelReferenceManager& referenceManager = *interface->getSwitchedModelReferenceManagerPtr();
+  // The swing planner's trajectories, whose stance height the height row servoes to.
+  referenceManager.preSolverRun(/*initTime=*/-0.5, /*finalTime=*/1.0, interface->getInitialState(), ModeNumber::kStance);
+  const ModelSettings::FootConstraintConfig& gains = interface->modelSettings().footConstraintConfig;
+  const AffineEndEffectorDynamics dynamics;
+  const absl::StatusOr<std::unique_ptr<ZeroAccelerationConstraintCppAd>> created =
+      ZeroAccelerationConstraintCppAd::Create(referenceManager, dynamics, kContactIndex, stanceFootAccelerationConstraintConfig(gains));
+  ASSERT_TRUE(created.ok()) << created.status();
+  const vector_t state = (vector_t(test_support::kAffineStateDim) << 0.3, -0.7, 1.2, 0.4).finished();
+  const vector_t input = (vector_t(test_support::kAffineInputDim) << -0.5, 0.9, 0.2, -1.1, 0.6).finished();
+
+  vector6_t pose;
+  pose << dynamics.position(state), dynamics.orientationErrorWrtPlane(state);
+  const vector6_t rate = dynamics.poseWrtPlaneRate(state, input);
+  const vector6_t acceleration = dynamics.poseWrtPlaneAcceleration(state, input);
+  vector6_t expected;
+  for (Eigen::Index i = 0; i < 2; ++i) {
+    expected(i) = gains.linearVelocityErrorGain_xy * rate(i) + gains.linearAccelerationErrorGain_xy * acceleration(i);
+  }
+  const scalar_t groundHeight = referenceManager.getSwingTrajectoryPlanner()->getZpositionConstraint(kContactIndex, /*time=*/0.0);
+  expected(2) = gains.positionErrorGain_z * (pose(2) - groundHeight) + gains.linearVelocityErrorGain_z * rate(2) +
+                gains.linearAccelerationErrorGain_z * acceleration(2);
+  for (Eigen::Index i = 3; i < 6; ++i) {
+    expected(i) = gains.orientationErrorGain * pose(i) + gains.angularVelocityErrorGain * rate(i) +
+                  gains.angularAccelerationErrorGain * acceleration(i);
+  }
+  const vector_t value = (*created)->getValue(/*time=*/0.0, state, input, PreComputation());
+  EXPECT_TRUE(value.isApprox(expected, /*prec=*/1.0e-12)) << value.transpose() << "\nvs\n" << expected.transpose();
+  EXPECT_TRUE((*created)->getLinearApproximation(/*time=*/0.0, state, input, PreComputation()).f.isApprox(value, /*prec=*/1.0e-12));
+
+  // Positive control: on the stand-in's linear velocity and acceleration, which the swing foot's constraint reads, the
+  // linear rows would be other values.
+  const vector3_t velocity = dynamics.velocity(state, input);
+  const vector3_t linearAcceleration = dynamics.linearAcceleration(state, input);
+  vector3_t onTheVelocity;
+  for (Eigen::Index i = 0; i < 2; ++i) {
+    onTheVelocity(i) = gains.linearVelocityErrorGain_xy * velocity(i) + gains.linearAccelerationErrorGain_xy * linearAcceleration(i);
+  }
+  onTheVelocity(2) = gains.positionErrorGain_z * (pose(2) - groundHeight) + gains.linearVelocityErrorGain_z * velocity(2) +
+                     gains.linearAccelerationErrorGain_z * linearAcceleration(2);
+  EXPECT_GT((value.head<3>() - onTheVelocity).cwiseAbs().maxCoeff(), 1.0) << "the case under test: rates other than the velocity";
 }
 
 TEST(FootConstraintsCreate, TheSwingFootConstraintRefusesDynamicsOfTwoEndEffectors) {

@@ -38,7 +38,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <vector>
 
-#include "absl/base/nullability.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 #include "gtest/gtest.h"
@@ -46,10 +45,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_core/reference/ModeSchedule.h"
 #include "ocs2_core/reference/TargetTrajectories.h"
 #include "ocs2_oc/oc_data/PrimalSolution.h"
+#include "ocs2_oc/oc_data/ProblemMetrics.h"
 #include "ocs2_oc/oc_data/TimeDiscretization.h"
 #include "ocs2_oc/oc_problem/OptimalControlProblem.h"
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
 #include "ocs2_sqp/SqpSettings.h"
+#include "ocs2_sqp/SqpSolverStatus.h"
 
 #include "humanoid_centroidal_mpc/CentroidalMpcInterface.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
@@ -63,10 +64,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_wb_mpc/WBMpcInterface.h"
 
 /*
- * What the MPC-level tests (testMpc{Dynamics,Rollout,OrientationCost,SqpStep}Equivalence.cpp and
- * testQuaternionRootTerm{Derivatives,Hessians}.cpp) share: the shipped MPC of one configuration on the quaternion layout
- * (its interface, optimal control problem, state manifold, robot model and Pinocchio model, one real-time SQP iteration
- * on a given manifold),
+ * What the MPC-level tests (testMpc{Dynamics,Rollout,OrientationCost,SqpStep}Equivalence.cpp, testMpcSqpConvergence.cpp
+ * and testQuaternionRootTerm{Derivatives,Hessians}.cpp) share: the shipped MPC of one configuration on the quaternion
+ * layout (its interface, optimal control problem, state manifold, robot model and Pinocchio model, one real-time SQP
+ * iteration on a given manifold, an SQP run with the solver's records of its iterations, and a sequence of real-time
+ * solves),
  * the Euler side of it (EulerMpcOracle on the Euler-root twin of the MPC's own Pinocchio model, and the Euler-chart
  * manifold EulerChartStateManifold), the chart between the two (humanoid_mpc_validation/chart/EulerChart.h: Phi,
  * dPhi / dx_e, P_e), random Euler states and inputs, and the walking reference and resting warm start the SQP and term
@@ -139,12 +141,31 @@ struct RealTimeIteration {
   scalar_t stepSize = 0.0;
 };
 
-/** How sqpSolution() runs the SQP. Passive data. */
+/** How sqpSolution() and sqpRun() run the SQP. Passive data. */
 struct SqpRunOptions {
   /** The SQP's iteration limit (sqp_iteration). */
   size_t iterations = 1;
   /** Its deltaTol and costTol, when set; the task file's otherwise. */
   std::optional<scalar_t> convergenceTolerance;
+};
+
+/** What one SQP solve did. Passive data. */
+struct SqpRun {
+  PrimalSolution solution;
+  /** Every iteration, as the solver recorded it (SqpSolver::getIterationRecords()). */
+  std::vector<sqp::IterationRecord> iterations;
+  /** The cost, dynamics and constraint values of every node of the solution (SolverBase::getSolutionMetrics()). */
+  ProblemMetrics metrics;
+};
+
+/** One solve of MpcEquivalenceFixture::realTimeSolves(). Passive data. */
+struct RealTimeSolve {
+  /** [s] Where the solve's horizon starts. */
+  scalar_t initTime = 0.0;
+  /** The solve's one iteration (sqp_iteration 1). */
+  sqp::IterationRecord iteration;
+  /** The values of every node of its plan (SolverBase::getSolutionMetrics()). */
+  ProblemMetrics metrics;
 };
 
 /** Where random Euler states and inputs are drawn. Passive data. */
@@ -199,6 +220,8 @@ class MpcEquivalenceFixture {
   const std::shared_ptr<const StateManifold>& manifoldPtr() const { return manifold_; }
   /** The task file's Euler state layout, which is the oracle's state. */
   const validation::EulerStateLayout& eulerLayout() const { return eulerLayout_; }
+  /** A new Euler-chart manifold of the MPC (EulerChartStateManifold over manifoldPtr()), for the chart's SQP. */
+  std::shared_ptr<const StateManifold> eulerChartPtr() const;
   /** The oracle under the world's gravity. */
   const EulerMpcOracle& oracle() const { return *oracle_; }
   /** An oracle of the same model under the gravity `gravity`. */
@@ -309,6 +332,23 @@ class MpcEquivalenceFixture {
                              const vector_t& initState,
                              PrimalSolution warmStart,
                              const SqpRunOptions& options) const;
+  /** The same solve, with what each of its iterations did and the values of its solution. */
+  SqpRun sqpRun(std::shared_ptr<const StateManifold> manifold,
+                const EquivalenceReference& reference,
+                const vector_t& initState,
+                PrimalSolution warmStart,
+                const SqpRunOptions& options) const;
+
+  /**
+   * `solves` real-time solves of one SQP on the MPC's manifold under `reference`, as the MPC runs them (sqp_iteration 1,
+   * the task file's other settings, one thread): each at the time of node 1 of the last plan (one node later), from
+   * the last plan's state there (a plant that follows the plan exactly; its post-event node at an event), the first
+   * after `plan` (a solution under `reference`, sqpRun()'s) and warm-started from it, every later one warm-started by
+   * the solver itself from its own last solution (trajectorySpread and the interpolation at its new nodes). The
+   * reference is installed once; the solver's preRun() updates the reference manager per solve, as in the MPC. The
+   * solver's errors, as realTimeIteration().
+   */
+  std::vector<RealTimeSolve> realTimeSolves(const EquivalenceReference& reference, PrimalSolution plan, size_t solves) const;
 
  private:
   /** Where worldAction() acts. */
@@ -321,13 +361,8 @@ class MpcEquivalenceFixture {
 
   matrix_t worldAction(const vector4_t& worldRotation, WorldActionSpace space) const;
 
-  /** The SQP run of sqpSolution(); with `firstStepSize`, its first iteration's line-search step size from the solver's log. */
-  PrimalSolution runSqp(std::shared_ptr<const StateManifold> manifold,
-                        const EquivalenceReference& reference,
-                        const vector_t& initState,
-                        PrimalSolution warmStart,
-                        const SqpRunOptions& options,
-                        scalar_t* absl_nullable firstStepSize) const;
+  /** The settings of the fixture's solves: the task file's, with `options`, one thread, the feedback policy on, no output. */
+  sqp::Settings solveSettings(const SqpRunOptions& options) const;
 
   validation::RobotConfiguration robot_;
   // Exactly one of the two is set; the extractor and the oracle read it.
@@ -338,8 +373,6 @@ class MpcEquivalenceFixture {
   validation::EulerStateLayout eulerLayout_;
   EulerMpcOracleOptions oracleOptions_;
   std::unique_ptr<EulerMpcOracle> oracle_;
-  // Numbers the SQP log directories of realTimeIteration(): mutable bookkeeping of a class that is not thread-safe.
-  mutable size_t iterationRuns_ = 0;
 };
 
 /**

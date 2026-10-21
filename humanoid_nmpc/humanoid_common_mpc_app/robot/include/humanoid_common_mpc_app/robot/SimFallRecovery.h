@@ -37,6 +37,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/base/nullability.h"
 
 #include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc_app/robot/FallRecovery.h"
 #include "humanoid_common_mpc_app/robot/FallRecoveryTypes.h"
 #include "humanoid_common_mpc_app/robot/RealtimeEventLog.h"
 #include "mujoco_sim_interface/MujocoSimInterface.h"
@@ -45,8 +46,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * The simulator's fall recovery, as the realtime loop of the robot process sees it (RobotProcess, with the MuJoCo
- * backend). It logs nothing itself: what it would say goes to a RealtimeEventLog, which the communication thread logs.
+ * The simulator's fall recovery (the FallRecovery of the `sim` supervisor of RobotSupervisorRegistry), as the realtime
+ * loop of the robot process sees it (RobotProcess, with the MuJoCo backend). It logs nothing itself: what it would say goes to a
+ * RealtimeEventLog, which the communication thread logs.
  *
  * DISCONTINUITIES. The plant jumps whenever the robot is caught on the gantry, and the controller has to start again
  * from where the robot is then. update() reports one discontinuity per event, whichever of these it was:
@@ -73,7 +75,7 @@ namespace ocs2::humanoid {
  * REALTIME. update() runs on the realtime thread every cycle: it allocates nothing (the mode is a short string, which
  * stays in its small-string buffer), takes no lock of its own and logs nothing.
  */
-class SimFallRecovery {
+class SimFallRecovery final : public FallRecovery {
  public:
   struct Config {
     /// [rad] Tilt of the base past which the robot is caught (task.textproto `sim_max_base_tilt_angle`); <= 0 disables the catch.
@@ -81,49 +83,51 @@ class SimFallRecovery {
     /// [m] How far the gantry lifts a caught robot to let it settle (task.textproto `sim_gantry_catch_lift`); <= 0: no sequence.
     scalar_t catchLift = 0.0;
     // LINT.IfChange(settle_defaults)
+    /// The defaults of the settle sequence's fields below, in their units.
+    static constexpr scalar_t kDefaultGantryHeightRate = 0.25;
+    static constexpr scalar_t kDefaultSettleTilt = 0.05;
+    static constexpr scalar_t kDefaultSettleLinearSpeed = 0.05;
+    static constexpr scalar_t kDefaultSettleAngularSpeed = 0.2;
+    static constexpr scalar_t kDefaultSettleJointError = 0.15;
+    static constexpr scalar_t kDefaultSettleHoldTime = 0.5;
+    static constexpr scalar_t kDefaultSettleTimeout = 5.0;
+
     /// [m/s] Rate the gantry height is moved at during the sequence, up and down.
-    scalar_t gantryHeightRate = 0.25;
+    scalar_t gantryHeightRate = kDefaultGantryHeightRate;
     /// At rest: base tilt [rad], base linear [m/s] and angular [rad/s] speed and joint error to nominal [rad] all below
     /// these, without a break, for settleHoldTime [s]. The joint velocities are deliberately not read: the simulator
     /// samples them at the control rate, and a joint that chatters at the step rate reads as a large constant velocity
     /// while it holds its position (see the Atlas ankles under JOINT_PD with an unloaded foot); a joint that really
     /// moves leaves the position band within the hold time.
-    scalar_t settleTilt = 0.05;
-    scalar_t settleLinearSpeed = 0.05;
-    scalar_t settleAngularSpeed = 0.2;
-    scalar_t settleJointError = 0.15;
-    scalar_t settleHoldTime = 0.5;
+    scalar_t settleTilt = kDefaultSettleTilt;
+    scalar_t settleLinearSpeed = kDefaultSettleLinearSpeed;
+    scalar_t settleAngularSpeed = kDefaultSettleAngularSpeed;
+    scalar_t settleJointError = kDefaultSettleJointError;
+    scalar_t settleHoldTime = kDefaultSettleHoldTime;
     /// [s] A settle phase that does not come to rest within this moves on anyway, with a warning.
-    scalar_t settleTimeout = 5.0;
+    scalar_t settleTimeout = kDefaultSettleTimeout;
     // LINT.ThenChange(//humanoid_nmpc/docs/mpc_reset/README.md:settle_sequence)
   };
 
   using Phase = SettlePhase;
 
-  /** What happened in one control cycle. */
-  struct Cycle {
-    /// The plant jumped since the previous cycle: the loop resets the controller and holds it (cause says why).
-    bool discontinuity = false;
-    DiscontinuityCause cause = DiscontinuityCause::kNone;
-    /// The simulator's reset epoch this cycle (kSimulatorReset) and the tilt that was caught [rad] (kTiltCaught).
-    uint64_t resetEpoch = 0;
-    scalar_t tilt = 0.0;
-    /// The gantry was released since the previous cycle.
-    bool gantryUnlocked = false;
-    /// update() changed the mode (to JOINT_PD): the loop publishes the FSM state.
-    bool modeChanged = false;
-  };
+  /** What happened in one control cycle; every discontinuity relocated the base (Cycle::baseRelocated). */
+  using Cycle = FallRecovery::Cycle;
 
   /**
-   * Seeds the gantry state and the reset epoch of the previous cycle from `robotInterface`. `restJointIndices` are the
-   * joints whose posture and speed decide whether the robot is at rest: the loops pass the joints of the MPC model, the
-   * ones JOINT_PD brings to the nominal posture and the MPC starts from. `eventLog` receives what the recovery reports;
-   * nullptr reports nothing.
+   * Seeds the gantry state and the reset epoch of the previous cycle from `simulator`, which it drives and which must
+   * outlive it. `restJointIndices` are the joints whose posture and speed decide whether the robot is at rest: the
+   * loops pass the joints of the MPC model, the ones JOINT_PD brings to the nominal posture and the MPC starts from.
+   * `eventLog` receives what the recovery reports; nullptr reports nothing.
    */
   SimFallRecovery(const Config& config,
-                  const robot::mujoco_sim_interface::MujocoSimInterface& robotInterface,
+                  robot::mujoco_sim_interface::MujocoSimInterface* absl_nonnull simulator,
                   std::vector<size_t> restJointIndices,
                   RealtimeEventLog* absl_nullable eventLog = nullptr);
+
+  SimFallRecovery(const SimFallRecovery&) = delete;
+  SimFallRecovery& operator=(const SimFallRecovery&) = delete;
+  ~SimFallRecovery() override = default;
 
   /**
    * Once per control cycle, after the operator's commands were processed (SimFsmBridge::processCommands()), with the
@@ -132,8 +136,7 @@ class SimFallRecovery {
    */
   Cycle update(const robot::model::RobotState& robotState,
                const std::vector<scalar_t>& nominalJointPositions,
-               robot::mujoco_sim_interface::MujocoSimInterface& robotInterface,
-               std::string& currentModeName);
+               std::string& currentModeName) override;
 
   Phase phase() const { return phase_; }
   bool isSettling() const { return phase_ != Phase::kIdle; }
@@ -158,9 +161,7 @@ class SimFallRecovery {
   /** True once the robot has been at rest for settleHoldTime; false (and the hold restarted) otherwise. */
   bool restedFor(const robot::model::RobotState& robotState, const std::vector<scalar_t>& nominalJointPositions);
   void enterPhase(Phase phase, scalar_t time);
-  void stepSettleSequence(const robot::model::RobotState& robotState,
-                          const std::vector<scalar_t>& nominalJointPositions,
-                          robot::mujoco_sim_interface::MujocoSimInterface& robotInterface);
+  void stepSettleSequence(const robot::model::RobotState& robotState, const std::vector<scalar_t>& nominalJointPositions);
   void report(RealtimeEventCode code,
               int32_t detail = 0,
               absl::string_view text = {},
@@ -170,6 +171,7 @@ class SimFallRecovery {
               uint64_t count = 0);
 
   const Config config_;
+  robot::mujoco_sim_interface::MujocoSimInterface* absl_nonnull simulator_;
   const std::vector<size_t> restJointIndices_;
   RealtimeEventLog* absl_nullable const eventLog_;
   uint64_t lastResetEpoch_ = 0;

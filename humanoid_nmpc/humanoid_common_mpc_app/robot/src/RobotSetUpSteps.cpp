@@ -67,14 +67,12 @@ RobotConfigurationCheckContext robotConfigurationCheckContext(
     const RobotAppOptions& options,
     std::string robotName,
     const ModelSettings& modelSettings,
-    const JointPdGainsDefaults& pdGainsDefaults,
     const RobotBackendOptions& backendOptions,
     const robot::model::ContactEstimatorRegistry* absl_nonnull contactEstimators) {
   RobotConfigurationCheckContext context;
   context.robotName = std::move(robotName);
   context.mpcJointNames = modelSettings.mpcModelJointNames;
   context.otherJointNames = modelSettings.fixedJointNames;
-  context.pdGainsDefaults = pdGainsDefaults;
   context.contactEstimators = contactEstimators;
   context.backendName = options.backend;
   context.backendOptions = backendOptions;
@@ -112,7 +110,11 @@ RobotProcess::Config robotProcessConfig(const RobotAppOptions& options,
   config.taskFileReadAt = configuration.taskFileReadAt;
   config.robotName = modelSettings.robotName;
   config.taskFileIdentity = directory.taskFileIdentity();
+  config.pdGainsFileIdentity = directory.pdGainsFileIdentity();
   config.configStore = configFileStoreConfig(directory, modelSettings.robotName);
+  config.urdfFile = options.files.urdfFile;
+  config.contactFrameNames = modelSettings.contactNames;
+  config.contactParentJointNames = modelSettings.contactParentJointNames;
   return config;
 }
 

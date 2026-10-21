@@ -68,9 +68,9 @@ class TextprotoHeaderTest(unittest.TestCase):
         ]
 
     def test_a_file_with_its_header_passes(self):
-        self.assertEqual(self.texts(HEADER + "#\n# What it is.\n\nvalue: 1\n"), [])
+        self.assertEqual(self.texts(f"{HEADER}#\n# What it is.\n\nvalue: 1\n"), [])
         # Header lines further down the leading comment block count too.
-        self.assertEqual(self.texts("# A title.\n" + HEADER), [])
+        self.assertEqual(self.texts(f"# A title.\n{HEADER}"), [])
 
     def test_a_missing_header(self):
         found = self.texts("value: 1\n")
@@ -89,7 +89,7 @@ class TextprotoHeaderTest(unittest.TestCase):
         self.assertNotIn("proto-file: line", found[0][1])
 
     def test_header_lines_after_the_first_field_do_not_count(self):
-        found = self.texts("value: 1\n" + HEADER)
+        found = self.texts(f"value: 1\n{HEADER}")
         self.assertEqual([line for line, _ in found], [1])
 
     def test_a_proto_file_that_does_not_exist(self):

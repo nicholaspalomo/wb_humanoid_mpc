@@ -45,7 +45,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-/** Callback for caching and reference update */
+/**
+ * Callback for caching and reference update
+ *
+ * Not thread-safe: request() updates its Pinocchio data and the cached references; each solver worker thread owns its own clone().
+ */
 class HumanoidPreComputation : public PreComputation {
  public:
   HumanoidPreComputation(PinocchioInterface pinocchioInterface,

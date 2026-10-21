@@ -29,11 +29,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
+#include <functional>
+#include <limits>
 #include <memory>
 #include <string>
 #include <utility>
 #include <vector>
 
+#include "absl/base/nullability.h"
 #include "absl/log/scoped_mock_log.h"
 #include "absl/status/statusor.h"
 #include "gmock/gmock.h"
@@ -61,7 +64,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/gait/GaitSchedule.h"
 #include "humanoid_common_mpc/parameter_update/HotUpdateTarget.h"
 #include "humanoid_common_mpc/parameter_update/QuadraticCostWeightsApplier.h"
+#include "humanoid_common_mpc/parameter_update/ReferenceManagerApplier.h"
 #include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
+#include "humanoid_common_mpc/reference_manager/ArmSwing.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 #include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
 #include "humanoid_mpc_config/task_file.nproto.h"
@@ -84,6 +89,7 @@ namespace {
 
 using ::testing::_;
 using ::testing::AllOf;
+using ::testing::AnyOf;
 using ::testing::HasSubstr;
 
 constexpr char kTaskFile[] = "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.textproto";
@@ -135,7 +141,7 @@ class QuadraticCostWeightsApplierTest : public ::testing::Test {
     ASSERT_EQ(model_->getStateTangentDim(), tuningDimension(stateInputLayout(*settings_, StateInputLayout::Mpc::kCentroidal)));
     referenceManager_ = std::make_unique<SwitchedModelReferenceManager>(
         converted(GaitSchedule::Create(*referenceFile, *settings_)),
-        std::make_shared<SwingTrajectoryPlanner>(SwingTrajectoryPlanner::Config(), /*numFeet=*/2), *pinocchioInterface_, *model_);
+        std::make_unique<SwingTrajectoryPlanner>(SwingTrajectoryPlanner::Config(), /*numFeet=*/2), *pinocchioInterface_, *model_);
     layout_ = stateInputLayout(*settings_, StateInputLayout::Mpc::kCentroidal);
   }
 
@@ -262,6 +268,52 @@ TEST_F(QuadraticCostWeightsApplierTest, UnderTheComAndAcomTrackingCostTheReloadZ
   const matrix_t& Q =
       solver->getOcpDefinitions().back().costPtr->get<TuningQuadraticStateInputCost>(kStateInputQuadraticCostTerm).getStateWeights();
   EXPECT_TRUE(Q.block(static_cast<Eigen::Index>(*positionRow), static_cast<Eigen::Index>(*positionRow), 6, 6).isZero(0.0));
+}
+
+TEST_F(QuadraticCostWeightsApplierTest, ANegativeOrNanWeightIsRefusedLiveAndTheRunningWeightsAreKept) {
+  const std::unique_ptr<SqpSolver> solver = solverOf(problemOf(/*comAndAcomListed=*/false));
+  // A weight below 0 would make the Gauss-Newton Hessian indefinite while the robot runs: every corruption is refused
+  // with a warning, and every worker keeps the weights of a fresh start with the shipped file (the block refused keeps
+  // its running value, the others apply the shipped ones again).
+  const std::vector<std::function<void(mpc_config::TaskFile&)>> corruptions = {
+      [](mpc_config::TaskFile& t) { t.state_weights.scaling = -1.0; },
+      [](mpc_config::TaskFile& t) { t.state_weights.scaling = std::numeric_limits<double>::quiet_NaN(); },
+      [](mpc_config::TaskFile& t) { t.state_weights.joint_positions.front().value = -5.0; },
+      [](mpc_config::TaskFile& t) { t.final_state_weights.scaling = -1.0; },
+      [](mpc_config::TaskFile& t) { t.terminal_cost_scaling = -2.0; },
+      [](mpc_config::TaskFile& t) { t.input_weights.scaling = -1.0; },
+  };
+  for (const std::function<void(mpc_config::TaskFile&)>& corrupt : corruptions) {
+    // From the shipped file, so that the blocks the corruption leaves valid apply the shipped weights again.
+    mpc_config::TaskFile refused = task_;
+    corrupt(refused);
+    HotUpdateTarget target(&refused, solver.get(), /*referenceManager=*/nullptr, &layout_, model_->getInputDim(), "test reload");
+    QuadraticCostWeightsApplier applier(QuadraticCostWeightsApplier::InputCost::kInputWeights);
+    absl::ScopedMockLog log(absl::MockLogDefault::kIgnoreUnexpected);
+    // A negative value is refused as below 0, NaN as not a finite number; either way the block is not applied.
+    EXPECT_CALL(log, Log(absl::LogSeverity::kWarning, _,
+                         AllOf(HasSubstr("was not applied"), AnyOf(HasSubstr("at least 0"), HasSubstr("not a finite number")))))
+        .Times(::testing::AtLeast(1));
+    log.StartCapturingLogs();
+    applier.apply(target);
+    log.StopCapturingLogs();
+    expectFreshStartWeights(task_, /*comAndAcomListed=*/false, *solver);
+  }
+}
+
+// The arm swing's generator, a name and no number, which the live-update parity tests do not perturb: applied live
+// (ReferenceManagerApplier), it is the generator a fresh start converts from the same file, either way.
+TEST_F(QuadraticCostWeightsApplierTest, TheArmSwingGeneratorIsAppliedLiveAsAFreshStartReadsIt) {
+  const std::unique_ptr<SqpSolver> solver = solverOf(problemOf(/*comAndAcomListed=*/false));
+  for (const char* absl_nonnull generator : {"none", "procedural"}) {
+    mpc_config::TaskFile edited = task_;
+    edited.arm_swing.generator = generator;
+    HotUpdateTarget target(&edited, solver.get(), referenceManager_.get(), &layout_, model_->getInputDim(), "test reload");
+    ReferenceManagerApplier applier;
+    applier.apply(target);
+    const ArmSwingSettings fresh = converted(armSwingSettingsFromConfig(edited.arm_swing));
+    EXPECT_EQ(referenceManager_->getArmSwingSettings().generator, fresh.generator) << generator;
+  }
 }
 
 /** Negative control: a term of another type under a quadratic cost's name is the WARNING path, which the tests above exclude. */

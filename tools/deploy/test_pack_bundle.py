@@ -113,7 +113,7 @@ class PackBundleTest(unittest.TestCase):
     def test_a_malformed_manifest_is_refused(self) -> None:
         for line in ("only-a-path", "a\tb\tmaybe", "/abs\tb\t1", "../up\tb\t1"):
             with self.subTest(line=line):
-                manifest = self.write("manifest", (line + "\n").encode(), 0o644)
+                manifest = self.write("manifest", (f"{line}\n").encode(), 0o644)
                 with self.assertRaises(ValueError):
                     pack_bundle.read_manifest(manifest)
 

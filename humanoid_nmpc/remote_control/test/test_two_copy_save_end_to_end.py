@@ -32,7 +32,8 @@ files (the MuJoCo backend without a viewer), with a configuration store in the t
 bundled files, as docker-compose.robot.sim.yaml runs it. The laptop side is the GUI's own code: the MPC Parameters,
 Joint PD Gains and Command Limits tabs on a copy of the Atlas files below a robot_models/ directory of the test's
 (so that the copy's configuration identity is the robot's), saving through one robot_config_save.RobotConfigSaver
-on an operator_bus.OperatorBus. Both sides share a loopback network file of free ports.
+on an operator_bus.OperatorBus. Both sides share a network file of this test's own DDS domain
+(robot_ipc.isolated_test_network()).
 
 What it holds: each tab's Save leaves exactly the laptop's bytes in the robot's store; a save the robot refuses (another
 configuration, another robot, a text that does not parse, another schema) leaves the stored copy as it was; and the
@@ -45,7 +46,6 @@ from collections.abc import Callable
 import os
 import shutil
 import signal
-import socket
 import subprocess
 import tempfile
 import threading
@@ -87,8 +87,8 @@ STORED_GAINS = os.path.join("controller", "joint_pd_gains.textproto")
 # How long the robot may take to start, and how long a save may wait for its answer [s].
 START_TIMEOUT_S = 60.0
 ANSWER_TIMEOUT_S = 20.0
-# The saver's timeout in this test [s]: a save whose first message the bus loses (a PUB socket's subscriber still
-# joining) is saved again after it, as the operator would.
+# The saver's timeout in this test [s]: a save whose first message the bus loses (the robot's reader still being
+# discovered) is saved again after it, as the operator would.
 SAVER_TIMEOUT_S = 1.0
 _Status = robot_config_save.SaveState
 
@@ -110,22 +110,29 @@ def stored_telemetry_rate(path: str) -> float:
     )
 
 
-def free_loopback_port() -> int:
-    """A TCP port of 127.0.0.1 that nothing listens on now."""
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
-        probe.bind(("127.0.0.1", 0))
-        return int(probe.getsockname()[1])
-
-
 def write_loopback_network_file(path: str, nodes: tuple[str, ...]) -> None:
-    """Writes a network file of `nodes` on 127.0.0.1, each on a free port."""
+    """Writes a network file of `nodes` on this test's own DDS domain, with the QoS of the topics the test uses.
+
+    The save and its status are one-off events: their writers exist from start-up (their publishers are listed), as in
+    the shipped network file, so that the first save does not race DDS discovery.
+
+    Args:
+        path: The file to write.
+        nodes: The nodes of the network.
+    """
+    isolated = robot_ipc.isolated_test_network(list(nodes))
+    events = robot_ipc.QosProfile.RELIABLE_EVENTS
     network = robot_ipc.NetworkConfig(
-        nodes=tuple(
-            robot_ipc.NodeEndpoint(
-                name=name, host="127.0.0.1", port=free_loopback_port()
-            )
-            for name in nodes
-        )
+        nodes=isolated.nodes,
+        domain_id=isolated.domain_id,
+        domain_tag=isolated.domain_tag,
+        topics=(
+            robot_ipc.TopicQos(topics.OPERATOR_CONFIG_SAVE, events, ("operator",)),
+            robot_ipc.TopicQos(topics.ROBOT_CONFIG_SAVE_STATUS, events, ("robot",)),
+            robot_ipc.TopicQos(
+                topics.ROBOT_STATE, robot_ipc.QosProfile.LATEST, ("robot",)
+            ),
+        ),
     )
     with open(path, "w", encoding="utf-8") as handle:
         handle.write(robot_ipc.format_network_config(network))
@@ -151,6 +158,12 @@ def copy_robot_config(package: str, laptop: str) -> str:
     return operator_test_support.copy_config(
         os.path.join(package, "config"), os.path.join(laptop, package)
     )
+
+
+# A task file that names its schema and does not parse: the parser's refusal, not the missing header's.
+_UNPARSABLE_TASK = (
+    "# proto-message: humanoid_mpc_config.TaskFile\ntelemetry_frequency: {\n"
+)
 
 
 class RobotProcess:
@@ -451,7 +464,7 @@ class TwoCopySaveEndToEndTest(unittest.TestCase):
             ),
             (
                 "a text that does not parse",
-                lambda: self._send(self.saver, "telemetry_frequency: {\n", "atlas"),
+                lambda: self._send(self.saver, _UNPARSABLE_TASK, "atlas"),
                 "Expected double",
             ),
             (

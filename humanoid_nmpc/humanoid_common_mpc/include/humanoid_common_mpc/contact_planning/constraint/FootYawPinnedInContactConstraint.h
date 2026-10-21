@@ -37,7 +37,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-/** `foot_yaw_pinned_in_contact` (hard, running nodes): +-dpsi_i + 2 pi c_i <= 2 pi, a foot's yaw only changes in the air. */
+/**
+ * `foot_yaw_pinned_in_contact` (hard, running nodes): +-dpsi_i + 2 pi c_i <= 2 pi, a foot's yaw only changes in the air.
+ *
+ * Not thread-safe, like every ContactPlanningTerm: the planner that owns it configures and evaluates it from one thread at a time.
+ */
 class FootYawPinnedInContactConstraint final : public LipConstraintBase {
  public:
   std::string describe() const override;

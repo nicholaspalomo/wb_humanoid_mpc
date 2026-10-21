@@ -83,7 +83,7 @@ class LanguageTest(unittest.TestCase):
             language.check_long_lambda,
             [
                 "f = lambda: (\n    1\n)\n",
-                "f = lambda x: " + " + ".join(["x"] * 30) + "\n",
+                f'f = lambda x: {" + ".join(["x"] * 30)}\n',
             ],
             ["f = lambda x: x + 1\n"],
         )
@@ -276,7 +276,7 @@ class RegistryTest(unittest.TestCase):
                 "class A:\n    @staticmethod\n    def f():\n        pass\n",
             ),
             ("py-complex-comprehension", "x = [a for row in rows for a in row]\n"),
-            ("py-long-lambda", "f = lambda x: " + " + ".join(["x"] * 30) + "\n"),
+            ("py-long-lambda", f'f = lambda x: {" + ".join(["x"] * 30)}\n'),
             ("py-length-test", "if len(x) == 0:\n    pass\n"),
             ("py-assert", "assert x\n"),
             ("py-exception-name", "class Failure(Exception):\n    pass\n"),

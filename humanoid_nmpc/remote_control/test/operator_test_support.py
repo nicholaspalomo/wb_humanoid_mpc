@@ -135,6 +135,8 @@ class RecordingBus:
         ] = {}
         self.started = False
         self.closed = False
+        # How many messages had been published when close() was first called; None before.
+        self.published_at_close: int | None = None
 
     def publish(self, topic: str, message: protobuf_message.Message) -> bool:
         copy = type(message)()
@@ -169,7 +171,14 @@ class RecordingBus:
         self.started = True
 
     def close(self) -> None:
+        if not self.closed:
+            # What was published before the first close(): a publisher's last message must come before it.
+            self.published_at_close = len(self.published)
         self.closed = True
+
+    def topic_statistics(self, topic: str) -> robot_ipc.TopicStatistics:
+        """The counters of `topic`, as robot_ipc.Bus keeps them: every recorded message counts as written."""
+        return robot_ipc.TopicStatistics(written=len(self.messages_on(topic)))
 
     @property
     def published(self) -> list[tuple[str, protobuf_message.Message]]:

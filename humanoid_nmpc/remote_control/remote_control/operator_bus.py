@@ -50,8 +50,8 @@ Free of Tk, so that the tests exercise it headless:
 - OperatorBus is the GUI's node on the bus: one publisher per operator topic, and the robot/fsm_state and
   robot/config_save_status subscriptions.
 
-Nothing here calls ZeroMQ directly; robot_ipc.Bus does, on its own receive thread. Bus.publish() never waits for the
-network, so publishing from a Tk callback cannot stall the GUI.
+Nothing here calls Cyclone DDS directly; robot_ipc.Bus does, on its own receive thread. Bus.publish() never waits for
+the network, so publishing from a Tk callback cannot stall the GUI.
 """
 
 import collections
@@ -65,6 +65,7 @@ from typing import Any, Generic, TypeVar
 from google.protobuf import message as protobuf_message
 from humanoid_mpc_config import contact_planning_file_pb2
 from humanoid_mpc_config import joint_pd_gains_file_pb2
+from humanoid_mpc_config import joint_pd_gains_update_pb2
 from humanoid_mpc_config import mpc_parameter_update_pb2
 from humanoid_mpc_config import task_file_pb2
 from humanoid_mpc_msgs import config_file_save_pb2
@@ -138,7 +139,7 @@ OPERATOR_TOPICS: tuple[OperatorTopic, ...] = (
     ),
     OperatorTopic(
         topics.OPERATOR_PD_GAINS,
-        joint_pd_gains_file_pb2.JointPdGainsFile,
+        joint_pd_gains_update_pb2.JointPdGainsUpdate,
         Direction.PUBLISH,
         robot_ipc.Delivery.LATEST,
     ),
@@ -208,6 +209,11 @@ class TopicPublisher:
         bus: anything with robot_ipc.Bus's publish(topic, message); the tests pass a bus that records.
         topic: the topic.
         message_class: the generated class of the messages the topic carries.
+
+    Attributes:
+        bus: The bus it publishes on.
+        topic: The topic.
+        message_class: The generated class of the messages the topic carries.
     """
 
     def __init__(
@@ -220,9 +226,9 @@ class TopicPublisher:
             raise ValueError("the topic is empty")
         if getattr(message_class, "DESCRIPTOR", None) is None:
             raise ValueError(f"{message_class!r} is not a generated protobuf message")
-        self._bus = bus
-        self._topic = topic
-        self._message_class = message_class
+        self.bus = bus
+        self.topic = topic
+        self.message_class = message_class
 
     @classmethod
     def for_topic(cls, bus: Any, topic: str) -> "TopicPublisher":
@@ -245,18 +251,6 @@ class TopicPublisher:
             )
         return cls(bus, row.topic, row.message_class)
 
-    @property
-    def bus(self) -> Any:
-        return self._bus
-
-    @property
-    def topic(self) -> str:
-        return self._topic
-
-    @property
-    def message_class(self) -> type[protobuf_message.Message]:
-        return self._message_class
-
     def publish(self, message: protobuf_message.Message) -> bool:
         """Publishes `message` on the topic; never waits for the network.
 
@@ -269,12 +263,12 @@ class TopicPublisher:
         Raises:
             TypeError: the message is not of the topic's type.
         """
-        if not isinstance(message, self._message_class):
+        if not isinstance(message, self.message_class):
             raise TypeError(
-                f"topic '{self._topic}' carries {self._message_class.DESCRIPTOR.full_name}, "
+                f"topic '{self.topic}' carries {self.message_class.DESCRIPTOR.full_name}, "
                 f"not {type(message).__name__}"
             )
-        return self._bus.publish(self._topic, message)
+        return self.bus.publish(self.topic, message)
 
 
 class FsmCommandSender:
@@ -402,10 +396,11 @@ class OperatorBus:
         joint_targets: The publisher of operator/joint_targets.
         dodgeball_throw: The publisher of operator/dodgeball_throw.
         config_save: The publisher of operator/config_save.
+        bus: The bus given to the constructor.
     """
 
     def __init__(self, bus: Any) -> None:
-        self._bus = bus
+        self.bus = bus
         self._fsm_states = FsmStateMailbox()
         self.config_save_statuses = ConfigSaveStatusMailbox()
         for topic, put in (
@@ -450,24 +445,21 @@ class OperatorBus:
             OSError: the file cannot be read (FileNotFoundError: it does not exist).
             robot_ipc.NetworkConfigError: the file is invalid; the message names the line and column, or the node.
             ValueError: the node is not in the network.
-            robot_ipc.BusError: the node's endpoint cannot be bound (another process publishes as it).
+            robot_ipc.InterfaceError: the node's host is an address of another machine.
+            robot_ipc.BusError: DDS cannot join the network's domain.
         """
         network = robot_ipc.load_network_config(network_config)
         return cls(robot_ipc.Bus(node_name, network))
-
-    @property
-    def bus(self) -> Any:
-        return self._bus
 
     def take_fsm_states(self) -> list[fsm_state_pb2.FsmState]:
         """The FsmState messages received since the last call, oldest first (for the Tk thread)."""
         return self._fsm_states.take_all()
 
     def start(self) -> None:
-        self._bus.start()
+        self.bus.start()
 
     def close(self) -> None:
-        self._bus.close()
+        self.bus.close()
 
     def __enter__(self) -> "OperatorBus":
         self.start()
@@ -521,6 +513,32 @@ def mpc_parameter_update(
         update.contact_planning.CopyFrom(contact_planning)
     update.config_path = config_path
     update.schema_fingerprint = nproto_schema.schema_fingerprint(update.DESCRIPTOR)
+    return update
+
+
+def joint_pd_gains_update(
+    gains: joint_pd_gains_file_pb2.JointPdGainsFile,
+    *,
+    config_path: str,
+) -> joint_pd_gains_update_pb2.JointPdGainsUpdate:
+    """The JointPdGainsUpdate of a joint PD gains file.
+
+    Carries the gains, the fingerprint of JointPdGainsFile in this build's schema, and the PD gains file's
+    identity, which a receiver that runs another configuration refuses.
+
+    Args:
+        gains: The joint PD gains file, with the operator's values.
+        config_path: The PD gains file's identity, its path from robot_models/ on (robot_config_save.config_path_of()).
+
+    Returns:
+        The update.
+    """
+    update = joint_pd_gains_update_pb2.JointPdGainsUpdate()
+    update.gains.CopyFrom(gains)
+    update.config_path = config_path
+    update.schema_fingerprint = nproto_schema.schema_fingerprint(
+        joint_pd_gains_file_pb2.JointPdGainsFile.DESCRIPTOR
+    )
     return update
 
 

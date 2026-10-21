@@ -70,15 +70,14 @@ absl::StatusOr<RobotConfiguration> loadRobotConfiguration(const RobotConfigDirec
 
 /**
  * Returns the checks a save is held to and the set-up runs (checkRobotConfiguration()) on the robot being set up: the
- * robot `robotName`, the joints of `modelSettings`, the PD gains `pdGainsDefaults` of the formulation's controller (its
- * pdGainsDefaults(): what its loader reads the file with), the backend --backend names with `backendOptions`, and the
+ * robot `robotName`, the joints of `modelSettings` (which the PD gains file may name), the backend --backend names with
+ * `backendOptions`, and the
  * backend's contact estimators `contactEstimators`, which the context keeps: they must outlive it. The formulation adds
  * its own check (RobotConfigurationCheckContext::checkFormulation).
  */
 RobotConfigurationCheckContext robotConfigurationCheckContext(const RobotAppOptions& options,
                                                               std::string robotName,
                                                               const ModelSettings& modelSettings,
-                                                              const JointPdGainsDefaults& pdGainsDefaults,
                                                               const RobotBackendOptions& backendOptions,
                                                               const robot::model::ContactEstimatorRegistry* absl_nonnull contactEstimators);
 
@@ -94,7 +93,8 @@ RobotProcess::Hooks robotProcessHooks(RemoteMpcLinkAdapter* absl_nonnull remoteL
 /**
  * Returns the robot process's configuration as far as the options, the directory and the configuration give it: the
  * realtime thread's priority and cores, the backend's cores, the settings, the task file watched (with the time it was
- * read at) and its identity, the robot of `modelSettings` and the configuration store. The formulation fills in the
+ * read at) and its identity, the robot of `modelSettings`, its URDF and contact frames (the leg kinematics of the
+ * `kalman` state estimator) and the configuration store. The formulation fills in the
  * control rate, the initial state, the rest joints and the PD gains file's check interval.
  */
 RobotProcess::Config robotProcessConfig(const RobotAppOptions& options,

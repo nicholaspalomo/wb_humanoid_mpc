@@ -89,7 +89,7 @@ class TestReferenceDefaults(unittest.TestCase):
     def test_a_file_that_does_not_parse_is_no_defaults(self):
         self.assertEqual(self._read("default_joint_state [unclosed\n"), {})
         # The retired YAML key is refused by the strict parser, not read.
-        self.assertEqual(self._read(_REFERENCE_HEADER + "defaultJointState {}\n"), {})
+        self.assertEqual(self._read(f"{_REFERENCE_HEADER}defaultJointState {{}}\n"), {})
 
     def test_the_joints_of_the_gains_file_in_its_order(self):
         directory = tempfile.mkdtemp()
@@ -105,7 +105,7 @@ class TestReferenceDefaults(unittest.TestCase):
         )
         self.assertEqual(config_files.read_pd_gains_joint_names(None), [])
         with open(path, "w", encoding="utf-8") as handle:
-            handle.write(_GAINS_HEADER + "joint_gains { unknown: 1 }\n")
+            handle.write(f"{_GAINS_HEADER}joint_gains {{ unknown: 1 }}\n")
         self.assertEqual(config_files.read_pd_gains_joint_names(path), [])
 
     def test_joints_are_grouped_by_limb(self):

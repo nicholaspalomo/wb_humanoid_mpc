@@ -29,12 +29,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "ocs2_sqp/SqpSolver.h"
 
+#include <algorithm>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <numeric>
+#include <stdexcept>
 
 #include "absl/base/nullability.h"
 #include "absl/log/log.h"
@@ -50,6 +52,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2 {
 
 namespace {
+
+/** The percent of a whole: converts a fraction to percent. */
+constexpr scalar_t kPercentPerUnit = 100.0;
+
+/** The digits after the decimal point of the printed linesearch. */
+constexpr int kLinesearchPrintPrecision = 9;
+
 sqp::Settings rectifySettings(const OptimalControlProblem& ocp, sqp::Settings&& settings) {
   // True does not make sense if there are no constraints.
   if (ocp.equalityConstraintPtr->empty()) {
@@ -72,7 +81,7 @@ SqpSolver::SqpSolver(sqp::Settings settings, const OptimalControlProblem& optima
   sensitivityDiscretizer_ = selectDynamicsSensitivityDiscretization(settings_.integratorType);
 
   // Clone objects to have one for each worker
-  for (int w = 0; w < settings_.nThreads; w++) {
+  for (size_t w = 0; w < settings_.nThreads; w++) {
     ocpDefinitions_.push_back(optimalControlProblem);
   }
 
@@ -128,6 +137,7 @@ void SqpSolver::reset() {
   performanceIndeces_.clear();
 
   initialStateGap_.resize(0);
+  iterationRecords_.clear();
 
   // reset timers
   numProblems_ = 0;
@@ -158,18 +168,17 @@ std::string SqpSolver::getBenchmarkingInformation() const {
 
   std::stringstream infoStream;
   if (benchmarkTotal > 0.0) {
-    const scalar_t inPercent = 100.0;
     infoStream << "\n########################################################################\n";
     infoStream << "The benchmarking is computed over " << totalNumIterations_ << " iterations. \n";
     infoStream << "SQP Benchmarking\t   :\tAverage time [ms]   (% of total runtime)\n";
     infoStream << "\tLQ Approximation   :\t" << linearQuadraticApproximationTimer_.getAverageInMilliseconds() << " [ms] \t\t("
-               << linearQuadraticApproximationTotal / benchmarkTotal * inPercent << "%)\n";
+               << linearQuadraticApproximationTotal / benchmarkTotal * kPercentPerUnit << "%)\n";
     infoStream << "\tSolve QP           :\t" << solveQpTimer_.getAverageInMilliseconds() << " [ms] \t\t("
-               << solveQpTotal / benchmarkTotal * inPercent << "%)\n";
+               << solveQpTotal / benchmarkTotal * kPercentPerUnit << "%)\n";
     infoStream << "\tLinesearch         :\t" << linesearchTimer_.getAverageInMilliseconds() << " [ms] \t\t("
-               << linesearchTotal / benchmarkTotal * inPercent << "%)\n";
+               << linesearchTotal / benchmarkTotal * kPercentPerUnit << "%)\n";
     infoStream << "\tCompute Controller :\t" << computeControllerTimer_.getAverageInMilliseconds() << " [ms] \t\t("
-               << computeControllerTotal / benchmarkTotal * inPercent << "%)\n";
+               << computeControllerTotal / benchmarkTotal * kPercentPerUnit << "%)\n";
   }
   return infoStream.str();
 }
@@ -189,6 +198,16 @@ void SqpSolver::runImpl(scalar_t initTime, const vector_t& initState, scalar_t f
     std::cerr << "\n++++++++++++++++++++++++++++++++++++++++++++++++++++++\n";
   }
 
+  // On a manifold, an initial state without a rotation (a zero quaternion) is refused: retract() cannot move it and
+  // difference() reads every attitude as no rotation away from it, so the plan would keep it for as long as it is warm
+  // started. Thrown as OCS2's solvers report failures (MPC_BASE::run() callers turn it into a failed solve).
+  const StateManifold* absl_nullable stateManifold = getStateManifold();
+  if (stateManifold != nullptr && !stateManifold->hasRepresentableRotations(initState)) {
+    throw std::runtime_error(
+        "[SqpSolver] The initial state has a unit-quaternion block without a rotation (its norm at or below "
+        "kQuaternionNormalizationEpsilon, or NaN); no solve can move the attitude off it.");
+  }
+
   // Determine time discretization, taking into account event times.
   const auto& eventTimes = this->getReferenceManager().getModeSchedule().eventTimes;
   const auto timeDiscretization = timeDiscretizationWithEvents(initTime, finalTime, settings_.dt, eventTimes);
@@ -205,17 +224,26 @@ void SqpSolver::runImpl(scalar_t initTime, const vector_t& initState, scalar_t f
   }
 
   // Initialize the state and input
-  const StateManifold* absl_nullable stateManifold = getStateManifold();
   vector_array_t x, u;
   multiple_shooting::initializeStateInputTrajectories(initState, timeDiscretization, primalSolution_, *initializerPtr_, x, u, stateManifold);
 
   // On a manifold, a warm start more than a quarter turn away from the initial state (after a reset or a fall) is
-  // discarded: the initial gap would come close to the cut locus of the shortest-path difference at pi.
+  // discarded: the initial gap would come close to the cut locus of the shortest-path difference at pi. So is a warm
+  // start with a state without a rotation, which reads as no rotation away from the initial state and which no step
+  // moves: kept, it would hold the plan's attitude there whatever is measured.
   if (stateManifold != nullptr) {
-    const scalar_t initialRotation = stateManifold->getMaximumRotationAngle(stateManifold->difference(x.front(), initState));
-    if (initialRotation > 0.5 * M_PI) {
-      LOG(WARNING) << "[SqpSolver] The warm start is " << initialRotation
-                   << " rad away from the initial state (more than pi / 2); initializing from the initial state instead.";
+    const bool everyStateHasARotation = std::all_of(
+        x.begin(), x.end(), [stateManifold](const vector_t& state) { return stateManifold->hasRepresentableRotations(state); });
+    const scalar_t initialRotation =
+        everyStateHasARotation ? stateManifold->getMaximumRotationAngle(stateManifold->difference(x.front(), initState)) : 0.0;
+    if (!everyStateHasARotation || initialRotation > 0.5 * M_PI) {
+      if (everyStateHasARotation) {
+        LOG(WARNING) << "[SqpSolver] The warm start is " << initialRotation
+                     << " rad away from the initial state (more than pi / 2); initializing from the initial state instead.";
+      } else {
+        LOG(WARNING) << "[SqpSolver] The warm start has a state without a rotation (a unit-quaternion block at or below "
+                        "kQuaternionNormalizationEpsilon); initializing from the initial state instead.";
+      }
       multiple_shooting::initializeStateInputTrajectories(initState, timeDiscretization, PrimalSolution(), *initializerPtr_, x, u,
                                                           stateManifold);
     }
@@ -223,6 +251,7 @@ void SqpSolver::runImpl(scalar_t initTime, const vector_t& initState, scalar_t f
 
   // Bookkeeping
   performanceIndeces_.clear();
+  iterationRecords_.clear();
   std::vector<Metrics> metrics;
 
   int iter = 0;
@@ -258,6 +287,10 @@ void SqpSolver::runImpl(scalar_t initTime, const vector_t& initState, scalar_t f
 
     // Check convergence
     convergence = checkConvergence(iter, baselinePerformance, stepInfo);
+    iterationRecords_.push_back({.baselinePerformance = baselinePerformance,
+                                 .baselineConstraintViolation = FilterLinesearch::totalConstraintViolation(baselinePerformance),
+                                 .stepInfo = stepInfo,
+                                 .convergence = convergence});
 
     // Logging
     if (settings_.enableLogging) {
@@ -510,13 +543,10 @@ sqp::StepInfo SqpSolver::takeStep(const PerformanceIndex& baseline,
    * https://link.springer.com/article/10.1007/s10107-004-0559-y
    */
   if (settings_.printLinesearch) {
-    std::cerr << std::setprecision(9) << std::fixed;
+    std::cerr << std::setprecision(kLinesearchPrintPrecision) << std::fixed;
     std::cerr << "\n=== Linesearch ===\n";
     std::cerr << "Baseline:\n" << baseline << "\n";
   }
-
-  // Baseline costs
-  const scalar_t baselineConstraintViolation = FilterLinesearch::totalConstraintViolation(baseline);
 
   // Update norm
   const auto& dx = subproblemSolution.deltaXSol;
@@ -528,6 +558,10 @@ sqp::StepInfo SqpSolver::takeStep(const PerformanceIndex& baseline,
   vector_array_t xNew(x.size());
   vector_array_t uNew(u.size());
   std::vector<Metrics> metricsNew(metrics.size());
+  // The first trial's verdict (StepInfo::fullStepType), recorded only.
+  StepType fullStepType = StepType::UNKNOWN;
+  scalar_t fullStepConstraintViolation = 0.0;
+  bool fullStep = true;
   do {
     // Compute step
     multiple_shooting::incrementTrajectory(u, du, alpha, uNew);
@@ -541,6 +575,11 @@ sqp::StepInfo SqpSolver::takeStep(const PerformanceIndex& baseline,
     StepType stepType;
     std::tie(stepAccepted, stepType) =
         filterLinesearch_.acceptStep(baseline, performanceNew, alpha * subproblemSolution.armijoDescentMetric);
+    if (fullStep) {
+      fullStepType = stepType;
+      fullStepConstraintViolation = FilterLinesearch::totalConstraintViolation(performanceNew);
+      fullStep = false;
+    }
 
     if (settings_.printLinesearch) {
       std::cerr << "Step size: " << alpha << ", Step Type: " << toString(stepType)
@@ -562,6 +601,8 @@ sqp::StepInfo SqpSolver::takeStep(const PerformanceIndex& baseline,
       stepInfo.du_norm = alpha * deltaUnorm;
       stepInfo.performanceAfterStep = performanceNew;
       stepInfo.totalConstraintViolationAfterStep = FilterLinesearch::totalConstraintViolation(performanceNew);
+      stepInfo.fullStepType = fullStepType;
+      stepInfo.fullStepConstraintViolation = fullStepConstraintViolation;
       return stepInfo;
 
     } else {  // Try smaller step
@@ -586,6 +627,8 @@ sqp::StepInfo SqpSolver::takeStep(const PerformanceIndex& baseline,
   stepInfo.du_norm = 0.0;
   stepInfo.performanceAfterStep = baseline;
   stepInfo.totalConstraintViolationAfterStep = FilterLinesearch::totalConstraintViolation(baseline);
+  stepInfo.fullStepType = fullStepType;
+  stepInfo.fullStepConstraintViolation = fullStepConstraintViolation;
 
   if (settings_.printLinesearch) {
     std::cerr << "[Linesearch terminated] Step size: " << stepInfo.stepSize << ", Step Type: " << toString(stepInfo.stepType) << "\n";
@@ -607,7 +650,7 @@ Eigen::Index SqpSolver::qpStateDimension(const OptimalControlProblem& ocpDefinit
 
 sqp::Convergence SqpSolver::checkConvergence(int iteration, const PerformanceIndex& baseline, const sqp::StepInfo& stepInfo) const {
   using Convergence = sqp::Convergence;
-  if ((iteration + 1) >= settings_.sqpIteration) {
+  if (static_cast<size_t>(iteration + 1) >= settings_.sqpIteration) {
     // Converged because the next iteration would exceed the specified number of iterations
     return Convergence::ITERATIONS;
   } else if (stepInfo.stepSize < settings_.alpha_min) {

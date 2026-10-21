@@ -47,12 +47,12 @@ TelemetrySinkRegistry::TelemetrySinkRegistry() {
         if (context.bus == nullptr) {
           return absl::FailedPreconditionError("the bus telemetry sink needs the robot process's bus");
         }
-        return std::make_unique<BusTelemetrySink>(*context.bus);
+        return std::make_unique<BusTelemetrySink>(context.bus);
       });
 }
 
-void TelemetrySinkRegistry::add(const std::string& name, const std::string& description, Factory factory) {
-  entries_.push_back(Entry{.name = name, .description = description, .factory = std::move(factory)});
+void TelemetrySinkRegistry::add(std::string name, std::string description, Factory factory) {
+  entries_.push_back(Entry{.name = std::move(name), .description = std::move(description), .factory = std::move(factory)});
 }
 
 bool TelemetrySinkRegistry::has(absl::string_view name) const {

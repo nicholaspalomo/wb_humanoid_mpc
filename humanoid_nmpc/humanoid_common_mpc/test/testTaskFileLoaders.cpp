@@ -76,9 +76,12 @@ std::string writeFile(absl::string_view name, absl::string_view content) {
   return path;
 }
 
-/** The task file of the textproto `content`, written to `name`; fails the test unless it loads. */
+// The header of a task file, which names its schema.
+constexpr char kTaskHeader[] = "# proto-message: humanoid_mpc_config.TaskFile\n";
+
+/** The task file of the textproto `content` below kTaskHeader, written to `name`; fails the test unless it loads. */
 mpc_config::TaskFile taskFileOf(absl::string_view name, absl::string_view content) {
-  absl::StatusOr<mpc_config::TaskFile> task = loadTaskFile(writeFile(name, content));
+  absl::StatusOr<mpc_config::TaskFile> task = loadTaskFile(writeFile(name, absl::StrCat(kTaskHeader, content)));
   EXPECT_TRUE(task.ok()) << task.status();
   return task.ok() ? *std::move(task) : mpc_config::TaskFile{};
 }
@@ -125,10 +128,11 @@ TEST(SwingTrajectorySettings, AreReadFromTheirBlock) {
 }
 
 TEST(TaskFile, AValueThatDoesNotParseIsRefusedNamingItsLineAndAMissingFileIsNotFound) {
-  const std::string file = writeFile("swing_bad.textproto", "swing_trajectory_config {\n  swing_height: high\n}\n");
+  const std::string file =
+      writeFile("swing_bad.textproto", absl::StrCat(kTaskHeader, "swing_trajectory_config {\n  swing_height: high\n}\n"));
   const absl::StatusOr<mpc_config::TaskFile> badValue = loadTaskFile(file);
   EXPECT_EQ(badValue.status().code(), absl::StatusCode::kInvalidArgument);
-  EXPECT_THAT(badValue.status().message(), HasSubstr(absl::StrCat(file, ":2:")));
+  EXPECT_THAT(badValue.status().message(), HasSubstr(absl::StrCat(file, ":3:")));
 
   const std::string missing = absl::StrCat(::testing::TempDir(), "/no_such_task.textproto");
   const absl::StatusOr<mpc_config::TaskFile> notFound = loadTaskFile(missing);
@@ -189,7 +193,11 @@ TEST(ContactRectangle, AContactOutOfRangeOrABoundThatIsNotFiniteIsAnInvalidArgum
 
 TEST(FootCollisionConstraintConfig, IsReadFromItsBlockAndARadiusThatIsNotFiniteIsRefused) {
   const mpc_config::TaskFile task =
-      taskFileOf("collision.textproto", "collision_constraint {\n  foot { foot_collision_sphere_radius: 0.07 }\n}\n");
+      taskFileOf("collision.textproto",
+                 "collision_constraint {\n"
+                 "  foot { left_ankle_frame: \"l_leg_akx\" right_ankle_frame: \"r_leg_akx\" foot_collision_sphere_radius: 0.07 }\n"
+                 "  knee { left_knee_frame: \"l_leg_kny\" right_knee_frame: \"r_leg_kny\" knee_collision_sphere_radius: 0.07 }\n"
+                 "}\n");
   const absl::StatusOr<FootCollisionConstraint::Config> config = footCollisionConstraintConfigFromConfig(task.collision_constraint);
   ASSERT_TRUE(config.ok()) << config.status();
   EXPECT_DOUBLE_EQ(config->footCollisionSphereRadius, 0.07);

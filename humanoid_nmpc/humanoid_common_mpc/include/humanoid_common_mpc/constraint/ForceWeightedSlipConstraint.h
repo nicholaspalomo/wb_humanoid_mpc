@@ -32,6 +32,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <memory>
 
 #include "absl/base/nullability.h"
+#include "absl/status/statusor.h"
 #include "ocs2_core/constraint/StateInputConstraint.h"
 #include "ocs2_robotic_tools/end_effector/EndEffectorKinematics.h"
 
@@ -106,23 +107,30 @@ namespace ocs2::humanoid {
  * together - so the weight silently declared one radian per second to be as bad as one meter per second, a ratio that
  * has no physical justification and changes meaning with the size of the foot. Each row is now divided by a reference
  * in its own units before the squares are summed, so the weight applies to three comparable dimensionless numbers.
+ *
+ * Not thread-safe: the end-effector kinematics it owns evaluate through CppAD or Pinocchio buffers, so even the const
+ * methods of one object must not run concurrently. The solver gives each worker thread its own clone().
  */
 class ForceWeightedSlipConstraint final : public StateInputConstraint {
  public:
   /**
-   * @param [in] endEffectorKinematics : kinematics of this foot's contact frame.
+   * Builds the term, or returns InvalidArgument when the kinematics carry other than exactly one end-effector or a
+   * reference is not positive (NaN included). validateContactImplicitConfig() is the check of the same task-file values
+   * for the caller to run first; the force reference is the robot's weight, robotMass * g, taken from the URDF.
+   *
+   * @param [in] endEffectorKinematics : kinematics of this foot's contact frame. It is cloned, not retained.
    * @param [in] mpcRobotModel : the robot model, for the input block that carries this contact's force.
    * @param [in] contactPointIndex : the contact this term belongs to.
    * @param [in] forceReference : [N] the normal force the residual is measured in, normally the robot's weight.
    * @param [in] velocityReference : [m/s] the sliding speed the two tangential rows are measured in.
    * @param [in] angularVelocityReference : [rad/s] the pivot rate the yaw row is measured in.
    */
-  ForceWeightedSlipConstraint(const EndEffectorKinematics<scalar_t>& endEffectorKinematics,
-                              const MpcRobotModelBase<scalar_t>& mpcRobotModel,
-                              size_t contactPointIndex,
-                              scalar_t forceReference = 1.0,
-                              scalar_t velocityReference = 1.0,
-                              scalar_t angularVelocityReference = 1.0);
+  static absl::StatusOr<std::unique_ptr<ForceWeightedSlipConstraint>> Create(const EndEffectorKinematics<scalar_t>& endEffectorKinematics,
+                                                                             const MpcRobotModelBase<scalar_t>& mpcRobotModel,
+                                                                             size_t contactPointIndex,
+                                                                             scalar_t forceReference = 1.0,
+                                                                             scalar_t velocityReference = 1.0,
+                                                                             scalar_t angularVelocityReference = 1.0);
 
   ~ForceWeightedSlipConstraint() override = default;
   ForceWeightedSlipConstraint& operator=(const ForceWeightedSlipConstraint&) = delete;
@@ -130,7 +138,7 @@ class ForceWeightedSlipConstraint final : public StateInputConstraint {
   ForceWeightedSlipConstraint& operator=(ForceWeightedSlipConstraint&&) = delete;
   ForceWeightedSlipConstraint* absl_nonnull clone() const override { return new ForceWeightedSlipConstraint(*this); }
 
-  size_t getNumConstraints(scalar_t /*time*/) const override { return 3; }
+  size_t getNumConstraints(scalar_t /*time*/) const override { return kNumConstraints; }
   vector_t getValue(scalar_t time, const vector_t& state, const vector_t& input, const PreComputation& preComp) const override;
   VectorFunctionLinearApproximation getLinearApproximation(scalar_t time,
                                                            const vector_t& state,
@@ -146,6 +154,15 @@ class ForceWeightedSlipConstraint final : public StateInputConstraint {
   }
 
  private:
+  /** The constrained components of the foot's twist: [v_x, v_y, omega_z]. */
+  static constexpr int kNumConstraints = 3;
+
+  ForceWeightedSlipConstraint(const EndEffectorKinematics<scalar_t>& endEffectorKinematics,
+                              const MpcRobotModelBase<scalar_t>& mpcRobotModel,
+                              size_t contactPointIndex,
+                              scalar_t forceReference,
+                              scalar_t velocityReference,
+                              scalar_t angularVelocityReference);
   ForceWeightedSlipConstraint(const ForceWeightedSlipConstraint& rhs);
 
   std::unique_ptr<EndEffectorKinematics<scalar_t>> endEffectorKinematicsPtr_;

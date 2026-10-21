@@ -43,6 +43,7 @@ RobotState::RobotState(const RobotDescription& robotDescription, size_t contactS
       rootLinearVelocity_(vector3_t::Zero()),
       rootOrientation_(quaternion_t::Identity()),
       rootAngularVelocity_(vector3_t::Zero()),
+      imuLinearAcceleration_(vector3_t::Zero()),
       contactFlags_(contactSize) {
   for (joint_index_t idx : robotDescription.getJointIndices()) {
     jointStateMap_[idx].emplace();
@@ -96,6 +97,7 @@ void RobotState::setConfigurationToZero() {
   rootOrientation_.setIdentity();
   rootLinearVelocity_.setZero();
   rootAngularVelocity_.setZero();
+  imuLinearAcceleration_.setZero();
 
   for (JointState& joint : jointStateMap_) {
     joint.position = 0.0;

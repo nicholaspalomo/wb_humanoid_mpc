@@ -345,7 +345,7 @@ def whitespace_problem(content: str) -> str | None:
     """Why `content` is not exactly one newline-terminated block without trailing whitespace, or None."""
     if not content:
         return None
-    expected = "\n".join(line.rstrip() for line in content.splitlines()) + "\n"
+    expected = "".join(f"{line.rstrip()}\n" for line in content.splitlines())
     if content != expected:
         return "Trailing whitespace or missing/extra EOF newline"
     return None
@@ -796,7 +796,7 @@ def _select_files(root: str, staged: bool, paths: Sequence[str]) -> list[str]:
         f
         for f in files
         if any(
-            f == prefix or f.startswith(prefix + "/") or prefix == "."
+            f == prefix or f.startswith(f"{prefix}/") or prefix == "."
             for prefix in prefixes
         )
     ]
@@ -856,16 +856,11 @@ def run(context: Context) -> int:
             sys.stdout.flush()
     failed = [step.name for step, result in results if result.status == "failed"]
     skipped = [step.name for step, result in results if result.status == "skipped"]
+    skipped_note = f" (skipped: {', '.join(skipped)})" if skipped else ""
     if failed:
-        print(
-            f"❌ Lint failed in: {', '.join(failed)}"
-            + (f" (skipped: {', '.join(skipped)})" if skipped else "")
-        )
+        print(f"❌ Lint failed in: {', '.join(failed)}{skipped_note}")
         return 1
-    print(
-        "✅ All lint checks passed successfully!"
-        + (f" (skipped: {', '.join(skipped)})" if skipped else "")
-    )
+    print(f"✅ All lint checks passed successfully!{skipped_note}")
     return 0
 
 

@@ -129,9 +129,9 @@ void LinearController::flattenSingle(scalar_t time, std::vector<double>& flatArr
   flatArray.clear();
   flatArray.resize(uff.size() + k.size());
 
-  for (int i = 0; i < inputDim; i++) {  // i loops through rows of uff and k
+  for (size_t i = 0; i < inputDim; i++) {  // i loops through rows of uff and k
     flatArray[i * (stateDim + 1) + 0] = uff(i);
-    for (int j = 0; j < stateDim; j++) {  // j loops through cols of k
+    for (size_t j = 0; j < stateDim; j++) {  // j loops through cols of k
       flatArray[i * (stateDim + 1) + j + 1] = k(i, j);
     }
   }
@@ -150,7 +150,7 @@ LinearController LinearController::unFlatten(const size_array_t& stateDim,
   bias.reserve(flatArray2.size());
   gain.reserve(flatArray2.size());
 
-  for (int k = 0; k < timeArray.size(); k++) {  // loop through time
+  for (size_t k = 0; k < timeArray.size(); k++) {  // loop through time
     if (flatArray2[k]->size() != inputDim[k] + inputDim[k] * stateDim[k]) {
       throw std::runtime_error("LinearController::unFlatten received array of wrong length.");
     }
@@ -159,7 +159,7 @@ LinearController LinearController::unFlatten(const size_array_t& stateDim,
     gain.emplace_back(matrix_t(inputDim[k], stateDim[k]));
 
     const auto& arr = *flatArray2[k];
-    for (int i = 0; i < inputDim[k]; i++) {  // loop through input dim
+    for (size_t i = 0; i < inputDim[k]; i++) {  // loop through input dim
       bias.back()(i) = static_cast<scalar_t>(arr[i * (stateDim[k] + 1) + 0]);
       gain.back().row(i) = Eigen::Map<const Eigen::VectorXd>(&(arr[i * (stateDim[k] + 1) + 1]), stateDim[k]);
     }

@@ -28,12 +28,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <optional>
 #include <string>
 #include <thread>
 #include <vector>
 
+#include "absl/strings/str_cat.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
 #include "gtest/gtest.h"
@@ -153,6 +155,46 @@ TEST(ViewerFrameMailboxTest, AFrameRequestWakesTheRenderer) {
   });
   EXPECT_TRUE(admitted.waitForDemand(absl::Seconds(5)));
   stream.join();
+}
+
+TEST(ViewerFrameMailboxTest, ViewersAreThePageIdsSeenWithinTheLease) {
+  ViewerFrameMailbox mailbox(/*maxClients=*/1);
+  EXPECT_EQ(mailbox.viewerCount(), 0);
+  mailbox.noteViewer("a");
+  mailbox.noteViewer("a");
+  mailbox.noteViewer("b");
+  EXPECT_EQ(mailbox.viewerCount(), 2);
+  absl::SleepFor(ViewerFrameMailbox::kDemandLease + absl::Milliseconds(100));
+  EXPECT_EQ(mailbox.viewerCount(), 0);
+  // Ids beyond the cap replace the oldest.
+  for (int viewer = 0; viewer < ViewerFrameMailbox::kMaxTrackedViewers + 5; ++viewer) mailbox.noteViewer(absl::StrCat(viewer));
+  EXPECT_EQ(mailbox.viewerCount(), ViewerFrameMailbox::kMaxTrackedViewers);
+}
+
+// The renderer resumes when an admission finds no demand before it: no client admitted and the lease lapsed.
+TEST(ViewerFrameMailboxTest, DemandResumesOnlyAfterALapse) {
+  ViewerFrameMailbox mailbox(/*maxClients=*/2);
+  EXPECT_FALSE(mailbox.demandResumedAt().has_value());
+  ASSERT_TRUE(mailbox.tryAcquireClient());
+  mailbox.noteFrameRequest();
+  const std::optional<std::chrono::steady_clock::time_point> first = mailbox.demandResumedAt();
+  ASSERT_TRUE(first.has_value());
+  // A second client while the first is admitted, and a request within the lease, find the renderer busy.
+  ASSERT_TRUE(mailbox.tryAcquireClient());
+  mailbox.releaseClient();
+  mailbox.releaseClient();
+  absl::SleepFor(absl::Milliseconds(100));
+  ASSERT_TRUE(mailbox.tryAcquireClient());
+  mailbox.noteFrameRequest();
+  mailbox.releaseClient();
+  EXPECT_EQ(mailbox.demandResumedAt(), first);
+  absl::SleepFor(ViewerFrameMailbox::kDemandLease + absl::Milliseconds(100));
+  ASSERT_TRUE(mailbox.tryAcquireClient());
+  mailbox.releaseClient();
+  const std::optional<std::chrono::steady_clock::time_point> second = mailbox.demandResumedAt();
+  ASSERT_TRUE(second.has_value());
+  // value_or: clang-tidy's optional-access analysis does not follow the ASSERTs above; the fallbacks fail the check.
+  EXPECT_GT(second.value_or(std::chrono::steady_clock::time_point::min()), first.value_or(std::chrono::steady_clock::time_point::max()));
 }
 
 TEST(ViewerFrameMailboxTest, ReadersAlwaysCopyWholeFrames) {

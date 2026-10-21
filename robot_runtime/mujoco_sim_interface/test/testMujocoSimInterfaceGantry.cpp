@@ -185,10 +185,13 @@ struct JointDrift {
 
 /**
  * Runs `robot` on the locked gantry by the hold named `hold` for `settleSeconds` and then `seconds`, with the torques on
- * and commanding what GRAVITY_COMP commands: each joint's gravity torque at the current posture and no feedback. The
- * gravity torque is MuJoCo's own (the bias force with the robot at rest), so the scene's model is the controller's
- * model. Returns the joints' largest excursions over the whole run from where they were caught, and over `seconds` from
- * where they were after `settleSeconds`.
+ * and commanding what GRAVITY_COMP commands: each joint's gravity torque at the current posture, and a damping of the
+ * joint's velocity with no position feedback. The gravity torque is MuJoCo's own (the bias force with the robot at
+ * rest), so the scene's model is the controller's model. The damping is kDampingPerStep of the joint's own inertia per
+ * step, kd = kDampingPerStep M_jj / dt, well inside the explicit limit 2 M_jj / dt on the lightest link: it takes out the
+ * swing of the catch, which the scene's own joint damping (zero on the G1 and the SA01) does not, and the simulator no
+ * longer adds damping of its own while the torques are on. Returns the joints' largest excursions over the whole run from where they were
+ * caught, and over `seconds` from where they were after `settleSeconds`.
  */
 JointDrift jointDriftUnderGravityCompensation(const WeldedScene& robot, absl::string_view hold, double settleSeconds, double seconds) {
   const absl::StatusOr<GantryHold> expectedHold = gantryHoldFromName(hold);
@@ -214,12 +217,13 @@ JointDrift jointDriftUnderGravityCompensation(const WeldedScene& robot, absl::st
     // The gravity torque at the posture of the last step: the bias force with every velocity zero.
     mju_zero(state.data->qvel, scene->nv);
     mj_forward(scene, state.data);
+    constexpr double kDampingPerStep = 0.02;
     model::RobotJointAction& action = sim->getRobotJointAction();
     for (const SceneJoint& joint : joints) {
       std::optional<model::JointAction>& slot = action[joint.robotJoint];
       ABSL_CHECK(slot.has_value());
       slot->kp = 0.0;
-      slot->kd = 0.0;
+      slot->kd = kDampingPerStep * state.data->qM[scene->dof_Madr[joint.dofAddress]] / scene->opt.timestep;
       slot->feed_forward_effort = state.data->qfrc_bias[joint.dofAddress];
     }
     sim->applyJointAction();
@@ -333,6 +337,60 @@ TEST(SimGantry, EachLockAnchorsAtWhereTheRobotIsThen) {
   EXPECT_NEAR(held.x, -4.0, 0.05);
   EXPECT_NEAR(held.y, 2.0, 0.05);
   EXPECT_NEAR(held.yaw, -0.5, 0.05);
+}
+
+/** The relpose quaternion (w, x, y, z) of the scene's gantry weld, its first weld constraint. */
+std::array<double, 4> weldRelposeQuaternion(const MujocoSimInterface& sim) {
+  // MuJoCo's weld data: the anchor (3), the relpose position (3), the relpose quaternion (4) and the torque scale.
+  constexpr int kRelposeQuaternionOffset = 6;
+  const mjModel* absl_nonnull model = sim.getModel();
+  for (int id = 0; id < model->neq; ++id) {
+    if (model->eq_type[id] != mjEQ_WELD) continue;
+    const mjtNum* absl_nonnull data = model->eq_data + mjNEQDATA * id + kRelposeQuaternionOffset;
+    return {data[0], data[1], data[2], data[3]};
+  }
+  ADD_FAILURE() << "the scene declares no weld";
+  return {1.0, 0.0, 0.0, 0.0};
+}
+
+TEST(SimGantry, ACatchAnchorsAtTheNearestUprightAttitude) {
+  // Caught with yaw 0.4, pitch 0.75 and roll 0.75 (ZYX): the anchor is the twist of the attitude about the vertical,
+  // the nearest upright attitude, whose heading 2 atan2(z, w) differs from the ZYX yaw by about 0.31 rad here. The
+  // ZYX yaw's anchor turned the robot about the vertical while the weld lifted it upright.
+  const std::unique_ptr<MujocoSimInterface> sim = makeSim(/*gantryLocked=*/false);
+  const double height = sim->getGantryHeight();
+  constexpr double kYaw = 0.4;
+  constexpr double kPitch = 0.75;
+  constexpr double kRoll = 0.75;
+  // q = q_z(yaw) q_y(pitch) q_x(roll), (w, x, y, z).
+  const double cy = std::cos(0.5 * kYaw);
+  const double sy = std::sin(0.5 * kYaw);
+  const double cp = std::cos(0.5 * kPitch);
+  const double sp = std::sin(0.5 * kPitch);
+  const double cr = std::cos(0.5 * kRoll);
+  const double sr = std::sin(0.5 * kRoll);
+  const std::array<double, 4> tilted = {cy * cp * cr + sy * sp * sr, cy * cp * sr - sy * sp * cr, cy * sp * cr + sy * cp * sr,
+                                        sy * cp * cr - cy * sp * sr};
+  sim->setBaseStateForTesting({1.0, 2.0, height, tilted[0], tilted[1], tilted[2], tilted[3]}, kAtRest);
+  sim->lockGantry();
+  step(*sim, /*steps=*/1);
+  const double twistHeading = 2.0 * std::atan2(tilted[3], tilted[0]);
+  EXPECT_NEAR(twistHeading, 0.0926, 1.0e-3);
+  const std::array<double, 4> anchored = weldRelposeQuaternion(*sim);
+  EXPECT_NEAR(anchored[0], std::cos(0.5 * twistHeading), 1.0e-9);
+  EXPECT_NEAR(anchored[1], 0.0, 1.0e-12);
+  EXPECT_NEAR(anchored[2], 0.0, 1.0e-12);
+  EXPECT_NEAR(anchored[3], std::sin(0.5 * twistHeading), 1.0e-9);
+
+  // A level robot is anchored at its own heading.
+  sim->unlockGantry();
+  step(*sim, /*steps=*/1);
+  sim->setBaseStateForTesting(basePose(/*x=*/0.0, /*y=*/0.0, height, /*yaw=*/1.0), kAtRest);
+  sim->lockGantry();
+  step(*sim, /*steps=*/1);
+  const std::array<double, 4> level = weldRelposeQuaternion(*sim);
+  EXPECT_NEAR(level[0], std::cos(0.5), 1.0e-9);
+  EXPECT_NEAR(level[3], std::sin(0.5), 1.0e-9);
 }
 
 TEST(SimGantry, AnUnstableStepIsRecoveredWithoutRewindingTheClock) {

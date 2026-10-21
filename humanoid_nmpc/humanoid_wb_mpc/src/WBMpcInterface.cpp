@@ -29,6 +29,8 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
+#include <algorithm>
+#include <array>
 #include <exception>
 #include <filesystem>
 #include <memory>
@@ -52,7 +54,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_core/penalties/Penalties.h"
 #include "ocs2_core/soft_constraint/StateInputSoftConstraint.h"
 #include "ocs2_oc/synchronized_module/SolverSynchronizedModule.h"
-#include "ocs2_pinocchio_interface/PinocchioEndEffectorKinematicsCppAd.h"
 
 #include "humanoid_common_mpc/HumanoidCostConstraintFactory.h"
 #include "humanoid_common_mpc/common/ContactInputParameterization.h"
@@ -69,6 +70,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/config/weights/StateInputLayout.h"
 #include "humanoid_common_mpc/config/weights/StateInputWeightsFromConfig.h"
 #include "humanoid_common_mpc/initialization/WeightCompInitializer.h"
+#include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
 #include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
 #include "humanoid_mpc_config/joint_weights.nproto.h"
 #include "humanoid_mpc_config/mpc_settings_config.nproto.pb.h"
@@ -101,9 +103,9 @@ namespace {
  * of the factories run it on all three before anything reads them: the model settings read the URDF as well as the task
  * file.
  */
-absl::Status checkInputFileExists(absl::string_view what, const std::string& path) {
+absl::Status checkInputFileExists(absl::string_view what, absl::string_view path) {
   std::error_code error;
-  if (!std::filesystem::exists(path, error)) {
+  if (!std::filesystem::exists(std::filesystem::path(path), error)) {
     return absl::NotFoundError(absl::StrCat("[WBMpcInterface] ", what, " not found: ", path));
   }
   LOG(INFO) << "[WBMpcInterface] " << what << ": " << path;
@@ -148,6 +150,63 @@ void logSolverSettings(const mpc_config::TaskFile& taskFile) {
             << nproto::WriteTextproto(sqp) << "}\nrollout {\n"
             << nproto::WriteTextproto(rollout) << "}\nmpc {\n"
             << nproto::WriteTextproto(mpc) << "}";
+}
+
+// LINT.IfChange(whole_body_terms)
+// The terms this interface builds (addCostsAndStateConstraints() and addContactTerms()). Every other cost, soft
+// constraint and hard constraint a task file can list is refused by name: a listed term that is not built would run
+// another formulation than the file asks for, silently.
+constexpr std::array<MpcCostType, 6> kWholeBodyCosts = {
+    MpcCostType::kStateInputQuadraticCost, MpcCostType::kStateQuadraticCost, MpcCostType::kInputQuadraticCost, MpcCostType::kTerminalCost,
+    MpcCostType::kJointTorqueCost,         MpcCostType::kTaskSpaceFootCost,
+};
+constexpr std::array<MpcSoftConstraintType, 7> kWholeBodySoftConstraints = {
+    MpcSoftConstraintType::kJointLimits,       MpcSoftConstraintType::kFootCollision,   MpcSoftConstraintType::kContactWrenchCone,
+    MpcSoftConstraintType::kFrictionForceCone, MpcSoftConstraintType::kContactMomentXy, MpcSoftConstraintType::kZeroVelocity,
+    MpcSoftConstraintType::kNormalVelocity,
+};
+constexpr std::array<MpcHardConstraintType, 4> kWholeBodyHardConstraints = {
+    MpcHardConstraintType::kZeroWrench,
+    MpcHardConstraintType::kZeroVelocity,
+    MpcHardConstraintType::kNormalVelocity,
+    MpcHardConstraintType::kKneeJointMimic,
+};
+// LINT.ThenChange(:whole_body_cost_terms, :whole_body_contact_terms)
+
+/**
+ * Refuses the first term of `listed` (a task-file list, `field`) that `tasks` carries and `supported` does not, by name.
+ * The names are walked in the order of `names` (the formulation's catalog), so that the term named is always the same.
+ */
+template <typename TermType, size_t kSupportedCount>
+absl::Status refuseUnbuiltTerms(absl::string_view field,
+                                const std::vector<std::string>& names,
+                                absl::FunctionRef<absl::StatusOr<TermType>(absl::string_view)> typeOf,
+                                absl::FunctionRef<bool(TermType)> listed,
+                                const std::array<TermType, kSupportedCount>& supported) {
+  for (const std::string& name : names) {
+    ASSIGN_OR_RETURN(const TermType type, typeOf(name));
+    if (listed(type) && std::find(supported.begin(), supported.end(), type) == supported.end()) {
+      return absl::InvalidArgumentError(
+          absl::StrCat("[WBMpcInterface] '", name, "' is listed in ", field,
+                       ", but the whole-body MPC does not build it: listed, it would be ignored and the MPC would run another formulation "
+                       "than the task file asks for. Remove it from ",
+                       field, " (it is implemented for the centroidal MPC only)."));
+    }
+  }
+  return absl::OkStatus();
+}
+
+/** Refuses every cost, soft constraint and hard constraint of `tasks` that this interface does not build, by name. */
+absl::Status checkWholeBodyTerms(const MpcFormulationTasks& tasks) {
+  RETURN_IF_ERROR(refuseUnbuiltTerms<MpcCostType>(
+      "costs", mpcCostNames(), [](absl::string_view name) { return stringToMpcCostType(name); },
+      [&tasks](MpcCostType type) { return tasks.hasCost(type); }, kWholeBodyCosts));
+  RETURN_IF_ERROR(refuseUnbuiltTerms<MpcSoftConstraintType>(
+      "soft_constraints", mpcSoftConstraintNames(), [](absl::string_view name) { return stringToMpcSoftConstraintType(name); },
+      [&tasks](MpcSoftConstraintType type) { return tasks.hasSoftConstraint(type); }, kWholeBodySoftConstraints));
+  return refuseUnbuiltTerms<MpcHardConstraintType>(
+      "hard_constraints", mpcHardConstraintNames(), [](absl::string_view name) { return stringToMpcHardConstraintType(name); },
+      [&tasks](MpcHardConstraintType type) { return tasks.hasHardConstraint(type); }, kWholeBodyHardConstraints);
 }
 
 /**
@@ -206,7 +265,8 @@ absl::Status checkWholeBodyFormulation(const MpcFormulationTasks& tasks, const m
         "DcmTerminalCost, so the horizon would end on no terminal cost at all. List 'terminal_cost' (final_state_weights) in costs "
         "instead (humanoid_nmpc/docs/README.md, section 1).");
   }
-  return absl::OkStatus();
+  // Every other term the interface does not build (task_space_torso_cost, external_torque_cost, ...).
+  return checkWholeBodyTerms(tasks);
 }
 
 }  // namespace
@@ -296,6 +356,9 @@ absl::Status WBMpcInterface::setupModels(const mpc_config::TaskFile& taskFile,
   // PinocchioInterface: a model whose actuated joints are not model_settings' in order is refused here, by name.
   ASSIGN_OR_RETURN(PinocchioInterface pinocchioInterface, loadCustomPinocchioInterface(taskFile, urdfFile, modelSettings_));
   pinocchioInterfacePtr_ = std::make_unique<PinocchioInterface>(std::move(pinocchioInterface));
+  // Every term that reads a contact frame - the dynamics, the inverse dynamics, the foot costs and constraints - looks it
+  // up by model_settings' name; a name the model does not have would be read out of bounds.
+  RETURN_IF_ERROR(checkContactFramesExist(pinocchioInterfacePtr_->getModel(), modelSettings_.contactNames));
 
   // Setup WB State Input Mapping
   mpcRobotModelPtr_ = std::make_unique<WBAccelMpcRobotModel<scalar_t>>(modelSettings_);
@@ -318,6 +381,9 @@ absl::Status WBMpcInterface::setupModels(const mpc_config::TaskFile& taskFile,
       const vector_t initialTuningState,
       stateValuesFromConfig(taskFile.initial_state, stateInputLayout(modelSettings_, StateInputLayout::Mpc::kWholeBody), "initial_state"));
   ASSIGN_OR_RETURN(initialState_, mpcRobotModelPtr_->stateFromTuning(initialTuningState));
+  // The arm swing's generator and tuning (arm_swing), and which way each arm joint turns, from the model at the
+  // initial posture.
+  RETURN_IF_ERROR(referenceManagerPtr_->configureArmSwing(taskFile.arm_swing, initialState_));
   return absl::OkStatus();
 }
 
@@ -342,7 +408,7 @@ absl::Status WBMpcInterface::setupOptimalControlProblem(const mpc_config::TaskFi
   // Dynamics
   std::unique_ptr<SystemDynamicsBase> dynamicsPtr;
   const std::string modelName = "dynamics";
-  dynamicsPtr = std::make_unique<WBAccelDynamicsAD>(*pinocchioInterfacePtr_, *mpcRobotModelADPtr_, modelName, modelSettings_);
+  dynamicsPtr = std::make_unique<WBAccelDynamicsAD>(*pinocchioInterfacePtr_, mpcRobotModelADPtr_.get(), modelName, modelSettings_);
 
   problemPtr_->dynamicsPtr = std::move(dynamicsPtr);
 
@@ -367,6 +433,7 @@ absl::Status WBMpcInterface::setupOptimalControlProblem(const mpc_config::TaskFi
 /******************************************************************************************************/
 /******************************************************************************************************/
 
+// LINT.IfChange(whole_body_cost_terms)
 absl::Status WBMpcInterface::addCostsAndStateConstraints(const MpcFormulationTasks& tasks,
                                                          const mpc_config::TaskFile& taskFile,
                                                          const HumanoidCostConstraintFactory& factory) {
@@ -403,11 +470,13 @@ absl::Status WBMpcInterface::addCostsAndStateConstraints(const MpcFormulationTas
   }
   return absl::OkStatus();
 }
+// LINT.ThenChange(:whole_body_terms)
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
 
+// LINT.IfChange(whole_body_contact_terms)
 absl::Status WBMpcInterface::addContactTerms(const MpcFormulationTasks& tasks,
                                              const mpc_config::TaskFile& taskFile,
                                              const HumanoidCostConstraintFactory& factory) {
@@ -421,10 +490,10 @@ absl::Status WBMpcInterface::addContactTerms(const MpcFormulationTasks& tasks,
   if (tasks.hasHardConstraint(MpcHardConstraintType::kKneeJointMimic)) {
     ASSIGN_OR_RETURN(kneeMimicJoints, kneeMimicJointsFromConfig(taskFile.mimic_joints));
   }
+  // The foot constraints read the end-effector dynamics; the foot cost tapes its own kinematics.
   const bool needsEeDynamics =
       tasks.hasHardConstraint(MpcHardConstraintType::kZeroVelocity) || tasks.hasSoftConstraint(MpcSoftConstraintType::kZeroVelocity) ||
-      tasks.hasHardConstraint(MpcHardConstraintType::kNormalVelocity) || tasks.hasSoftConstraint(MpcSoftConstraintType::kNormalVelocity) ||
-      tasks.hasCost(MpcCostType::kTaskSpaceFootCost);
+      tasks.hasHardConstraint(MpcHardConstraintType::kNormalVelocity) || tasks.hasSoftConstraint(MpcSoftConstraintType::kNormalVelocity);
 
   for (size_t i = 0; i < kNumContacts; ++i) {
     const std::string& footName = modelSettings_.contactNames[i];
@@ -467,7 +536,8 @@ absl::Status WBMpcInterface::addContactTerms(const MpcFormulationTasks& tasks,
     }
     if (tasks.hasHardConstraint(MpcHardConstraintType::kNormalVelocity) && eeDynamicsPtr) {
       ASSIGN_OR_RETURN(std::unique_ptr<StateInputConstraint> normalVelocityConstraint, getNormalVelocityConstraint(*eeDynamicsPtr, i));
-      problemPtr_->equalityConstraintPtr->add(absl::StrCat(footName, "_normalVelocity"), std::move(normalVelocityConstraint));
+      problemPtr_->equalityConstraintPtr->add(contact_term::name(footName, contact_term::kNormalVelocity),
+                                              std::move(normalVelocityConstraint));
     }
     // The same row as a cost; see CentroidalMpcInterface for why the hard form cannot coexist with a solver that is
     // meant to choose its own touch-down.
@@ -488,15 +558,17 @@ absl::Status WBMpcInterface::addContactTerms(const MpcFormulationTasks& tasks,
       problemPtr_->equalityConstraintPtr->add(absl::StrCat(footName, "_kneeJointMimic"), std::move(kneeJointMimic));
     }
 
-    if (tasks.hasCost(MpcCostType::kTaskSpaceFootCost) && eeDynamicsPtr) {
-      problemPtr_->costPtr->add(EndEffectorDynamicsFootCost::termName(footName),
-                                std::make_unique<EndEffectorDynamicsFootCost>(
-                                    *referenceManagerPtr_, footTrackingCostWeights, *pinocchioInterfacePtr_, *eeDynamicsPtr,
-                                    *mpcRobotModelADPtr_, i, EndEffectorDynamicsFootCost::libraryModelName(footName), modelSettings_));
+    if (tasks.hasCost(MpcCostType::kTaskSpaceFootCost)) {
+      ASSIGN_OR_RETURN(
+          std::unique_ptr<EndEffectorDynamicsFootCost> footCost,
+          EndEffectorDynamicsFootCost::Create(*referenceManagerPtr_, footTrackingCostWeights, *pinocchioInterfacePtr_, *mpcRobotModelADPtr_,
+                                              i, EndEffectorDynamicsFootCost::libraryModelName(footName), modelSettings_));
+      problemPtr_->costPtr->add(EndEffectorDynamicsFootCost::termName(footName), std::move(footCost));
     }
   }
   return absl::OkStatus();
 }
+// LINT.ThenChange(:whole_body_terms)
 
 /******************************************************************************************************/
 /******************************************************************************************************/
@@ -528,8 +600,10 @@ absl::StatusOr<std::unique_ptr<StateInputCost>> WBMpcInterface::makeJointTorqueC
   ASSIGN_OR_RETURN(
       const vector_t jointTorqueWeights,
       jointTorqueWeightsFromConfig(weights, stateInputLayout(modelSettings_, StateInputLayout::Mpc::kWholeBody), "joint_torque_weights"));
-  return std::make_unique<JointTorqueCostCppAd>(jointTorqueWeights, *pinocchioInterfacePtr_, *mpcRobotModelADPtr_,
-                                                JointTorqueCostCppAd::kLibraryCostName, modelSettings_);
+  ASSIGN_OR_RETURN(std::unique_ptr<JointTorqueCostCppAd> cost,
+                   JointTorqueCostCppAd::Create(jointTorqueWeights, *pinocchioInterfacePtr_, *mpcRobotModelADPtr_,
+                                                JointTorqueCostCppAd::kLibraryCostName, modelSettings_));
+  return cost;
 }
 
 }  // namespace ocs2::humanoid

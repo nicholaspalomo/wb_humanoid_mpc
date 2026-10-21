@@ -49,9 +49,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/ContactPlannerFactory.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningFormulation.h"
 #include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicFormulation.h"
+#include "humanoid_common_mpc/reference_manager/ArmSwing.h"
 #include "humanoid_common_mpc_app/robot/RobotProcessSettings.h"
 #include "humanoid_common_mpc_app/robot/TelemetrySinkRegistry.h"
 #include "humanoid_mpc_config/config_registries.nproto.h"
+#include "humanoid_state_estimator/StateEstimatorRegistry.h"
 #include "mujoco_sim_interface/CheaterSimContactEstimator.h"
 #include "mujoco_sim_interface/MujocoSimInterface.h"
 #include "mujoco_sim_interface/Projectile.h"
@@ -110,6 +112,7 @@ mpc_config::ConfigRegistries collectConfigRegistries() {
   // The registry names of the schemas' (humanoid_mpc_config.tuning) options, each with its registry's names.
   // LINT.IfChange(registry_names)
   std::vector<Registry> registries = {
+      {.name = "arm_swing", .names = armSwingGeneratorNames()},
       {.name = "basis_generator_set", .names = basisGeneratorSetNames()},
       {.name = "basis_regularization", .names = basisRegularizationNames()},
       {.name = "centroidal_model", .names = centroidalModelNames()},
@@ -129,6 +132,7 @@ mpc_config::ConfigRegistries collectConfigRegistries() {
       {.name = "sensitivity_integrator", .names = sensitivityIntegratorNames()},
       {.name = "soft_constraint", .names = mpcSoftConstraintNames()},
       {.name = "stance_constraint", .names = stanceConstraintNames()},
+      {.name = "state_estimator", .names = estimation::StateEstimatorRegistry().names()},
       {.name = "telemetry_sink", .names = TelemetrySinkRegistry().names()},
       {.name = "terminal_dcm_target", .names = terminalDcmTargetNames()},
       {.name = "visualization", .names = visualizationNames()},

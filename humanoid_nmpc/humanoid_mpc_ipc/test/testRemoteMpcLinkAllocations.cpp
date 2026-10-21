@@ -91,16 +91,16 @@ class RemoteMpcLinkAllocationTest : public ::testing::Test {
     mpc_ = test_support::makeScriptedMpc();
     robotBus_ = test_support::createNodeBus("robot");
     mpcBus_ = test_support::createNodeBus("mpc");
-    test_support::connectBoth(*robotBus_, *mpcBus_);
     RemoteMpcLink::Config linkConfig;
     linkConfig.dimensions = test_support::modelDimensions();
     linkConfig.policyTimeout = 100.0;
-    absl::StatusOr<std::unique_ptr<RemoteMpcLink>> link = RemoteMpcLink::Create(*robotBus_, supervisor_, linkConfig);
+    absl::StatusOr<std::unique_ptr<RemoteMpcLink>> link = RemoteMpcLink::Create(robotBus_.get(), &supervisor_, linkConfig);
     CHECK_OK(link.status());
     link_ = std::move(*link);
     MpcServer::Config serverConfig;
     serverConfig.dimensions = test_support::modelDimensions();
-    absl::StatusOr<std::unique_ptr<MpcServer>> server = MpcServer::Create(*mpcBus_, *mpc_, test_support::resetTargetsFor, serverConfig);
+    absl::StatusOr<std::unique_ptr<MpcServer>> server =
+        MpcServer::Create(mpcBus_.get(), mpc_.get(), test_support::resetTargetsFor, serverConfig);
     CHECK_OK(server.status());
     server_ = std::move(*server);
     CHECK_OK(robotBus_->start());

@@ -95,14 +95,17 @@ runs on without it, as it always has.
 
 The two viewers that draw share `MujocoFrameRenderer`: the camera, the visualizations below, the keys (`0`-`5` geometry
 groups, `k` camera tracking, `p` the cheatsheet, every visualization's hotkey) and the mouse (left drag rotates, right
-drag moves, the wheel and the middle drag zoom, shift for the horizontal variants).
+drag moves, the wheel and the middle drag zoom, shift for the horizontal variants). Both draw with a private copy of
+the simulator's model, made on the simulator's thread before the physics starts, and bring it up to date with each
+snapshot's run-time model arrays, so neither render thread reads the model the physics thread writes.
 
 ### The web viewer
 
 Run the robot with `--viewer=web` (or with neither `--viewer` nor a plot configuration that names another, as `make
 launch-<robot>-sim` does) and open `http://localhost:6090` (the dev and robot containers use the host's
 network, so nothing needs to be published). From another machine, forward the port: `ssh -L 6090:127.0.0.1:6090 <host>`,
-or VS Code's port forwarding. The page pulls one frame at a time, so a slow tunnel delays the picture by at most a round
+or VS Code's port forwarding, and open the forwarded address in a browser tab ("Open in Browser"): an editor preview
+that frames the page shows a blank pane, since the viewer refuses to be framed. The page pulls one frame at a time, so a slow tunnel delays the picture by at most a round
 trip and a frame instead of queueing frames. Click the picture to give it the keys; the same keys and mouse bindings as
 the GLFW window apply. The server binds 127.0.0.1 unless `WebViewerOptions::address` says otherwise; its routes, its
 trust model and its limits are [robot_runtime/web_viewer/README.md](../web_viewer/README.md).
@@ -113,13 +116,13 @@ How it renders:
   GPU (`MUJOCO_EGL_DEVICE_ID` picks one), else on Mesa's surfaceless platform (llvmpipe). `libEGL.so.1` is loaded with
   `dlopen()` (`EglLibrary`), so the robot binary links no EGL; without it, `web` fails with a Status that names the
   packages to install. A GL preflight (`checkGlCapabilities()`) refuses, before MuJoCo would end the process, a context
-  without framebuffer objects, an offscreen buffer past `GL_MAX_RENDERBUFFER_SIZE` or more samples than
-  `GL_MAX_SAMPLES`.
+  without framebuffer objects, an offscreen buffer past `GL_MAX_RENDERBUFFER_SIZE`, more samples than
+  `GL_MAX_SAMPLES` or a shadow map past `GL_MAX_TEXTURE_SIZE`.
 - It draws with a private copy of the model, made by `WebMujocoViewer::Create()` before the physics starts, and reads
   the simulator's state snapshots only, so it never reads the model the physics thread writes. Each snapshot carries
   the model arrays the simulator changes while it runs (`MjRuntimeModelFields`: the ragdoll damping, the gantry weld's
   relpose, the ball's collision flags, mass and gravity compensation), and each frame writes them into the copy before
-  it computes the contacts and forces it draws, so they are the physics' as in the GLFW window. Whether the gantry weld
+  it computes the contacts and forces it draws, so they are the physics', as in the GLFW window, which does the same. Whether the gantry weld
   holds is the snapshot's own `mjData::eq_active`, so the viewer computes the weld only while the robot hangs from the
   gantry, never while it walks.
 - Nothing is drawn while no browser watches. With one, it draws, reads the pixels back (`mjr_readPixels`) and encodes

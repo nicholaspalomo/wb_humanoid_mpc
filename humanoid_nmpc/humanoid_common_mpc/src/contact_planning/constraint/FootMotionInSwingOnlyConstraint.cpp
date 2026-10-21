@@ -33,6 +33,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 
 #include "absl/strings/str_cat.h"
+#include "ocs2_core/Dimensions.h"
 
 namespace ocs2::humanoid {
 
@@ -47,7 +48,7 @@ void FootMotionInSwingOnlyConstraint::configure(const ContactPlanningConfig& con
 void FootMotionInSwingOnlyConstraint::addRows(const ContactPlanningContext& ctx, int /*node*/, RowBuilder& rows) const {
   const scalar_t M = ctx.bigM;
   for (size_t foot = 0; foot < kNumContacts; ++foot) {
-    for (int axis = 0; axis < 2; ++axis) {
+    for (int axis = 0; axis < kHorizontalPositionDim; ++axis) {
       for (const scalar_t sign : {1.0, -1.0}) {
         rows.addHard(/*xCoefficients=*/{}, {{idx_.footDelta[foot][axis], sign}, {idx_.contact[foot], M}}, -kLipLooseBound, M);
       }

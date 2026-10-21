@@ -71,6 +71,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
 #include "humanoid_mpc_config/mpc_parameter_update.nproto.h"
 #include "humanoid_mpc_config/task_file.nproto.h"
+#include "humanoid_nmpc/humanoid_common_mpc/test/support/StatusTestMacros.h"
 #include "humanoid_wb_mpc/command/WBMpcTargetTrajectoriesCalculator.h"
 #include "humanoid_wb_mpc/common/WBAccelMpcRobotModel.h"
 
@@ -190,26 +191,25 @@ class WholeBodyReferences {
     const std::string referenceFile = runfilePath(kReferenceFile);
     const std::string gaitFile = runfilePath(kGaitFile);
     EXPECT_FALSE(urdfFile.empty() || referenceFile.empty() || gaitFile.empty()) << "the G1 whole-body files are not in the runfiles";
-    modelSettings_ = std::make_unique<ModelSettings>(ModelSettings::Create(task, urdfFile, "wb_mpc_", /*verbose=*/false).value());
+    modelSettings_ = std::make_unique<ModelSettings>(checkedValue(ModelSettings::Create(task, urdfFile, "wb_mpc_", /*verbose=*/false)));
     absl::StatusOr<PinocchioInterface> pinocchioInterface = loadCustomPinocchioInterface(task, urdfFile, *modelSettings_);
     EXPECT_TRUE(pinocchioInterface.ok()) << pinocchioInterface.status();
     pinocchioInterface_ = std::make_unique<PinocchioInterface>(*std::move(pinocchioInterface));
     model_ = std::make_unique<WBAccelMpcRobotModel<scalar_t>>(*modelSettings_);
-    referenceManager_ =
-        std::make_shared<SwitchedModelReferenceManager>(GaitSchedule::Create(referenceFile, *modelSettings_, /*verbose=*/false).value(),
-                                                        swingTrajectoryPlannerOf(task), *pinocchioInterface_, *model_);
-    calculator_ = WBMpcTargetTrajectoriesCalculator::Create(referenceFile, *model_, kHorizon).value();
+    referenceManager_ = std::make_shared<SwitchedModelReferenceManager>(
+        checkedValue(GaitSchedule::Create(referenceFile, *modelSettings_, /*verbose=*/false)), swingTrajectoryPlannerOf(task),
+        *pinocchioInterface_, *model_);
+    calculator_ = checkedValue(WBMpcTargetTrajectoriesCalculator::Create(referenceFile, *model_, kHorizon));
     if (calculatorGround == CalculatorGround::kReferenceManager) {
       // What the MPC node wires: the calculator builds on the ground the reference manager applied in this solve.
       calculator_->setTerrainHeightSource([referenceManager = referenceManager_]() { return referenceManager->getAppliedTerrainHeight(); });
     }
-    motionManager_ = ProceduralMpcMotionManager::Create(
-                         gaitFile, referenceFile, referenceManager_, *model_,
-                         [calculator = calculator_.get()](const vector4_t& velocityTarget, scalar_t initTime, scalar_t /*finalTime*/,
-                                                          const vector_t& initState, const BasePlanarMotion& measuredMotion) {
-                           return calculator->commandedVelocityToTargetTrajectories(velocityTarget, initTime, initState, measuredMotion);
-                         })
-                         .value();
+    motionManager_ = checkedValue(ProceduralMpcMotionManager::Create(
+        gaitFile, referenceFile, referenceManager_, *model_,
+        [calculator = calculator_.get()](const vector4_t& velocityTarget, scalar_t initTime, scalar_t /*finalTime*/,
+                                         const vector_t& initState, const BasePlanarMotion& measuredMotion) {
+          return calculator->commandedVelocityToTargetTrajectories(velocityTarget, initTime, initState, measuredMotion);
+        }));
     initialState_ = initialStateOf(task, *model_);
     // The robot stands on this ground, a little crouched, so that the measured base is not the commanded one.
     model_->adaptBasePoseHeight(initialState_, terrainHeight - kCrouch);
@@ -306,8 +306,9 @@ TEST(BaseHeightFollowsTerrainTest, aTerrainHeightRaisesTheWholeBaseReferenceByIt
   WholeBodyReferences flat(0.0);
   WholeBodyReferences raised(kGround);
   // Unwired, a calculator builds on the task file's ground - all a command node outside the MPC can know.
-  EXPECT_EQ(WBMpcTargetTrajectoriesCalculator::Create(runfilePath(kReferenceFile), raised.model(), kHorizon).value()->getTerrainHeight(),
-            kGround);
+  EXPECT_EQ(
+      checkedValue(WBMpcTargetTrajectoriesCalculator::Create(runfilePath(kReferenceFile), raised.model(), kHorizon))->getTerrainHeight(),
+      kGround);
 
   // The first solve tracks the reset target, which is the measured state: a world pose, which the ground must not lift
   // a second time.
@@ -416,7 +417,7 @@ TEST(BaseHeightFollowsTerrainTest, theContactPlannersCopyOfThePublishedTargetFol
   const std::string urdfFile = runfilePath(kUrdfFile);
   const std::string referenceFile = runfilePath(kReferenceFile);
   ASSERT_FALSE(urdfFile.empty() || referenceFile.empty()) << "the G1 whole-body files are not in the runfiles";
-  const ModelSettings modelSettings = ModelSettings::Create(task, urdfFile, "wb_mpc_", /*verbose=*/false).value();
+  HUMANOID_ASSERT_OK_AND_ASSIGN(const ModelSettings modelSettings, ModelSettings::Create(task, urdfFile, "wb_mpc_", /*verbose=*/false));
   const absl::StatusOr<PinocchioInterface> pinocchioInterface = loadCustomPinocchioInterface(task, urdfFile, modelSettings);
   ASSERT_TRUE(pinocchioInterface.ok()) << pinocchioInterface.status();
   const WBAccelMpcRobotModel<scalar_t> model(modelSettings);
@@ -425,7 +426,7 @@ TEST(BaseHeightFollowsTerrainTest, theContactPlannersCopyOfThePublishedTargetFol
   config.formulation.setExecutionRule(term::kPlannedComOverride, /*on=*/true);
   ASSERT_EQ(config.validateStatus(), absl::OkStatus());
   const absl::StatusOr<std::shared_ptr<ContactPlanningReferenceManager>> created =
-      ContactPlanningReferenceManager::Create(GaitSchedule::Create(referenceFile, modelSettings, /*verbose=*/false).value(),
+      ContactPlanningReferenceManager::Create(checkedValue(GaitSchedule::Create(referenceFile, modelSettings, /*verbose=*/false)),
                                               swingTrajectoryPlannerOf(task), *pinocchioInterface, model, config);
   ASSERT_TRUE(created.ok()) << created.status();
   ContactPlanningReferenceManager& referenceManager = **created;

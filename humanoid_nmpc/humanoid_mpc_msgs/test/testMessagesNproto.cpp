@@ -35,6 +35,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstdlib>
 #include <filesystem>
 #include <map>
+#include <optional>
 #include <set>
 #include <string>
 #include <type_traits>
@@ -102,6 +103,8 @@ static_assert(std::is_same_v<decltype(RobotStateSample::measured_contact_wrenche
 static_assert(std::is_same_v<decltype(JointTargets::positions), std::map<std::string, double>>);
 static_assert(std::is_same_v<decltype(Spheres::radii), Eigen::VectorXf>);
 static_assert(std::is_same_v<decltype(TargetContactPatch::kind), TargetContactPatch::Kind>);
+// Presence, not a `bool valid`: a foot without a target has no pose.
+static_assert(std::is_same_v<decltype(TargetContactPatch::pose), std::optional<TargetContactPatch::Pose>>);
 static_assert(std::is_enum_v<ControllerType> && !std::is_convertible_v<ControllerType, int>);
 
 template <typename StructType, typename ProtoType>
@@ -274,9 +277,11 @@ TEST(MpcPolicyTest, AHandWrittenPolicyLandsInTheMessageFields) {
   policy.mode_schedule.mode_sequence = {3, 1};
   policy.controller_type = ControllerType::kLinear;
   TargetContactPatch patch;
-  patch.valid = true;
   patch.kind = TargetContactPatch::Kind::kNextSwing;
+  patch.pose = TargetContactPatch::Pose{.x = 0.25, .y = -0.1, .z = 0.0, .yaw = 0.5, .yaw_planned = true};
   policy.annotations.target_contact_patches.push_back(patch);
+  // A foot without a target: no pose.
+  policy.annotations.target_contact_patches.push_back(TargetContactPatch{.kind = TargetContactPatch::Kind::kStance, .pose = std::nullopt});
 
   humanoid_mpc_msgs::MpcPolicy proto;
   ToProto(policy, &proto);
@@ -290,8 +295,11 @@ TEST(MpcPolicyTest, AHandWrittenPolicyLandsInTheMessageFields) {
   EXPECT_EQ(proto.state_trajectory(2).data(1), 2.0);
   EXPECT_EQ(proto.mode_schedule().mode_sequence(1), 1u);
   EXPECT_EQ(proto.controller_type(), humanoid_mpc_msgs::CONTROLLER_TYPE_LINEAR);
-  ASSERT_EQ(proto.annotations().target_contact_patches_size(), 1);
+  ASSERT_EQ(proto.annotations().target_contact_patches_size(), 2);
   EXPECT_EQ(proto.annotations().target_contact_patches(0).kind(), humanoid_mpc_msgs::TargetContactPatch::KIND_NEXT_SWING);
+  ASSERT_TRUE(proto.annotations().target_contact_patches(0).has_pose());
+  EXPECT_EQ(proto.annotations().target_contact_patches(0).pose().x(), 0.25);
+  EXPECT_FALSE(proto.annotations().target_contact_patches(1).has_pose());
 
   MpcPolicy back;
   ASSERT_TRUE(FromProto(proto, &back).ok());

@@ -94,8 +94,25 @@ or that nothing here uses, is removed rather than ported:
   which nothing filled, the `stateDim`, `inputDim` and `time` that `ModelData` carried for nobody,
   `TimeTriggeredRollout::systemDynamicsPtr`, `SolverBase::printString` and `RequestSet::containsAll`;
 - `PinocchioCentroidalDynamics` and `CentroidalModelRbdConversions` of `pinocchio/centroidal_model`;
+- from `PinocchioEndEffectorKinematicsCppAd`, the orientation error against a reference quaternion, which no term
+  evaluated (`getOrientationError` and `getOrientationErrorLinearApproximation`, their pure virtual functions in
+  `EndEffectorKinematics` and the `<model>_orientationError` library, which a model folder generated before keeps
+  unused), the constructor without an update callback, which nothing called, and the public taping functions
+  `get*CppAd`, which only its own CppAD functions called. Those call file-local copies and capture what they read by
+  value, where they held references to the constructor's locals and to the object, which a copy of the class (a
+  `CppAdInterface` copies its function) taping after construction (`CppAdInterface::getTapeOperationCount()`) read
+  after both were gone; the flow map of `PinocchioCentroidalDynamicsAD` likewise copies the Pinocchio interface and the
+  model info it held by reference. The remaining libraries are taped and generated as before;
 - the catkin and CMake scaffolding: the `ocs2` metapackage, `sqp/blasfeo_catkin`, `core/cmake`, `doc` and the Jenkins
   pipeline.
+
+The copies of the CppAD term bases tape themselves. `StateInputCostGaussNewtonAd`, `StateInputConstraintCppAd`,
+`StateConstraintCppAd` and `SystemDynamicsBaseAD` tape a virtual function of the term through a lambda over `this`,
+and a copied `CppAdInterface` kept that lambda, so a copy that tapes after the term it was copied from is destroyed
+(the solve benchmark's library observer, `getTapeOperationCount()`) called into the destroyed term. Their copy
+constructors now hand the copied library a function over the copy (`CppAdInterface(rhs, adFunction)`, which evaluates
+the function of `rhs` while it runs, the copy not being constructed yet); `test_cppad_term_copies`. The libraries are
+taped and generated as before.
 
 ## What this fork adds: states on a manifold
 
@@ -118,6 +135,43 @@ default, leaves every flat code path bit for bit as it was (`test_sqp_flat_parit
   `test_cppad_library_dimension_check`.
 - `pinocchio/centroidal_model` on the root `Composite(Translation, Spherical)`: nq = nv + 1 in `CentroidalModelInfo`,
   the quaternion at state slots 9 to 12, `computeConfigurationDerivative()`.
+
+## What this fork adds: the SQP's record of a solve
+
+The SQP keeps what its last solve did, which nothing in the solve reads back (`test_sqp_live_settings`):
+
+- `SqpSolver::getIterationRecords()`: every iteration of the last solve, in order (`sqp::IterationRecord`): the line
+  search's baseline, the step it took (its size and type, the full step's type and constraint metric, the performance
+  after it) and the convergence test after it. The closed-loop metrics and the equivalence suites' convergence tests read
+  it (`humanoid_nmpc/humanoid_mpc_validation`, `SqpStepDiagnostics.h`).
+- `SqpSolver::getInitialStateGap()`: delta_x0 of the first iteration of the last solve, the initial-state gap the QP
+  eliminates, in the tangent of the state manifold when there is one.
+
+## What this fork changes: the SQP's warm start across events
+
+Before every solve the SQP spreads its last solution onto the current mode schedule (`trajectorySpread()`,
+`oc/.../trajectory_adjustment/TrajectorySpreadingHelperFunctions.h`), whether the schedule changed or not.
+`TrajectorySpreading` comes from the DDP, whose rollout starts a mode at its event time plus `weakEpsilon`, and it finds
+an event's post-event sample as the first sample later than the event time. A multiple-shooting solution
+(`multiple_shooting::toPrimalSolution()`) stamps an event's pre-event and post-event samples both at the event time, so
+upstream the spreading took the node after the post-event sample for it:
+
+- under an unchanged schedule it restamped that node at the event time plus `weakEpsilon`, so the next solve's warm start
+  (`multiple_shooting::initializeStateInputTrajectories()`, which reads a post-event input at that time) gave the
+  post-event interval the next node's input, and the node after it, where the two grids meet again, about the midpoint
+  of the next two states;
+- an event moved later spread the post-event values over the samples that join the pre-event mode, an event moved
+  earlier (or before the solution's start) the values of the node after the post-event sample, and an event moved past
+  the solution's end the post-event mode's values over the samples that join the pre-event mode.
+
+`trajectorySpread()` now first stamps each post-event sample that shares its event's time at the start of its interval
+(`stampPostEventSamplesAtIntervalStart()`: `getIntervalStart()` of a post-event node, the event time plus `weakEpsilon`,
+at most the next sample's time), where a rollout puts it. Only the warm start changes: the published solution, and with
+it the MRT's policy and the IPC's, keeps one time per event. It changes the closed loop of every robot (the real-time
+claim of `testMpcSqpConvergence`, `humanoid_nmpc/docs/quaternion_base_orientation/README.md`, section 6, risk 12). The
+test is `test_trajectory_spreading`; `test_sqp_flat_parity` keeps its recording from before the manifold support by
+handing the solver its last solution without the post-event indices the stamp reads, which is the warm start the
+recorded solver built.
 
 ## Local changes to the vendored CppAD / CppADCodeGen
 

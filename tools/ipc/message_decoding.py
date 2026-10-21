@@ -27,7 +27,7 @@
 
 """Decodes bus payloads by their full protobuf type name and prints them as protobuf text format or JSON.
 
-The second frame of every bus message names its type (`humanoid_mpc_msgs.MpcPolicy`), so a payload decodes without a
+The envelope of every bus message names its type (`humanoid_mpc_msgs.MpcPolicy`), so a payload decodes without a
 topic registry: once every generated module of the message packages is imported, the default descriptor pool knows
 every type, and the message factory builds the class from the descriptor.
 """
@@ -41,6 +41,7 @@ import pkgutil
 from typing import Any, NamedTuple, TextIO, TypeAlias
 
 from google.protobuf import descriptor
+from google.protobuf import descriptor_pb2
 from google.protobuf import descriptor_pool
 from google.protobuf import message
 from google.protobuf import message_factory
@@ -119,6 +120,43 @@ def _is_map(field: descriptor.FieldDescriptor) -> bool:
     )
 
 
+# The syntax of each file, by name ("proto3", "editions", or "" for proto2): FileDescriptor has no `syntax` attribute
+# in protobuf 7, so it is read from the file's descriptor proto once.
+_FILE_SYNTAX: dict[str, str] = {}
+
+
+def _file_syntax(file: descriptor.FileDescriptor) -> str:
+    syntax = _FILE_SYNTAX.get(file.name)
+    if syntax is None:
+        file_proto = descriptor_pb2.FileDescriptorProto()
+        file.CopyToProto(file_proto)
+        syntax = file_proto.syntax
+        _FILE_SYNTAX[file.name] = syntax
+    return syntax
+
+
+def _tracks_presence(field: descriptor.FieldDescriptor) -> bool:
+    """Whether an unset `field` must be printed as unset rather than as its default.
+
+    A member of a oneof (a proto3 `optional` field included) and a scalar with explicit presence (an edition-2023 field,
+    which the tuning files' "absent: the controller's default" relies on) do: printing the default would set them when
+    the text or JSON is parsed back. A proto3 submessage keeps being printed as its defaults, as the bus messages expect.
+
+    Args:
+        field: The field of a message.
+
+    Returns:
+        True when the field is printed as unset while it is not set.
+    """
+    if _is_repeated(field) or not field.has_presence:
+        return False
+    return (
+        field.containing_oneof is not None
+        or field.message_type is None
+        or _file_syntax(field.file) != "proto3"
+    )
+
+
 def _scalar_to_python(value: Any, field: descriptor.FieldDescriptor) -> Any:
     if field.message_type is not None:
         return message_to_python(value)
@@ -145,10 +183,21 @@ def message_to_python(msg: message.Message) -> dict[str, Any]:
     """Every field of a message, set or not, as plain Python, in declaration order.
 
     Fields at their default value are included, so that a zero or a false reads as such rather than as a missing
-    entry.
+    entry. A field that tracks presence and is not set (_tracks_presence) is None, which json_format.ParseDict reads
+    back as unset.
+
+    Args:
+        msg: The message.
+
+    Returns:
+        Field name -> value: messages as dicts, repeated fields as lists, enums by name.
     """
     return {
-        field.name: field_to_python(getattr(msg, field.name), field)
+        field.name: (
+            None
+            if _tracks_presence(field) and not msg.HasField(field.name)
+            else field_to_python(getattr(msg, field.name), field)
+        )
         for field in msg.DESCRIPTOR.fields
     }
 
@@ -163,6 +212,8 @@ class _ResolvedPath(NamedTuple):
     field: descriptor.FieldDescriptor
     # The path ends at a repeated or map field itself rather than at one of its elements.
     ends_at_container: bool
+    # The message that holds the last field of the path; it says whether that field is set.
+    parent: message.Message
 
 
 def _resolve_path(msg: message.Message, path: str) -> _ResolvedPath:
@@ -173,6 +224,7 @@ def _resolve_path(msg: message.Message, path: str) -> _ResolvedPath:
 
     steps: list[PathStep] = []
     current: Any = msg
+    parent: message.Message = msg
     field: descriptor.FieldDescriptor | None = None
     indexable = False
     for position, component in enumerate(components):
@@ -204,6 +256,7 @@ def _resolve_path(msg: message.Message, path: str) -> _ResolvedPath:
             )
         field = fields[component]
         steps.append(component)
+        parent = current
         current = getattr(current, component)
         indexable = _is_repeated(field) and not _is_map(field)
 
@@ -211,7 +264,7 @@ def _resolve_path(msg: message.Message, path: str) -> _ResolvedPath:
         field is None
     ):  # Unreachable: the checks above make the first component name a field.
         raise FieldPathError(f"'{path}' names no field")
-    return _ResolvedPath(steps, current, field, indexable or _is_map(field))
+    return _ResolvedPath(steps, current, field, indexable or _is_map(field), parent)
 
 
 def select_field(msg: message.Message, path: str) -> Any:
@@ -219,10 +272,24 @@ def select_field(msg: message.Message, path: str) -> Any:
 
     Components name fields; a component after a repeated field is an index (negative counts from the end), so
     `state_trajectory.0.data` is the first state of a policy and `solver_status.healthy` a nested scalar.
+
+    Args:
+        msg: The message.
+        path: The dotted field path.
+
+    Returns:
+        The value as plain Python; None for a field that tracks presence and is not set.
+
+    Raises:
+        FieldPathError: The path names no field of the message.
     """
     resolved = _resolve_path(msg, path)
     if resolved.ends_at_container:
         return field_to_python(resolved.value, resolved.field)
+    if _tracks_presence(resolved.field) and not resolved.parent.HasField(
+        resolved.field.name
+    ):
+        return None
     return _scalar_to_python(resolved.value, resolved.field)
 
 
@@ -340,9 +407,9 @@ def _write_message_text(
     for field in msg.DESCRIPTOR.fields:
         if selection is not None and field.name not in selection:
             continue
-        if field.containing_oneof is not None and not msg.HasField(field.name):
-            # A member of a oneof, a proto3 `optional` field included, tracks presence: printing its default would
-            # set it when the text is parsed back, and set two members of one oneof.
+        if _tracks_presence(field) and not msg.HasField(field.name):
+            # A member of a oneof (a proto3 `optional` field included) and an edition-2023 field track presence:
+            # printing the default would set them when the text is parsed back, and set two members of one oneof.
             out.write(f"{' ' * indent}# {field.name}: not set\n")
             continue
         _write_field_text(
@@ -359,9 +426,10 @@ def message_to_text(msg: message.Message, selection: Selection = None) -> str:
 
     Unlike text_format.MessageToString, fields at their default value are printed too (`healthy: false`, `data: []`,
     an unset submessage as its defaults), so that a zero or a false reads as such rather than as a missing line.
-    Repeated scalars are printed as one list, `data: [0.0, 0.5]`. A member of a oneof that is not set is a comment.
-    The text parses back with text_format.Parse into a message of equal values; only the presence of the submessages
-    that were unset differs.
+    Repeated scalars are printed as one list, `data: [0.0, 0.5]`. A field that tracks presence and is not set - a
+    member of a oneof, a proto3 `optional` field, an edition-2023 field - is a comment, `# kp: not set`. The text parses
+    back with text_format.Parse into a message of equal values; only the presence of the unset submessages of proto3
+    messages differs.
 
     With a selection (selection_of), only the selected fields are printed, so that the text is still a textproto of
     the message's type; a repeated field of which only some elements are selected carries a comment with their

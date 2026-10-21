@@ -35,16 +35,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "Eigen/Geometry"
 #include "absl/functional/function_ref.h"
+#include "ocs2_core/Dimensions.h"
 
+#include "humanoid_common_mpc/common/Sinc.h"
 #include "humanoid_common_mpc/orientation/BaseOrientation.h"
 
 namespace ocs2::humanoid {
 namespace {
-
-/** sin(x) / x, 1 at x = 0; its two-term series below |x| = 1e-4, where the next term is below 1e-18. */
-scalar_t sinc(scalar_t x) {
-  return std::abs(x) < 1.0e-4 ? 1.0 - x * x / 6.0 : std::sin(x) / x;
-}
 
 /** `vector` (x, y) rotated by -`angle` about z: R_z(angle)^T vector. */
 vector2_t rotatedBack(scalar_t angle, const vector2_t& vector) {
@@ -58,8 +55,8 @@ vector2_t rotatedBack(scalar_t angle, const vector2_t& vector) {
 BasePlanarMotion instantaneousPlanarMotion(const vector4_t& orientation, const vector6_t& twistWorld) {
   const scalar_t heading = twistHeading(orientation);
   const quaternion_t rotation(orientation);
-  const vector3_t angularVelocityLocal = rotation.conjugate() * vector3_t(twistWorld.tail<3>());
-  return BasePlanarMotion{.velocityInHeadingFrame = rotatedBack(heading, vector2_t(twistWorld.head<2>())),
+  const vector3_t angularVelocityLocal = rotation.conjugate() * vector3_t(twistWorld.tail<kRotationTangentDim>());
+  return BasePlanarMotion{.velocityInHeadingFrame = rotatedBack(heading, vector2_t(twistWorld.head<kHorizontalPositionDim>())),
                           .headingRate = headingTiltJacobian(orientation).row(0).transpose().dot(angularVelocityLocal)};
 }
 
@@ -96,7 +93,7 @@ void StrideMotionHistory::addSample(scalar_t time,
   samples_.push_back(Sample{.time = time, .heading = last.heading + headingChange, .displacement = last.displacement + displacementStep});
   lastPosition_ = positionXy;
   // Keep one sample at or before time - retention, for the interpolation at the start of the longest window.
-  while (samples_.size() >= 2 && samples_[1].time <= time - retention_) {
+  while (samples_.size() > 1 && samples_[1].time <= time - retention_) {
     samples_.pop_front();
     firstSampleKept_ = false;
   }

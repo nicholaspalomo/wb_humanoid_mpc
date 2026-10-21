@@ -36,6 +36,7 @@ Demonstrates:
 
 import argparse
 from collections.abc import Callable
+import dataclasses
 import os
 import sys
 import time
@@ -75,6 +76,7 @@ InferenceFn: TypeAlias = Callable[[np.ndarray, jax.Array], tuple[jax.Array, Any]
 # ==============================================================================
 CARTPOLE_XML = """
 <mujoco model="cartpole">
+    <compiler angle="radian"/>
     <option timestep="0.01" integrator="RK4"/>
     <visual>
         <headlight diffuse="0.6 0.6 0.6" ambient="0.3 0.3 0.3" specular="0 0 0"/>
@@ -82,7 +84,7 @@ CARTPOLE_XML = """
     </visual>
     <worldbody>
         <light diffuse=".8 .8 .8" pos="0 0 4" dir="0 0 -1"/>
-        <geom name="rail" type="capsule" fromto="-2.4 0 0 2.4 0 0" size="0.02" rgba="0.4 0.4 0.45 1"/>
+        <geom name="rail" type="capsule" fromto="-2.4 0 0 2.4 0 0" size="0.02" rgba="0.4 0.4 0.45 1" contype="0" conaffinity="0"/>
         <geom name="floor" type="plane" size="5 5 0.1" pos="0 0 -0.5" rgba="0.12 0.14 0.18 1"/>
         <camera name="track_cam" pos="0 -3.0 1.0" xyaxes="1 0 0 0 0.3 1" mode="fixed"/>
 
@@ -101,6 +103,43 @@ CARTPOLE_XML = """
     </actuator>
 </mujoco>
 """
+
+
+# The rendered rollout keeps every second simulation step as a GIF frame.
+_FRAME_STRIDE = 2
+# Milliseconds per second: a GIF's frame duration is in milliseconds.
+_MILLISECONDS_PER_SECOND = 1000.0
+
+
+def cartpole_observation(qpos: Any, qvel: Any) -> jax.Array:
+    """Returns the observation (x, sin theta, cos theta, x_dot, theta_dot) of the state, MJX's or MuJoCo's."""
+    theta = qpos[1]
+    return jnp.array([qpos[0], jnp.sin(theta), jnp.cos(theta), qvel[0], qvel[1]])
+
+
+def cartpole_done(qpos: Any) -> jax.Array:
+    """Returns 1.0 when the cart has left the rail or the pole has fallen, else 0.0."""
+    out_of_bounds = jnp.abs(qpos[0]) > 2.2
+    fallen = jnp.cos(qpos[1]) < 0.2
+    return jnp.where(out_of_bounds | fallen, 1.0, 0.0)
+
+
+def cartpole_reward(qpos: Any, qvel: Any, ctrl: Any, done: Any) -> jax.Array:
+    """Returns the reward for being upright near the center, less the penalties for spinning, effort and falling."""
+    upright_reward = jnp.clip(jnp.cos(qpos[1]), 0.0, 1.0)
+    center_penalty = 0.05 * jnp.square(qpos[0])
+    spin_penalty = 0.005 * jnp.square(qvel[1])
+    ctrl_penalty = 0.005 * jnp.sum(jnp.square(ctrl))
+    fall_penalty = jnp.where(done > 0.5, -1.0, 0.0)
+    return upright_reward - center_penalty - spin_penalty - ctrl_penalty + fall_penalty
+
+
+def gif_frame_duration_ms(timestep: float) -> int:
+    """Returns the duration of one GIF frame [ms] that plays the rollout of `timestep` [s] steps at real time.
+
+    A GIF stores durations in hundredths of a second, so a stride of a whole number of hundredths plays exactly.
+    """
+    return round(_FRAME_STRIDE * timestep * _MILLISECONDS_PER_SECOND)
 
 
 # ==============================================================================
@@ -165,60 +204,92 @@ class CartpoleBraxEnv(brax_base.PipelineEnv):
         )
 
     def _get_obs(self, pipeline_state: mjx.Data) -> jax.Array:
-        cart_x = pipeline_state.qpos[0]
-        theta = pipeline_state.qpos[1]
-        cart_x_dot = pipeline_state.qvel[0]
-        theta_dot = pipeline_state.qvel[1]
-        return jnp.array(
-            [cart_x, jnp.sin(theta), jnp.cos(theta), cart_x_dot, theta_dot]
-        )
+        return cartpole_observation(pipeline_state.qpos, pipeline_state.qvel)
 
     def _compute_reward(
         self, pipeline_state: mjx.Data, ctrl: jax.Array, done: jax.Array
     ) -> jax.Array:
         """The reward for being upright near the center, less the penalties for spinning, effort and falling."""
-        cart_x = pipeline_state.qpos[0]
-        theta = pipeline_state.qpos[1]
-        theta_dot = pipeline_state.qvel[1]
-
-        upright_reward = jnp.clip(jnp.cos(theta), 0.0, 1.0)
-        center_penalty = 0.05 * jnp.square(cart_x)
-        spin_penalty = 0.005 * jnp.square(theta_dot)
-        ctrl_penalty = 0.005 * jnp.sum(jnp.square(ctrl))
-        fall_penalty = jnp.where(done > 0.5, -1.0, 0.0)
-
-        return (
-            upright_reward - center_penalty - spin_penalty - ctrl_penalty + fall_penalty
-        )
+        return cartpole_reward(pipeline_state.qpos, pipeline_state.qvel, ctrl, done)
 
     def _is_done(self, pipeline_state: mjx.Data) -> jax.Array:
-        cart_x = pipeline_state.qpos[0]
-        theta = pipeline_state.qpos[1]
-        out_of_bounds = jnp.abs(cart_x) > 2.2
-        fallen = jnp.cos(theta) < 0.2
-        return jnp.where(out_of_bounds | fallen, 1.0, 0.0)
+        return cartpole_done(pipeline_state.qpos)
 
 
 # ==============================================================================
 # 3. Rendering & Visualization Helper
 # ==============================================================================
-def render_policy_rollout(
-    mj_model: mujoco.MjModel,
-    inference_fn: InferenceFn,
-    output_gif_path: str,
-    num_frames: int = 120,
-) -> float:
-    """Rolls out the trained policy in MuJoCo dynamics and renders an animated GIF."""
-    data = mujoco.MjData(mj_model)
+@dataclasses.dataclass
+class PolicyRollout:
+    """One episode of a policy in MuJoCo.
 
-    # Initial state with perturbation tilt
+    Attributes:
+        score: The episode's return as training scores it: the sum of the environment's reward over the steps, up to
+            and including the one that ends the episode (cartpole_done()).
+        positions: The joint positions (x, theta) at the start of every step, one per step.
+    """
+
+    score: float
+    positions: list[np.ndarray]
+
+
+def rollout_policy(
+    mj_model: mujoco.MjModel, inference_fn: InferenceFn, num_steps: int
+) -> PolicyRollout:
+    """Rolls out a policy in MuJoCo from a tilt of 0.35 rad for at most `num_steps` steps, ending where training does.
+
+    Args:
+        mj_model: The cartpole's model.
+        inference_fn: The policy; evaluation_policy() makes the deterministic one the score of training evaluates.
+        num_steps: The episode's length in control steps, as training's --episode_length.
+
+    Returns:
+        The episode's score and the positions it passed through.
+    """
+    data = mujoco.MjData(mj_model)
     data.qpos[0] = 0.0
     data.qpos[1] = 0.35
     data.qvel[:] = 0.0
     mujoco.mj_forward(mj_model, data)
 
+    rollout = PolicyRollout(score=0.0, positions=[])
+    rng = jax.random.PRNGKey(0)
+    for _ in range(num_steps):
+        rollout.positions.append(np.array(data.qpos))
+        obs = np.asarray(cartpole_observation(data.qpos, data.qvel), dtype=np.float32)
+        rng, act_rng = jax.random.split(rng)
+        action, _ = inference_fn(obs, act_rng)
+        ctrl = np.clip(np.asarray(action), -1.0, 1.0)
+
+        data.ctrl[:] = ctrl
+        mujoco.mj_step(mj_model, data)
+
+        done = cartpole_done(data.qpos)
+        rollout.score += float(cartpole_reward(data.qpos, data.qvel, ctrl, done))
+        if float(done) > 0.5:
+            break
+    return rollout
+
+
+def render_policy_rollout(
+    mj_model: mujoco.MjModel,
+    inference_fn: InferenceFn,
+    output_gif_path: str,
+    num_steps: int = 200,
+) -> float:
+    """Rolls out a policy (rollout_policy()) and renders it as a GIF that plays at real time.
+
+    Args:
+        mj_model: The cartpole's model.
+        inference_fn: The policy; evaluation_policy() makes the deterministic one the score of training evaluates.
+        output_gif_path: The GIF to write; its directory is created.
+        num_steps: The episode's length in control steps, as training's --episode_length.
+
+    Returns:
+        The episode's score, PolicyRollout.score.
+    """
+    rollout = rollout_policy(mj_model, inference_fn, num_steps)
     frames: list[Image.Image] = []
-    total_reward = 0.0
 
     # Try native MuJoCo 3D renderer
     renderer = None
@@ -229,46 +300,28 @@ def render_policy_rollout(
     except Exception:
         renderer = None
 
-    cart_xs: list[float] = []
-    thetas: list[float] = []
-    rng = jax.random.PRNGKey(0)
+    data = mujoco.MjData(mj_model)
+    for positions in rollout.positions[::_FRAME_STRIDE]:
+        if renderer is None:
+            break
+        data.qpos[:] = positions
+        mujoco.mj_forward(mj_model, data)
+        try:
+            renderer.update_scene(data, camera="track_cam")
+            frames.append(Image.fromarray(renderer.render()))
+        # A lost OpenGL context fails differently by platform; the 2D fallback below takes over.
+        # pylint: disable-next=broad-exception-caught  # The 2D fallback takes over.
+        except Exception:
+            renderer = None
+            frames = []
 
-    for step in range(num_frames):
-        cart_x = float(data.qpos[0])
-        theta = float(data.qpos[1])
-        cart_xs.append(cart_x)
-        thetas.append(theta)
-
-        obs = np.array(
-            [cart_x, np.sin(theta), np.cos(theta), data.qvel[0], data.qvel[1]],
-            dtype=np.float32,
-        )
-
-        rng, act_rng = jax.random.split(rng)
-        action, _ = inference_fn(obs, act_rng)
-        act_scalar = float(np.array(action)[0])
-
-        data.ctrl[0] = np.clip(act_scalar, -1.0, 1.0)
-        mujoco.mj_step(mj_model, data)
-
-        total_reward += np.cos(theta) - 0.05 * (cart_x**2)
-
-        # Render native MuJoCo 3D camera frame
-        if step % 2 == 0 and renderer is not None:
-            try:
-                renderer.update_scene(data, camera="track_cam")
-                rgb_frame = renderer.render()
-                frames.append(Image.fromarray(rgb_frame))
-            # A lost OpenGL context fails differently by platform; the 2D fallback below takes over.
-            # pylint: disable-next=broad-exception-caught  # The 2D fallback takes over.
-            except Exception:
-                renderer = None
-
+    cart_xs = [float(positions[0]) for positions in rollout.positions]
+    thetas = [float(positions[1]) for positions in rollout.positions]
     # Fallback to high-contrast 2D Matplotlib vector renderer if 3D OpenGL is unavailable
     if not frames and cart_xs:
         pole_length = 0.6
         fig, ax = plt.subplots(figsize=(6, 3.5), dpi=100)
-        for i in range(0, len(cart_xs), 2):
+        for i in range(0, len(cart_xs), _FRAME_STRIDE):
             cx = cart_xs[i]
             th = thetas[i]
             px = cx + pole_length * np.sin(th)
@@ -306,7 +359,7 @@ def render_policy_rollout(
             ax.set_aspect("equal")
             ax.axis("off")
             ax.set_title(
-                f"Cartpole Visualizer (Step {i}/{num_frames})",
+                f"Cartpole Visualizer (Step {i}/{num_steps})",
                 color="#94a3b8",
                 fontsize=10,
             )
@@ -322,10 +375,17 @@ def render_policy_rollout(
             output_gif_path,
             save_all=True,
             append_images=frames[1:],
-            duration=33,
+            duration=gif_frame_duration_ms(mj_model.opt.timestep),
             loop=0,
         )
-    return total_reward
+    return rollout.score
+
+
+def evaluation_policy(
+    make_inference_fn: Callable[..., InferenceFn], params: Any
+) -> InferenceFn:
+    """Returns the deterministic policy of trained parameters, the one Brax PPO's evaluations score: tanh of its mean."""
+    return make_inference_fn(params, deterministic=True)
 
 
 def plot_training_curves(
@@ -513,13 +573,16 @@ def main() -> None:
         progress_fn=progress_callback,
     )
 
-    inference_fn = make_inference_fn(params)
+    inference_fn = evaluation_policy(make_inference_fn, params)
 
     # Render final policy rollout
     final_gif_path = os.path.join(args.output_dir, "cartpole_latest.gif")
-    eval_score = render_policy_rollout(env.mj_model, inference_fn, final_gif_path)
+    eval_score = render_policy_rollout(
+        env.mj_model, inference_fn, final_gif_path, num_steps=args.episode_length
+    )
     print(
-        f"\n🎬 [Final Visualization Saved] -> {final_gif_path} (Score: {eval_score:.1f})"
+        f"\n🎬 [Final Visualization Saved] -> {final_gif_path} (Return of the deterministic policy from a 0.35 rad"
+        f" tilt, scored as training's evaluations: {eval_score:.1f})"
     )
 
     # Live 3D playback in VNC if viewer is active
@@ -536,17 +599,8 @@ def main() -> None:
         for _ in range(150):
             if not viewer.is_running():
                 break
-            cart_x = float(eval_data.qpos[0])
-            theta = float(eval_data.qpos[1])
-            obs_eval = np.array(
-                [
-                    cart_x,
-                    np.sin(theta),
-                    np.cos(theta),
-                    eval_data.qvel[0],
-                    eval_data.qvel[1],
-                ],
-                dtype=np.float32,
+            obs_eval = np.asarray(
+                cartpole_observation(eval_data.qpos, eval_data.qvel), dtype=np.float32
             )
             rng_eval, act_rng = jax.random.split(rng_eval)
             action, _ = inference_fn(obs_eval, act_rng)
@@ -554,7 +608,9 @@ def main() -> None:
                 eval_data.ctrl[0] = np.clip(float(np.array(action)[0]), -1.0, 1.0)
                 mujoco.mj_step(env.mj_model, eval_data)
             viewer.sync()
-            time.sleep(0.015)
+            time.sleep(
+                env.mj_model.opt.timestep
+            )  # About real time: the step itself is quick.
 
     if viewer is not None:
         try:
@@ -566,7 +622,7 @@ def main() -> None:
             pass
         viewer = None
 
-    print("\n" + "=" * 70)
+    print(f'\n{"=" * 70}')
     print("🎉 Brax PPO Training Completed Successfully!")
     print(
         f"📁 All animated GIFs and metric plots saved in: {os.path.abspath(args.output_dir)}/"

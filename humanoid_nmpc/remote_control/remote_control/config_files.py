@@ -219,9 +219,10 @@ def resolve_config_files(
     """The task, reference and PD gain files of the GUI, each in the source checkout.
 
     A file given is used (re-rooted into the checkout); one given that does not exist is an error, never replaced by
-    another robot's. A file not given is looked for next to the others, in a robot's config/ layout
-    (config/mpc/task.textproto, config/command/reference.textproto, config/controller/joint_pd_gains.textproto), and
-    the task and PD gain files then among the DEFAULT_*_FILES of the checkout.
+    another robot's. A file not given is looked for next to the others, in a robot's config/ layout (the task file
+    beside the reference file, then beside the joint PD gains file; config/mpc/task.textproto,
+    config/command/reference.textproto, config/controller/joint_pd_gains.textproto), and the task and PD gain files
+    then among the DEFAULT_*_FILES of the checkout.
 
     Args:
         task_file: The task file given on the command line, or empty.
@@ -254,6 +255,8 @@ def resolve_config_files(
 
     if not os.path.exists(task):
         candidates = [_sibling(reference, _TASK_FROM_REFERENCE)] if reference else []
+        if pd_gains:
+            candidates.append(task_file_beside(pd_gains))
         if repo_root:
             candidates.extend(
                 os.path.join(repo_root, path) for path in DEFAULT_TASK_FILES

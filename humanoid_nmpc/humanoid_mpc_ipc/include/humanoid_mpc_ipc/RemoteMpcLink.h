@@ -33,6 +33,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <optional>
 
 #include "absl/base/nullability.h"
 #include "absl/base/thread_annotations.h"
@@ -90,10 +91,13 @@ namespace ocs2::humanoid::ipc {
  *   - the MPC node reports its solver unhealthy (MpcSolverStatus, in every policy and in mpc/status, which it
  *     publishes after every attempt: a failing solver publishes no policy), or
  *   - the link is lost: no policy solved from an observation of the last Config::policyTimeout seconds of robot time
- *     has arrived, or the robot clock has reached the end of the newest policy's horizon. Only after a policy has been
- *     received; the robot clock is the time of the observations.
- * The realtime thread checks the second itself, in setCurrentObservation(), against the newest policy's deadline, which
- * the IO thread publishes when it accepts the policy: the controller holds the robot at the first cycle past the
+ *     has arrived, or the robot clock has reached the end of the horizon of the policy that may be in use. Only after a
+ *     policy has been received; the robot clock is the time of the observations. The policy that may be in use is the
+ *     newest one, or an older one that the controller took and still runs because the newest was dropped from the
+ *     buffer before its swap (a reset, a failed solve), so that a dropped plan that never ran never extends the one
+ *     that does (MRT_BASE::moveToBuffer() and discardBufferedPolicy() say which).
+ * The realtime thread checks the second itself, in setCurrentObservation(), against that deadline, which the IO thread
+ * publishes when it accepts a policy or drops one: the controller holds the robot at the first cycle past the
  * deadline even when the IO thread is stalled (MpcResetSupervisor::setRemotePolicyExpired()). The IO thread finds the
  * same loss on its next poll, logs it, and requests a full reset, as the in-process supervisor does once it declares a
  * failing solver unhealthy, so that the hold ends on a policy solved from the robot as it is then. A lost link stays
@@ -134,12 +138,19 @@ class RemoteMpcLink final : public MRT_BASE {
      * bus is not a lost link (RobotProcessSettings::mpcLinkPolicyTimeout).
      */
     // LINT.IfChange(policy_timeout_default)
-    scalar_t policyTimeout = 0.5;
+    static constexpr scalar_t kDefaultPolicyTimeout = 0.5;
+    scalar_t policyTimeout = kDefaultPolicyTimeout;
     // clang-format off
     // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_app/robot/include/humanoid_common_mpc_app/robot/RobotProcessSettings.h:policy_timeout_default, //humanoid_nmpc/humanoid_mpc_config/mpc_link_config.proto:policy_timeout_default)
     // clang-format on
     /** How often the IO thread takes the newest observation, publishes it, and checks the policy timeout. */
     absl::Duration pollPeriod = absl::Milliseconds(1);
+    /**
+     * The robot's model layout (modelLayoutFingerprint() of its ModelSettings): stamped on every observation, and a
+     * policy of another layout - equal dimensions, another joint order or other fixed joints - is rejected as one of
+     * other dimensions (invalidPoliciesRejected). 0 (kUnstampedModelFingerprint): neither stamped nor checked.
+     */
+    uint64_t modelFingerprint = 0;
   };
 
   /**
@@ -180,12 +191,14 @@ class RemoteMpcLink final : public MRT_BASE {
     scalar_t policyAge = -1.0;
   };
 
-  /** A link on `bus`, which must not be running yet; the caller starts it. `supervisor` must outlive the link. */
-  static absl::StatusOr<std::unique_ptr<RemoteMpcLink>> Create(robot::ipc::Bus& bus, MpcResetSupervisor& supervisor, Config config);
+  /** A link on `bus`, which must not be running yet; the caller starts it. `bus` and `supervisor` must outlive the link. */
+  static absl::StatusOr<std::unique_ptr<RemoteMpcLink>> Create(robot::ipc::Bus* absl_nonnull bus,
+                                                               MpcResetSupervisor* absl_nonnull supervisor,
+                                                               Config config);
 
   /** A link on a bus of its own, created from `busOptions` and started; it stops with the link. */
   static absl::StatusOr<std::unique_ptr<RemoteMpcLink>> Create(robot::ipc::BusOptions busOptions,
-                                                               MpcResetSupervisor& supervisor,
+                                                               MpcResetSupervisor* absl_nonnull supervisor,
                                                                Config config);
 
   ~RemoteMpcLink() override;
@@ -232,7 +245,7 @@ class RemoteMpcLink final : public MRT_BASE {
     uint64_t sequence = 0;
   };
 
-  RemoteMpcLink(robot::ipc::Bus& bus, MpcResetSupervisor& supervisor, Config config);
+  RemoteMpcLink(robot::ipc::Bus* absl_nonnull bus, MpcResetSupervisor* absl_nonnull supervisor, Config config);
   absl::Status registerOnBus();
 
   // ---- IO thread, under guard_->mutex.
@@ -245,7 +258,12 @@ class RemoteMpcLink final : public MRT_BASE {
   void serveResetRequests();
   /** False for a time the link did not publish an observation of (see the class comment). */
   bool isOwnObservationTime(scalar_t time) const;
-  void mirrorSolverStatus(const humanoid_mpc_msgs::MpcSolverStatus& status, bool fromPolicy);
+  /** The message a solver status came in. */
+  enum class StatusSource {
+    kPolicy,       ///< mpc/policy: the status of the solve that produced the policy
+    kStatusTopic,  ///< mpc/status: the server's health between policies (it drops the buffered policy on a failure)
+  };
+  void mirrorSolverStatus(const humanoid_mpc_msgs::MpcSolverStatus& status, StatusSource source);
   /**
    * IO thread: a policy or status of another MPC server than the last one (a restarted MPC node, which counts its solves
    * from zero again) makes its solve counts the ones to compare with: newestPolicySolveCount_ starts over.
@@ -253,15 +271,26 @@ class RemoteMpcLink final : public MRT_BASE {
   void observeServerInstance(uint64_t serverInstance);
   /** Checks the policy timeout and the horizon, and hands the combined health to the supervisor. */
   void updateHealth();
-  /** Hands the deadline of newestPolicyInitTime_ and newestPolicyFinalTime_ to the realtime thread's watchdog. */
+  /** Hands the deadline of the policy that may be in use (deadlineInitTime(), deadlineFinalTime()) to the watchdog. */
   void publishPolicyDeadline();
+  /**
+   * MRT_BASE::discardBufferedPolicy(), and what it tells: a newest policy the buffer no longer holds and that was not
+   * dropped was swapped in, so it becomes the policy that may be in use.
+   */
+  void discardBufferedPolicyAndTrackInUse();
+  /**
+   * The init and the final time of the policy that may be in use: the newest accepted one, or, once that was dropped
+   * from the buffer before its swap, the older one the controller still executes (inUsePolicy_).
+   */
+  scalar_t deadlineInitTime() const;
+  scalar_t deadlineFinalTime() const;
   /** Hands the annotations of the policy just accepted to the consumer of takeAnnotations(). */
   void publishAnnotations(const humanoid_mpc_msgs::ViewerAnnotations& message);
   void publishStatistics();
 
-  robot::ipc::Bus& bus_;
+  robot::ipc::Bus* absl_nonnull bus_;
   std::unique_ptr<robot::ipc::Bus> ownedBus_;
-  MpcResetSupervisor& supervisor_;
+  MpcResetSupervisor* absl_nonnull supervisor_;
   const Config config_;
   std::shared_ptr<CallbackGuard> guard_;
 
@@ -272,7 +301,7 @@ class RemoteMpcLink final : public MRT_BASE {
   robot::TripleBuffer<msgs::ViewerAnnotations> annotations_;
   uint64_t observationsWritten_ = 0;  // realtime thread
 
-  // ---- IO thread (writer) -> realtime thread (reader): the robot time after which the newest accepted policy has
+  // ---- IO thread (writer) -> realtime thread (reader): the robot time after which the policy that may be in use has
   // expired, min(its init time + policyTimeout, the double just below its final time); +infinity before the first.
   std::atomic<scalar_t> policyDeadline_;
   bool policyExpired_ = false;  // realtime thread: the verdict last handed to the supervisor
@@ -289,6 +318,20 @@ class RemoteMpcLink final : public MRT_BASE {
   bool policyAccepted_ = false;
   scalar_t newestPolicyInitTime_ = 0.0;
   scalar_t newestPolicyFinalTime_ = 0.0;
+  // Whether the newest accepted policy may still be in the buffer: neither dropped nor known to have been swapped in.
+  bool newestPolicyBuffered_ = false;
+  // Whether the newest accepted policy was dropped from the buffer before the controller took it (a reset, a failed
+  // solve): until the next one arrives, the deadline is that of inUsePolicy_, the plan that still runs.
+  bool newestPolicyDropped_ = false;
+  /** The init and final time of a policy the controller may be executing. */
+  struct PolicyWindow {
+    scalar_t initTime = 0.0;
+    scalar_t finalTime = 0.0;
+  };
+  // An older policy than the newest one that the controller may still be executing: the last one the buffer is known to
+  // have handed over. nullopt before the first swap is known. A policy dropped from the buffer before its swap (a reset,
+  // a failed solve) leaves it in force, so the watchdog keeps following the plan that runs, not the one that never did.
+  std::optional<PolicyWindow> inUsePolicy_;
   bool solverHealthy_ = true;
   uint64_t solverConsecutiveFailures_ = 0;
   // MpcSolverStatus.solve_count of the newest policy received: a status of an older attempt says nothing new.

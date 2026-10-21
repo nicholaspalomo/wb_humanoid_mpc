@@ -29,25 +29,39 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/contact_planning/problem/ContactPlanningContext.h"
 
+#include <array>
 #include <cmath>
 #include <utility>
 #include <vector>
 
+#include "ocs2_core/Dimensions.h"
+
 namespace ocs2::humanoid {
 
-std::pair<scalar_t, scalar_t> ContactPlanningContext::frameTerm(int node, int axis, const vector2_t& dNominal) const {
-  if (!hasHeading()) return {0.0, 0.0};
-  const std::array<vector2_t, 2>& a = axesAt(node);
+ContactPlanningContext::HeadingFrameTerm ContactPlanningContext::frameTerm(int node, int axis, const vector2_t& dNominal) const {
+  if (!hasHeading()) return {};
+  const std::array<vector2_t, kHorizontalPositionDim>& a = axesAt(node);
   const vector2_t de = (axis == 0) ? a[1] : vector2_t(-a[0]);
   const scalar_t g = de.dot(dNominal);
-  return {g, -g * nominal->heading[static_cast<size_t>(node)]};
+  return {.gain = g, .offset = -g * nominal->heading[static_cast<size_t>(node)]};
 }
+
+namespace {
+std::array<vector2_t, kHorizontalPositionDim> frameAxes(scalar_t yaw) {
+  return {vector2_t(std::cos(yaw), std::sin(yaw)), vector2_t(-std::sin(yaw), std::cos(yaw))};
+}
+}  // namespace
 
 void ContactPlanningContext::computeAxes() {
   axes.resize(static_cast<size_t>(numNodes) + 1);
+  footAxes.resize(static_cast<size_t>(numNodes) + 1);
+  const bool withFootYaws = hasHeading() && nominal->footYaws.size() > static_cast<size_t>(numNodes);
   for (int k = 0; k <= numNodes; ++k) {
-    const scalar_t theta = hasHeading() ? nominal->heading[static_cast<size_t>(k)] : input->yaw;
-    axes[static_cast<size_t>(k)] = {vector2_t(std::cos(theta), std::sin(theta)), vector2_t(-std::sin(theta), std::cos(theta))};
+    const size_t node = static_cast<size_t>(k);
+    axes[node] = frameAxes(hasHeading() ? nominal->heading[node] : input->yaw);
+    for (size_t foot = 0; foot < kNumContacts; ++foot) {
+      footAxes[node][foot] = withFootYaws ? frameAxes(nominal->footYaws[node][foot]) : axes[node];
+    }
   }
 }
 
@@ -57,11 +71,15 @@ HeadingNominal nominalFromSolution(const Layout& layout, const std::vector<vecto
   nominal.heading.resize(n);
   nominal.com.resize(n);
   nominal.feet.resize(n);
+  if (layout.hasHeading) nominal.footYaws.resize(n);
   const int cx = layout.state(var::kComX);
   for (size_t k = 0; k < n; ++k) {
     nominal.heading[k] = layout.hasHeading ? x[k](layout.heading) : 0.0;
-    nominal.com[k] = x[k].segment<2>(cx);
-    for (size_t foot = 0; foot < kNumContacts; ++foot) nominal.feet[k][foot] = x[k].segment<2>(layout.state(var::footX(foot)));
+    nominal.com[k] = x[k].segment<kHorizontalPositionDim>(cx);
+    for (size_t foot = 0; foot < kNumContacts; ++foot) {
+      nominal.feet[k][foot] = x[k].segment<kHorizontalPositionDim>(layout.state(var::footX(foot)));
+      if (layout.hasHeading) nominal.footYaws[k][foot] = x[k](layout.footYaw(foot));
+    }
   }
   return nominal;
 }

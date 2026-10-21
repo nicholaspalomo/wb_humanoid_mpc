@@ -54,8 +54,7 @@ namespace {
 using Parameters = absl::flat_hash_map<std::string, std::string>;
 
 // LINT.IfChange(web_viewer_routes)
-// The ranges of README.md, "Routes".
-constexpr double kMaxDragFraction = 2.0;
+// The ranges of README.md, "Routes" (a drag's, ViewerInput::kMaxDragFraction, with ViewerInput).
 constexpr double kMaxNotches = 10.0;
 constexpr int kMinWidth = 160;
 constexpr int kMaxWidth = 3840;
@@ -138,9 +137,9 @@ absl::StatusOr<ViewerInput> parseDrag(const Parameters& parameters) {
     return absl::InvalidArgumentError(absl::StrCat("parameter 'shift' of type=drag is 0 or 1, not '", *shift, "'"));
   }
   input.shift = *shift == "1";
-  absl::StatusOr<double> dx = clampedNumber(parameters, "dx", kMaxDragFraction, kRequest);
+  absl::StatusOr<double> dx = clampedNumber(parameters, "dx", ViewerInput::kMaxDragFraction, kRequest);
   if (!dx.ok()) return dx.status();
-  absl::StatusOr<double> dy = clampedNumber(parameters, "dy", kMaxDragFraction, kRequest);
+  absl::StatusOr<double> dy = clampedNumber(parameters, "dy", ViewerInput::kMaxDragFraction, kRequest);
   if (!dy.ok()) return dy.status();
   input.dx = *dx;
   input.dy = *dy;

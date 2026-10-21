@@ -134,10 +134,10 @@ SA01 has never run on hardware.
 <!-- LINT.IfChange(acom_status) -->
 SA01 has a trained ACoM network, `AcomSirenWeightsSa01.h`, registered in `AngularCenterOfMass.cpp` under
 `model_settings.robot_name` `engineai_sa01`, so `com_and_acom_tracking_cost` no longer fails for want of a network. It is
-nevertheless **NOT VALIDATED, and must stay off**: its joint Jacobian is 51 % off the centroidal connection on average
-(Atlas's is 22 %), at its worst configurations it is further from the target than no network at all, and at the nominal
-crouch it is 53 % off and predicts the dominant walking coupling - hip pitch into yaw - at about a third of its true
-size (0.22 against 0.62).
+nevertheless **NOT VALIDATED, and must stay off**: its joint rate map J_l(Δθ)·J_Δθ is 44 % off the centroidal
+connection on average (Atlas's is 16 %), at its worst configurations it is further from the target than no network at
+all, and at the nominal crouch it is 55 % off and predicts the dominant walking coupling - hip pitch into yaw - at
+under a third of its true size (0.18 against 0.62).
 `testAcomAngularVelocityConsistency` grades the header against its own measured bounds, which only guard against it
 getting worse, and fails if `com_and_acom_tracking_cost` or `heading_double_integrator` is listed while SA01 is marked
 unvalidated there. Enabling it means retraining (`bazel run //humanoid_learning/acom:train_main -- --robot sa01

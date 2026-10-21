@@ -225,7 +225,7 @@ class ShippedRobotTest(RecordingTestCase):
             len(assets), len(mesh_files) * len(scene_contract.ROBOT_INSTANCES)
         )
         for path in assets:
-            self.assertTrue(path.startswith(scene_contract.ROBOTS_ROOT + "/"), path)
+            self.assertTrue(path.startswith(f"{scene_contract.ROBOTS_ROOT}/"), path)
             with open(
                 next(
                     mesh_file_path

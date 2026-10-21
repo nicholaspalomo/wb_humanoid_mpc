@@ -37,7 +37,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-/** `foot_yaw_regularization`: w sum_i dpsi_{i,k}^2 on the running nodes. */
+/**
+ * `foot_yaw_regularization`: w sum_i dpsi_{i,k}^2 on the running nodes.
+ *
+ * Not thread-safe, like every ContactPlanningTerm: the planner that owns it configures and evaluates it from one thread at a time.
+ */
 class FootYawRegularizationCost final : public LipWeightedCost {
  public:
   std::string describe() const override;

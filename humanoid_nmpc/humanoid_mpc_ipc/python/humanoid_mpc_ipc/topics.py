@@ -27,10 +27,9 @@
 
 """The topics of the IPC bus, the Python twin of include/humanoid_mpc_ipc/Topics.h.
 
-A topic is the first frame of every bus message (humanoid_nmpc/docs/distributed_runtime/README.md, "Topics"). The
-comment of each constant names the message it carries and who publishes it. ZeroMQ's SUB filter matches a prefix of
-the topic frame, so no topic may be a prefix of another (test/test_topics.py checks it, and that every constant here
-equals its C++ twin).
+Each topic is a DDS topic of the same name (humanoid_nmpc/docs/distributed_runtime/README.md, "Topics"). The comment of
+each constant names the message it carries and who publishes it; config/ipc/network.textproto gives each its QoS
+profile (test/test_topics.py checks that every constant here equals its C++ twin).
 """
 
 # LINT.IfChange(topics)
@@ -40,11 +39,11 @@ ROBOT_MPC_OBSERVATION = "robot/mpc_observation"
 ROBOT_STATE = "robot/state"
 # FsmState, robot -> GUI, on change and at 2 Hz.
 ROBOT_FSM_STATE = "robot/fsm_state"
-# LoopTiming, robot -> GUI and Rerun bridge, at 1 Hz.
+# LoopTiming, robot -> Rerun bridge, at 1 Hz.
 ROBOT_LOOP_TIMING = "robot/loop_timing"
 # MpcPolicy, MPC -> robot and dummy sim, every solve.
 MPC_POLICY = "mpc/policy"
-# MpcStatus, MPC -> robot (solver health), GUI and Rerun bridge, every solve attempt.
+# MpcStatus, MPC -> robot (solver health) and Rerun bridge, every solve attempt.
 MPC_STATUS = "mpc/status"
 # VisualizationScene, MPC (visualization) -> Rerun bridge.
 VIZ_SCENE = "viz/scene"
@@ -56,7 +55,7 @@ OPERATOR_WALKING_VELOCITY_COMMAND = "operator/walking_velocity_command"
 OPERATOR_FSM_COMMAND = "operator/fsm_command"
 # MpcParameterUpdate (humanoid_mpc_config: the whole task and contact planner files), GUI -> MPC and robot, on edit.
 OPERATOR_MPC_PARAMETERS = "operator/mpc_parameters"
-# JointPdGainsFile (humanoid_mpc_config: the whole PD gains file), GUI -> robot, on edit.
+# JointPdGainsUpdate (humanoid_mpc_config: the whole PD gains file, paired with its configuration identity), GUI -> robot, on edit.
 OPERATOR_PD_GAINS = "operator/pd_gains"
 # JointTargets, GUI -> robot, on edit (JOINT_PD only).
 OPERATOR_JOINT_TARGETS = "operator/joint_targets"

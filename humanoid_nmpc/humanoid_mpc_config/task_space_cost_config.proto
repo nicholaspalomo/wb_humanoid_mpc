@@ -16,7 +16,7 @@ import "nproto/retired_field_options.proto";
 //                          than "swing" is refused.
 //
 // Read while costs lists task_space_foot_cost or task_space_torso_cost (MpcFormulationConfig).
-// Next ID: 6
+// Next ID: 7
 message TaskSpaceCostConfig {
   option (nproto.generate_struct) = "ocs2::humanoid::mpc_config::TaskSpaceCostConfig";
   option (nproto.retired_layout_hint) = "(The weights are a block of their own, weights { pos_x: ... }, where task_space_foot_cost_weights wrote them next to activeInStance and a task_space_costs entry under its name; a named cost gives its name with name: \"torso\".)";
@@ -25,11 +25,11 @@ message TaskSpaceCostConfig {
     replacement: "the phases the foot cost weighs a foot in are selected by name: active_phases: \"swing_and_stance\" where it was true, \"swing\" (the default) where it was false"
   };
 
-  reserved 6 to max;
+  reserved 7 to max;
   // 4 was active_in_stance, now the name active_phases.
   reserved 4;
 
-  TaskSpaceWeights weights = 1;
+  TaskSpaceWeights weights = 1 [(humanoid_mpc_config.tuning) = { minimum: 0 }];
   // task_space_costs only: the cost's name, which names its term "<name>_TaskSpaceKinematicsCost" (required there).
   // An added, removed or renamed entry changes the terms the problem is assembled with: it takes effect at the next
   // start, while a reload applies the weights of the entries the running problem carries.
@@ -48,4 +48,14 @@ message TaskSpaceCostConfig {
     }
   ];
   // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/config/costs/TaskSpaceCostFromConfig.h:foot_cost_phases_names)
+  // task_space_foot_cost only, centroidal MPC only: the weight of the x and y linear velocity errors of a swing foot
+  // that has no landing target (no contact planner, and nominal_foothold.step_width 0 with no foothold heuristic). Such a
+  // foot tracks the commanded base velocity, so that it does not drag behind the moving body, with this weight in place
+  // of weights.lin_velocity_x / lin_velocity_y, which weigh it against its swing trajectory when it has a target, and in
+  // stance under active_phases "swing_and_stance". The swing planner's impact proximity ramps it to 0 at touch-down.
+  // Absent, 2.25 (a sqrt weight of 1.5): the value the cost hard-coded before it was a field
+  // (kDefaultSwingVelocityReferenceWeight). A task_space_costs entry that sets it is refused.
+  // LINT.IfChange(swing_velocity_reference_weight)
+  double swing_velocity_reference_weight = 6 [(humanoid_mpc_config.tuning) = { formulations: "centroidal" minimum: 0 }];
+  // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/config/costs/TaskSpaceCostFromConfig.h:swing_velocity_reference_weight)
 }

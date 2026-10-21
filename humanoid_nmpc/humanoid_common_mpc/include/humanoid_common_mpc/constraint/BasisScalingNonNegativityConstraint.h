@@ -73,6 +73,8 @@ namespace ocs2::humanoid {
  * terms. The two penalties agree to within `delta` of the boundary for every λ that matters (at the shipped
  * mu = 0.01, delta = 1e-3 they differ by under 0.1 % at |λ| = 1 N), so this is not a retuning: it removes a 1 mN dead
  * zone and changes nothing else.
+ *
+ * Not thread-safe; the solver gives each worker thread its own clone().
  */
 class BasisScalingNonNegativityConstraint final : public StateInputCost {
  public:

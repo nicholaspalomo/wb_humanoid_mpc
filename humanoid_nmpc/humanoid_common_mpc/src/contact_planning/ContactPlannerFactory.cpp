@@ -86,15 +86,13 @@ absl::StatusOr<std::unique_ptr<ContactPlannerInterface>> makeContactPlanner(cons
   const std::string name = canonicalPlannerName(config.planner.type);
   if (name.empty()) return unknownPlanner(config.planner.type);
   // An invalid configuration is returned as the Status of ContactPlanningConfig::validateStatus(), which names the key.
-  // This used to construct both planners directly: LipContactPlanner's constructor validated by throwing, so the
-  // rejection escaped this StatusOr function as an exception, and HlipContactPlanner does not validate at all and was
-  // built from the invalid configuration silently - the same bad key threw for one planner and passed for the other.
+  // Both planners validate in their Create() factory, so the same bad key is refused the same way by either.
   if (name == planner::kLipMiqp) {
     ASSIGN_OR_RETURN(std::unique_ptr<LipContactPlanner> lip, LipContactPlanner::Create(config));
     return std::unique_ptr<ContactPlannerInterface>(std::move(lip));
   }
-  RETURN_IF_ERROR(config.validateStatus());
-  return std::make_unique<HlipContactPlanner>(config);
+  ASSIGN_OR_RETURN(std::unique_ptr<HlipContactPlanner> hlip, HlipContactPlanner::Create(config));
+  return std::unique_ptr<ContactPlannerInterface>(std::move(hlip));
 }
 
 absl::StatusOr<std::string> contactPlannerSummary(const ContactPlanningConfig& config) {

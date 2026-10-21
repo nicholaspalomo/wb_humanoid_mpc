@@ -28,13 +28,19 @@
 """One parameter row of the tuning tabs: a label, a slider, an entry box and a reset button."""
 
 from collections.abc import Callable
+import logging
 import math
 from tkinter import ttk
 import tkinter as tk
 from typing import Any
 
+_LOGGER = logging.getLogger(__name__)
+
 # The lower end of a logarithmic slider without a positive one, as a fraction of its upper end.
 _LOG_SCALE_FLOOR = 1e-4
+
+# The relative difference from the default below which a row counts as unchanged (float noise, not a tuning step).
+_MODIFIED_RELATIVE_TOLERANCE = 1e-9
 
 
 class SliderRow(ttk.Frame):
@@ -91,6 +97,7 @@ class SliderRow(ttk.Frame):
         label_width: int = 24,
         clamp_to_range: bool = False,
         *,
+        hard_min: float | None = None,
         log_scale: bool = False,
         integer: bool = False,
         unset: bool = False,
@@ -101,10 +108,15 @@ class SliderRow(ttk.Frame):
         self.name = name
         self.integer = integer
         self.log_scale = log_scale
+        self.hard_min = float(hard_min) if hard_min is not None else None
         self.default_value = self._whole(float(initial_value))
         self.current_value = self.default_value
         self.max_val = float(max_val)
         self.min_val = float(min_val)
+        if self.hard_min is not None:
+            self.default_value = max(self.default_value, self.hard_min)
+            self.current_value = max(self.current_value, self.hard_min)
+            self.min_val = max(self.min_val, self.hard_min)
         if log_scale and not self.min_val > 0.0:
             self.min_val = (
                 self.max_val * _LOG_SCALE_FLOOR
@@ -216,18 +228,28 @@ class SliderRow(ttk.Frame):
         if self._updating:
             return
         try:
-            val = self._value_at(float(val_str))
-            self.current_value = val
-            self._unset = False
-            self._updating = True
+            position = float(val_str)
+        except ValueError:
+            _LOGGER.warning(
+                "Slider %r reported %r, which is not a number; ignored.",
+                self.name,
+                val_str,
+            )
+            return
+        val = self._value_at(position)
+        if self.hard_min is not None and val < self.hard_min:
+            val = self.hard_min
+        self.current_value = val
+        self._unset = False
+        self._updating = True
+        try:
             self._format_entry(val)
+        finally:
             self._updating = False
-            self._update_highlight()
-            if self.on_change:
-                self.on_change(self.name, self.current_value)
-        # pylint: disable-next=broad-exception-caught  # A Tk callback must not raise.
-        except Exception:
-            pass
+        self._update_highlight()
+        # An exception from the callback reaches Tk's report_callback_exception, which reports it and keeps running.
+        if self.on_change:
+            self.on_change(self.name, self.current_value)
 
     def _on_entry_submit(self, event: tk.Event | None = None) -> None:
         """The entry's callback (Return, focus out): takes the typed value, or reverts the entry when it is not one.
@@ -245,6 +267,8 @@ class SliderRow(ttk.Frame):
             val = self._whole(float(text))
             if not math.isfinite(val):
                 raise ValueError(f"{val} is not a finite number")
+            if self.hard_min is not None and val < self.hard_min:
+                val = self.hard_min
             if self.clamp_to_range:
                 val = min(max(val, self.min_val), self.max_val)
             else:
@@ -270,7 +294,10 @@ class SliderRow(ttk.Frame):
             self.max_val = value * 1.5
             self.scale.configure(to=self._position(self.max_val))
         if value < self.min_val and not (self.log_scale and value <= 0.0):
-            self.min_val = value * 1.5 if value < 0 else value
+            target = value * 1.5 if value < 0 else value
+            if self.hard_min is not None and target < self.hard_min:
+                target = self.hard_min
+            self.min_val = target
             self.scale.configure(from_=self._position(self.min_val))
 
     def _update_highlight(self) -> None:
@@ -318,6 +345,8 @@ class SliderRow(ttk.Frame):
         val = self._whole(float(val))
         if not math.isfinite(val):
             return
+        if self.hard_min is not None and val < self.hard_min:
+            val = self.hard_min
         if self.clamp_to_range:
             val = min(max(val, self.min_val), self.max_val)
         self.current_value = val
@@ -343,7 +372,12 @@ class SliderRow(ttk.Frame):
     def is_modified(self) -> bool:
         if self._unset or self._default_unset:
             return self._unset != self._default_unset
-        return abs(self.current_value - self.default_value) > 1e-6
+        return not math.isclose(
+            self.current_value,
+            self.default_value,
+            rel_tol=_MODIFIED_RELATIVE_TOLERANCE,
+            abs_tol=0.0,
+        )
 
     def set_state(self, state: str) -> None:
         """Set state ('normal' or 'disabled') for interactive elements."""

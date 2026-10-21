@@ -169,7 +169,7 @@ class LlvmToolsTest(unittest.TestCase):
         self.assertEqual(wrapper, upstream.group(1))
         major = _version("docker/Dockerfile", r"^ARG CLANG_TIDY_VERSION=(\d+)\s*$")
         self.assertTrue(
-            wrapper.startswith(major + "."), f"{wrapper} is not clang-tidy {major}"
+            wrapper.startswith(f"{major}."), f"{wrapper} is not clang-tidy {major}"
         )
         installer = check_test_support.read_repository_file(
             "docker/install_llvm_tools.sh"

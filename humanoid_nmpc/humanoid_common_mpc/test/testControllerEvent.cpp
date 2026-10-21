@@ -59,6 +59,7 @@ constexpr ControllerEventCode kEveryCode[] = {
     ControllerEventCode::kContactEstimateRefused,
     ControllerEventCode::kContactWrenchGateRefused,
     ControllerEventCode::kPolicyRefused,
+    ControllerEventCode::kPolicyUpdateLockContended,
 };
 
 /** A sink that keeps what it is handed, as the realtime event log does. */

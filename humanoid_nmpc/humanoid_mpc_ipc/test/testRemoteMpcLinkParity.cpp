@@ -254,16 +254,15 @@ std::vector<Seen> runRemote(const std::vector<Step>& steps,
                             const std::function<void()>& failNextSolve) {
   std::unique_ptr<robot::ipc::Bus> robotBus = test_support::createNodeBus("robot");
   std::unique_ptr<robot::ipc::Bus> mpcBus = test_support::createNodeBus("mpc");
-  test_support::connectBoth(*robotBus, *mpcBus);
   MpcResetSupervisor supervisor;
   RemoteMpcLink::Config linkConfig;
   linkConfig.dimensions = model.dimensions;
   linkConfig.stateManifold = model.stateManifold;
-  absl::StatusOr<std::unique_ptr<RemoteMpcLink>> link = RemoteMpcLink::Create(*robotBus, supervisor, linkConfig);
+  absl::StatusOr<std::unique_ptr<RemoteMpcLink>> link = RemoteMpcLink::Create(robotBus.get(), &supervisor, linkConfig);
   CHECK_OK(link.status());
   MpcServer::Config serverConfig;
   serverConfig.dimensions = model.dimensions;
-  absl::StatusOr<std::unique_ptr<MpcServer>> server = MpcServer::Create(*mpcBus, mpc, resetTargetsFor, serverConfig);
+  absl::StatusOr<std::unique_ptr<MpcServer>> server = MpcServer::Create(mpcBus.get(), &mpc, resetTargetsFor, serverConfig);
   CHECK_OK(server.status());
   CHECK_OK(robotBus->start());
   CHECK_OK(mpcBus->start());

@@ -42,6 +42,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc_app/robot/RobotBackend.h"
 #include "mujoco_sim_interface/MujocoContactPatch.h"
+#include "mujoco_sim_interface/MujocoSimInterface.h"
+#include "mujoco_sim_interface/MujocoUtils.h"
 #include "mujoco_sim_interface/viewer/ViewerSettings.h"
 #include "robot_model/RobotState.h"
 
@@ -49,16 +51,23 @@ namespace ocs2::humanoid {
 
 /** The simulator fields of the task file (RobotProcessSettings), for a simulated backend. */
 struct SimulatorSettings {
-  /** [N] Normal force above which a contact point counts as touching (`sim_contact_force_threshold`). */
-  double contactForceThreshold = 5.0;
-  /** [s] Window of the viewer's contact timeline (`sim_contact_timeline_window`). */
-  double contactTimelineWindow = 5.0;
+  /**
+   * [N] Normal force above which a contact point counts as touching (`sim_contact_force_threshold`); by default the
+   * simulator's.
+   */
+  double contactForceThreshold = ::robot::mujoco_sim_interface::MujocoSimConfig::kDefaultContactForceThreshold;
+  /** [s] Window of the viewer's contact timeline (`sim_contact_timeline_window`); by default the simulator's. */
+  double contactTimelineWindow = ::robot::mujoco_sim_interface::ContactTimeline::kDefaultWindowSeconds;
   /** Viewer visualizations by name (`sim_visualizations`); nullopt: the viewer's default set. */
   std::optional<std::vector<std::string>> visualizations;
   /** How the gantry holds the base (`gantry_hold`). */
   std::string gantryHold = "weld_constraint";
   /** The ball the Dodgeball tab throws (`sim_projectile`); empty: none. */
   std::string projectile;
+  /** [N m s/rad] The joint damping while the torques are off (`sim_ragdoll_joint_damping`); by default the simulator's. */
+  double ragdollJointDamping = ::robot::mujoco_sim_interface::MujocoSimConfig::kDefaultRagdollJointDamping;
+  /** [m] The base height below which the robot is reset (`sim_auto_reset_base_height`); by default the simulator's. */
+  double autoResetBaseHeight = ::robot::mujoco_sim_interface::MujocoSimConfig::kDefaultAutoResetBaseHeight;
 };
 
 /** What every backend is built from. */
@@ -90,6 +99,8 @@ inline constexpr absl::string_view kMujocoBackendName = "mujoco";
 /**
  * The robot backends by name (--backend): the only place a backend is added. An unknown name is refused with the list
  * of the available ones.
+ *
+ * Not thread-safe: built and used on one thread during set-up.
  */
 class RobotBackendRegistry {
  public:
@@ -104,7 +115,7 @@ class RobotBackendRegistry {
   RobotBackendRegistry();
 
   /** Adds the backend `name`; an empty `checkOptions` accepts any options (checkOptions()). */
-  void add(const std::string& name, const std::string& description, Factory factory, OptionsCheck checkOptions = nullptr);
+  void add(std::string name, std::string description, Factory factory, OptionsCheck checkOptions = nullptr);
   bool has(absl::string_view name) const;
   std::vector<std::string> names() const;
   /** "mujoco (the MuJoCo simulator), ...". */

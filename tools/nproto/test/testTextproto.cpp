@@ -98,6 +98,10 @@ TEST(TextprotoTest, AnUnknownFieldIsAnErrorWithItsLineAndColumn) {
                 R"(nested.textproto:2:26: Message type "nproto_test.Scalars" has no field named "bogus".)");
   expectInvalid(ParseTextproto<nproto_test::Scalars>("int32_value: 1\nbogus", "end.textproto").status(), "end.textproto:2:1: ");
   expectInvalid(ParseTextproto<nproto_test::Oneofs>("scalars {\n  bogus {}\n}\n", "message.textproto").status(), "message.textproto:2:3: ");
+  // Columns count characters, as the Python parser's do: a tab is one, and so is a character of several UTF-8 bytes.
+  expectInvalid(ParseTextproto<nproto_test::Scalars>("\tbogus: 1\n", "tab.textproto").status(), "tab.textproto:1:2: ");
+  expectInvalid(ParseTextproto<nproto_test::Scalars>("string_value: \"\xc3\x84\" bogus: 1\n", "utf8.textproto").status(),
+                "utf8.textproto:1:19: ");
 }
 
 TEST(TextprotoTest, AValueOfTheWrongTypeIsAnErrorWithItsLineAndColumn) {
@@ -167,6 +171,32 @@ TEST(HeaderTest, AFileOfAnotherMessageIsRefused) {
   EXPECT_TRUE(ParseTextproto<nproto_test::Oneofs>("radius: 1\n", "no_header.textproto").ok());
 }
 
+TEST(HeaderTest, AFileThatNamesNoMessageIsRefused) {
+  // A file must name its schema; text from memory need not.
+  const std::string path = temporaryFile("no_header.textproto", "# A comment.\nint32_value: 1\n");
+  const std::string expected = absl::StrCat(path, ":1:1: ", path,
+                                            " names no schema: a configuration file opens with '# proto-message: nproto_test.Scalars' in "
+                                            "its leading comment block");
+  const absl::StatusOr<nproto_test::Scalars> proto = ParseTextprotoFile<nproto_test::Scalars>(path);
+  EXPECT_EQ(proto.status().code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_EQ(proto.status().message(), expected);
+  const absl::StatusOr<Scalars> value = LoadTextprotoFile<Scalars, nproto_test::Scalars>(path);
+  EXPECT_EQ(value.status().code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_EQ(value.status().message(), expected);
+  nproto_test::Scalars message;
+  EXPECT_EQ(ParseTextprotoFileInto(path, &message).message(), expected);
+  EXPECT_EQ(CheckProtoMessageHeader("int32_value: 1\n", /*sourceName=*/"text", *nproto_test::Scalars::descriptor()).code(),
+            absl::StatusCode::kInvalidArgument);
+  // A header after the first field is a comment, not a header.
+  EXPECT_FALSE(CheckProtoMessageHeader("int32_value: 1\n# proto-message: nproto_test.Scalars\n", /*sourceName=*/"text",
+                                       *nproto_test::Scalars::descriptor())
+                   .ok());
+  EXPECT_TRUE(CheckProtoMessageHeader("\n# A comment.\n  # proto-message: nproto_test.Scalars\nint32_value: 1\n", /*sourceName=*/"text",
+                                      *nproto_test::Scalars::descriptor())
+                  .ok());
+  EXPECT_TRUE(ParseTextproto<nproto_test::Scalars>("int32_value: 1\n", "inline").ok());
+}
+
 TEST(HeaderTest, OnlyTheLeadingCommentBlockIsTheHeader) {
   // After the first field, a comment that looks like a header is a comment.
   const absl::StatusOr<nproto_test::Oneofs> later =
@@ -185,7 +215,7 @@ TEST(TextprotoTest, AMissingFileIsNotFound) {
 
 TEST(TextprotoTest, AConversionErrorNamesTheFile) {
   // The text format accepts the number of an open enum that the enum does not define; the struct cannot hold it.
-  const std::string path = temporaryFile("undefined_enum.textproto", "severity: 99\n");
+  const std::string path = temporaryFile("undefined_enum.textproto", "# proto-message: nproto_test.Oneofs\nseverity: 99\n");
   const absl::StatusOr<Oneofs> value = LoadTextprotoFile<Oneofs, nproto_test::Oneofs>(path);
   EXPECT_EQ(value.status().code(), absl::StatusCode::kInvalidArgument);
   EXPECT_EQ(value.status().message(), absl::StrCat(path, ": severity: 99 is not a value of nproto_test.Severity"));
@@ -214,6 +244,19 @@ TEST(TextprotoTest, WrittenTextprotosParseBackToTheSameMessage) {
   const absl::StatusOr<nproto_test::RepeatedFields> repeatedBack = ParseTextproto<nproto_test::RepeatedFields>(text, "repeated");
   ASSERT_TRUE(repeatedBack.ok()) << repeatedBack.status();
   EXPECT_TRUE(test_support::ProtoEquals(repeated, *repeatedBack));
+}
+
+TEST(TextprotoTest, AWrittenFileNamesItsSchemaAndLoadsBack) {
+  nproto_test::Maps maps;
+  test_support::FillWithTestValues(test_support::TestValueOptions{.seed = 6, .repeatedSize = 2}, &maps);
+  const std::string text = WriteTextprotoFile(maps);
+  EXPECT_TRUE(absl::StartsWith(text, "# proto-message: nproto_test.Maps\n")) << text;
+  EXPECT_TRUE(CheckProtoMessageHeader(text, "maps", *nproto_test::Maps::descriptor()).ok());
+  const absl::StatusOr<nproto_test::Maps> back = ParseTextprotoFile<nproto_test::Maps>(temporaryFile("maps.textproto", text));
+  ASSERT_TRUE(back.ok()) << back.status();
+  EXPECT_TRUE(test_support::ProtoEquals(maps, *back));
+  // A file of it is refused as another message, by its header.
+  EXPECT_FALSE(ParseTextprotoFile<nproto_test::Scalars>(temporaryFile("maps_as_scalars.textproto", text)).ok());
 }
 
 }  // namespace

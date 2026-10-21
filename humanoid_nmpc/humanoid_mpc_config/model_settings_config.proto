@@ -41,7 +41,12 @@ message ModelSettingsConfig {
     // [1/s] The swing foot's vertical servo of the normal_velocity constraint,
     // v_z = zdot_ref + position_error_gain_z * (z_ref - z).
     double position_error_gain_z = 1 [default = 1.0, (humanoid_mpc_config.tuning) = { unit: "1/s" }];
-    // The gains of the stance foot's zero_velocity constraint: orientation, velocity and acceleration errors.
+    // The gains of the stance foot's zero_velocity constraint: orientation, velocity and acceleration errors. The
+    // angular velocity and acceleration gains multiply the rate and the acceleration of the orientation error (the sine
+    // of half the foot's tilt), not the foot's angular velocity and acceleration: at a level foot the rate is half the
+    // angular velocity (on the centroidal MPC under position_and_tilt, half its part perpendicular to the ground
+    // normal), and the whole body's acceleration is half the angular acceleration but for (n.w)(n x w) / 2, which is
+    // zero at rest (humanoid_nmpc/docs/quaternion_base_orientation/README.md, section 2.8.6).
     double orientation_error_gain = 2 [default = 1.0];
     double linear_velocity_error_gain_z = 3 [default = 1.0];
     double linear_velocity_error_gain_xy = 4 [default = 1.0];

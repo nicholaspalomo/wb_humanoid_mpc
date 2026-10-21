@@ -94,13 +94,11 @@ class Harness {
         rollout_(dynamics_) {
     mpcBus_ = test_support::createNodeBus("mpc");
     std::unique_ptr<robot::ipc::Bus> robotBus = test_support::createNodeBus("robot");
-    test_support::connectBoth(*robotBus, *mpcBus_);
-
     ipc::MpcServer::Config serverConfig;
     serverConfig.dimensions = test_support::modelDimensions();
     serverConfig.mpcDesiredFrequency = mpcDesiredFrequency;
     absl::StatusOr<std::unique_ptr<ipc::MpcServer>> server =
-        ipc::MpcServer::Create(*mpcBus_, *mpc_, &test_support::resetTargetsFor, serverConfig);
+        ipc::MpcServer::Create(mpcBus_.get(), mpc_.get(), &test_support::resetTargetsFor, serverConfig);
     EXPECT_TRUE(server.ok()) << server.status();
     server_ = *std::move(server);
 

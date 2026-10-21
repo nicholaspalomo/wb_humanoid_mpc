@@ -57,7 +57,8 @@ concept IDMapExtractor = requires(E e, const T& val) {
  * A map from ids to elements over the contiguous range 0 to capacity() - 1: one std::optional<T> slot per id, so that a
  * map whose ids have gaps costs one empty slot per gap, and a lookup is an index. Iteration visits the engaged slots in
  * id order. The capacity is fixed at construction and copying keeps it, so that copying one map into another of the same
- * capacity allocates nothing (the realtime loop copies RobotState and RobotJointAction every cycle). Not thread-safe.
+ * capacity allocates nothing (the realtime loop copies RobotState and RobotJointAction every cycle). Not thread-safe to
+ * write; its const methods may be called concurrently.
  */
 template <typename T>
 class IDMapBase {

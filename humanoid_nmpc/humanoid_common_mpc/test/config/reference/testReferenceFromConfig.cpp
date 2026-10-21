@@ -41,6 +41,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
+#include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "gtest/gtest.h"
 
@@ -164,6 +165,36 @@ TEST(ReferenceSettingsFromConfigTest, AValueThatIsNotAFiniteNumberIsRefusedNamin
     file.target_joint_state_interpolation_time_constant = bad;
     EXPECT_TRUE(absl::StrContains(referenceSettingsFromConfig(file).status().message(), "target_joint_state_interpolation_time_constant"));
   }
+}
+
+TEST(ReferenceSettingsFromConfigTest, AValueOutOfItsRangeIsRefusedNamingItsField) {
+  // A speed or a command limit something is divided by, and a height, are positive; the symmetric clamp bound of the
+  // pelvis height and the acceleration limits (0: no ramp) are at least 0. std::clamp(x, -b, b) with b < 0 is
+  // undefined, and a negative velocity limit would flip the operator's command. (An acceleration limit at or below 0
+  // turns its ramp off: TheCommandFilterIsOffAtZeroAndNeverNegative.)
+  const std::vector<std::pair<absl::string_view, RequiredField>> positive = {
+      {"target_displacement_velocity", &mpc_config::ReferenceFile::target_displacement_velocity},
+      {"target_rotation_velocity", &mpc_config::ReferenceFile::target_rotation_velocity},
+      {"max_displacement_velocity_x", &mpc_config::ReferenceFile::max_displacement_velocity_x},
+      {"max_displacement_velocity_y", &mpc_config::ReferenceFile::max_displacement_velocity_y},
+      {"max_rotation_velocity", &mpc_config::ReferenceFile::max_rotation_velocity},
+      {"default_base_height", &mpc_config::ReferenceFile::default_base_height},
+      {"target_joint_state_interpolation_time_constant", &mpc_config::ReferenceFile::target_joint_state_interpolation_time_constant},
+  };
+  for (const std::pair<absl::string_view, RequiredField>& field : positive) {
+    for (const double bad : {0.0, -1.0}) {
+      mpc_config::ReferenceFile file = completeFile();
+      file.*field.second = bad;
+      const absl::Status status = referenceSettingsFromConfig(file).status();
+      EXPECT_EQ(status.code(), absl::StatusCode::kInvalidArgument) << field.first << " = " << bad;
+      EXPECT_TRUE(absl::StrContains(status.message(), absl::StrCat(field.first, ": ", bad, " is not a finite positive number"))) << status;
+    }
+  }
+  mpc_config::ReferenceFile height = completeFile();
+  height.max_delta_pelvis_height = -0.1;
+  EXPECT_TRUE(absl::StrContains(referenceSettingsFromConfig(height).status().message(), "max_delta_pelvis_height: -0.1"));
+  height.max_delta_pelvis_height = 0.0;
+  EXPECT_TRUE(referenceSettingsFromConfig(height).ok()) << "a pelvis height that may not change";
 }
 
 TEST(ReferenceSettingsFromConfigTest, TheCommandFilterIsOffAtZeroAndNeverNegative) {

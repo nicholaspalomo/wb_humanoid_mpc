@@ -29,6 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
+#include <algorithm>
+#include <cmath>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -53,6 +55,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_mpc_config/reference_file.nproto.h"
 #include "humanoid_mpc_config/task_file.nproto.h"
 #include "humanoid_wb_mpc/WBMpcInterface.h"
+#include "humanoid_wb_mpc/common/WBAccelMpcRobotModel.h"
+#include "humanoid_wb_mpc/dynamics/DynamicsHelperFunctions.h"
 
 /**
  * The formulation choices the whole-body MPC refuses because it does not implement them, on the typed task file, and
@@ -192,6 +196,78 @@ TEST_F(WBMpcFormulationTest, theRetiredContactPlanningBooleanIsRefusedNamingItsR
   EXPECT_EQ(refused.code(), absl::StatusCode::kInvalidArgument);
   EXPECT_TRUE(absl::StrContains(refused.message(), "'useContactPlanning' is retired")) << refused;
   EXPECT_TRUE(absl::StrContains(refused.message(), "contact_schedule_source")) << refused;
+}
+
+/**
+ * Finding C7: the whole-body MPC used to read only the terms it builds and ignore every other listed one, so a task file
+ * listing task_space_torso_cost or external_torque_cost ran without them. Every cost it does not build is refused by
+ * name, before any term is built.
+ */
+TEST_F(WBMpcFormulationTest, everyCostTheWholeBodyMpcDoesNotBuildIsRefusedByName) {
+  const absl::StatusOr<MpcFormulationTasks> shippedTasks = mpcFormulationTasksFromConfig(task_, FormulationLogging::kQuiet);
+  ASSERT_TRUE(shippedTasks.ok()) << shippedTasks.status();
+  for (const std::string& cost : {std::string("task_space_torso_cost"), std::string("external_torque_cost")}) {
+    SCOPED_TRACE(cost);
+    // Positive control: the shipped file does not list the cost, so the refusal is the variant's doing.
+    const absl::StatusOr<MpcCostType> type = stringToMpcCostType(cost);
+    ASSERT_TRUE(type.ok()) << type.status();
+    ASSERT_FALSE(shippedTasks->hasCost(*type));
+    mpc_config::TaskFile listed = task_;
+    listed.costs.push_back(cost);
+    const absl::Status refused = refusal(listed);
+    ASSERT_FALSE(refused.ok()) << "the whole-body MPC accepted " << cost;
+    EXPECT_EQ(refused.code(), absl::StatusCode::kInvalidArgument);
+    EXPECT_TRUE(absl::StrContains(refused.message(), absl::StrCat("'", cost, "' is listed in costs"))) << refused;
+    EXPECT_TRUE(absl::StrContains(refused.message(), "does not build it")) << refused;
+  }
+}
+
+/**
+ * Finding WB-3: the whole-body dynamics and inverse dynamics looked the soles up as "foot_l_contact" and
+ * "foot_r_contact" whatever model_settings named them. The model builder makes the contact frames from
+ * model_settings.contact_names_6dof, so a robot whose soles are named otherwise had no frame of the hard-coded names, and
+ * the lookups read frame nframes, out of bounds. Renamed, the interface builds, and the inverse dynamics of the renamed
+ * robot are those of the shipped one: the wrenches act at the same frames, found by their configured names.
+ */
+TEST_F(WBMpcFormulationTest, renamedContactFramesAreTheFramesTheDynamicsUse) {
+  ASSERT_EQ(task_.model_settings.contact_names_6dof.size(), 2U);
+  mpc_config::TaskFile renamed = task_;
+  renamed.model_settings.contact_names_6dof = {"left_sole_renamed", "right_sole_renamed"};
+  absl::StatusOr<std::unique_ptr<WBMpcInterface>> renamedInterface = WBMpcInterface::CreateControllerModels(renamed, urdfFile_, reference_);
+  ASSERT_TRUE(renamedInterface.ok()) << renamedInterface.status();
+  absl::StatusOr<std::unique_ptr<WBMpcInterface>> shippedInterface = WBMpcInterface::CreateControllerModels(task_, urdfFile_, reference_);
+  ASSERT_TRUE(shippedInterface.ok()) << shippedInterface.status();
+  const pinocchio::Model& renamedModel = (*renamedInterface)->getPinocchioInterface().getModel();
+  ASSERT_TRUE(renamedModel.existFrame("left_sole_renamed") && renamedModel.existFrame("right_sole_renamed"));
+  ASSERT_FALSE(renamedModel.existFrame(task_.model_settings.contact_names_6dof[0])) << "the case under test: no frame of the old name";
+
+  // A moving state with a different wrench under each sole.
+  const WBAccelMpcRobotModel<scalar_t>& model = (*shippedInterface)->getMpcRobotModel();
+  vector_t state = (*shippedInterface)->getInitialState();
+  for (Eigen::Index i = 0; i < static_cast<Eigen::Index>(model.getVelocityDim()); ++i) {
+    state(static_cast<Eigen::Index>(model.getConfigurationDim()) + i) = 0.3 * std::sin(1.7 * static_cast<scalar_t>(i));
+  }
+  vector_t input = vector_t::Zero(static_cast<Eigen::Index>(model.getInputDim()));
+  model.setContactWrench(input, (vector6_t() << 30.0, -12.0, 320.0, 4.0, -6.0, 1.5).finished(), /*contactIndex=*/0);
+  model.setContactWrench(input, (vector6_t() << -18.0, 25.0, 210.0, -3.0, 5.0, -0.8).finished(), /*contactIndex=*/1);
+  for (Eigen::Index j = 0; j < static_cast<Eigen::Index>(model.getJointDim()); ++j) {
+    input(input.size() - static_cast<Eigen::Index>(model.getJointDim()) + j) = std::cos(0.9 * static_cast<scalar_t>(j));
+  }
+  // The (state, input) dynamics take a mutable robot model: each interface's, cloned.
+  const std::unique_ptr<WBAccelMpcRobotModel<scalar_t>> shippedModel((*shippedInterface)->getMpcRobotModel().clone());
+  const std::unique_ptr<WBAccelMpcRobotModel<scalar_t>> renamedModelOfMpc((*renamedInterface)->getMpcRobotModel().clone());
+  PinocchioInterface shippedPinocchio = (*shippedInterface)->getPinocchioInterface();
+  PinocchioInterface renamedPinocchio = (*renamedInterface)->getPinocchioInterface();
+  const vector_t shippedTorques = computeJointTorques<scalar_t>(state, input, shippedPinocchio, *shippedModel);
+  const vector_t renamedTorques = computeJointTorques<scalar_t>(state, input, renamedPinocchio, *renamedModelOfMpc);
+  EXPECT_LT((renamedTorques - shippedTorques).cwiseAbs().maxCoeff(), 1.0e-9 * std::max(1.0, shippedTorques.cwiseAbs().maxCoeff()));
+  const vector_t shippedAccelerations = computeGeneralizedAccelerations<scalar_t>(state, input, shippedPinocchio, *shippedModel);
+  const vector_t renamedAccelerations = computeGeneralizedAccelerations<scalar_t>(state, input, renamedPinocchio, *renamedModelOfMpc);
+  EXPECT_LT((renamedAccelerations - shippedAccelerations).cwiseAbs().maxCoeff(),
+            1.0e-9 * std::max(1.0, shippedAccelerations.cwiseAbs().maxCoeff()));
+  // Positive control: the wrenches load the joints, so the comparison sees where they act.
+  const vector_t unloaded = computeJointTorques<scalar_t>(state, vector_t::Zero(input.size()), shippedPinocchio, *shippedModel);
+  EXPECT_GT((unloaded - shippedTorques).cwiseAbs().maxCoeff(), 1.0);
 }
 
 }  // namespace ocs2::humanoid

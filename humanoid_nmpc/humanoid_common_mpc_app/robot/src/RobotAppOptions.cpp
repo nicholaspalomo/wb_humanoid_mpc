@@ -88,9 +88,9 @@ absl::StatusOr<robot::mujoco_sim_interface::WebViewerOptions> webViewerOptionsFr
   if (web.address.empty()) {
     return absl::InvalidArgumentError("--web_viewer_address is empty: 127.0.0.1 serves this machine only, 0.0.0.0 every interface");
   }
-  if (flags.webViewerPort < 0 || flags.webViewerPort > 65535) {
-    return absl::InvalidArgumentError(
-        absl::StrCat("--web_viewer_port=", flags.webViewerPort, ": give a TCP port of 1-65535, or 0 for any free one"));
+  if (flags.webViewerPort < 0 || flags.webViewerPort > robot::mujoco_sim_interface::WebViewerOptions::kMaxPort) {
+    return absl::InvalidArgumentError(absl::StrCat("--web_viewer_port=", flags.webViewerPort, ": give a TCP port of 1-",
+                                                   robot::mujoco_sim_interface::WebViewerOptions::kMaxPort, ", or 0 for any free one"));
   }
   web.port = flags.webViewerPort;
   for (const absl::string_view host : absl::StrSplit(flags.webViewerAllowedHosts, ',', absl::SkipWhitespace())) {

@@ -46,8 +46,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_cat.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/time/time.h"
+#include "ocs2_core/PhysicalConstants.h"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
+#include "humanoid_common_mpc_app/visualization/IoThreadOutbox.h"
 #include "humanoid_mpc_ipc/Topics.h"
 #include "humanoid_mpc_msgs/robot_state_sample.nproto.pb.h"
 #include "robot_ipc/Delivery.h"
@@ -58,6 +60,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid::visualization {
 
 namespace {
+
+/** [s] How often a recurring failure (a publication, a sample, a scene) is logged at most. */
+constexpr double kLogPeriodSeconds = 5.0;
 
 /**
  * Gives the calling thread the scheduling `priority` names: kIdle switches it to SCHED_IDLE, whose only priority is 0
@@ -99,17 +104,33 @@ absl::StatusOr<std::unique_ptr<VisualizationPublisher>> VisualizationPublisher::
   RETURN_IF_ERROR(checkVisualizationModel(model));
   ASSIGN_OR_RETURN(VisualizationConfig config, loadVisualizationConfig(model.taskFile, model.mpcRobotModel->modelSettings));
   ASSIGN_OR_RETURN(std::unique_ptr<SceneBuilder> sceneBuilder, SceneBuilder::Create(model, config));
-  ASSIGN_OR_RETURN(std::unique_ptr<TelemetryBuilder> telemetryBuilder, TelemetryBuilder::Create(model, config));
-  LOG(INFO) << "[VisualizationPublisher] " << describeVisualizationConfig(config);
+  // The terms of the solver's own problem, whose names are the series of the mpc_solution term groups.
+  std::unique_ptr<SolutionTermEvaluator> solutionTermEvaluator;
+  TelemetryBuilder::SolutionTermNames termNames;
+  if (model.solverProblem != nullptr) {
+    ASSIGN_OR_RETURN(solutionTermEvaluator, SolutionTermEvaluator::Create(model.solverProblem));
+    termNames.costs = solutionTermEvaluator->costNames();
+    termNames.constraints = solutionTermEvaluator->constraintNames();
+  }
+  ASSIGN_OR_RETURN(std::unique_ptr<TelemetryBuilder> telemetryBuilder, TelemetryBuilder::Create(model, config, termNames));
+  LOG(INFO) << "[VisualizationPublisher] " << describeVisualizationConfig(config) << "; " << termNames.costs.size() << " cost and "
+            << termNames.constraints.size() << " constraint terms of the solver's problem plotted";
   return absl::WrapUnique(new VisualizationPublisher(model, std::move(config), std::move(publish), std::move(options),
-                                                     std::move(sceneBuilder), std::move(telemetryBuilder)));
+                                                     std::move(sceneBuilder), std::move(telemetryBuilder),
+                                                     std::move(solutionTermEvaluator)));
 }
 
 absl::StatusOr<std::unique_ptr<VisualizationPublisher>> VisualizationPublisher::Create(const VisualizationModel& model,
                                                                                        robot::ipc::Bus& bus,
                                                                                        Options options) {
+  if (options.pollPeriod <= absl::ZeroDuration()) {
+    return absl::InvalidArgumentError("the visualization publisher's poll period must be positive.");
+  }
+  // The visualization thread posts, the bus's IO thread publishes: the SCHED_IDLE thread takes none of the bus's locks.
+  ASSIGN_OR_RETURN(std::shared_ptr<IoThreadOutbox> outbox,
+                   IoThreadOutbox::Attach(bus, options.pollPeriod, IoThreadOutbox::kDefaultCapacity));
   return Create(
-      model, [&bus](absl::string_view topic, const google::protobuf::Message& message) { return bus.publish(topic, message); },
+      model, [outbox](absl::string_view topic, const google::protobuf::Message& message) { return outbox->post(topic, message); },
       std::move(options));
 }
 
@@ -130,15 +151,17 @@ VisualizationPublisher::VisualizationPublisher(const VisualizationModel& model,
                                                PublishFunction publish,
                                                Options options,
                                                std::unique_ptr<SceneBuilder> sceneBuilder,
-                                               std::unique_ptr<TelemetryBuilder> telemetryBuilder)
+                                               std::unique_ptr<TelemetryBuilder> telemetryBuilder,
+                                               std::unique_ptr<SolutionTermEvaluator> solutionTermEvaluator)
     : config_(std::move(config)),
       options_(std::move(options)),
       publish_(std::move(publish)),
-      scenePeriod_(std::chrono::nanoseconds(static_cast<int64_t>(1.0e9 / config_.sceneFrequency))),
+      scenePeriod_(std::chrono::nanoseconds(static_cast<int64_t>(kNanosecondsPerSecond / config_.sceneFrequency))),
       stateDim_(model.mpcRobotModel->getStateDim()),
       inputDim_(model.mpcRobotModel->getInputDim()),
       guard_(std::make_shared<CallbackGuard>()),
       robotStateQueue_(options_.robotStateQueueCapacity),
+      solutionTermEvaluator_(std::move(solutionTermEvaluator)),
       sceneBuilder_(std::move(sceneBuilder)),
       telemetryBuilder_(std::move(telemetryBuilder)),
       decoder_(*model.mpcRobotModel) {
@@ -204,11 +227,32 @@ bool VisualizationPublisher::pushRobotState(const humanoid_mpc_msgs::RobotStateS
 }
 
 VisualizationPublisher::PostSolveObserver VisualizationPublisher::postSolveObserver() {
-  return [this](const CommandData& command, const PrimalSolution& solution, const PerformanceIndex& /*performance*/) {
+  return [this](const CommandData& command, const PrimalSolution& solution, const PerformanceIndex& performance) {
     setPolicy(command, solution);
     setObservation(command.mpcInitObservation_);
-    return absl::OkStatus();
+    return setSolutionTerms(command, solution, performance);
   };
+}
+
+absl::Status VisualizationPublisher::setSolutionTerms(const CommandData& command,
+                                                      const PrimalSolution& solution,
+                                                      const PerformanceIndex& performance) {
+  if (solutionTermEvaluator_ == nullptr) return absl::OkStatus();
+  absl::Status evaluated;
+  // The solver thread's isolation point for the terms: OCS2, CppAD and Pinocchio throw for a state they do not accept,
+  // and a solution whose terms cannot be plotted must not end the solver thread.
+  try {  // NOLINT(exceptions): OCS2's terms throw; see the comment above.
+    evaluated = solutionTermEvaluator_->evaluate(solution, command.mpcTargetTrajectories_, performance, &solutionTermsMailbox_.writeSlot());
+  } catch (const std::exception& e) {  // NOLINT(exceptions): the boundary of the try above.
+    evaluated = absl::InternalError(absl::StrCat("the solution's terms threw: ", e.what()));
+  }
+  if (!evaluated.ok()) {
+    ++solutionTermFailures_;
+    return evaluated;
+  }
+  solutionTermsMailbox_.publishWrite();
+  ++solutionTermsSet_;
+  return absl::OkStatus();
 }
 
 VisualizationPublisher::Statistics VisualizationPublisher::statistics() const {
@@ -222,6 +266,8 @@ VisualizationPublisher::Statistics VisualizationPublisher::statistics() const {
   statistics.scenesPublished = scenesPublished_.load(std::memory_order_relaxed);
   statistics.publishFailures = publishFailures_.load(std::memory_order_relaxed);
   statistics.buildFailures = buildFailures_.load(std::memory_order_relaxed);
+  statistics.solutionTermsSet = solutionTermsSet_.load(std::memory_order_relaxed);
+  statistics.solutionTermFailures = solutionTermFailures_.load(std::memory_order_relaxed);
   return statistics;
 }
 
@@ -258,6 +304,10 @@ const PolicySnapshot* absl_nullable VisualizationPublisher::latestPolicy() const
   return hasPolicy_ ? &policyMailbox_.readSlot() : nullptr;
 }
 
+const SolutionTerms* absl_nullable VisualizationPublisher::latestSolutionTerms() const {
+  return hasSolutionTerms_ ? &solutionTermsMailbox_.readSlot() : nullptr;
+}
+
 void VisualizationPublisher::poll() {
   if (observationMailbox_.acquireRead()) {
     hasObservation_ = static_cast<size_t>(observationMailbox_.readSlot().state.size()) == stateDim_;
@@ -267,6 +317,9 @@ void VisualizationPublisher::poll() {
     hasPolicy_ = isConsistentPlan(policyMailbox_.readSlot(), stateDim_, inputDim_);
     ++policyVersion_;
     sceneInputsChanged_ = true;
+  }
+  if (solutionTermsMailbox_.acquireRead()) {
+    hasSolutionTerms_ = true;
   }
   while (robotStateQueue_.tryPopInPlace([this](const QueuedRobotState& queued) { processRobotState(queued); })) {
   }
@@ -285,7 +338,7 @@ void VisualizationPublisher::publishMessage(absl::string_view topic,
     return;
   }
   ++publishFailures_;
-  LOG_EVERY_N_SEC(WARNING, 5.0) << "[VisualizationPublisher] " << topic << " was not published: " << status;
+  LOG_EVERY_N_SEC(WARNING, kLogPeriodSeconds) << "[VisualizationPublisher] " << topic << " was not published: " << status;
 }
 
 void VisualizationPublisher::processRobotState(const QueuedRobotState& queued) {
@@ -295,7 +348,7 @@ void VisualizationPublisher::processRobotState(const QueuedRobotState& queued) {
   }
   if (const absl::Status decoded = decoder_.decode(queued.sample, &decoded_); !decoded.ok()) {
     ++robotStatesRejected_;
-    LOG_EVERY_N_SEC(WARNING, 5.0) << "[VisualizationPublisher] a robot/state sample is not plotted: " << decoded;
+    LOG_EVERY_N_SEC(WARNING, kLogPeriodSeconds) << "[VisualizationPublisher] a robot/state sample is not plotted: " << decoded;
     return;
   }
   latestRobotState_ = queued.sample;
@@ -305,11 +358,11 @@ void VisualizationPublisher::processRobotState(const QueuedRobotState& queued) {
   // The visualization thread's isolation point: the builders call Pinocchio's algorithms and OCS2, which throw for a
   // model or a state they do not accept, and a sample that cannot be drawn is counted and logged, never fatal.
   try {  // NOLINT(exceptions): Pinocchio and OCS2 throw; see the comment above.
-    publishMessage(ipc::topics::kVizTelemetry, telemetryBuilder_->build(decoded_, latestObservation(), latestPolicy()),
-                   &telemetryPublished_);
+    publishMessage(ipc::topics::kVizTelemetry,
+                   telemetryBuilder_->build(decoded_, latestObservation(), latestPolicy(), latestSolutionTerms()), &telemetryPublished_);
   } catch (const std::exception& e) {  // NOLINT(exceptions): the boundary of the try above.
     ++buildFailures_;
-    LOG_EVERY_N_SEC(WARNING, 5.0) << "[VisualizationPublisher] the telemetry of a robot/state sample failed: " << e.what();
+    LOG_EVERY_N_SEC(WARNING, kLogPeriodSeconds) << "[VisualizationPublisher] the telemetry of a robot/state sample failed: " << e.what();
   }
 }
 
@@ -333,12 +386,12 @@ void VisualizationPublisher::publishScene(std::chrono::nanoseconds now) {
     const absl::Status built = sceneBuilder_->build(inputs, &scene_);
     if (!built.ok()) {
       ++buildFailures_;
-      LOG_EVERY_N_SEC(WARNING, 5.0) << "[VisualizationPublisher] no scene: " << built;
+      LOG_EVERY_N_SEC(WARNING, kLogPeriodSeconds) << "[VisualizationPublisher] no scene: " << built;
       return;
     }
   } catch (const std::exception& e) {  // NOLINT(exceptions): the boundary of the try above.
     ++buildFailures_;
-    LOG_EVERY_N_SEC(WARNING, 5.0) << "[VisualizationPublisher] the scene failed: " << e.what();
+    LOG_EVERY_N_SEC(WARNING, kLogPeriodSeconds) << "[VisualizationPublisher] the scene failed: " << e.what();
     return;
   }
   publishMessage(ipc::topics::kVizScene, scene_, &scenesPublished_);

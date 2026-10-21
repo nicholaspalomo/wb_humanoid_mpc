@@ -34,6 +34,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2 {
 
+namespace {
+
+/** A pre-event node is followed by a copy of it as the post-event node, so every node appears at most this often. */
+constexpr int kMaxCopiesPerNode = 2;
+
+}  // namespace
+
 scalar_t getIntervalStart(const AnnotatedTime& start) {
   scalar_t adaptedStart = start.time;
   if (start.event == AnnotatedTime::Event::PostEvent) {
@@ -97,7 +104,7 @@ std::vector<AnnotatedTime> timeDiscretizationWithEvents(scalar_t initTime, scala
 
   // Duplicate all preEvents to postEvents
   std::vector<AnnotatedTime> timeDiscretizationWithDoubleEvents;
-  timeDiscretizationWithDoubleEvents.reserve(2 * timeDiscretization.size());  // upper bound on size
+  timeDiscretizationWithDoubleEvents.reserve(kMaxCopiesPerNode * timeDiscretization.size());  // upper bound on size
 
   for (const auto& t : timeDiscretization) {
     timeDiscretizationWithDoubleEvents.push_back(t);

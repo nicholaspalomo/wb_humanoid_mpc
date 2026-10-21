@@ -182,8 +182,8 @@ class LipContactPlanner final : public ContactPlannerInterface {
   /** Private: Create() validates the configuration and builds the problem and the search stages it is handed here. */
   LipContactPlanner(ContactPlanningConfig config, ContactPlanningProblem problem, TermCollection<SearchStage> searchStages);
 
-  /** Node shift between the previous plan and `input.time` (nodes), or -1 when the previous plan is not usable. */
-  int previousPlanShift(const ContactPlannerInput& input) const;
+  /** Node shift between the previous plan and `input.time` (nodes), or empty when the previous plan is not usable. */
+  std::optional<int> previousPlanShift(const ContactPlannerInput& input) const;
   ContactPlan decode(const ContactPlannerInput& input, const ContactPlanningContext& ctx, const MiqpResult& result) const;
   void rebuildSolver();
 

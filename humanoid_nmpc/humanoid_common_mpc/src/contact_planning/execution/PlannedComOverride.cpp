@@ -32,6 +32,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <optional>
 #include <string>
 
+#include "ocs2_core/Dimensions.h"
+
 #include "humanoid_common_mpc/contact_planning/execution/PlanCoverage.h"
 
 namespace ocs2::humanoid {
@@ -63,11 +65,11 @@ void PlannedComOverride::overrideTarget(const ExecutionContext& ctx, TargetTraje
 
     vector_t& stateRef = targetTrajectories.stateTrajectory[i];
     vector3_t basePosition = mpcRobotModel_->getBasePosition(stateRef);
-    basePosition.head<2>() = *plannedPosition - comOffsetFromBase;
+    basePosition.head<kHorizontalPositionDim>() = *plannedPosition - comOffsetFromBase;
     mpcRobotModel_->setBasePosition(stateRef, basePosition);
 
     vector3_t comVelocity = mpcRobotModel_->getBaseComLinearVelocity(stateRef);
-    comVelocity.head<2>() = *plannedVelocity;
+    comVelocity.head<kHorizontalPositionDim>() = *plannedVelocity;
     mpcRobotModel_->setBaseComLinearVelocity(stateRef, comVelocity);
   }
 }

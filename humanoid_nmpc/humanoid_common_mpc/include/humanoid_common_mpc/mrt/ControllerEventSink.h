@@ -42,6 +42,10 @@ namespace ocs2::humanoid {
  */
 class ControllerEventSink {
  public:
+  ControllerEventSink() = default;
+  /** An interface: implementations are used through a pointer or reference, never copied or moved. */
+  ControllerEventSink(const ControllerEventSink&) = delete;
+  ControllerEventSink& operator=(const ControllerEventSink&) = delete;
   virtual ~ControllerEventSink() = default;
 
   /** Takes `event`; false when it was dropped (a full queue). Never blocks. */

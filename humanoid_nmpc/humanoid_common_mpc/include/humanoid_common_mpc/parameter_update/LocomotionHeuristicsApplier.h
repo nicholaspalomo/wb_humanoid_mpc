@@ -66,6 +66,9 @@ class LocomotionHeuristicsApplier final : public HotFieldApplier {
   void apply(HotUpdateTarget& target) override;
 
  private:
+  // Shared, not observed: the applier lives in MpcParameterUpdaterModule and the layer in the reference manager, and OCS2
+  // holds both of them (a SolverSynchronizedModule, a ReferenceManagerInterface) by std::shared_ptr, so neither one's
+  // lifetime bounds the other's.
   std::shared_ptr<LocomotionHeuristicLayer> layer_;
 };
 

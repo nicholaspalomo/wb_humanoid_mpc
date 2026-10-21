@@ -132,10 +132,11 @@ def read_file(path: str) -> tuple[robot_config_save.FileKind, str]:
       PushError: The file cannot be read, names no schema the robot stores, or does not parse.
     """
     try:
-        with open(path, encoding="utf-8", newline="") as file:
-            text = file.read()
+        text = nproto_textproto.read_textproto_file(path)
     except OSError as error:
         raise PushError(f"cannot read {path}: {error}") from error
+    except nproto_textproto.TextprotoError as error:
+        raise PushError(str(error)) from error
     header = nproto_textproto.header_message(text)
     entry = (
         None if header is None else robot_config_save.file_kind_of_message(header[1])

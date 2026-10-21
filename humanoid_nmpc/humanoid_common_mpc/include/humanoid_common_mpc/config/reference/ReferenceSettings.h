@@ -73,4 +73,14 @@ struct ReferenceSettings {
   scalar_t defaultBaseHeight = 0.0;
 };
 
+/**
+ * The command limits a TargetTrajectoriesCalculatorBase and a ProceduralMpcMotionManager hold until their
+ * applyCommandLimits() applies a ReferenceSettings: maxDisplacementVelocityX and maxDisplacementVelocityY [m/s],
+ * maxDeltaPelvisHeight [m] and maxRotationVelocity [rad/s].
+ */
+inline constexpr scalar_t kInitialMaxDisplacementVelocityX = 0.6;
+inline constexpr scalar_t kInitialMaxDisplacementVelocityY = 0.3;
+inline constexpr scalar_t kInitialMaxDeltaPelvisHeight = 0.3;
+inline constexpr scalar_t kInitialMaxRotationVelocity = 0.6;
+
 }  // namespace ocs2::humanoid

@@ -59,16 +59,23 @@ inline constexpr int kNumToggledGeomGroups = mjNGROUP;
  * abstract scene, the MuJoCo GPU context, the state snapshot it draws from and the visualizations of the simulator's
  * `sim_visualizations` (MujocoVisualization), and it carries out the viewer's keys and mouse moves.
  *
- * Usage, on one thread that has an OpenGL context current: initialize(), then drawFrame() per frame with input in
- * between, then release() before the context goes. Not thread-safe: everything but the constructor runs on that thread.
+ * Usage, on one thread that has an OpenGL context current: Create(), then drawFrame() per frame with input in between,
+ * then release() before the context goes. Not thread-safe: everything runs on that thread.
  */
 class MujocoFrameRenderer {
  public:
   /**
-   * Builds the visualizations of `sim`'s configuration; does no OpenGL work. `sim` must outlive the renderer: every
-   * frame reads its latest state snapshot (MujocoSimInterface::readLatestMjState) and its visualizations read it.
+   * Builds the renderer of `sim`'s visualizations and sets up the camera, the options, the scene and the GPU context for
+   * `model`, takes the first snapshot and computes it. Requires an OpenGL context current on this thread, and fails with
+   * FailedPrecondition when MuJoCo could not make its GPU context in it (no context current). `model` is a private copy
+   * of the simulator's model (the web viewer's copyModelForOffscreenRendering(), the GLFW viewer's mj_copyModel()) that
+   * only this renderer's thread touches, and the one every frame draws with: before computing a snapshot, every frame
+   * writes the model arrays the simulator changed while it ran into it (MjState::modelFields), so the contacts and
+   * forces it draws are the physics'. `sim` and `model` must outlive the renderer: every frame reads `sim`'s latest state
+   * snapshot (MujocoSimInterface::readLatestMjState) and its visualizations read it.
    */
-  explicit MujocoFrameRenderer(const MujocoSimInterface* absl_nonnull sim);
+  static absl::StatusOr<std::unique_ptr<MujocoFrameRenderer>> Create(const MujocoSimInterface* absl_nonnull sim,
+                                                                     mjModel* absl_nonnull model);
 
   MujocoFrameRenderer(const MujocoFrameRenderer&) = delete;
   MujocoFrameRenderer& operator=(const MujocoFrameRenderer&) = delete;
@@ -77,21 +84,6 @@ class MujocoFrameRenderer {
 
   /** Frees the abstract scene if release() did not; the GPU context is release()'s, on the context's thread. */
   ~MujocoFrameRenderer();
-
-  /**
-   * Sets up the camera, the options, the scene and the GPU context for `model`, takes the first snapshot and computes
-   * it. Requires an OpenGL context current on this thread. `model` must outlive the renderer and is the one every frame
-   * draws with: the simulator's own, which the renderer leaves to the physics thread (GLFW).
-   */
-  void initialize(const mjModel* absl_nonnull model);
-
-  /**
-   * Sets up as initialize() does, for a private copy of the simulator's model (web, copyModelForOffscreenRendering())
-   * that only this renderer's thread touches: before computing a snapshot, every frame writes the model arrays the
-   * simulator changed while it ran into it (MjState::modelFields), so the contacts and forces it draws are the
-   * physics'. `model` must outlive the renderer.
-   */
-  void initializeWithPrivateModel(mjModel* absl_nonnull model);
 
   /**
    * Draws the newest snapshot of the simulator into `viewport` of the current framebuffer: the scene, the visualizations'
@@ -105,7 +97,10 @@ class MujocoFrameRenderer {
   /** Moves the camera as MuJoCo's mouse `action`, by fractions of the viewport's width and height (mjv_moveCamera). */
   void moveCamera(mjtMouse action, double relativeDx, double relativeDy);
 
-  /** Zooms as a scroll wheel turned by `notches` (positive away from the user, as GLFW's yoffset): 5% per notch. */
+  /**
+   * Zooms as a scroll wheel turned by `notches` (positive away from the user, as GLFW's yoffset), 5% per notch:
+   * positive notches zoom out (the camera distance grows), as in MuJoCo's own viewers.
+   */
   void scroll(double notches);
 
   /**
@@ -124,7 +119,7 @@ class MujocoFrameRenderer {
   /** Sets the camera to `type`, mjCAMERA_TRACKING or mjCAMERA_FREE; any other type is ignored. */
   void setCameraType(mjtCamera type);
 
-  /** Puts the camera back where initialize() put it: tracking the floating base from the robot's left. */
+  /** Puts the camera back where Create() put it: tracking the floating base from the robot's left. */
   void resetCamera();
 
   /** Logs the hotkeys, the mouse bindings and the state of every visualization. */
@@ -146,10 +141,12 @@ class MujocoFrameRenderer {
    */
   void resizeOffscreen(int width, int height);
 
-  /** Frees the GPU context and the scene. Requires the OpenGL context of initialize() current on this thread. */
+  /**
+   * Frees the GPU context and the scene, after which the renderer draws nothing more. Requires the OpenGL context of
+   * Create() current on this thread; nothing the second time.
+   */
   void release();
 
-  bool initialized() const { return model_ != nullptr; }
   const mjvCamera& camera() const { return camera_; }
   const mjvOption& options() const { return options_; }
   const std::vector<std::unique_ptr<MujocoVisualization>>& visualizations() const { return visualizations_; }
@@ -159,19 +156,19 @@ class MujocoFrameRenderer {
   double fps() const { return fps_.fps(); }
 
  private:
-  /** The set-up of initialize() and initializeWithPrivateModel(), once privateModel_ is set. */
-  void setUp(const mjModel* absl_nonnull model);
+  /** Builds the visualizations of `sim`'s configuration; does no OpenGL work (Create()). */
+  MujocoFrameRenderer(const MujocoSimInterface* absl_nonnull sim, mjModel* absl_nonnull model);
+
+  /** The OpenGL set-up of Create(): FailedPrecondition when MuJoCo made no GPU context. */
+  absl::Status setUp();
 
   const MujocoSimInterface* absl_nonnull sim_;
-  /// The model of initialize(); null before it and after release().
-  const mjModel* absl_nullable model_ = nullptr;
-  /// The same model when it is the renderer's private copy (initializeWithPrivateModel()), which every snapshot's
-  /// model fields are written into; null for the simulator's own model, before initialization and after release().
-  mjModel* absl_nullable privateModel_ = nullptr;
+  /// The model of Create(), writable: every snapshot's model fields are written into it; null after release().
+  mjModel* absl_nullable model_;
   MjState state_;
   std::vector<std::unique_ptr<MujocoVisualization>> visualizations_;
 
-  // MuJoCo's visualization structures, zeroed until initialize() fills them in.
+  // MuJoCo's visualization structures, zeroed until Create() fills them in.
   mjvCamera camera_{};
   mjvOption options_{};
   mjvScene scene_{};

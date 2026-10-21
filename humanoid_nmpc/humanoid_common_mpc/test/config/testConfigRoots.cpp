@@ -203,7 +203,7 @@ class RobotStack {
     absl::StatusOr<std::shared_ptr<GaitSchedule>> gaitSchedule = GaitSchedule::Create(stack->reference, *stack->settings);
     if (!gaitSchedule.ok()) return gaitSchedule.status();
     stack->referenceManager = std::make_shared<SwitchedModelReferenceManager>(
-        *gaitSchedule, std::make_shared<SwingTrajectoryPlanner>(SwingTrajectoryPlanner::Config(), /*numFeet=*/2),
+        *gaitSchedule, std::make_unique<SwingTrajectoryPlanner>(SwingTrajectoryPlanner::Config(), /*numFeet=*/2),
         *stack->pinocchioInterface, *stack->model);
     return stack;
   }

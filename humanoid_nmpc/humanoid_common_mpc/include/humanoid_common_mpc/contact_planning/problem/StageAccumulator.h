@@ -29,6 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include "absl/base/nullability.h"
+
 #include "humanoid_common_mpc/contact_planning/OcpQpHpipm.h"
 #include "humanoid_common_mpc/contact_planning/problem/LipCoefficients.h"
 
@@ -42,10 +44,18 @@ namespace ocs2::humanoid {
  * The constant part of the expansion, w c^2, is accumulated into OcpQpStage::constant rather than discarded. It is
  * irrelevant to the solver, but it is what makes the assembled objective the functional the terms document, and
  * therefore what makes the objectives of two problems assembled on different node grids comparable.
+ *
+ * Not thread-safe: it writes the stage it accumulates into. A copy accumulates into the same stage.
  */
 class StageAccumulator {
  public:
-  explicit StageAccumulator(OcpQpStage& stage) : stage_(stage) {}
+  /** Accumulates into `stage`, which must outlive the accumulator. */
+  explicit StageAccumulator(OcpQpStage* absl_nonnull stage) : stage_(stage) {}
+  StageAccumulator(const StageAccumulator&) = default;
+  StageAccumulator& operator=(const StageAccumulator&) = default;
+  StageAccumulator(StageAccumulator&&) = default;
+  StageAccumulator& operator=(StageAccumulator&&) = default;
+  ~StageAccumulator() = default;
 
   /**
    * Adds weight * (sum_i xc_i x_i + sum_j uc_j u_j + offset)^2; nothing for weight <= 0. The quadratic and linear parts
@@ -54,18 +64,18 @@ class StageAccumulator {
    */
   void addQuadraticResidual(const Coefficients& xCoefficients, const Coefficients& uCoefficients, scalar_t offset, scalar_t weight);
   /** Adds weight to the diagonal of Q. */
-  void addStateRegularization(scalar_t weight) { stage_.Q.diagonal().array() += weight; }
+  void addStateRegularization(scalar_t weight) { stage_->Q.diagonal().array() += weight; }
   /** Adds weight to the diagonal of R (no-op on a node without inputs). */
   void addInputRegularization(scalar_t weight) {
-    if (stage_.numInputs() > 0) stage_.R.diagonal().array() += weight;
+    if (stage_->numInputs() > 0) stage_->R.diagonal().array() += weight;
   }
 
-  OcpQpStage& stage() { return stage_; }
-  int numStates() const { return stage_.numStates(); }
-  int numInputs() const { return stage_.numInputs(); }
+  OcpQpStage& stage() { return *stage_; }
+  int numStates() const { return stage_->numStates(); }
+  int numInputs() const { return stage_->numInputs(); }
 
  private:
-  OcpQpStage& stage_;
+  OcpQpStage* absl_nonnull stage_;
 };
 
 }  // namespace ocs2::humanoid

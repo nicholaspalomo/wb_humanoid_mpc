@@ -37,7 +37,11 @@ namespace ocs2::humanoid {
 
 enum class Softness { kHard, kSoft };
 
-/** General constraint rows lower <= C x + D u <= upper on the stage variables, hard or soft (slacks with a penalty). */
+/**
+ * General constraint rows lower <= C x + D u <= upper on the stage variables, hard or soft (slacks with a penalty).
+ *
+ * Not thread-safe, like every ContactPlanningTerm: the planner that owns it configures and evaluates it from one thread at a time.
+ */
 class LipConstraint : public ContactPlanningTerm {
  public:
   virtual NodeSet nodeSet() const = 0;

@@ -35,10 +35,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/strings/str_cat.h"
 
+#include "humanoid_common_mpc/contact_planning/ContactScheduleAdaptation.h"
+
 namespace ocs2::humanoid {
 
 namespace {
-constexpr scalar_t kMinTimeShift = 1.0e-6;     // [s] smaller event shifts are not applied
 constexpr scalar_t kMinRemainingSwing = 0.02;  // [s] a re-timed touch-down stays at least this far in the future
 }  // namespace
 

@@ -78,6 +78,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/cost/TuningQuadraticStateInputCost.h"
 #include "humanoid_common_mpc/orientation/EulerBoundary.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
+#include "humanoid_nmpc/humanoid_common_mpc/test/support/StatusTestMacros.h"
 #include "robot_core/ResourcePaths.h"
 
 namespace ocs2::humanoid {
@@ -101,10 +102,10 @@ struct AtlasFiles {
 /** The DRC Atlas task, URDF and reference files, from the test's runfiles (BUILD `_TEST_DATA`). */
 AtlasFiles locateAtlasFiles() {
   return AtlasFiles{
-      .taskFile = robot::resolveResourcePath("robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.textproto").value(),
-      .urdfFile = robot::resolveResourcePath("robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf").value(),
+      .taskFile = checkedValue(robot::resolveResourcePath("robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.textproto")),
+      .urdfFile = checkedValue(robot::resolveResourcePath("robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf")),
       .referenceFile =
-          robot::resolveResourcePath("robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/command/reference.textproto").value()};
+          checkedValue(robot::resolveResourcePath("robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/command/reference.textproto"))};
 }
 
 /******************************************************************************************************/
@@ -643,7 +644,7 @@ TEST_F(BasisInputsFormulationTest, BasisGeneratorsStayInsideTheWrenchCone) {
   std::uniform_real_distribution<scalar_t> magnitude(0.0, 200.0);
   for (size_t contactIndex = 0; contactIndex < kNumContacts; ++contactIndex) {
     const ContactRectangle rectangle =
-        contactRectangleFromConfig(h.config.task.contacts, interface.modelSettings(), static_cast<int>(contactIndex)).value();
+        checkedValue(contactRectangleFromConfig(h.config.task.contacts, interface.modelSettings(), static_cast<int>(contactIndex)));
     const ContactWrenchConeRows rows = buildLocalWrenchConeRows(coneConfig, rectangle);
     const matrix_t& B = decorator.getBasisMatrix(contactIndex);
 

@@ -34,6 +34,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid::validation {
 
 /**
+ * The first time of the grid `scheduled` + k `period` (k = 0, 1, ...) after `time`: `scheduled` itself when it is after
+ * `time`, else `scheduled` + k `period` for the least k >= 1 that passes `time`, computed at once rather than by adding
+ * one period at a time, whose cost grows with the time skipped. One period ahead is `scheduled` + `period`, the sum
+ * the step-by-step addition makes. Precondition: `period` > 0 and every argument finite.
+ */
+double firstPeriodicTimeAfter(double scheduled, double period, double time);
+
+/**
  * When the lockstep closed loop (LockstepClosedLoop) solves: steps 4 and 5 of InProcessMpcLink's solver thread, which
  * Execution::kCaller leaves to the caller, on the simulation's clock.
  *

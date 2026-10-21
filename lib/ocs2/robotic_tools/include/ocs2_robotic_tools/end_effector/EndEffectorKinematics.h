@@ -33,6 +33,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <utility>
 
 #include "absl/base/nullability.h"
+#include "ocs2_core/Dimensions.h"
 
 #include <ocs2_core/Types.h>
 
@@ -42,10 +43,10 @@ namespace ocs2 {
 template <typename SCALAR_T>
 class EndEffectorKinematics {
  public:
-  using vector3_t = Eigen::Matrix<SCALAR_T, 3, 1>;
-  using matrix3x_t = Eigen::Matrix<SCALAR_T, 3, Eigen::Dynamic>;
-  using vector6_t = Eigen::Matrix<SCALAR_T, 6, 1>;
-  using matrix6x_t = Eigen::Matrix<SCALAR_T, 6, Eigen::Dynamic>;
+  using vector3_t = Eigen::Matrix<SCALAR_T, kPositionDim, 1>;
+  using matrix3x_t = Eigen::Matrix<SCALAR_T, kPositionDim, Eigen::Dynamic>;
+  using vector6_t = Eigen::Matrix<SCALAR_T, kTwistDim, 1>;
+  using matrix6x_t = Eigen::Matrix<SCALAR_T, kTwistDim, Eigen::Dynamic>;
   using vector_t = Eigen::Matrix<SCALAR_T, Eigen::Dynamic, 1>;
   using quaternion_t = Eigen::Quaternion<SCALAR_T>;
 
@@ -81,18 +82,6 @@ class EndEffectorKinematics {
    * @return array of quaternions
    */
   virtual std::vector<quaternion_t> getOrientation(const vector_t& state) const = 0;
-
-  /**
-   * Get orientation error in world frame
-   *
-   * @note: To calculate the error use quaternionDistance() from ocs2_robotic_tools/common/RotationTransforms.h
-   *
-   * @param [in] state vector
-   * @param [in] referenceOrientation: reference quaternion
-   * @return array of orientation errors
-   */
-  virtual std::vector<vector3_t> getOrientationError(const vector_t& state,
-                                                     const std::vector<quaternion_t>& referenceOrientations) const = 0;
 
   /**
    * Get orientation error in world frame
@@ -165,18 +154,6 @@ class EndEffectorKinematics {
    */
   virtual std::vector<VectorFunctionLinearApproximation> getTwistLinearApproximation(const vector_t& state,
                                                                                      const vector_t& input) const = 0;
-
-  /**
-   * Get end-effector orintation error linear approximation in world frame
-   *
-   * @note: To calculate the error use quaternionDistance() from ocs2_robotic_tools/common/RotationTransforms.h
-   *
-   * @param [in] state: state vector
-   * @param [in] referenceOrientation: reference quaternion
-   * @return array of orientation error linear approximations
-   */
-  virtual std::vector<VectorFunctionLinearApproximation> getOrientationErrorLinearApproximation(
-      const vector_t& state, const std::vector<quaternion_t>& referenceOrientations) const = 0;
 
   /**
    * Get end-effector orintation error with respect to plane linear approximation in world frame

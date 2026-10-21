@@ -38,6 +38,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 #include "absl/strings/str_cat.h"
+#include "ocs2_core/Dimensions.h"
 #include "pinocchio/algorithm/center-of-mass.hpp"
 #include "pinocchio/algorithm/joint-configuration.hpp"
 #include "pinocchio/algorithm/kinematics.hpp"
@@ -48,6 +49,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 namespace {
+
+// The world z component of a revolute joint's axis above which the joint turns about the vertical, a hip yaw.
+constexpr scalar_t kMinVerticalAxisComponent = 0.9;
 
 /**
  * The axis an unaligned revolute joint (bounded or unbounded) rotates about, in the joint's own frame, read through
@@ -64,8 +68,8 @@ namespace {
  */
 vector3_t unalignedRevoluteAxis(const PinocchioInterface::Model& model, pinocchio::JointIndex joint) {
   const PinocchioInterface::Model::JointData jointData = model.joints[joint].createData();
-  const Eigen::Matrix<scalar_t, 6, Eigen::Dynamic> motionSubspace = jointData.S().matrix();
-  return motionSubspace.block<3, 1>(pinocchio::Motion::ANGULAR, 0);
+  const Eigen::Matrix<scalar_t, kTwistDim, Eigen::Dynamic> motionSubspace = jointData.S().matrix();
+  return motionSubspace.block<kRotationTangentDim, 1>(pinocchio::Motion::ANGULAR, 0);
 }
 
 /** The rotation axis of a revolute joint in the joint's own frame, or empty for any other kind of joint. */
@@ -93,8 +97,8 @@ HipYawRange deriveHipYawRange(const PinocchioInterface::Model& model, const std:
   for (; joint > 0; joint = model.parents[joint]) {
     const std::optional<vector3_t> axis = revoluteAxis(model, joint);
     if (!axis.has_value()) continue;
-    verticalComponent = (data.oMi[joint].rotation() * axis->normalized())(2);
-    if (std::abs(verticalComponent) > 0.9) break;
+    verticalComponent = (data.oMi[joint].rotation() * axis->normalized())(kZAxisIndex);
+    if (std::abs(verticalComponent) > kMinVerticalAxisComponent) break;
   }
   if (joint == 0) return range;
   if (model.joints[joint].nq() > 1) {
@@ -122,8 +126,9 @@ HipYawRange deriveHipYawRange(const PinocchioInterface::Model& model, const std:
 }
 
 void ContactPlanningModelParameters::applyTo(ContactPlanningConfig& config) const {
+  config.shared.gravity = gravity;
   config.yawTorqueBudget.torsionalFrictionTorque = torsionalFrictionTorque;
-  config.yawTorqueBudget.doubleSupportYawCouple = doubleSupportYawCouple;
+  config.yawTorqueBudget.doubleSupportYawCouple = doubleSupportYawCouplePerStepWidth * config.stepWidth.nominalStepWidth;
   config.hipYawRange.lower = footYawOffsetLower;
   config.hipYawRange.upper = footYawOffsetUpper;
   if (!config.shared.comHeight.has_value() && comHeight > 0.0) config.shared.comHeight = comHeight;
@@ -132,9 +137,10 @@ void ContactPlanningModelParameters::applyTo(ContactPlanningConfig& config) cons
 }
 
 std::string ContactPlanningModelParameters::summary() const {
-  std::string out = absl::StrCat("mass ", totalMass, " kg, comHeight ", comHeight, " m, footprint half extents ", zmpHalfWidthX, " x ",
-                                 zmpHalfWidthY, " m, torsionalFrictionTorque ", torsionalFrictionTorque, " N m, doubleSupportYawCouple ",
-                                 doubleSupportYawCouple, " N m, foot yaw bounds");
+  std::string out =
+      absl::StrCat("mass ", totalMass, " kg, gravity ", gravity, " m/s^2, comHeight ", comHeight, " m, footprint half extents ",
+                   zmpHalfWidthX, " x ", zmpHalfWidthY, " m, torsionalFrictionTorque ", torsionalFrictionTorque,
+                   " N m, doubleSupportYawCouplePerStepWidth ", doubleSupportYawCouplePerStepWidth, " N, foot yaw bounds");
   for (size_t foot = 0; foot < kNumContacts; ++foot) {
     absl::StrAppend(&out, " [", footYawOffsetLower[foot], ", ", footYawOffsetUpper[foot], "]");
     if (foot < hipYawJoints.size()) {
@@ -148,20 +154,21 @@ ContactPlanningModelParameters deriveContactPlanningModelParameters(PinocchioInt
                                                                     const MpcRobotModelBase<scalar_t>& mpcRobotModel,
                                                                     const vector_t& nominalState,
                                                                     const std::vector<std::string>& contactParentJointNames,
-                                                                    const ContactPlanningGroundParameters& ground,
-                                                                    scalar_t gravity,
-                                                                    scalar_t nominalStepWidth) {
+                                                                    const ContactPlanningGroundParameters& ground) {
   ContactPlanningModelParameters derived;
   const PinocchioInterface::Model& model = pinocchioInterface.getModel();
   derived.totalMass = pinocchio::computeTotalMass(model);
-  const scalar_t weight = derived.totalMass * gravity;
+  // The magnitude, which the weight is whatever the direction; modelGravity() is what refuses a gravity that does not
+  // point down, once, where the interface builds the planner.
+  derived.gravity = model.gravity.linear().norm();
+  const scalar_t weight = derived.totalMass * derived.gravity;
 
   // The pendulum length every LIP consumer shares (computeComHeightAboveFeet), at the nominal posture.
   derived.comHeight = computeComHeightAboveFeet(mpcRobotModel.getGeneralizedCoordinates(nominalState), pinocchioInterface, mpcRobotModel);
   derived.zmpHalfWidthX = ground.footprintHalfLengthX;
   derived.zmpHalfWidthY = ground.footprintHalfWidthY;
   derived.torsionalFrictionTorque = ground.torsionalFrictionCoefficient * weight;
-  derived.doubleSupportYawCouple = ground.frictionCoefficient * 0.5 * weight * nominalStepWidth;
+  derived.doubleSupportYawCouplePerStepWidth = ground.frictionCoefficient * 0.5 * weight;
 
   derived.hipYawJoints.assign(kNumContacts, "");
   for (size_t foot = 0; foot < kNumContacts; ++foot) {

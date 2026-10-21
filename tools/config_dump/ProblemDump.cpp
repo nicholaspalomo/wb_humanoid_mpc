@@ -61,6 +61,26 @@ namespace {
 constexpr std::array<scalar_t, 3> kTimes = {0.05, 0.3, 0.8};
 constexpr scalar_t kFinalTime = 1.5;
 
+// The walking schedule: its event times [s], between stance, left swing, stance, right swing, stance, left swing and
+// stance.
+constexpr std::array<scalar_t, 6> kWalkingEventTimes = {0.2, 0.55, 0.65, 1.0, 1.1, 1.45};
+/** [m] How far ahead of the initial state the target is, along the world x axis. */
+constexpr scalar_t kTargetDistance = 0.8;
+/** [s] When the target is reached. */
+constexpr scalar_t kTargetTime = 2.0;
+
+// The perturbations of the points' states and inputs and of the final state, smooth in the element index i and the
+// point index p: amplitude * sin(element phase * i + point phase * p) for a state, and mean + amplitude *
+// cos(element phase * i + p) for an input.
+constexpr scalar_t kStatePerturbationAmplitude = 0.01;
+constexpr scalar_t kStatePerturbationElementPhase = 0.7;
+constexpr scalar_t kStatePerturbationPointPhase = 1.3;
+constexpr scalar_t kInputMean = 5.0;
+constexpr scalar_t kInputPerturbationAmplitude = 3.0;
+constexpr scalar_t kInputPerturbationElementPhase = 0.4;
+constexpr scalar_t kFinalStatePerturbationAmplitude = 0.02;
+constexpr scalar_t kFinalStatePerturbationElementPhase = 0.3;
+
 /** The names of `collection`'s terms, sorted. */
 template <typename CollectionT>
 std::vector<std::string> termNames(const CollectionT& collection) {
@@ -134,7 +154,8 @@ void dumpStateTerms(ValueDump& dump,
 vector_t perturbedState(const vector_t& initialState, size_t point) {
   vector_t state = initialState;
   for (Eigen::Index i = 0; i < state.size(); ++i) {
-    state(i) += 0.01 * std::sin(0.7 * static_cast<scalar_t>(i) + 1.3 * static_cast<scalar_t>(point));
+    state(i) += kStatePerturbationAmplitude * std::sin(kStatePerturbationElementPhase * static_cast<scalar_t>(i) +
+                                                       kStatePerturbationPointPhase * static_cast<scalar_t>(point));
   }
   return state;
 }
@@ -143,7 +164,8 @@ vector_t perturbedState(const vector_t& initialState, size_t point) {
 vector_t perturbedInput(size_t inputDim, size_t point) {
   vector_t input(static_cast<Eigen::Index>(inputDim));
   for (Eigen::Index i = 0; i < input.size(); ++i) {
-    input(i) = 5.0 + 3.0 * std::cos(0.4 * static_cast<scalar_t>(i) + static_cast<scalar_t>(point));
+    input(i) = kInputMean + kInputPerturbationAmplitude *
+                                std::cos(kInputPerturbationElementPhase * static_cast<scalar_t>(i) + static_cast<scalar_t>(point));
   }
   return input;
 }
@@ -169,17 +191,17 @@ void dumpProblem(ValueDump& dump,
   dump.addStrings(joinPath(path, "inequalityConstraintPtr"), termNames(*copy.inequalityConstraintPtr));
 
   // A walking schedule and a target 0.8 m ahead, as the MPC loop sets them before a solve.
-  const ModeSchedule schedule({0.2, 0.55, 0.65, 1.0, 1.1, 1.45},
+  const ModeSchedule schedule(std::vector<scalar_t>(kWalkingEventTimes.begin(), kWalkingEventTimes.end()),
                               {ModeNumber::kStance, ModeNumber::kLf, ModeNumber::kStance, ModeNumber::kRf, ModeNumber::kStance,
                                ModeNumber::kLf, ModeNumber::kStance});
   vector_t targetState = initialState;
   vector3_t targetBasePosition = robotModel.getBasePosition(targetState);
-  targetBasePosition.x() += 0.8;
+  targetBasePosition.x() += kTargetDistance;
   robotModel.setBasePosition(targetState, targetBasePosition);
   const size_t inputDim = robotModel.getInputDim();
   const vector_t zeroInput = vector_t::Zero(static_cast<Eigen::Index>(inputDim));
   referenceManager.getGaitSchedule()->updateModeSchedule(schedule);
-  referenceManager.setTargetTrajectories(TargetTrajectories({0.0, 2.0}, {initialState, targetState}, {zeroInput, zeroInput}));
+  referenceManager.setTargetTrajectories(TargetTrajectories({0.0, kTargetTime}, {initialState, targetState}, {zeroInput, zeroInput}));
   referenceManager.preSolverRun(/*initTime=*/0.0, /*finalTime=*/kFinalTime, initialState, ModeNumber::kStance);
   copy.targetTrajectoriesPtr = &referenceManager.getTargetTrajectories();
 
@@ -202,7 +224,7 @@ void dumpProblem(ValueDump& dump,
 
   vector_t finalState = initialState;
   for (Eigen::Index i = 0; i < finalState.size(); ++i) {
-    finalState(i) += 0.02 * std::cos(0.3 * static_cast<scalar_t>(i));
+    finalState(i) += kFinalStatePerturbationAmplitude * std::cos(kFinalStatePerturbationElementPhase * static_cast<scalar_t>(i));
   }
   const std::string at = joinPath(path, "final");
   const ModelData model = approximateFinalLQ(copy, kFinalTime, finalState);

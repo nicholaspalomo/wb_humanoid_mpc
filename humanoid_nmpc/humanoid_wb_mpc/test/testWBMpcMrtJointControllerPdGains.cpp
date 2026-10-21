@@ -29,7 +29,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
+#include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstddef>
 #include <filesystem>
 #include <fstream>
@@ -93,16 +95,21 @@ const robot::model::JointAction& actionOf(const robot::model::RobotJointAction& 
   return *entry;
 }
 
+/** The shipped gains file of the whole-body G1, whose default_gains.kp is 150. */
+std::string shippedGainsFile() {
+  return robot::resolveResourcePath("robot_models/unitree_g1/g1_wb_mpc/config/controller/joint_pd_gains.textproto").value();
+}
+
 class WholeBodyPdGainsHarness {
  public:
-  explicit WholeBodyPdGainsHarness(const std::string& pdGainsFile = "")
+  explicit WholeBodyPdGainsHarness(const std::string& pdGainsFile = shippedGainsFile())
       // A file missing from the runfiles throws here, naming the data dependency to add (robot::resolveResourcePath).
       : task_(loadTaskFile(robot::resolveResourcePath("robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.textproto").value()).value()),
         urdfFile_(robot::resolveResourcePath("robot_models/unitree_g1/g1_description/urdf/g1_29dof.urdf").value()),
         modelSettings_(ModelSettings::Create(task_, urdfFile_, "wb_mpc_", /*verbose=*/false).value()),
         pinocchioInterface_(loadCustomPinocchioInterface(task_, urdfFile_, modelSettings_).value()),
         model_(modelSettings_),
-        mpc_(toMpcSettings(task_.mpc), model_.getInputDim()),
+        mpc_(*toMpcSettings(task_.mpc), model_.getInputDim()),
         description_(robot::model::RobotDescription::Create(urdfFile_).value()),
         robotState_(description_),
         action_(description_) {
@@ -137,6 +144,7 @@ class WholeBodyPdGainsHarness {
     return *controller_;
   }
   const std::vector<std::string>& mpcJointNames() const { return modelSettings_.mpcModelJointNames; }
+  const robot::model::RobotState& robotState() const { return robotState_; }
   const std::vector<size_t>& mpcJointIndices() const { return mpcJointIndices_; }
   const std::vector<size_t>& otherJointIndices() const { return otherJointIndices_; }
 
@@ -175,14 +183,15 @@ mpc_config::JointPdGainsFile gainsFile(scalar_t kp, const std::string& firstJoin
   mpc_config::JointPdGainsFile file;
   file.default_gains.kp = kp;
   file.default_gains.kd = 3.0;
+  file.default_gains.torque_limit = 1000.0;
   file.joint_gains.push_back({.joint = firstJoint, .kp = firstJointKp, .kd = std::nullopt, .torque_limit = std::nullopt});
   return file;
 }
 
 /** gainsFile() as the text of a joint_pd_gains.textproto. */
 std::string gainsText(scalar_t kp, const std::string& firstJoint, scalar_t firstJointKp) {
-  return absl::StrCat("default_gains {\n  kp: ", kp, "\n  kd: 3.0\n}\njoint_gains { joint: \"", firstJoint, "\" kp: ", firstJointKp,
-                      " }\n");
+  return absl::StrCat("default_gains {\n  kp: ", kp, "\n  kd: 3.0\n  torque_limit: 1000.0\n}\njoint_gains { joint: \"", firstJoint,
+                      "\" kp: ", firstJointKp, " }\n");
 }
 
 absl::Status setFromAnotherThread(WBMpcMrtJointController& controller, const mpc_config::JointPdGainsFile& gains) {
@@ -192,9 +201,10 @@ absl::Status setFromAnotherThread(WBMpcMrtJointController& controller, const mpc
   return status;
 }
 
+/** Writes the PD gains file `content` to `file`, below the header that names its schema. */
 void writeFile(const std::string& file, const std::string& content) {
   std::ofstream out(file, std::ios::trunc);
-  out << content;
+  out << "# proto-message: humanoid_mpc_config.JointPdGainsFile\n" << content;
 }
 
 void touchForward(const std::string& file) {
@@ -233,11 +243,13 @@ TEST(WBMpcMrtJointControllerPdGains, RefusedGainsAreRefusedOnTheCallersThreadAnd
   ASSERT_EQ(actionOf(harness.cycle(), harness.mpcJointIndices()[1]).kp, 123.0);
 
   const mpc_config::JointPdGainsFile valid = gainsFile(/*kp=*/1.0, firstJoint, /*firstJointKp=*/1.0);
-  std::vector<mpc_config::JointPdGainsFile> refused = {valid, valid, valid, valid};
+  std::vector<mpc_config::JointPdGainsFile> refused = {valid, valid, valid, valid, mpc_config::JointPdGainsFile{}, valid};
   refused[0].default_gains.kd = -3.0;
   refused[1].default_gains.kp = std::numeric_limits<double>::quiet_NaN();
   refused[2].joint_gains.push_back(refused[2].joint_gains.front());  // the same joint twice
   refused[3].joint_gains.front().joint.clear();                      // an entry that names no joint
+  // refused[4] sets nothing: the controller has no gains of its own to fill it in with.
+  refused[5].default_gains.torque_limit.reset();
   for (size_t k = 0; k < refused.size(); ++k) {
     const absl::Status status = setFromAnotherThread(harness.controller(), refused[k]);
     EXPECT_EQ(status.code(), absl::StatusCode::kInvalidArgument) << "accepted the refused gains " << k;
@@ -246,15 +258,11 @@ TEST(WBMpcMrtJointControllerPdGains, RefusedGainsAreRefusedOnTheCallersThreadAnd
     EXPECT_EQ(actionOf(action, harness.mpcJointIndices()[1]).kp, 123.0) << "refused gains " << k << " changed the gains";
     EXPECT_EQ(actionOf(action, harness.mpcJointIndices()[1]).kd, 3.0) << "refused gains " << k << " changed the gains";
   }
-
-  // The payload is the file: one that sets nothing is the controller's defaults.
-  ASSERT_TRUE(setFromAnotherThread(harness.controller(), mpc_config::JointPdGainsFile{}).ok());
-  EXPECT_EQ(actionOf(harness.cycle(), harness.mpcJointIndices()[0]).kp, 150.0);
 }
 
 TEST(WBMpcMrtJointControllerPdGains, TheGainsFileIsWatchedByPollPdGainsFileAndNotByTheControlCycle) {
   const std::string file = absl::StrCat(::testing::TempDir(), "/wb_joint_pd_gains.textproto");
-  writeFile(file, "default_gains {\n  kp: 111.0\n  kd: 3.0\n}\n");
+  writeFile(file, "default_gains {\n  kp: 111.0\n  kd: 3.0\n  torque_limit: 1000.0\n}\n");
   WholeBodyPdGainsHarness harness(file);
   harness.controller().setControlMode("JOINT_PD");
   EXPECT_EQ(actionOf(harness.cycle(), harness.mpcJointIndices()[1]).kp, 111.0) << "the constructor did not load the gains file";
@@ -277,11 +285,39 @@ TEST(WBMpcMrtJointControllerPdGains, TheGainsFileIsWatchedByPollPdGainsFileAndNo
   std::filesystem::remove(file);
 }
 
+/** Gives `file` a modification time `seconds` from now: a write before (negative) or after an event of the test. */
+void setWriteTime(const std::string& file, int seconds) {
+  std::filesystem::last_write_time(file, std::filesystem::file_time_type::clock::now() + std::chrono::seconds(seconds));
+}
+
+// A Save followed by more tuning within one poll period: the watcher notices the saved file after the newer live gains,
+// and an older edit must not undo them; a file written after them is the newer edit and is applied.
+TEST(WBMpcMrtJointControllerPdGains, AGainsFileSavedBeforeTheNewestLiveGainsDoesNotUndoThem) {
+  const std::string file = absl::StrCat(::testing::TempDir(), "/wb_superseded_joint_pd_gains.textproto");
+  writeFile(file, "default_gains {\n  kp: 111.0\n  kd: 3.0\n  torque_limit: 1000.0\n}\n");
+  WholeBodyPdGainsHarness harness(file);
+  harness.controller().setControlMode("JOINT_PD");
+  const std::string firstJoint = harness.mpcJointNames().front();
+
+  writeFile(file, gainsText(/*kp=*/222.0, firstJoint, /*firstJointKp=*/22.0));
+  setWriteTime(file, /*seconds=*/-5);
+  ASSERT_TRUE(setFromAnotherThread(harness.controller(), gainsFile(/*kp=*/333.0, firstJoint, /*firstJointKp=*/33.0)).ok());
+  harness.controller().pollPdGainsFile();
+  EXPECT_EQ(actionOf(harness.cycle(), harness.mpcJointIndices()[1]).kp, 333.0) << "the older saved file undid the newer live gains";
+
+  writeFile(file, gainsText(/*kp=*/444.0, firstJoint, /*firstJointKp=*/44.0));
+  setWriteTime(file, /*seconds=*/2);
+  harness.controller().pollPdGainsFile();
+  EXPECT_EQ(actionOf(harness.cycle(), harness.mpcJointIndices()[1]).kp, 444.0) << "a file written after the live gains was not applied";
+
+  std::filesystem::remove(file);
+}
+
 // At start-up there are no gains in use to keep: a gains file that is refused stops the controller from starting
 // rather than leaving every joint on the hard-coded defaults.
 TEST(WBMpcMrtJointControllerPdGains, AGainsFileThatIsRefusedStopsTheControllerFromStarting) {
   const std::string file = absl::StrCat(::testing::TempDir(), "/wb_refused_joint_pd_gains.textproto");
-  writeFile(file, "default_gains { kp: 150.0 }\njoint_gains { joint: \"left_knee_joint\" kd: -1.0 }\n");
+  writeFile(file, "default_gains { kp: 150.0 kd: 8.0 torque_limit: 100.0 }\njoint_gains { joint: \"left_knee_joint\" kd: -1.0 }\n");
   const WholeBodyPdGainsHarness harness(file);
   const absl::Status& refused = harness.creationStatus();
   EXPECT_EQ(refused.code(), absl::StatusCode::kInvalidArgument) << "the controller started on a gains file it refused: " << refused;
@@ -290,20 +326,57 @@ TEST(WBMpcMrtJointControllerPdGains, AGainsFileThatIsRefusedStopsTheControllerFr
   std::filesystem::remove(file);
 }
 
-// The whole-body controller commands no torque limit, and its loader never read the field: a value there, whatever it
-// is, refuses neither the gains file nor the gains of the GUI.
-TEST(WBMpcMrtJointControllerPdGains, TheTorqueLimitKeysAreNotRead) {
-  const std::string file = absl::StrCat(::testing::TempDir(), "/wb_torque_limit_joint_pd_gains.textproto");
-  writeFile(file, "default_gains {\n  kp: 111.0\n  kd: 3.0\n  torque_limit: -5.0\n}\n");
-  WholeBodyPdGainsHarness harness(file);
-  harness.controller().setControlMode("JOINT_PD");
-  EXPECT_EQ(actionOf(harness.cycle(), harness.mpcJointIndices()[1]).kp, 111.0);
+// No gains file, or one that does not exist, and the controller does not start: it has no gains of its own, where it
+// used to start every MPC joint on 150 N*m/rad and 8 N*m*s/rad with no torque limit.
+TEST(WBMpcMrtJointControllerPdGains, WithoutAGainsFileTheControllerDoesNotStart) {
+  const WholeBodyPdGainsHarness noFile(/*pdGainsFile=*/"");
+  EXPECT_EQ(noFile.creationStatus().code(), absl::StatusCode::kInvalidArgument) << noFile.creationStatus();
+  const std::string missing = absl::StrCat(::testing::TempDir(), "/wb_missing_joint_pd_gains.textproto");
+  const WholeBodyPdGainsHarness missingFile(missing);
+  EXPECT_EQ(missingFile.creationStatus().code(), absl::StatusCode::kNotFound) << missingFile.creationStatus();
+  EXPECT_TRUE(absl::StrContains(missingFile.creationStatus().message(), missing)) << missingFile.creationStatus();
+  const std::string partial = absl::StrCat(::testing::TempDir(), "/wb_partial_joint_pd_gains.textproto");
+  writeFile(partial, "default_gains { kp: 150.0 kd: 8.0 }\n");
+  const WholeBodyPdGainsHarness partialFile(partial);
+  EXPECT_TRUE(absl::StrContains(partialFile.creationStatus().message(), "default_gains.torque_limit is not set"))
+      << partialFile.creationStatus();
+  std::filesystem::remove(partial);
+}
 
-  mpc_config::JointPdGainsFile unlimited;
-  unlimited.default_gains = {.kp = 123.0, .kd = 3.0, .torque_limit = std::numeric_limits<double>::infinity()};
-  ASSERT_TRUE(setFromAnotherThread(harness.controller(), unlimited).ok());
-  EXPECT_EQ(actionOf(harness.cycle(), harness.mpcJointIndices()[1]).kp, 123.0);
-  std::filesystem::remove(file);
+// torque_limit means what it means in the centroidal controller: the bound of every feedforward torque the controller
+// commands, here in JOINT_PD and GRAVITY_COMP (gravity compensation) - it used to be ignored by this controller.
+TEST(WBMpcMrtJointControllerPdGains, TheTorqueLimitBoundsTheFeedforwardInEveryMode) {
+  const scalar_t limit = 0.25;  // [N*m], well below the gravity torques of the G1's legs at its initial posture
+  mpc_config::JointPdGainsFile limited = gainsFile(/*kp=*/100.0, /*firstJoint=*/"left_knee_joint", /*firstJointKp=*/100.0);
+  limited.default_gains.torque_limit = limit;
+  WholeBodyPdGainsHarness harness;
+  for (const char* absl_nonnull mode : {"JOINT_PD", "GRAVITY_COMP"}) {
+    harness.controller().setControlMode(mode);
+    // The positive control: with the shipped limits some feedforward is larger than the limit of the test.
+    ASSERT_TRUE(setFromAnotherThread(harness.controller(), gainsFile(/*kp=*/100.0, "left_knee_joint", /*firstJointKp=*/100.0)).ok());
+    scalar_t largest = 0.0;
+    const robot::model::RobotJointAction& unlimited = harness.cycle();
+    for (size_t index : harness.mpcJointIndices()) largest = std::max(largest, std::abs(actionOf(unlimited, index).feed_forward_effort));
+    ASSERT_GT(largest, limit) << mode;
+    ASSERT_TRUE(setFromAnotherThread(harness.controller(), limited).ok());
+    const robot::model::RobotJointAction& action = harness.cycle();
+    for (size_t index : harness.mpcJointIndices()) {
+      EXPECT_LE(std::abs(actionOf(action, index).feed_forward_effort), limit) << mode << ", joint " << index;
+    }
+  }
+}
+
+// The fraction of kd an MPC joint keeps in GRAVITY_COMP is the gains file's gravity_comp_damping_fraction, hot.
+TEST(WBMpcMrtJointControllerPdGains, TheGravityCompDampingFractionIsTheFiles) {
+  WholeBodyPdGainsHarness harness;
+  harness.controller().setControlMode("GRAVITY_COMP");
+  mpc_config::JointPdGainsFile gains = gainsFile(/*kp=*/100.0, "left_knee_joint", /*firstJointKp=*/100.0);
+  ASSERT_TRUE(setFromAnotherThread(harness.controller(), gains).ok());
+  EXPECT_DOUBLE_EQ(actionOf(harness.cycle(), harness.mpcJointIndices()[1]).kd,
+                   3.0 * mpc_config::JointPdGainsFile::kDefaultGravityCompDampingFraction);
+  gains.gravity_comp_damping_fraction = 0.6;
+  ASSERT_TRUE(setFromAnotherThread(harness.controller(), gains).ok());
+  EXPECT_DOUBLE_EQ(actionOf(harness.cycle(), harness.mpcJointIndices()[1]).kd, 3.0 * 0.6);
 }
 
 }  // namespace

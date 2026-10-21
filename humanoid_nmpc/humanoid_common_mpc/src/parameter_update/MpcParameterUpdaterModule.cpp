@@ -96,16 +96,29 @@ absl::string_view formulationName(StateInputLayout::Mpc mpc) {
   return absl::string_view();
 }
 
-/** The modification time of `path`, or nullopt when it cannot be read (the file does not exist, or `path` is empty). */
-std::optional<std::filesystem::file_time_type> lastWriteTime(const std::string& path) {
-  if (path.empty()) return std::nullopt;
-  std::error_code error;
-  const std::filesystem::file_time_type time = std::filesystem::last_write_time(path, error);
-  if (error) return std::nullopt;
-  return time;
+/**
+ * Whether a watched file written at `writeTime` is an older edit than the live update that arrived at `liveUpdateArrival`
+ * (nullopt: none has arrived), and so must not be applied over it.
+ */
+bool isOlderThanTheLiveUpdate(std::filesystem::file_time_type writeTime, std::optional<std::filesystem::file_time_type> liveUpdateArrival) {
+  return liveUpdateArrival.has_value() && writeTime < *liveUpdateArrival;
+}
+
+/** Logs that the edit of `file` written before the newest live update was not applied over it. */
+void reportSupersededFile(absl::string_view file) {
+  LOG(INFO) << "[MpcParameterUpdaterModule] " << file
+            << " was written before the newest update of operator/mpc_parameters, which supersedes it; it was not applied.";
 }
 
 }  // namespace
+
+std::optional<std::filesystem::file_time_type> lastWriteTime(absl::string_view path) {
+  if (path.empty()) return std::nullopt;
+  std::error_code error;
+  const std::filesystem::file_time_type time = std::filesystem::last_write_time(std::filesystem::path(path), error);
+  if (error) return std::nullopt;
+  return time;
+}
 
 absl::StatusOr<std::unique_ptr<MpcParameterUpdaterModule>> MpcParameterUpdaterModule::Create(MPC_BASE* absl_nullable mpcPtr,
                                                                                              Options options) {
@@ -129,10 +142,14 @@ MpcParameterUpdaterModule::MpcParameterUpdaterModule(MPC_BASE* absl_nullable mpc
       layout_(std::move(options.layout)),
       inputDim_(options.inputDim),
       referenceManagerPtr_(options.referenceManager),
-      appliers_(std::move(options.appliers)) {
-  taskFileLastWriteTime_ = lastWriteTime(taskFile_).value_or(std::filesystem::file_time_type());
-  referenceFileLastWriteTime_ = lastWriteTime(referenceFile_).value_or(std::filesystem::file_time_type());
-  contactPlanningFileLastWriteTime_ = lastWriteTime(contactPlanningFile_).value_or(std::filesystem::file_time_type());
+      appliers_(std::move(options.appliers)),
+      fileCheckPeriod_(options.fileCheckPeriod),
+      clock_(options.clock ? std::move(options.clock) : []() { return absl::Now(); }) {
+  taskFileLastWriteTime_ = options.taskFileReadAt.value_or(lastWriteTime(taskFile_).value_or(std::filesystem::file_time_type()));
+  referenceFileLastWriteTime_ =
+      options.referenceFileReadAt.value_or(lastWriteTime(referenceFile_).value_or(std::filesystem::file_time_type()));
+  contactPlanningFileLastWriteTime_ =
+      options.contactPlanningFileReadAt.value_or(lastWriteTime(contactPlanningFile_).value_or(std::filesystem::file_time_type()));
 }
 
 std::vector<std::string> MpcParameterUpdaterModule::appliedFields() const {
@@ -166,13 +183,17 @@ void MpcParameterUpdaterModule::preSolverRun(scalar_t /*initTime*/,
     }
   }
 
-  // Pathway 1: an update enqueued by enqueueParameterUpdate(), which takes priority.
+  // Pathway 2 first: an update enqueued by enqueueParameterUpdate().
   if (hasPendingUpdate_.load(std::memory_order_acquire)) {
     applyPendingUpdate();
   }
 
-  // Pathway 2: the modification times of the watched files at roughly 1 Hz (the solver runs around 100 Hz).
-  if (checkCounter_++ % 100 == 0) {
+  // Pathway 1: the modification times of the watched files, polled at fileCheckPeriod_. After the update, so that the
+  // two are applied in the order they were made: a file written before the newest update arrived is not applied over it
+  // (applyChangedFiles()), and one written after it is applied last.
+  const absl::Time now = clock_();
+  if (now - lastFileCheck_ >= fileCheckPeriod_) {
+    lastFileCheck_ = now;
     applyChangedFiles();
   }
 }
@@ -198,10 +219,19 @@ void MpcParameterUpdaterModule::applyPendingUpdate() {
 }
 
 void MpcParameterUpdaterModule::applyChangedFiles() {
+  std::optional<std::filesystem::file_time_type> taskFileUpdateArrival;
+  std::optional<std::filesystem::file_time_type> contactPlanningFileUpdateArrival;
+  {
+    absl::MutexLock lock(&pendingMutex_);
+    taskFileUpdateArrival = taskFileUpdateArrival_;
+    contactPlanningFileUpdateArrival = contactPlanningFileUpdateArrival_;
+  }
   if (const std::optional<std::filesystem::file_time_type> time = lastWriteTime(taskFile_);
       time.has_value() && *time != taskFileLastWriteTime_) {
     taskFileLastWriteTime_ = *time;
-    if (absl::StatusOr<mpc_config::TaskFile> task = loadTaskFile(taskFile_); task.ok()) {
+    if (isOlderThanTheLiveUpdate(*time, taskFileUpdateArrival)) {
+      reportSupersededFile(taskFile_);
+    } else if (absl::StatusOr<mpc_config::TaskFile> task = loadTaskFile(taskFile_); task.ok()) {
       reportStoppedReload(taskFile_, exceptionsToStatus([&]() { applyTaskFile(*task, taskFile_); }));
     } else {
       LOG(ERROR) << "[MpcParameterUpdaterModule] " << taskFile_ << " was not reloaded, nothing was applied: " << task.status().message();
@@ -210,7 +240,9 @@ void MpcParameterUpdaterModule::applyChangedFiles() {
   if (const std::optional<std::filesystem::file_time_type> time = lastWriteTime(contactPlanningFile_);
       time.has_value() && *time != contactPlanningFileLastWriteTime_) {
     contactPlanningFileLastWriteTime_ = *time;
-    if (absl::StatusOr<mpc_config::ContactPlanningFile> file = loadContactPlanningFile(contactPlanningFile_); file.ok()) {
+    if (isOlderThanTheLiveUpdate(*time, contactPlanningFileUpdateArrival)) {
+      reportSupersededFile(contactPlanningFile_);
+    } else if (absl::StatusOr<mpc_config::ContactPlanningFile> file = loadContactPlanningFile(contactPlanningFile_); file.ok()) {
       reportStoppedReload(contactPlanningFile_, exceptionsToStatus([&]() { applyContactPlanningFile(*file, contactPlanningFile_); }));
     } else {
       LOG(ERROR) << "[MpcParameterUpdaterModule] " << contactPlanningFile_
@@ -249,7 +281,11 @@ void MpcParameterUpdaterModule::reloadReferenceFile() {
 }
 
 void MpcParameterUpdaterModule::enqueueParameterUpdate(const mpc_config::MpcParameterUpdate& update) {
+  // On the clock of the files' modification times, which applyChangedFiles() compares it with.
+  const std::filesystem::file_time_type arrival = std::filesystem::file_time_type::clock::now();
   absl::MutexLock lock(&pendingMutex_);
+  taskFileUpdateArrival_ = arrival;
+  if (update.contact_planning.has_value()) contactPlanningFileUpdateArrival_ = arrival;
   pendingUpdate_ = update;
   hasPendingUpdate_.store(true, std::memory_order_release);
 }

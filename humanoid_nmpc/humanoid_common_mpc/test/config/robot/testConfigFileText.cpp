@@ -52,6 +52,12 @@ namespace {
 using ::testing::AllOf;
 using ::testing::HasSubstr;
 
+// The leading comment blocks of the files, which name their schemas.
+constexpr char kTaskHeader[] =
+    "# proto-file: humanoid_nmpc/humanoid_mpc_config/task_file.proto\n# proto-message: humanoid_mpc_config.TaskFile\n";
+constexpr char kGainsHeader[] =
+    "# proto-file: humanoid_nmpc/humanoid_mpc_config/joint_pd_gains_file.proto\n# proto-message: humanoid_mpc_config.JointPdGainsFile\n";
+
 constexpr char kTaskText[] = R"(# proto-file: humanoid_nmpc/humanoid_mpc_config/task_file.proto
 # proto-message: humanoid_mpc_config.TaskFile
 model_settings { robot_name: "g1" }
@@ -76,10 +82,12 @@ TEST(ConfigFileText, ATextParsesToWhatTheLoaderReadsFromTheSameFile) {
 }
 
 TEST(ConfigFileText, AnErrorNamesTheSourceTheLineAndTheColumn) {
-  const absl::StatusOr<mpc_config::TaskFile> unknown = parseTaskFile("model_settings { robot_nam: \"g1\" }\n", /*source=*/"from the bus");
+  const absl::StatusOr<mpc_config::TaskFile> unknown =
+      parseTaskFile(absl::StrCat(kTaskHeader, "model_settings { robot_nam: \"g1\" }\n"), /*source=*/"from the bus");
   EXPECT_EQ(unknown.status().code(), absl::StatusCode::kInvalidArgument);
-  EXPECT_THAT(unknown.status().message(), AllOf(HasSubstr("from the bus:1:"), HasSubstr("robot_nam")));
-  const absl::StatusOr<mpc_config::TaskFile> syntax = parseTaskFile("model_settings {\n", /*source=*/"from the bus");
+  EXPECT_THAT(unknown.status().message(), AllOf(HasSubstr("from the bus:3:"), HasSubstr("robot_nam")));
+  const absl::StatusOr<mpc_config::TaskFile> syntax =
+      parseTaskFile(absl::StrCat(kTaskHeader, "model_settings {\n"), /*source=*/"from the bus");
   EXPECT_EQ(syntax.status().code(), absl::StatusCode::kInvalidArgument);
   EXPECT_THAT(syntax.status().message(), HasSubstr("from the bus:"));
 }
@@ -97,10 +105,29 @@ TEST(ConfigFileText, AFileOfAnotherMessageIsRefusedByItsHeader) {
 
 TEST(ConfigFileText, APdGainsTextParses) {
   const absl::StatusOr<mpc_config::JointPdGainsFile> gains =
-      parseJointPdGainsFile("default_gains { kp: 100.0 kd: 2.0 }\n", /*source=*/"saved gains");
+      parseJointPdGainsFile(absl::StrCat(kGainsHeader, "default_gains { kp: 100.0 kd: 2.0 }\n"), /*source=*/"saved gains");
   ASSERT_TRUE(gains.ok()) << gains.status();
   EXPECT_EQ(gains->default_gains.kp, 100.0);
-  EXPECT_FALSE(parseJointPdGainsFile("default_gains { kq: 1.0 }\n", /*source=*/"saved gains").ok());
+  EXPECT_FALSE(parseJointPdGainsFile(absl::StrCat(kGainsHeader, "default_gains { kq: 1.0 }\n"), /*source=*/"saved gains").ok());
+}
+
+TEST(ConfigFileText, ATextOrFileThatNamesNoSchemaIsRefused) {
+  // A file is written and read again by path; one that names no message could be read as any message it matches.
+  constexpr char kBody[] = "model_settings { robot_name: \"g1\" }\n";
+  const absl::StatusOr<mpc_config::TaskFile> text = parseTaskFile(kBody, /*source=*/"saved task file");
+  EXPECT_EQ(text.status().code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_THAT(text.status().message(), AllOf(HasSubstr("saved task file:1:1: saved task file names no schema"),
+                                             HasSubstr("# proto-message: humanoid_mpc_config.TaskFile")));
+  const std::string path = writeFile("headerless_task.textproto", kBody);
+  const absl::StatusOr<mpc_config::TaskFile> file = loadTaskFile(path);
+  EXPECT_EQ(file.status().code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_THAT(file.status().message(), HasSubstr(absl::StrCat(path, ":1:1: ", path, " names no schema")));
+  // A comment block without the message line names no schema either; with it, the same body parses.
+  EXPECT_FALSE(
+      parseTaskFile(absl::StrCat("# proto-file: humanoid_nmpc/humanoid_mpc_config/task_file.proto\n", kBody), /*source=*/"t").ok());
+  EXPECT_TRUE(parseTaskFile(absl::StrCat(kTaskHeader, kBody), /*source=*/"t").ok());
+  EXPECT_FALSE(parseJointPdGainsFile("default_gains { kp: 1.0 }\n", /*source=*/"saved gains").ok());
+  EXPECT_FALSE(parseReferenceFile("target_displacement_velocity: 0.5\n", /*source=*/"saved reference").ok());
 }
 
 TEST(ConfigFileIdentity, IsThePathFromTheLastRobotModelsDirectoryOn) {

@@ -35,6 +35,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/cost/EndEffectorKinematicCostHelpers.h"
 #include "humanoid_mpc_config/task_space_cost_config.nproto.h"
 #include "humanoid_mpc_config/task_space_weights.nproto.h"
@@ -48,6 +49,14 @@ inline constexpr absl::string_view kSwingFootCostPhases = "swing";
 /** Every foot, in swing and in stance (CentroidalMpcEndEffectorFootCost's activeInStance). */
 inline constexpr absl::string_view kSwingAndStanceFootCostPhases = "swing_and_stance";
 // LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_config/task_space_cost_config.proto:active_phases)
+
+// LINT.IfChange(swing_velocity_reference_weight)
+/**
+ * The weight of task_space_foot_cost.swing_velocity_reference_weight when the file leaves it out: a sqrt weight of 1.5,
+ * the value CentroidalMpcEndEffectorFootCost hard-coded before the field existed.
+ */
+inline constexpr scalar_t kDefaultSwingVelocityReferenceWeight = 2.25;
+// LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_config/task_space_cost_config.proto:swing_velocity_reference_weight)
 
 /** Every name active_phases accepts. */
 std::vector<std::string> footCostPhasesNames();
@@ -67,6 +76,9 @@ struct TaskSpaceFootCostSettings {
   // Whether the cost also weighs a foot in stance (active_phases "swing_and_stance"; CentroidalMpcEndEffectorFootCost's
   // activeInStance).
   bool activeInStance = false;
+  // The weight of the x and y linear velocity errors of a swing foot without a landing target, against the commanded
+  // base velocity (swing_velocity_reference_weight); finite and non-negative.
+  scalar_t swingVelocityReferenceWeight = kDefaultSwingVelocityReferenceWeight;
 };
 
 /** A task-space cost on a named link (an entry of the task file's task_space_costs; the cost task_space_torso_cost). */
@@ -84,7 +96,7 @@ struct TaskSpaceLinkCostSettings {
  *
  * @param weights The weights block.
  * @param path The block's path in the task file, for the errors (e.g. "task_space_foot_cost.weights").
- * @return The weights; InvalidArgument naming the field when a weight is not finite, or when an acceleration weight is
+ * @return The weights; InvalidArgument naming the field when a weight is not finite or is below 0, or when an acceleration weight is
  *         not 0: the kinematics costs have no acceleration term, so the weight would do nothing.
  */
 absl::StatusOr<EndEffectorKinematicsWeights> endEffectorKinematicsWeightsFromConfig(const mpc_config::TaskSpaceWeights& weights,
@@ -92,11 +104,12 @@ absl::StatusOr<EndEffectorKinematicsWeights> endEffectorKinematicsWeightsFromCon
 
 /**
  * The swing-foot cost from the task file's task_space_foot_cost (formerly task_space_foot_cost_weights): its weights
- * (endEffectorKinematicsWeightsFromConfig()) and active_phases (footCostActiveInStanceFromName()).
+ * (endEffectorKinematicsWeightsFromConfig()), active_phases (footCostActiveInStanceFromName()) and
+ * swing_velocity_reference_weight.
  *
  * @return The settings; InvalidArgument for the weights' errors, for an active_phases that is no name of
- *         footCostPhasesNames(), and when the block sets a name or a link_name, which only the named costs of
- *         task_space_costs have.
+ *         footCostPhasesNames(), for a swing_velocity_reference_weight that is negative or not finite, and when the
+ *         block sets a name or a link_name, which only the named costs of task_space_costs have.
  */
 absl::StatusOr<TaskSpaceFootCostSettings> taskSpaceFootCostFromConfig(const mpc_config::TaskSpaceCostConfig& footCost);
 
@@ -105,7 +118,8 @@ absl::StatusOr<TaskSpaceFootCostSettings> taskSpaceFootCostFromConfig(const mpc_
  * of the same name.
  *
  * @return The costs; InvalidArgument naming the entry when its name or link_name is empty, when a name is given twice,
- *         when it sets an active_phases other than "swing" (the foot cost's alone), and for the weights' errors.
+ *         when it sets an active_phases other than "swing" or any swing_velocity_reference_weight (the foot cost's
+ *         alone), and for the weights' errors.
  */
 absl::StatusOr<std::vector<TaskSpaceLinkCostSettings>> taskSpaceLinkCostsFromConfig(
     const std::vector<mpc_config::TaskSpaceCostConfig>& costs);

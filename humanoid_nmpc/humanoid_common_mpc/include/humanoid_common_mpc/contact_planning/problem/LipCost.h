@@ -35,7 +35,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-/** A quadratic cost on the stage variables. */
+/**
+ * A quadratic cost on the stage variables.
+ *
+ * Not thread-safe, like every ContactPlanningTerm: the planner that owns it configures and evaluates it from one thread at a time.
+ */
 class LipCost : public ContactPlanningTerm {
  public:
   virtual NodeSet nodeSet() const = 0;

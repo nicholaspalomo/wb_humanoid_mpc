@@ -229,16 +229,16 @@ class MujocoViewerConfigTest(unittest.TestCase):
     """mujoco_viewer: the robot process's MuJoCo viewer by registry name, checked as the robot checks it."""
 
     def test_the_field_names_a_viewer_or_a_preference_list(self) -> None:
-        cfg = plot_config.parse_plot_config(_HEADER + 'mujoco_viewer: "glfw"\n')
+        cfg = plot_config.parse_plot_config(f'{_HEADER}mujoco_viewer: "glfw"\n')
         self.assertEqual(cfg.mujoco_viewer, ("glfw",))
         cfg = plot_config.parse_plot_config(
-            _HEADER + 'mujoco_viewer: ["web", "none"]\n'
+            f'{_HEADER}mujoco_viewer: ["web", "none"]\n'
         )
         self.assertEqual(cfg.mujoco_viewer, ("web", "none"))
 
     def test_without_the_field_the_list_is_empty_and_the_robot_chooses(self) -> None:
         # The robot process's built-in default (web) applies; the C++ tests pin it (testRobotAppOptions.cpp).
-        cfg = plot_config.parse_plot_config(_HEADER + 'signals: "base_pose/*"\n')
+        cfg = plot_config.parse_plot_config(f'{_HEADER}signals: "base_pose/*"\n')
         self.assertEqual(cfg.mujoco_viewer, ())
         self.assertEqual(plot_config.PlotConfig().mujoco_viewer, ())
         self.assertEqual(plot_config.MUJOCO_VIEWER_NAMES, ("glfw", "web", "none"))
@@ -246,7 +246,7 @@ class MujocoViewerConfigTest(unittest.TestCase):
     def test_an_unknown_name_is_refused_with_the_valid_ones(self) -> None:
         with self.assertRaises(plot_config.PlotConfigError) as raised:
             plot_config.parse_plot_config(
-                _HEADER + 'mujoco_viewer: "vnc"\n', source="my.textproto"
+                f'{_HEADER}mujoco_viewer: "vnc"\n', source="my.textproto"
             )
         message = str(raised.exception)
         self.assertIn("my.textproto", message)
@@ -331,6 +331,44 @@ class ResolveAllowedInstancesTest(unittest.TestCase):
             plot_config.resolve_allowed_instances(cfg),
             ("measured",),
         )
+
+    def test_an_empty_config_draws_every_instance(self) -> None:
+        # Every instance the scene carries, terminal_target included (which the blueprint hides until shown).
+        self.assertIsNone(
+            plot_config.resolve_allowed_instances(plot_config.PlotConfig())
+        )
+
+    def test_draw_terminal_state_false_overrides_robot_instances(self) -> None:
+        cfg = plot_config.PlotConfig(
+            robot_instances=("measured", "terminal_state", "terminal_target"),
+            draw_terminal_state=False,
+        )
+        self.assertEqual(plot_config.resolve_allowed_instances(cfg), ("measured",))
+
+    def test_the_flag_brings_back_the_robots_the_shipped_file_drops(self) -> None:
+        cfg = plot_config.load_plot_config(
+            "humanoid_nmpc/humanoid_rerun_viewer/config/plot_config.textproto"
+        )
+        self.assertIsNone(
+            plot_config.resolve_allowed_instances(cfg, cli_terminal_state=True)
+        )
+
+    def test_the_schema_comments_describe_the_resolution(self) -> None:
+        # proto/plot_config.proto's comments are the schema's documentation: they must say what the code above does.
+        with open(
+            "humanoid_nmpc/humanoid_rerun_viewer/proto/plot_config.proto",
+            encoding="utf-8",
+        ) as schema:
+            text = schema.read()
+        instances = text[: text.index("repeated string robot_instances")]
+        instances = instances[instances.rindex("string custom_tab_title") :]
+        self.assertNotIn('defaults to ("measured", "terminal_state")', instances)
+        self.assertIn("every instance", instances)
+        self.assertIn("terminal_target", instances)
+        terminal = text[: text.index("optional bool draw_terminal_state")]
+        terminal = terminal[terminal.rindex("repeated string robot_instances") :]
+        self.assertIn('only "measured"', terminal)
+        self.assertIn("whatever robot_instances", terminal)
 
 
 if __name__ == "__main__":

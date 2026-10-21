@@ -37,6 +37,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/string_view.h"
 
 #include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc_app/robot/FsmBridge.h"
+#include "humanoid_common_mpc_app/robot/FsmBridgeState.h"
 #include "humanoid_common_mpc_app/robot/FsmStateMailbox.h"
 #include "humanoid_common_mpc_app/robot/OperatorCommandMailbox.h"
 #include "humanoid_common_mpc_app/robot/RealtimeEventLog.h"
@@ -47,79 +49,53 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * The supervisory FSM of the simulated robot, on the realtime thread of the robot process: it takes the operator's
- * commands from the OperatorCommandMailbox, switches the simulator's torques and gantry, and hands the FSM state to
- * the FsmStateMailbox, which the communication thread publishes on robot/fsm_state. It touches no bus, parses nothing
- * and logs nothing (its reports go to a RealtimeEventLog). Every call is for the realtime thread.
+ * The FsmBridge of the simulated robot (the `sim` supervisor of RobotSupervisorRegistry): the FSM commands switch the
+ * simulator's torques and move its virtual gantry, the gantry follows the GUI's height slider while it is locked, and
+ * a dodgeball throw from the GUI is handed to the simulator.
  *
- * Encapsulates:
- * 1. The nominal stance positions (the JOINT_PD posture, which the controllers compute the action of), with the
- *    operator's joint targets merged in (applyJointTargetUpdates()).
- * 2. The FSM commands: ZERO_TORQUE (or DISABLE_TORQUES) switches the torques off; JOINT_PD, GRAVITY_COMP, WB_MPC (or
- *    MPC_ACTIVE, ENABLE_TORQUES) and SAFETY switch them on and enter the mode; LOCK_GANTRY and UNLOCK_GANTRY move the
- *    virtual gantry. One command per cycle, in the order they were sent.
- * 3. The gantry height slider (the walking command's desired_pelvis_height), followed while the gantry is locked.
- * 4. A dodgeball throw from the GUI, handed to the simulator.
- * 5. The FSM state: the mode, the gantry, the number of controller resets so far and the MPC's health.
- * The fall recovery - catching a fallen robot, noticing the simulator's own resets, settling the caught robot - is
- * SimFallRecovery.
+ * The FSM commands: ZERO_TORQUE (or DISABLE_TORQUES) switches the torques off; JOINT_PD, GRAVITY_COMP, WB_MPC (or
+ * MPC_ACTIVE, ENABLE_TORQUES) and SAFETY switch them on and enter the mode; LOCK_GANTRY and UNLOCK_GANTRY move the
+ * virtual gantry. The fall recovery - catching a fallen robot, noticing the simulator's own resets, settling the
+ * caught robot - is SimFallRecovery. Every call is for the realtime thread.
  */
-class SimFsmBridge {
+class SimFsmBridge final : public FsmBridge {
  public:
   /**
-   * Captures the nominal joint positions and the gantry height from `initState`, and writes the initial state
-   * (ZERO_TORQUE, gantry locked) to `fsmStates`. The mailboxes and the log must outlive the bridge; `eventLog` may be
-   * nullptr.
+   * Captures the nominal joint positions from `initState` and writes the initial state (ZERO_TORQUE, the simulator's
+   * gantry) to `fsmStates`. The mailboxes, the simulator and the log must outlive the bridge; `eventLog` may be nullptr.
    */
   SimFsmBridge(const robot::model::RobotDescription& robotDescription,
                const robot::model::RobotState& initState,
-               OperatorCommandMailbox& commands,
-               FsmStateMailbox& fsmStates,
+               OperatorCommandMailbox* absl_nonnull commands,
+               FsmStateMailbox* absl_nonnull fsmStates,
+               robot::mujoco_sim_interface::MujocoSimInterface* absl_nonnull simulator,
                RealtimeEventLog* absl_nullable eventLog = nullptr);
 
-  /** Writes the current FSM mode, the gantry state, the controller resets so far and the MPC's health. */
-  void publishFsmState(absl::string_view modeName, bool gantryLocked);
+  SimFsmBridge(const SimFsmBridge&) = delete;
+  SimFsmBridge& operator=(const SimFsmBridge&) = delete;
+  ~SimFsmBridge() override = default;
+
+  void applyJointTargetUpdates() override { state_.applyJointTargetUpdates(); }
+  const std::vector<scalar_t>& getNominalJointPositions() const override { return state_.nominalJointPositions(); }
 
   /**
-   * Counts one controller reset and publishes the state with the new count.
-   *
-   * A controller reset is a discontinuity of the plant after which the controller starts again from where the robot is
-   * (SimFallRecovery::Cycle::discontinuity): a catch, a LOCK_GANTRY, or a reset the simulator made on its own thread.
-   * The remote control re-centers its joysticks on every change of the count, which is what releases them after a reset
-   * that changes neither the mode nor the gantry - the simulator putting the robot back while the gantry was already
-   * locked in JOINT_PD.
+   * Hands the newest dodgeball throw to the simulator, then processes the oldest FSM command, if any, applies its mode
+   * and gantry changes to the simulator and publishes the updated state. Without a command, the gantry follows the
+   * height slider while it is locked.
    */
-  void publishControllerReset(absl::string_view modeName, bool gantryLocked);
+  bool processCommands(std::string& currentModeName) override;
 
-  /** Records the MPC's health (false: the controller holds JOINT_PD), and publishes the state when it changed. */
-  void setMpcHealthy(bool mpcHealthy, absl::string_view modeName, bool gantryLocked);
-
-  /** The controller resets counted so far, the controller_resets of every state published. */
-  uint64_t controllerResets() const { return controllerResets_; }
-  bool mpcHealthy() const { return mpcHealthy_; }
-
-  /**
-   * Hands the newest dodgeball throw to the simulator, then processes the oldest FSM command, if any, applies its
-   * mode and gantry changes to `robotInterface` and publishes the updated state. Without a command, the gantry follows
-   * the height slider while it is locked.
-   * @param currentModeName The current mode name (updated if changed).
-   * @return true if a command was processed, false otherwise.
-   */
-  bool processCommands(std::string& currentModeName, robot::mujoco_sim_interface::MujocoSimInterface& robotInterface);
-
-  /** The nominal joint positions, indexed like the robot's joints. */
-  const std::vector<scalar_t>& getNominalJointPositions() const { return nominalJointPositions_; }
-
-  /** Takes the operator's newest joint targets into the nominal posture, if new ones have arrived. */
-  void applyJointTargetUpdates();
+  bool isGantryLocked() const override { return simulator_->isGantryLocked(); }
+  void publishFsmState(absl::string_view modeName) override { state_.publish(modeName, isGantryLocked()); }
+  void publishControllerReset(absl::string_view modeName) override { state_.publishControllerReset(modeName, isGantryLocked()); }
+  void setMpcHealthy(bool mpcHealthy, absl::string_view modeName) override { state_.setMpcHealthy(mpcHealthy, modeName, isGantryLocked()); }
+  uint64_t controllerResets() const override { return state_.controllerResets(); }
+  bool mpcHealthy() const override { return state_.mpcHealthy(); }
 
  private:
-  OperatorCommandMailbox& commands_;
-  FsmStateMailbox& fsmStates_;
+  robot::mujoco_sim_interface::MujocoSimInterface* absl_nonnull simulator_;
   RealtimeEventLog* absl_nullable const eventLog_;
-  std::vector<scalar_t> nominalJointPositions_;
-  uint64_t controllerResets_ = 0;
-  bool mpcHealthy_ = true;
+  FsmBridgeState state_;
 };
 
 }  // namespace ocs2::humanoid

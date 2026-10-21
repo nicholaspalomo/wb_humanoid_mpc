@@ -100,6 +100,15 @@ proto_lang_toolchain(
 # The runtime
 # ==============================================================================
 
+# The FNV-1a 64-bit constants (include/nproto/Fnv1a64Constants.h), with no dependencies: the schema fingerprint, the
+# configuration dumps and the humanoid MPC's fingerprints hash with them.
+cc_library(
+    name = "fnv1a64_constants",
+    hdrs = ["include/nproto/Fnv1a64Constants.h"],
+    copts = FIRST_PARTY_COPTS,
+    includes = ["include"],
+)
+
 # What the generated code calls (nproto/Conversions.h) and the textproto helpers (nproto/Textproto.h). The generated
 # code depends on it through :nproto_toolchain, and with it on protobuf, Eigen and Abseil, absl/base:nullability for
 # the annotated output parameters of its signatures included. The parser reads the retired-field options of the message
@@ -119,6 +128,7 @@ cc_library(
     copts = FIRST_PARTY_COPTS,
     includes = ["include"],
     deps = [
+        ":fnv1a64_constants",
         ":options_cc_proto",
         "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/status",

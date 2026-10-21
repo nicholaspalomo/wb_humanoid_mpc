@@ -256,6 +256,8 @@ TEST(EulerChart, RateCouplingIsTheDerivativeOfTheBodyRate) {
     const vector3_t angles(uniform(engine), uniform(engine), uniform(engine));
     const vector3_t rates(uniform(engine), uniform(engine), uniform(engine));
     const matrix3_t derivative = localAngularVelocityEulerAngleDerivative(angles, rates);
+    // The chart's coupling block comes from the one Euler boundary.
+    EXPECT_EQ(derivative, localAngularVelocityEulerZyxJacobian(angles, rates));
     for (Eigen::Index j = 0; j < 3; ++j) {
       vector3_t plus = angles;
       vector3_t minus = angles;

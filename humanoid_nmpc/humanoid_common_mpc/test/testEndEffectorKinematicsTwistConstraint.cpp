@@ -86,9 +86,6 @@ class AnalyticEndEffectorKinematics final : public EndEffectorKinematics<scalar_
   std::vector<vector3_t> getOrientationErrorWrtPlane(const vector_t& state, const std::vector<vector3_t>& planeNormals) const override {
     return {rotationMatrixDistanceToPlane<scalar_t>(rotationOf(state), planeNormals.front())};
   }
-  std::vector<vector3_t> getOrientationError(const vector_t& state, const std::vector<quaternion_t>& references) const override {
-    return {quaternionDistance<scalar_t>(quaternion_t(rotationOf(state)), references.front())};
-  }
 
   std::vector<VectorFunctionLinearApproximation> getPositionLinearApproximation(const vector_t& state) const override {
     VectorFunctionLinearApproximation approx;
@@ -141,14 +138,6 @@ class AnalyticEndEffectorKinematics final : public EndEffectorKinematics<scalar_
           (getOrientationErrorWrtPlane(plus, planeNormals).front() - getOrientationErrorWrtPlane(minus, planeNormals).front()) /
           (2.0 * eps);
     }
-    return {approx};
-  }
-
-  std::vector<VectorFunctionLinearApproximation> getOrientationErrorLinearApproximation(
-      const vector_t& state, const std::vector<quaternion_t>& references) const override {
-    VectorFunctionLinearApproximation approx;
-    approx.f = getOrientationError(state, references).front();
-    approx.dfdx = matrix_t::Zero(3, state.size());
     return {approx};
   }
 

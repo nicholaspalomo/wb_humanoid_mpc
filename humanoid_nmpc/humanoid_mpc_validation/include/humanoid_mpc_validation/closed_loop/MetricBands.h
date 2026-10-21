@@ -95,7 +95,8 @@ std::string describeClosedLoopComparison(const ClosedLoopComparison& comparison)
  * `candidate` held to the bands around `baseline`: every way in which it falls outside them, and every way in which it
  * is better than a kNoWorse band. A robot that fell in the baseline is compared on survival alone (an improvement where
  * the candidate survived); one that fell in the candidate only, fails on survival and is compared no further. A metric
- * that is null in either document is skipped. A run (`make closed-loop-metrics ... BASELINE=`) and the offline
+ * that is null (or not finite) in the baseline is skipped; one the baseline has and the candidate lacks, null, absent or
+ * not finite, is a violation, as a NaN would otherwise pass every band. A run (`make closed-loop-metrics ... BASELINE=`) and the offline
  * comparison of its archived document (compareArchivedClosedLoopRuns()) both compare through it, so they reach the same
  * verdict.
  */

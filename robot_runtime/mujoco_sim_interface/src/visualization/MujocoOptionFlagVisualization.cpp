@@ -33,9 +33,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <utility>
 
-#include "absl/base/nullability.h"
-
-#include "mujoco_sim_interface/MujocoSimInterface.h"
+#include "mujoco/mujoco.h"
 
 namespace robot::mujoco_sim_interface {
 
@@ -65,21 +63,12 @@ std::unique_ptr<MujocoOptionFlagVisualization> MujocoOptionFlagVisualization::co
                                                          mjVIS_CONVEXHULL);
 }
 std::unique_ptr<MujocoOptionFlagVisualization> MujocoOptionFlagVisualization::transparency() {
-  return std::make_unique<MujocoOptionFlagVisualization>("mj_transparent", "model transparency (30% alpha, x-ray view)", /*hotkey=*/'t',
-                                                         kTransparency);
+  return std::make_unique<MujocoOptionFlagVisualization>(
+      "mj_transparent", "MuJoCo's x-ray view: the moving geoms at the model's map alpha (30% by default), the floor opaque",
+      /*hotkey=*/'t', mjVIS_TRANSPARENT);
 }
 
 void MujocoOptionFlagVisualization::beforeSceneUpdate(const VisualizationFrame& frame) {
-  if (flag_ == kTransparency) {
-    // The alpha lives in the model the frame is drawn with - the simulator's own for the GLFW window, so it is written
-    // only when the state changes.
-    if (frame.model == nullptr || transparencyApplied_ == enabled()) return;
-    const mjModel* absl_nonnull model = frame.model;
-    const float alpha = enabled() ? kTransparentAlpha : 1.0f;
-    for (int i = 0; i < model->ngeom; ++i) model->geom_rgba[4 * i + 3] = alpha;
-    transparencyApplied_ = enabled();
-    return;
-  }
   if (frame.options == nullptr || flag_ < 0 || flag_ >= mjNVISFLAG) return;
   frame.options->flags[flag_] = enabled() ? 1 : 0;
 }

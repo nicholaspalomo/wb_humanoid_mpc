@@ -130,7 +130,7 @@ class InputQuadraticCostTest : public ::testing::Test {
     absl::StatusOr<std::shared_ptr<GaitSchedule>> gaitSchedule = GaitSchedule::Create(*referenceFile, *settings_);
     ASSERT_TRUE(gaitSchedule.ok()) << gaitSchedule.status();
     referenceManager_ = std::make_unique<SwitchedModelReferenceManager>(
-        *gaitSchedule, std::make_shared<SwingTrajectoryPlanner>(SwingTrajectoryPlanner::Config(), /*numFeet=*/2), *pinocchioInterface_,
+        *gaitSchedule, std::make_unique<SwingTrajectoryPlanner>(SwingTrajectoryPlanner::Config(), /*numFeet=*/2), *pinocchioInterface_,
         *model_);
 
     std::mt19937 generator(31);

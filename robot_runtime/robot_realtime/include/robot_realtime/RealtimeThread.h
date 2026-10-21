@@ -55,6 +55,10 @@ inline constexpr size_t kMaxThreadNameLength = 15;
 /// How much stack configureCurrentThread() prefaults for a realtime thread by default.
 inline constexpr size_t kDefaultStackPrefaultBytes = 256 * 1024;
 
+/// The RealtimeThreadConfig::priority that keeps a thread on the time-sharing scheduler: the default of the processes'
+/// --realtime_priority flags.
+inline constexpr int kTimeSharingPriority = 0;
+
 /**
  * Runs the calling thread under SCHED_FIFO at `priority`.
  *
@@ -117,8 +121,9 @@ enum class MemoryLock {
 struct RealtimeThreadConfig {
   /// Thread name, at most kMaxThreadNameLength characters; empty keeps the current name.
   std::string name;
-  /// SCHED_FIFO priority, 1 to 99; 0 keeps the thread on the time-sharing scheduler and its memory unlocked.
-  int priority = 0;
+  /// SCHED_FIFO priority, 1 to 99; kTimeSharingPriority (0) keeps the thread on the time-sharing scheduler and its memory
+  /// unlocked.
+  int priority = kTimeSharingPriority;
   /// CPU cores to pin the thread to; empty leaves its affinity alone.
   std::vector<int> cores;
   /// Stack to prefault when `priority` > 0 and `memoryLock` is kLockProcess.

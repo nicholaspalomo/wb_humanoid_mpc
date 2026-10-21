@@ -118,7 +118,7 @@ vector_t TimeTriggeredRollout::run(scalar_t initTime,
 
     // compute control input trajectory and concatenate to inputTrajectory
     if (this->settings().reconstructInputTrajectory) {
-      for (; k_u < timeTrajectory.size(); k_u++) {
+      for (; static_cast<size_t>(k_u) < timeTrajectory.size(); k_u++) {
         inputTrajectory.emplace_back(systemDynamicsPtr_->controllerPtr()->computeInput(timeTrajectory[k_u], stateTrajectory[k_u]));
       }  // end of k_u loop
     }

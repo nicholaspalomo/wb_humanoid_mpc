@@ -36,6 +36,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "Eigen/Core"
 #include "absl/status/statusor.h"
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_mpc_validation/io/GoldenIo.h"
 #include "robot_model/RobotDescription.h"
 #include "robot_model/RobotState.h"
@@ -48,6 +49,9 @@ namespace ocs2::humanoid::validation {
  * states recorded from the Euler formulation drive the quaternion one through the same observation path.
  */
 struct RobotStateRecord {
+  /** The contact points a record holds the flags of: the robot's two feet, in the RobotState's contact order. */
+  static constexpr int kNumRecordedContacts = static_cast<int>(kNumContacts);
+
   double time = 0.0;                                                   ///< [s]
   Eigen::Vector3d basePosition = Eigen::Vector3d::Zero();              ///< [m] world frame
   Eigen::Vector4d baseQuaternion = Eigen::Vector4d::UnitW();           ///< base to world, coefficients (x, y, z, w)
@@ -55,7 +59,7 @@ struct RobotStateRecord {
   Eigen::Vector3d baseAngularVelocityLocal = Eigen::Vector3d::Zero();  ///< [rad/s] base frame
   Eigen::VectorXd jointPositions;                                      ///< every joint of the description, in its order
   Eigen::VectorXd jointVelocities;
-  std::array<bool, 2> contactFlags{false, false};
+  std::array<bool, kNumRecordedContacts> contactFlags{false, false};
   Eigen::Vector4d guiCommand = Eigen::Vector4d::Zero();  ///< GuiVelocityCommand::message
 };
 

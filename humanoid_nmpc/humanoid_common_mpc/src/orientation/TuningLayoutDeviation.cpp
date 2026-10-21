@@ -37,6 +37,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/log/absl_check.h"
 #include "absl/log/die_if_null.h"
 #include "absl/log/log.h"
+#include "ocs2_core/Dimensions.h"
 #include "ocs2_core/manifold/UnitQuaternionMath.h"
 
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
@@ -47,8 +48,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 namespace {
 
-/** Tuning rows of a rotation block: (yaw, pitch, roll) of the orientation, (z, y, x) of the angular velocity. */
-constexpr size_t kRotationTuningDim = 3;
+/**
+ * The dense Jacobian blocks of linearize(): the orientation rows' alone, and with an angular velocity block also the
+ * angular velocity rows' with respect to its own slots and to the orientation slots.
+ */
+constexpr int kNumDenseBlocksWithoutAngularVelocity = 1;
+constexpr int kNumDenseBlocksWithAngularVelocity = 3;
 
 /** The angular-velocity rows' residual e_w and the reference angular velocity a it subtracts, for its Jacobian. */
 struct AngularVelocityError {
@@ -71,7 +76,8 @@ AngularVelocityError angularVelocityError(const vector4_t& orientation,
                                     (quaternionRotationMatrix<scalar_t>(referenceOrientation) * referenceAngularVelocity);
   const vector3_t difference = angularVelocity - referenceInBody;
   // P_3: the body axes (x, y, z) in the rows (z, y, x) of the tuning layout.
-  return AngularVelocityError{.residual = vector3_t(difference(2), difference(1), difference(0)), .referenceInBody = referenceInBody};
+  return AngularVelocityError{.residual = vector3_t(difference(kZAxisIndex), difference(kYAxisIndex), difference(kXAxisIndex)),
+                              .referenceInBody = referenceInBody};
 }
 
 /** P_3 m: the rows of `m` in reverse order, (x, y, z) -> (z, y, x). */
@@ -150,9 +156,10 @@ vector_t TuningLayoutDeviation::evaluate(const vector_t& state, const vector_t& 
   if (!orientation_.has_value()) return residual;
   const vector4_t orientation = mpcRobotModel_->getBaseOrientation(state);
   const vector4_t referenceOrientation = mpcRobotModel_->getBaseOrientation(stateReference);
-  residual.segment<3>(static_cast<Eigen::Index>(orientation_->tuningRow)) = headingTiltResidual(orientation, referenceOrientation);
+  residual.segment<kRotationTangentDim>(static_cast<Eigen::Index>(orientation_->tuningRow)) =
+      headingTiltResidual(orientation, referenceOrientation);
   if (!angularVelocity_.has_value()) return residual;
-  residual.segment<3>(static_cast<Eigen::Index>(angularVelocity_->tuningRow)) =
+  residual.segment<kRotationTangentDim>(static_cast<Eigen::Index>(angularVelocity_->tuningRow)) =
       angularVelocityError(orientation, referenceOrientation, mpcRobotModel_->getBaseAngularVelocityLocal(state),
                            mpcRobotModel_->getBaseAngularVelocityLocal(stateReference))
           .residual;
@@ -168,8 +175,9 @@ TuningDeviationApproximation TuningLayoutDeviation::linearize(const vector_t& st
   // d(body rotation tangent) / d(orientation slots): E+(xi) of the quaternion.
   const matrix_t rotationTangent = mpcRobotModel_->getBaseRotationTangentJacobian(state);
   const HeadingTiltError headingTilt = headingTiltError(orientation, referenceOrientation);
-  approximation.residual.segment<3>(static_cast<Eigen::Index>(orientation_->tuningRow)) = headingTilt.residual;
-  approximation.denseBlocks.reserve(angularVelocity_.has_value() ? 3 : 1);
+  approximation.residual.segment<kRotationTangentDim>(static_cast<Eigen::Index>(orientation_->tuningRow)) = headingTilt.residual;
+  approximation.denseBlocks.reserve(angularVelocity_.has_value() ? kNumDenseBlocksWithAngularVelocity
+                                                                 : kNumDenseBlocksWithoutAngularVelocity);
   approximation.denseBlocks.push_back(TuningJacobianDenseBlock{.tuningRow = orientation_->tuningRow,
                                                                .stateColumn = orientation_->stateStart,
                                                                .value = headingTilt.jacobianBodyTangent * rotationTangent});
@@ -178,7 +186,7 @@ TuningDeviationApproximation TuningLayoutDeviation::linearize(const vector_t& st
   const AngularVelocityError angularVelocity =
       angularVelocityError(orientation, referenceOrientation, mpcRobotModel_->getBaseAngularVelocityLocal(state),
                            mpcRobotModel_->getBaseAngularVelocityLocal(stateReference));
-  approximation.residual.segment<3>(static_cast<Eigen::Index>(angularVelocity_->tuningRow)) = angularVelocity.residual;
+  approximation.residual.segment<kRotationTangentDim>(static_cast<Eigen::Index>(angularVelocity_->tuningRow)) = angularVelocity.residual;
   const BaseAngularVelocityJacobian angularVelocityJacobian = mpcRobotModel_->getBaseAngularVelocityLocalJacobian(state);
   approximation.denseBlocks.push_back(TuningJacobianDenseBlock{.tuningRow = angularVelocity_->tuningRow,
                                                                .stateColumn = angularVelocity_->stateStart,

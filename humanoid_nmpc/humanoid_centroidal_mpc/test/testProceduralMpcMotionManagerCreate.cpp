@@ -302,6 +302,7 @@ TEST(ProceduralMpcMotionManagerCreate, AGaitFileWithoutAGaitTheCommandSelectsIsR
   AtlasReferenceStack stack;
   const std::string stanceOnly = writeTempFile(
       "stance_only_gait.textproto",
+      "# proto-message: humanoid_mpc_config.GaitFile\n"
       "gait_list: \"stance\"\ngaits { name: \"stance\" mode_sequence: \"STANCE\" switching_times: 0.0 switching_times: 0.5 }\n");
   const absl::StatusOr<std::unique_ptr<ProceduralMpcMotionManager>> manager = create(stack, stanceOnly, stack.referenceFile());
   EXPECT_EQ(manager.status().code(), absl::StatusCode::kInvalidArgument);

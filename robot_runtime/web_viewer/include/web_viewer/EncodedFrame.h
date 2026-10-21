@@ -29,6 +29,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <chrono>
 #include <cstdint>
 #include <string>
 
@@ -39,7 +40,8 @@ namespace robot::web_viewer {
 /**
  * One JPEG frame of the viewer, as the render thread hands it to ViewerFrameMailbox::publish() and the server sends it.
  *
- * Passive data. ViewerFrameMailbox::publish() stamps `sequence` and `publishTime`; the publisher fills in the rest.
+ * Passive data. ViewerFrameMailbox::publish() stamps `sequence`, `publishTime` and `publishSteadyTime`; the publisher
+ * fills in the rest.
  */
 struct EncodedFrame {
   // 1 for the first frame a mailbox publishes, one more for each later one; 0 for a frame not yet published.
@@ -49,8 +51,11 @@ struct EncodedFrame {
   int height = 0;
   // The simulation time of the state the frame shows, in seconds.
   double simTime = 0.0;
-  // When the mailbox received the frame; X-Frame-Age-Ms is measured from it.
+  // When the mailbox received the frame, on the wall clock (for the tests that compare it with a client's clock).
   absl::Time publishTime = absl::UnixEpoch();
+  // The same instant on the monotonic clock, which no clock step moves: X-Frame-Age-Ms, /state's ageMs and the
+  // staleness of a frame are measured from it.
+  std::chrono::steady_clock::time_point publishSteadyTime = {};
   // The JFIF bytes.
   std::string jpeg = "";
 };

@@ -38,6 +38,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
 #include "ocs2_centroidal_model/CentroidalModelInfo.h"
 #include "ocs2_core/dynamics/SystemDynamicsBaseAD.h"
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
@@ -70,6 +71,8 @@ namespace ocs2::humanoid {
  * reused for a different basis. The other taped terms built on the basis-vector input (their domain and, for some,
  * their body depend on it too) are protected the same way because CentroidalMpcInterface keys the whole CppAD model
  * folder by that key (CentroidalMpcInterface::keyCppAdModelFolder).
+ *
+ * Not thread-safe: the CppAD model it evaluates is not, so the solver gives each worker thread its own clone().
  */
 class CentroidalDynamicsBasisInputsAD final : public SystemDynamicsBaseAD {
  public:
@@ -111,7 +114,7 @@ class CentroidalDynamicsBasisInputsAD final : public SystemDynamicsBaseAD {
    * modelName + "_basis<numBasisPerFoot>_<16 hex digits of the basis content hash>". Two different bases (generator
    * set, dimension, friction coefficient, footprint, ...) therefore never share a cached dynamics library.
    */
-  static std::string uniqueModelName(const std::string& modelName, const std::array<matrix_t, kNumContacts>& localBasisMatrices);
+  static std::string uniqueModelName(absl::string_view modelName, const std::array<matrix_t, kNumContacts>& localBasisMatrices);
 
   /**
    * Converts a basis-vector input into the wrench-space input of the underlying centroidal model with all

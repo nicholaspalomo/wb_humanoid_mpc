@@ -86,6 +86,9 @@ class EndEffectorKinematicsQuadraticCost : public ocs2::StateInputCostGaussNewto
   void setWeights(const vector12_t& weights) { sqrtWeights_ = weights.cwiseSqrt(); }
 
  protected:
+  /** The parameters of the taped cost: the reference cost element, then the square roots of the weights. */
+  static constexpr int kNumParameters = kEndEffectorCostElementDim + kEndEffectorTaskSpaceErrorDim;
+
   EndEffectorKinematicsQuadraticCost(const EndEffectorKinematicsQuadraticCost& other);
 
   static EndEffectorKinematicsCostElement<scalar_t> getReferenceCostElement(const vector_t& state,
@@ -98,7 +101,7 @@ class EndEffectorKinematicsQuadraticCost : public ocs2::StateInputCostGaussNewto
                                  const ad_vector_t& parameters) override;
 
   vector12_t sqrtWeights_;
-  size_t n_parameters_ = 25;
+  size_t n_parameters_ = kNumParameters;
   pinocchio::FrameIndex frameID_;
   PinocchioInterfaceCppAd pinocchioInterfaceCppAd_;
   const std::unique_ptr<EndEffectorKinematics<scalar_t>> endEffectorKinematicsPtr_;

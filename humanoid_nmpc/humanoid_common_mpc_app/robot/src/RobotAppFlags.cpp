@@ -44,14 +44,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc_app/robot/RobotAppOptions.h"
 #include "humanoid_common_mpc_app/robot/RobotBackendRegistry.h"
 #include "humanoid_common_mpc_app/robot/RobotConfigDirectory.h"
+#include "mujoco_sim_interface/viewer/WebViewerOptions.h"
+#include "robot_realtime/RealtimeThread.h"
 
-// The defaults of the flags below that are numbers.
-constexpr int kNotRealtime = 0;
-// LINT.IfChange(web_viewer_port)
-constexpr int kDefaultWebViewerPort = 6090;
-// clang-format off
-// LINT.ThenChange(//tools/deploy/session.sh:web_viewer_port, //humanoid_nmpc/humanoid_common_mpc_app/robot/README.md:robot_flags, //robot_models/drc_atlas/drc_atlas_centroidal_mpc/launch/robot.textproto:robot_variables, //robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/launch/robot.textproto:robot_variables, //robot_models/unitree_g1/g1_centroidal_mpc/launch/robot.textproto:robot_variables, //robot_models/unitree_g1/g1_wb_mpc/launch/robot.textproto:robot_variables, //robot_models/unitree_r1/unitree_r1_centroidal_mpc/launch/robot.textproto:robot_variables, //Makefile:viewer_variable, //.devcontainer/devcontainer.json:web_viewer_port, //docker-compose.bridge.yaml:web_viewer_port, //.devcontainer/README.md:web_viewer_port, //robot_runtime/mujoco_sim_interface/include/mujoco_sim_interface/viewer/WebViewerOptions.h:web_viewer_port, //robot_runtime/web_viewer/include/web_viewer/WebViewerServerOptions.h:web_viewer_port)
-// clang-format on
 // The environment variable that picks the EGL device the web viewer renders on (WebViewerOptions::eglDeviceId).
 constexpr char kEglDeviceVariable[] = "MUJOCO_EGL_DEVICE_ID";
 
@@ -61,7 +56,7 @@ ABSL_FLAG(std::string, ipc_node, "robot", "The bus node this process publishes a
 ABSL_FLAG(std::string, backend, "mujoco", "The robot backend, by name (RobotBackendRegistry): mujoco is the MuJoCo simulator.");
 ABSL_FLAG(int,
           realtime_priority,
-          kNotRealtime,
+          ::robot::realtime::kTimeSharingPriority,
           "SCHED_FIFO priority of the realtime thread, 1-99, with the process's memory locked; 0 keeps it on the time-sharing "
           "scheduler. Needs CAP_SYS_NICE and CAP_IPC_LOCK (or rtprio and memlock limits); a step it may not take is reported "
           "and skipped.");
@@ -90,7 +85,10 @@ ABSL_FLAG(std::string,
           "127.0.0.1",
           "The address the web viewer binds: 127.0.0.1 serves this machine only (another reaches it through an SSH tunnel); "
           "0.0.0.0 or an interface's address serves anyone who can reach it, without authentication.");
-ABSL_FLAG(int, web_viewer_port, kDefaultWebViewerPort, "The web viewer's TCP port; 0 binds any free one, which the log names.");
+ABSL_FLAG(int,
+          web_viewer_port,
+          ::robot::mujoco_sim_interface::WebViewerOptions::kDefaultPort,
+          "The web viewer's TCP port; 0 binds any free one, which the log names.");
 ABSL_FLAG(std::string,
           web_viewer_allowed_hosts,
           "",
@@ -111,11 +109,16 @@ ABSL_FLAG(std::string,
           std::string(ocs2::humanoid::kWhenBundleChangesSeedPolicyName),
           "When a stored copy is replaced by the bundled file, by name: when_bundle_changes (a deploy changed the file), "
           "every_start, or never.");
-// LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_app/robot/README.md:robot_flags)
+// clang-format off
+// LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_app/robot/README.md:robot_flags, //humanoid_nmpc/docs/distributed_runtime/README.md:command_line_flags)
+// clang-format on
 
 namespace ocs2::humanoid {
 
 namespace {
+
+/** The highest SCHED_FIFO priority of Linux, the largest --realtime_priority. */
+constexpr int kMaxRealtimePriority = 99;
 
 /** The viewer flags as given, with MUJOCO_EGL_DEVICE_ID. */
 ViewerFlagValues viewerFlagValues() {
@@ -165,9 +168,9 @@ absl::StatusOr<RobotAppOptions> robotAppOptionsFromFlags(const SystemCoreAllocat
   if (options.backend == kMujocoBackendName) {
     RETURN_IF_ERROR(node::validateFileFlag("--mjcf_file", options.mjcfFile));
   }
-  if (options.realtimePriority < 0 || options.realtimePriority > 99) {
+  if (options.realtimePriority < 0 || options.realtimePriority > kMaxRealtimePriority) {
     return absl::InvalidArgumentError(
-        absl::StrCat("--realtime_priority=", options.realtimePriority, ": give 0 (off) or a priority of 1-99"));
+        absl::StrCat("--realtime_priority=", options.realtimePriority, ": give 0 (off) or a priority of 1-", kMaxRealtimePriority));
   }
   if (options.ipcNode.empty()) {
     return absl::InvalidArgumentError("--ipc_node is empty; the robot publishes as a node of the network file (robot)");

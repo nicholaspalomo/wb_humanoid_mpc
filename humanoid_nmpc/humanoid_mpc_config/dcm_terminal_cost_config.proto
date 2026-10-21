@@ -4,6 +4,7 @@ package humanoid_mpc_config;
 
 import "humanoid_mpc_config/config_options.proto";
 import "nproto/options.proto";
+import "nproto/retired_field_options.proto";
 
 // The DCM terminal cost of the centroidal MPC (the task file's dcm_terminal_cost block; the cost dcm_terminal_cost):
 // the pendulum of its reference, the weights on the DCM error and how the support blends (DcmTerminalCost::Config).
@@ -11,16 +12,20 @@ import "nproto/options.proto";
 // Next ID: 7
 message DcmTerminalCostConfig {
   option (nproto.generate_struct) = "ocs2::humanoid::mpc_config::DcmTerminalCostConfig";
+  option (nproto.retired_field) = {
+    name: "gravity"
+    replacement: "the DCM's gravity is the robot model's, the one the dynamics use; delete the line"
+  };
 
   reserved 7 to max;
+  // 2 was gravity [m/s^2], now taken from the robot model.
+  reserved 2;
 
   // [m] The pendulum height of omega, positive; absent: the model's center of mass above its feet at the initial state.
   double com_height = 1 [(humanoid_mpc_config.tuning) = { unit: "m" slider_min: 0.1 }];
-  // [m/s^2]
-  double gravity = 2 [default = 9.81, (humanoid_mpc_config.tuning) = { unit: "m/s^2" slider_min: 1.0 }];
   // The weights on the longitudinal and the lateral DCM error.
-  double weight_x = 3 [default = 100.0];
-  double weight_y = 4 [default = 100.0];
+  double weight_x = 3 [default = 100.0, (humanoid_mpc_config.tuning) = { minimum: 0 }];
+  double weight_y = 4 [default = 100.0, (humanoid_mpc_config.tuning) = { minimum: 0 }];
   // Scales the v_cmd / omega offset of the DCM reference.
   double velocity_offset_factor = 5 [default = 1.0];
   // [s] How long a foot's support weight ramps after touch-down and before lift-off.

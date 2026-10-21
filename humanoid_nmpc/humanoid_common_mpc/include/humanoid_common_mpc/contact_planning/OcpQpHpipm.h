@@ -43,6 +43,12 @@ namespace ocs2::humanoid {
  */
 inline constexpr scalar_t kOcpQpInfiniteBound = 1.0e6;
 
+/** Whether a node of an OcpQpProblem has dynamics to the next node (every node but the last) or is the terminal one. */
+enum class OcpQpStageKind {
+  kIntermediate,  // has dynamics A, B, b
+  kTerminal,      // no dynamics
+};
+
 /**
  * One node of a discrete-time linear-quadratic optimal control problem with box and general inequality constraints.
  *
@@ -89,8 +95,8 @@ struct OcpQpStage {
   int numInputs() const { return static_cast<int>(R.rows()); }
   int numGeneralConstraints() const { return static_cast<int>(C.rows()); }
 
-  /** Allocates zero-initialized data for the given sizes (no constraints). */
-  static OcpQpStage Zero(int nx, int nu, bool hasDynamics);
+  /** Allocates zero-initialized data for the given sizes (no constraints); the dynamics only for an intermediate node. */
+  static OcpQpStage Zero(int nx, int nu, OcpQpStageKind kind);
 };
 
 /** A full OCP-QP: N stages with dynamics plus a terminal node without inputs. The initial state is fixed to x0. */
@@ -128,21 +134,34 @@ scalar_t evaluateOcpQpMaxHardViolation(const OcpQpProblem& problem, const std::v
  *
  * The OCS2 HpipmInterface only exposes equality constraints, so the contact planner needs its own wrapper. Memory is
  * (re)allocated whenever the problem dimensions change; repeated solves with identical dimensions are allocation free.
+ *
+ * Not thread-safe: solve() writes the solver's HPIPM workspace, so one solver serves one thread at a time.
  */
 class OcpQpHpipmSolver {
  public:
   struct Settings {
-    int iterMax = 60;
-    scalar_t alphaMin = 1.0e-12;
-    scalar_t mu0 = 1.0e2;
-    scalar_t tolStat = 1.0e-6;
-    scalar_t tolEq = 1.0e-8;
-    scalar_t tolIneq = 1.0e-8;
-    scalar_t tolComp = 1.0e-8;
-    scalar_t regPrim = 1.0e-10;
+    // hpipm_mode BALANCE.
+    static constexpr int kHpipmModeBalance = 2;
+    static constexpr int kDefaultMaxIterations = 60;
+    static constexpr scalar_t kDefaultMinStepLength = 1.0e-12;
+    static constexpr scalar_t kDefaultInitialBarrier = 1.0e2;
+    static constexpr scalar_t kDefaultStationarityTolerance = 1.0e-6;
+    static constexpr scalar_t kDefaultEqualityTolerance = 1.0e-8;
+    static constexpr scalar_t kDefaultInequalityTolerance = 1.0e-8;
+    static constexpr scalar_t kDefaultComplementarityTolerance = 1.0e-8;
+    static constexpr scalar_t kDefaultPrimalRegularization = 1.0e-10;
+
+    int iterMax = kDefaultMaxIterations;
+    scalar_t alphaMin = kDefaultMinStepLength;
+    scalar_t mu0 = kDefaultInitialBarrier;
+    scalar_t tolStat = kDefaultStationarityTolerance;
+    scalar_t tolEq = kDefaultEqualityTolerance;
+    scalar_t tolIneq = kDefaultInequalityTolerance;
+    scalar_t tolComp = kDefaultComplementarityTolerance;
+    scalar_t regPrim = kDefaultPrimalRegularization;
     int warmStart = 0;
     int predCorr = 1;
-    int hpipmMode = 2;  // hpipm_mode: 0 SPEED_ABS, 1 SPEED, 2 BALANCE, 3 ROBUST
+    int hpipmMode = kHpipmModeBalance;  // hpipm_mode: 0 SPEED_ABS, 1 SPEED, 2 BALANCE, 3 ROBUST
   };
 
   OcpQpHpipmSolver();

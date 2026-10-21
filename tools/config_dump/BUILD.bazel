@@ -17,6 +17,7 @@ cc_library(
     hdrs = ["ValueDump.h"],
     copts = FIRST_PARTY_COPTS,
     deps = [
+        "//tools/nproto:fnv1a64_constants",
         "@abseil-cpp//absl/strings",
         "@abseil-cpp//absl/strings:str_format",
         "@abseil-cpp//absl/strings:string_view",
@@ -70,6 +71,7 @@ cc_library(
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
         "@abseil-cpp//absl/strings:string_view",
+        "@abseil-cpp//absl/time",
         "@pinocchio",
     ],
 )
@@ -117,6 +119,7 @@ cc_binary(
     copts = FIRST_PARTY_COPTS,
     deps = [
         ":stack_dump",
+        "//humanoid_nmpc/humanoid_common_mpc_app/node:exit_codes",
         "//humanoid_nmpc/humanoid_mpc_validation:closed_loop_metrics",
         "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/flags:flag",

@@ -29,6 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
+#include <cmath>
+#include <limits>
 #include <memory>
 #include <optional>
 
@@ -96,6 +98,33 @@ TEST(QuaternionNormDeviationTest, IsTheLargestDistanceOfAStoredQuaternionFromThe
   const std::optional<double> outward = maxQuaternionNormDeviationOf({outside}, kOrientationStart);
   ASSERT_TRUE(outward.has_value());
   EXPECT_NEAR(outward.value_or(-1.0), 3.0e-10, 1.0e-15);
+}
+
+// A NaN is not dropped: a node with a NaN quaternion has no distance from the sphere, and the maximum over the nodes is
+// NaN wherever the node is, so that the band max | |xi| - 1 | < 1e-9 cannot pass it.
+TEST(QuaternionNormDeviationTest, ANanQuaternionMakesTheDeviationNan) {
+  const Eigen::Index start = static_cast<Eigen::Index>(kOrientationStart);
+  vector_t onTheSphere = vector_t::Zero(start + 4 + kJoints);
+  onTheSphere(start + 3) = 1.0;
+  vector_t nanQuaternion = onTheSphere;
+  nanQuaternion(start) = std::numeric_limits<double>::quiet_NaN();
+  for (const vector_array_t& states :
+       {vector_array_t{onTheSphere, nanQuaternion}, vector_array_t{nanQuaternion, onTheSphere}, vector_array_t{nanQuaternion}}) {
+    const std::optional<double> deviation = maxQuaternionNormDeviationOf(states, kOrientationStart);
+    ASSERT_TRUE(deviation.has_value());
+    EXPECT_TRUE(std::isnan(deviation.value_or(0.0))) << deviation.value_or(0.0) << " over " << states.size() << " nodes";
+  }
+}
+
+// The same for the rotation of a gap with a NaN rotation block.
+TEST(InitialStateGapTest, ANanRotationMakesTheRotationNan) {
+  const absl::StatusOr<std::shared_ptr<const ProductStateManifold>> manifold =
+      ProductStateManifold::create({StateManifoldSegment::euclidean(kOrientationStart), StateManifoldSegment::unitQuaternion(),
+                                    StateManifoldSegment::euclidean(static_cast<size_t>(kJoints))});
+  ASSERT_TRUE(manifold.ok()) << manifold.status();
+  const vector_t delta = stepWithRotation(vector3_t(std::numeric_limits<double>::quiet_NaN(), 0.0, 0.0),
+                                          static_cast<Eigen::Index>((*manifold)->getTangentDim()));
+  EXPECT_TRUE(std::isnan(initialStateGapOf(delta, **manifold).rotation));
 }
 
 TEST(QuaternionNormDeviationTest, IsEmptyWithoutAnyNode) {

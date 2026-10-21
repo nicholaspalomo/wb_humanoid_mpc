@@ -53,6 +53,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/log/log.h"
 #include "absl/status/statusor.h"
 
+#include "humanoid_common_mpc_app/node/ExitCodes.h"
 #include "humanoid_mpc_validation/closed_loop/RobotConfiguration.h"
 #include "tools/config_dump/StackDump.h"
 
@@ -68,19 +69,19 @@ int main(int argc, char* absl_nonnull* absl_nonnull argv) {
   const char* absl_nullable workspace = std::getenv("BUILD_WORKSPACE_DIRECTORY");
   if (workspace == nullptr) {
     LOG(ERROR) << "run it with `bazel run`, which sets BUILD_WORKSPACE_DIRECTORY: the dump reads the checkout's files.";
-    return 2;
+    return ocs2::humanoid::node::kUsageErrorExitCode;
   }
   std::error_code error;
   std::filesystem::current_path(workspace, error);
   if (error) {
     LOG(ERROR) << "cannot change into " << workspace << ": " << error.message();
-    return 2;
+    return ocs2::humanoid::node::kUsageErrorExitCode;
   }
   const absl::StatusOr<ocs2::humanoid::validation::RobotConfiguration> configuration =
       ocs2::humanoid::validation::findRobotConfiguration(absl::GetFlag(FLAGS_robot));
   if (!configuration.ok()) {
     LOG(ERROR) << configuration.status();
-    return 2;
+    return ocs2::humanoid::node::kUsageErrorExitCode;
   }
   const absl::StatusOr<std::string> dump = ocs2::humanoid::config_dump::dumpConfiguration(*configuration);
   if (!dump.ok()) {

@@ -33,11 +33,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "pinocchio/fwd.hpp"
 
+#include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <limits>
 #include <optional>
 #include <string>
 #include <type_traits>
+#include <utility>
+#include <vector>
 
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
@@ -125,6 +129,41 @@ TEST(ContactsFromConfigTest, TheRectangleIsScaledAroundTheCenterPoint) {
   EXPECT_TRUE(absl::StrContains(refused.status().message(), "contacts.contact_rectangle.y_max")) << refused.status();
 }
 
+TEST(ContactsFromConfigTest, AnEmptyOrInvertedRectangleOrANonPositiveScaleIsRefused) {
+  using Rectangle = mpc_config::ContactsConfig::Rectangle;
+  const std::vector<std::function<void(Rectangle&)>> refusedRectangles = {
+      [](Rectangle& r) { r.x_max = r.x_min; },
+      [](Rectangle& r) { std::swap(r.x_min, r.x_max); },
+      [](Rectangle& r) { r.y_min = r.y_max; },
+      [](Rectangle& r) { std::swap(r.y_min, r.y_max); },
+      [](Rectangle& r) { r.scale_factor = 0.0; },
+      [](Rectangle& r) { r.scale_factor = -1.0; },
+      [](Rectangle& r) { r.scale_factor = std::numeric_limits<double>::quiet_NaN(); },
+  };
+  for (const std::function<void(Rectangle&)>& corrupt : refusedRectangles) {
+    mpc_config::ContactsConfig contacts = completeCone();
+    corrupt(contacts.contact_rectangle);
+    const absl::Status status = contactRectangleFromConfig(contacts, centerPoint()).status();
+    EXPECT_EQ(status.code(), absl::StatusCode::kInvalidArgument);
+    EXPECT_TRUE(absl::StrContains(status.message(), "contacts.contact_rectangle")) << status;
+  }
+}
+
+TEST(ContactsFromConfigTest, TheBasisBarrierRefusesANonPositiveOrNanMuOrDelta) {
+  for (const double bad : {0.0, -1.0, std::numeric_limits<double>::quiet_NaN()}) {
+    mpc_config::ContactsConfig mu;
+    mu.basis_non_negativity_barrier.mu = bad;
+    EXPECT_TRUE(
+        absl::StrContains(basisNonNegativityBarrierFromConfig(mu).status().message(), "contacts.basis_non_negativity_barrier.mu is"))
+        << bad;
+    mpc_config::ContactsConfig delta;
+    delta.basis_non_negativity_barrier.delta = bad;
+    EXPECT_TRUE(
+        absl::StrContains(basisNonNegativityBarrierFromConfig(delta).status().message(), "contacts.basis_non_negativity_barrier.delta is"))
+        << bad;
+  }
+}
+
 TEST(ContactsFromConfigTest, TheWrenchConeNeedsEveryGroundField) {
   const absl::StatusOr<ContactWrenchConeConstraint::Config> config = contactWrenchConeConfigFromConfig(completeCone());
   ASSERT_TRUE(config.ok()) << config.status();
@@ -179,7 +218,12 @@ TEST(ContactsFromConfigTest, TheBasisIsTheNamedGeneratorSet) {
   contacts.basis_generator_set = std::string(kExactWrenchConeGeneratorSet);
   const absl::StatusOr<ContactWrenchConeBasisMatrix> exact = contactWrenchConeBasisFromConfig(contacts, *footprint);
   ASSERT_TRUE(exact.ok()) << exact.status();
-  EXPECT_EQ(exact->numBasis(), 8U * 4U);
+  // The exact wrench cone (Caron et al.): the N edges of the friction pyramid at each of the 4 corners of the sole.
+  const std::optional<int32_t>& numBasisVectors = contacts.contact_wrench_cone_soft_constraint.num_basis_vectors;
+  if (!numBasisVectors.has_value()) {
+    FAIL() << "completeCone() sets num_basis_vectors";
+  }
+  EXPECT_EQ(exact->numBasis(), 4U * static_cast<size_t>(*numBasisVectors));
   contacts.basis_generator_set = "no_such_set";
   EXPECT_EQ(contactWrenchConeBasisFromConfig(contacts, *footprint).status().code(), absl::StatusCode::kInvalidArgument);
 }
@@ -216,6 +260,43 @@ TEST(ContactsFromConfigTest, TheFrictionConeRefusesANonPositiveCoefficientInstea
   contacts.friction_force_cone_soft_constraint.friction_coefficient = -0.5;
   EXPECT_TRUE(absl::StrContains(frictionForceConeConfigFromConfig(contacts).status().message(),
                                 "contacts.friction_force_cone_soft_constraint.friction_coefficient is -0.5"));
+}
+
+TEST(ContactsFromConfigTest, TheFrictionConeAndTheContactMomentRefuseANonPositiveBarrier) {
+  // The relaxed barrier divides by delta and takes its log below it: at delta = 0 a stance node at zero force is NaN or
+  // inf, and a negative mu rewards violating the constraint. Both conversions feed start-up and a reload alike.
+  struct Barrier {
+    double mu = 0.0;
+    double delta = 0.0;
+    std::string refusal;
+  };
+  const std::vector<Barrier> refused = {{.mu = 0.0, .delta = 5.0, .refusal = "mu is 0"},
+                                        {.mu = -1.0, .delta = 5.0, .refusal = "mu is -1"},
+                                        {.mu = 0.2, .delta = 0.0, .refusal = "delta is 0"},
+                                        {.mu = 0.2, .delta = -0.1, .refusal = "delta is -0.1"},
+                                        {.mu = 0.2, .delta = std::numeric_limits<double>::infinity(), .refusal = "delta is inf"}};
+  for (const Barrier& barrier : refused) {
+    mpc_config::ContactsConfig contacts;
+    contacts.friction_force_cone_soft_constraint.mu = barrier.mu;
+    contacts.friction_force_cone_soft_constraint.delta = barrier.delta;
+    contacts.contact_moment_xy_soft_constraint.mu = barrier.mu;
+    contacts.contact_moment_xy_soft_constraint.delta = barrier.delta;
+    const absl::Status friction = frictionForceConeBarrierFromConfig(contacts).status();
+    EXPECT_EQ(friction.code(), absl::StatusCode::kInvalidArgument) << barrier.refusal;
+    EXPECT_TRUE(absl::StrContains(friction.message(), absl::StrCat("contacts.friction_force_cone_soft_constraint.", barrier.refusal)))
+        << friction;
+    const absl::Status moment = contactMomentXyBarrierFromConfig(contacts).status();
+    EXPECT_EQ(moment.code(), absl::StatusCode::kInvalidArgument) << barrier.refusal;
+    EXPECT_TRUE(absl::StrContains(moment.message(), absl::StrCat("contacts.contact_moment_xy_soft_constraint.", barrier.refusal)))
+        << moment;
+  }
+  mpc_config::ContactsConfig contacts;
+  contacts.friction_force_cone_soft_constraint.mu = 0.2;
+  contacts.friction_force_cone_soft_constraint.delta = 5.0;
+  const absl::StatusOr<RelaxedBarrierPenalty::Config> accepted = frictionForceConeBarrierFromConfig(contacts);
+  ASSERT_TRUE(accepted.ok()) << accepted.status();
+  EXPECT_EQ(accepted->mu, 0.2);
+  EXPECT_EQ(accepted->delta, 5.0);
 }
 
 }  // namespace

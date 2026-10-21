@@ -28,9 +28,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
 #include <fstream>
+#include <limits>
 #include <memory>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "absl/base/nullability.h"
 #include "absl/status/status.h"
@@ -269,6 +271,55 @@ TEST(MujocoSimInterfaceCreate, AUrdfWithTooFewJointsIsAnInvalidArgument) {
 )";
   EXPECT_THAT(MujocoSimInterface::Create(hingeConfig(), writeTempFile("startup_one_joint_robot.urdf", kOneJointUrdf)).status(),
               StatusIs(absl::StatusCode::kInvalidArgument, HasSubstr("startup_one_joint_robot.urdf")));
+}
+
+// The simulator writes one coordinate per robot joint at its address and a joint's torque into its actuator's ctrl. A
+// scene that breaks either is refused with what is wrong, rather than simulated with torques of the wrong size or at the
+// wrong joint.
+TEST(MujocoSimInterfaceCreate, ASceneTheSimulatorCannotDriveIsRefusedNamingWhy) {
+  struct Unsupported {
+    std::vector<std::pair<std::string, std::string>> replacements;
+    std::string message;
+  };
+  const Unsupported unsupported[] = {
+      {.replacements = {{R"(<joint name="wrist" type="hinge" axis="0 1 0"/>)", R"(<joint name="wrist" type="ball"/>)"},
+                        {R"(<motor name="wrist_motor" joint="wrist"/>)", ""}},
+       .message = "joint 'wrist' of the robot description is not a hinge or a slide"},
+      {.replacements = {{R"(<motor name="wrist_motor" joint="wrist"/>)", R"(<motor name="wrist_motor" joint="wrist" gear="2"/>)"}},
+       .message = "actuator 1 ('wrist_motor') on joint 'wrist' is not a <motor> of gear 1"},
+      {.replacements = {{R"(<motor name="wrist_motor" joint="wrist"/>)", R"(<position name="wrist_motor" joint="wrist" kp="10"/>)"}},
+       .message = "actuator 1 ('wrist_motor') on joint 'wrist' is not a <motor> of gear 1"},
+      {.replacements = {{R"(<motor name="wrist_motor" joint="wrist"/>)",
+                         R"(<motor name="wrist_motor" joint="wrist"/><motor name="second_wrist_motor" joint="wrist"/>)"}},
+       .message = "joint 'wrist' has more than one actuator"},
+      {.replacements = {{R"(<freejoint name="root"/>)", ""}}, .message = "the scene's first joint must be the robot's free joint"},
+  };
+  for (const Unsupported& scene : unsupported) {
+    MujocoSimConfig config = hingeConfig();
+    std::string xml = kHingeScene;
+    for (const std::pair<std::string, std::string>& replacement : scene.replacements) {
+      ASSERT_NE(xml.find(replacement.first), std::string::npos) << replacement.first;
+      xml = absl::StrReplaceAll(xml, {{replacement.first, replacement.second}});
+    }
+    config.scenePath = writeTempFile("startup_unsupported_scene.xml", xml.c_str());
+    EXPECT_THAT(MujocoSimInterface::Create(config, hingeUrdf()).status(),
+                StatusIs(absl::StatusCode::kInvalidArgument, HasSubstr(scene.message)))
+        << scene.message;
+  }
+}
+
+TEST(MujocoSimInterfaceCreate, NumbersOutOfRangeAreRefusedNamingThem) {
+  MujocoSimConfig config = hingeConfig();
+  config.ragdollJointDamping = -1.0;
+  EXPECT_THAT(MujocoSimInterface::Create(config, hingeUrdf()).status(),
+              StatusIs(absl::StatusCode::kInvalidArgument, HasSubstr("sim_ragdoll_joint_damping")));
+  config = hingeConfig();
+  config.autoResetBaseHeight = std::numeric_limits<double>::quiet_NaN();
+  EXPECT_THAT(MujocoSimInterface::Create(config, hingeUrdf()).status(),
+              StatusIs(absl::StatusCode::kInvalidArgument, HasSubstr("sim_auto_reset_base_height")));
+  config = hingeConfig();
+  config.dt = 0.0;
+  EXPECT_THAT(MujocoSimInterface::Create(config, hingeUrdf()).status(), StatusIs(absl::StatusCode::kInvalidArgument, HasSubstr("dt")));
 }
 
 }  // namespace

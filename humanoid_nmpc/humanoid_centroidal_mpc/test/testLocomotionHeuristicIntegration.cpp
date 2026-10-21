@@ -46,6 +46,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/string_view.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/PreComputation.h"
+#include "ocs2_core/manifold/UnitQuaternionMath.h"
 #include "ocs2_core/reference/ModeSchedule.h"
 #include "pinocchio/algorithm/center-of-mass.hpp"
 #include "pinocchio/algorithm/centroidal.hpp"
@@ -190,7 +191,7 @@ class RestoreCoefficientsFromFileOnExit {
  *    dcm_terminal_cost and a base-pose block in Q_final, so that the quadratic terminal cost exists and weighs the
  *    channels the heuristics shape.
  *  - `stanceAnchored_`: base_pose [periodic_orientation], foothold [translational_stepping], wrench
- *    [centripetal_acceleration]. The gait-phase seam, the stance-foot-anchored foothold path, and the world-frame
+ *    [centripetal_acceleration]. The gait-phase seam, the step-width-anchored foothold path, and the world-frame
  *    wrench path.
  *  - `zeroStepWidth_`: foothold [hip_centered_stepping] with nominal_foothold.step_width 0, the configuration of the
  *    SA01, G1 and R1, where the listed heuristic is the only reason anything is measured at all.
@@ -819,6 +820,71 @@ TEST_F(LocomotionHeuristicIntegrationTest, PeriodicOrientationFollowsTheGaitPhas
   }
 }
 
+namespace {
+
+/** The base rotation matrix of `target` shaped by the base-pose heuristics at `time`. */
+matrix3_t shapedRotation(const SwitchedModelReferenceManager& referenceManager,
+                         const CentroidalMpcRobotModel<scalar_t>& model,
+                         const vector_t& target,
+                         scalar_t time) {
+  return quaternionRotationMatrix<scalar_t>(model.getBaseOrientation(referenceManager.shapeBasePose(time, target)));
+}
+
+}  // namespace
+
+TEST_F(LocomotionHeuristicIntegrationTest, PeriodicOrientationCarriesItsRateIntoTheAngularMomentum) {
+  // The shaped attitude R(t) oscillates with the gait phase, so the reference has to rotate at w = vee(dR/dt R'), and on
+  // the centroidal state the rate lives in the angular momentum: L / m of the whole body turning at w with its joints
+  // at the reference, I_G w / m. Measured against an oracle independent of the code under test: w by a central
+  // difference of the shaped attitude's rotation matrix, I_G by Pinocchio's ccrba at the measured state. The target is
+  // a still knot, so all of the shaped momentum is the tilt's. Through double support the phase is frozen, and the
+  // momentum must be the target's, bit for bit.
+  const std::shared_ptr<LocomotionHeuristicLayer>& layer = stanceAnchored_->getLocomotionHeuristicLayerPtr();
+  RestoreCoefficientsFromFileOnExit restore(layer, stanceAnchoredConfig_->task);
+  LocomotionHeuristicConfig config = fileConfig(stanceAnchoredConfig_->task);
+  config.periodicOrientation.rollAmplitude = 0.03;
+  config.periodicOrientation.rollPhaseRate = 2.0 * M_PI;
+  config.periodicOrientation.rollPhaseOffset = 0.4;
+  config.periodicOrientation.pitchAmplitude = 0.02;
+  config.periodicOrientation.pitchPhaseRate = 4.0 * M_PI;
+  config.periodicOrientation.pitchPhaseOffset = 0.3;
+  ASSERT_TRUE(layer->reconfigure(config).ok());
+
+  const std::shared_ptr<SwitchedModelReferenceManager> referenceManager = stanceAnchored_->getSwitchedModelReferenceManagerPtr();
+  const CentroidalMpcRobotModel<scalar_t>& model = stanceAnchored_->getMpcRobotModel();
+  vector_t target = stanceAnchored_->getInitialState();
+  vector6_t turnedPose = model.getBasePoseEulerZyx(target);
+  turnedPose(3) = 0.8;  // a heading off the axes, so that a tilt rate taken about the world axes would show
+  model.setBasePoseEulerZyx(target, turnedPose);
+  solveAt(*stanceAnchored_, walkSchedule(), constantTarget(*stanceAnchored_, target), target, /*time=*/1.02);
+
+  const PinocchioInterface::Model& pinocchioModel = stanceAnchored_->getPinocchioInterface().getModel();
+  PinocchioInterface::Data data(pinocchioModel);
+  pinocchio::ccrba(pinocchioModel, data, model.getGeneralizedCoordinates(target), vector_t::Zero(pinocchioModel.nv));
+  const matrix3_t compositeInertia = data.Ig.inertia().matrix();
+  const scalar_t mass = totalMass(*stanceAnchored_);
+  const scalar_t step = 1.0e-6;
+  // Mid left stance, mid right stance, and late right stance; all single support of the walk schedule.
+  for (const scalar_t time : {1.2, 1.3, 1.75, 1.95}) {
+    const matrix3_t rotationRate =
+        (shapedRotation(*referenceManager, model, target, time + step) - shapedRotation(*referenceManager, model, target, time - step)) /
+        (2.0 * step);
+    const matrix3_t spin = rotationRate * shapedRotation(*referenceManager, model, target, time).transpose();
+    const vector3_t worldAngularVelocity(spin(2, 1), spin(0, 2), spin(1, 0));
+    ASSERT_GT(worldAngularVelocity.norm(), 0.05) << "t = " << time << ": the tilt must be moving for this to test anything";
+    const vector3_t expected = compositeInertia * worldAngularVelocity / mass;
+    const vector_t shaped = referenceManager->shapeBasePose(time, target);
+    const vector3_t added = shaped.segment<3>(3) - target.segment<3>(3);
+    EXPECT_LT((added - expected).norm(), 1.0e-7 * (1.0 + expected.norm()))
+        << "t = " << time << ": " << added.transpose() << " vs " << expected.transpose();
+    EXPECT_EQ(shaped.head<3>(), target.head<3>()) << "the linear momentum is the command's, untouched";
+  }
+  for (const scalar_t time : {1.05, 1.55}) {
+    const vector_t shaped = referenceManager->shapeBasePose(time, target);
+    EXPECT_EQ(shaped.head<6>(), target.head<6>()) << "t = " << time << ": the phase is frozen in double support";
+  }
+}
+
 TEST_F(LocomotionHeuristicIntegrationTest, TerminalCostIsZeroAtTheShapedReference) {
   // Q_final used to measure the deviation from the UNSHAPED target, so with a base-pose heuristic listed the last node
   // of every horizon was pulled back to level pitch and roll and the unoffset height - weighted by terminalCostScaling
@@ -1038,7 +1104,7 @@ TEST_F(LocomotionHeuristicIntegrationTest, CentripetalForceReachesTheWorldFrameR
   LocomotionHeuristicConfig config = fileConfig(stanceAnchoredConfig_->task);
   config.centripetalAcceleration.scale = 1.0;
   config.centripetalAcceleration.maximumForce = 0.0;
-  config.centripetalAcceleration.maximumForceRatioOfWeight = 0.3;  // 0.3 W per foot: far above the ~0.03 W asked for here
+  config.centripetalAcceleration.maximumForceRatioOfWeight = 0.3;  // 0.3 W in total: far above the ~0.06 W asked for here
   ASSERT_TRUE(layer->reconfigure(config).ok());
   ASSERT_TRUE(layer->wrenchNeedsWorldFrame());
   ASSERT_TRUE(stanceAnchored_->usesContactBasisVectorInputs()) << "the world-frame path is only a rotation on the basis-vector model";
@@ -1077,6 +1143,13 @@ TEST_F(LocomotionHeuristicIntegrationTest, CentripetalForceReachesTheWorldFrameR
     const scalar_t numStance = static_cast<scalar_t>(numberOfStanceFeet(node.contacts));
     const vector3_t expectedWorld(mass * yawRate * -command.y() / numStance, mass * yawRate * command.x() / numStance, weight / numStance);
     const vector_t input = referenceManager->getDesiredInput(target, state, node.time);
+    // The reference does not move with the node's state (the Gauss-Newton step holds it constant): the same input at a
+    // state turned and moved elsewhere, bit for bit. The contact frames are the reference configuration's, which here
+    // stands where `state` does.
+    const vector_t elsewhere = stateWithBaseAt(*stanceAnchored_, vector2_t(-0.7, 0.4));
+    EXPECT_TRUE(referenceManager->getDesiredInput(target, commandedState(*stanceAnchored_, command, /*yaw=*/-1.9), node.time) == input)
+        << "t = " << node.time;
+    EXPECT_TRUE(referenceManager->getDesiredInput(target, elsewhere, node.time) == input) << "t = " << node.time;
     for (size_t foot = 0; foot < kNumContacts; ++foot) {
       if (!node.contacts[foot]) {
         EXPECT_TRUE(effectiveModel.getContactWrench(input, foot).isZero(0.0)) << "t = " << node.time << ", foot " << foot;
@@ -1114,15 +1187,15 @@ TEST_F(LocomotionHeuristicIntegrationTest, FootholdSeamHasNoOpinionBeforeTheFirs
 }
 
 TEST_F(LocomotionHeuristicIntegrationTest, TranslationalSteppingLandingTargetHoldsStillThroughTheSwing) {
-  // translational_stepping alone, so the anchor is the stance-foot one: along the heading, the base PREDICTED at the
-  // touch-down; across it, the stance foot plus a step width. The robot walks at the command, v = (0.5, 0), so the base
-  // measured at each solve is 0.5 t and the prediction at the touch-down never changes: neither may the target.
+  // translational_stepping alone, so the anchor is the step-width one (footholdAnchor()): the base PREDICTED at the
+  // touch-down plus half a step width to the foot's side. The robot walks at the command, v = (0.5, 0), so the base
+  // measured at each solve is (0.5 t, 0) and the prediction at the touch-down never changes: neither may the target.
   //
-  // Right foot, landing at 1.5 on a 0.6 s stance: x = 0.5 * 1.5 + (0.5 * 0.6) * 0.5 = 0.9, y = left foot - 0.45 - 0.05
-  // (the lateral offset is signed by the foot's own side). Left foot, landing at 2.0: x = 0.5 * 2.0 + 0.15 = 1.15,
-  // y = right foot + 0.45 + 0.05. A flipped side sign narrows the stance by twice the offset instead of widening it.
+  // Right foot, landing at 1.5 on a 0.6 s stance: x = 0.5 * 1.5 + (0.5 * 0.6) * 0.5 = 0.9, y = -0.45 / 2 - 0.05 (the
+  // lateral offset is signed by the foot's own side). Left foot, landing at 2.0: x = 0.5 * 2.0 + 0.15 = 1.15,
+  // y = +0.45 / 2 + 0.05. A flipped side sign narrows the stance by twice the offset instead of widening it.
   const std::shared_ptr<LocomotionHeuristicLayer>& layer = stanceAnchored_->getLocomotionHeuristicLayerPtr();
-  ASSERT_FALSE(layer->footholdMovesAnchor()) << "this interface must exercise the stance-foot anchor";
+  ASSERT_FALSE(layer->footholdMovesAnchor()) << "this interface must exercise the step-width anchor";
   RestoreCoefficientsFromFileOnExit restore(layer, stanceAnchoredConfig_->task);
   LocomotionHeuristicConfig config = fileConfig(stanceAnchoredConfig_->task);
   config.translationalStepping = TranslationalSteppingParameters{};
@@ -1143,9 +1216,8 @@ TEST_F(LocomotionHeuristicIntegrationTest, TranslationalSteppingLandingTargetHol
   const vector_t liftOffState = stateWithBaseAt(*stanceAnchored_, vector2_t(speed * 1.05, 0.0));
   solveAt(*stanceAnchored_, schedule, target, liftOffState, /*time=*/1.05);
   const vector2_t rightLiftOff = footPosition(*stanceAnchored_, liftOffState, kContactRightIndex);
-  const scalar_t leftFootY = footPosition(*stanceAnchored_, liftOffState, kContactLeftIndex).y();
-  const vector2_t expectedRight(speed * 1.5 + 0.5 * kWalkStanceDuration * speed, leftFootY - stepWidth - lateralOffset);
-  const vector2_t expectedLeft(speed * 2.0 + 0.5 * kWalkStanceDuration * speed, rightLiftOff.y() + stepWidth + lateralOffset);
+  const vector2_t expectedRight(speed * 1.5 + 0.5 * kWalkStanceDuration * speed, -0.5 * stepWidth - lateralOffset);
+  const vector2_t expectedLeft(speed * 2.0 + 0.5 * kWalkStanceDuration * speed, 0.5 * stepWidth + lateralOffset);
 
   // The swing-reference check below is chosen by INDEX: it used to be guarded by `solveTime > 1.28 && solveTime <
   // 1.32`, and 1.12 + 0.04 k is exactly the double 1.28 at k = 4 and 1.32 at k = 5, so it never ran. It is counted too,
@@ -1400,15 +1472,15 @@ TEST_F(LocomotionHeuristicIntegrationTest, HipCenteredSteppingKeepsTheFeetApartO
   }
 }
 
-TEST_F(LocomotionHeuristicIntegrationTest, StanceFootAnchorTurnsWithTheHeadingPredictedForTheTouchDown) {
-  // The stance-foot anchor, with translational_stepping listed and every coefficient of it zeroed: the target is the
-  // anchor itself, forward * (forward . base) + leftward * (leftward . stanceFoot + side * stepWidth), with forward and
-  // leftward the axes of the heading PREDICTED for the touch-down. Measured in double support at heading 0, turning at
-  // 0.5 rad/s on the spot: the prediction is 0.5 * (1.5 - 1.05) = 0.225 rad for the right foot and 0.475 rad for the
-  // left. Axes built from the stale measured yaw of 0 give (base.x, stanceFoot.y +- stepWidth) instead - several
-  // centimeters away, the lateral 0.45 m step width being swung through a quarter of a radian.
+TEST_F(LocomotionHeuristicIntegrationTest, StepWidthAnchorTurnsWithTheHeadingPredictedForTheTouchDown) {
+  // The step-width anchor, with translational_stepping listed and every coefficient of it zeroed: the target is the
+  // anchor itself, base + leftward * side * stepWidth / 2, with leftward the lateral axis of the heading PREDICTED for
+  // the touch-down. Measured in double support at heading 0, turning at 0.5 rad/s on the spot: the prediction is
+  // 0.5 * (1.5 - 1.05) = 0.225 rad for the right foot and 0.475 rad for the left. An axis built from the stale measured
+  // yaw of 0 gives (base.x, base.y +- stepWidth / 2) instead - centimeters away, the 0.225 m half step width being
+  // swung through a quarter of a radian.
   const std::shared_ptr<LocomotionHeuristicLayer>& layer = stanceAnchored_->getLocomotionHeuristicLayerPtr();
-  ASSERT_FALSE(layer->footholdMovesAnchor()) << "this interface must exercise the stance-foot anchor";
+  ASSERT_FALSE(layer->footholdMovesAnchor()) << "this interface must exercise the step-width anchor";
   RestoreCoefficientsFromFileOnExit restore(layer, stanceAnchoredConfig_->task);
   LocomotionHeuristicConfig config = fileConfig(stanceAnchoredConfig_->task);
   config.translationalStepping = TranslationalSteppingParameters{};
@@ -1428,18 +1500,14 @@ TEST_F(LocomotionHeuristicIntegrationTest, StanceFootAnchorTurnsWithTheHeadingPr
   const vector2_t base = stanceAnchored_->getMpcRobotModel().getBasePosition(state).head<2>();
   struct Landing {
     size_t foot;
-    size_t stanceFoot;
     scalar_t side;
     scalar_t touchDown;
   };
-  const std::vector<Landing> landings = {{kContactRightIndex, kContactLeftIndex, -1.0, 1.5},
-                                         {kContactLeftIndex, kContactRightIndex, 1.0, 2.0}};
+  const std::vector<Landing> landings = {{kContactRightIndex, -1.0, 1.5}, {kContactLeftIndex, 1.0, 2.0}};
   for (const Landing& landing : landings) {
     const scalar_t predictedYaw = yawRate * (landing.touchDown - solveTime);
-    const vector2_t forward(std::cos(predictedYaw), std::sin(predictedYaw));
     const vector2_t leftward(-std::sin(predictedYaw), std::cos(predictedYaw));
-    const vector2_t stanceFoot = footPosition(*stanceAnchored_, state, landing.stanceFoot);
-    const vector2_t expected = forward * forward.dot(base) + leftward * (leftward.dot(stanceFoot) + landing.side * stepWidth);
+    const vector2_t expected = base + leftward * (0.5 * landing.side * stepWidth);
     const std::optional<vector2_t> foothold = referenceManager->nominalFoothold(landing.foot, landing.touchDown);
     if (!foothold.has_value()) {
       GTEST_FAIL();
@@ -1447,8 +1515,8 @@ TEST_F(LocomotionHeuristicIntegrationTest, StanceFootAnchorTurnsWithTheHeadingPr
     EXPECT_LT((*foothold - expected).cwiseAbs().maxCoeff(), 1.0e-9) << "foot " << landing.foot << " landing at " << landing.touchDown
                                                                     << ": " << foothold->transpose() << " vs " << expected.transpose();
     // Control: the anchor on the measured heading, which the stale-yaw mutant would return, is far from it.
-    const vector2_t unturned(base.x(), stanceFoot.y() + landing.side * stepWidth);
-    EXPECT_GT((expected - unturned).norm(), 0.05) << "foot " << landing.foot;
+    const vector2_t unturned(base.x(), base.y() + 0.5 * landing.side * stepWidth);
+    EXPECT_GT((expected - unturned).norm(), 0.04) << "foot " << landing.foot;
   }
 }
 
@@ -1498,7 +1566,7 @@ TEST_F(LocomotionHeuristicIntegrationTest, FootholdHeuristicUnderContactPlanning
 
 TEST_F(LocomotionHeuristicIntegrationTest, FootholdListWithoutAnAnchorIsRejectedOnAZeroStepWidth) {
   // With no step width and no hip_centered_stepping, nothing keeps the feet apart: every other foothold heuristic nudges
-  // a target on the stance foot's own lateral line, and the swing foot would be aimed at the stance foot. The error
+  // a target on the base's own lateral line, and both feet would be aimed at the same point. The error
   // must name both ways out. (The positive controls are built in SetUpTestSuite: the same list on the shipped 0.45 m
   // step width is `stanceAnchored_`, and a zero step width with hip_centered_stepping listed is `zeroStepWidth_`.)
   CentroidalMpcConfig config = withLists(/*basePose=*/{}, {"translational_stepping"}, /*wrench=*/{});

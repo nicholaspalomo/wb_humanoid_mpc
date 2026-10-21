@@ -62,6 +62,12 @@ namespace {
 // The protobuf tokenizer counts lines and columns from 0; editors and compilers count them from 1.
 constexpr int kFirstLine = 1;
 constexpr int kFirstColumn = 1;
+// The protobuf tokenizer moves a tab to the next multiple of this column (io/tokenizer.cc) and counts every other byte
+// as one column; Python's text_format and nproto_textproto count characters.
+constexpr int kTokenizerTabWidth = 8;
+// The bits of a UTF-8 continuation byte (10xxxxxx), which starts no character.
+constexpr unsigned char kUtf8ContinuationMask = 0xC0;
+constexpr unsigned char kUtf8ContinuationBits = 0x80;
 
 // The problems TextFormat::Parser notices only after it has consumed the token at fault, and so reports at the token
 // after it: an unknown field name at the ':' that follows it, a bad bool or enum value at the next field.
@@ -113,6 +119,25 @@ Position previousTokenStart(absl::string_view text, Position position) {
   return previous;
 }
 
+// The 0-based column, in characters, of the tokenizer's 0-based `column` on the 0-based `line` of `text`: a tab is one
+// character, as is a multi-byte UTF-8 character, so that the C++ and the Python parsers report the same position.
+int characterColumn(absl::string_view text, int line, int column) {
+  size_t start = 0;
+  for (int skipped = 0; skipped < line; ++skipped) {
+    const size_t newline = text.find('\n', start);
+    if (newline == absl::string_view::npos) return column;
+    start = newline + 1;
+  }
+  int tokenizerColumn = 0;
+  int characters = 0;
+  for (size_t i = start; i < text.size() && text[i] != '\n' && tokenizerColumn < column; ++i) {
+    const unsigned char byte = static_cast<unsigned char>(text[i]);
+    tokenizerColumn += byte == '\t' ? kTokenizerTabWidth - tokenizerColumn % kTokenizerTabWidth : 1;
+    if ((byte & kUtf8ContinuationMask) != kUtf8ContinuationBits) ++characters;
+  }
+  return characters;
+}
+
 struct Problem {
   int line = 0;  // negative: a problem of the whole message, which has no position
   int column = 0;
@@ -154,12 +179,15 @@ std::optional<HeaderMessage> headerMessage(absl::string_view text) {
   return std::nullopt;
 }
 
+// The underscores snakeCase() reserves room for beyond the characters of the name; a name that needs more reallocates.
+constexpr int kReservedUnderscores = 4;
+
 // `name` snake-cased and lower-cased, as tools/hooks/proto_file_layout.py names files: "useDcmTerminalCost" ->
 // "use_dcm_terminal_cost", "HTTPRequest" -> "http_request". The form in which a retired name and an unknown field name
 // are compared.
 std::string snakeCase(absl::string_view name) {
   std::string result;
-  result.reserve(name.size() + 4);
+  result.reserve(name.size() + kReservedUnderscores);
   for (size_t i = 0; i < name.size(); ++i) {
     const char character = name[i];
     if (absl::ascii_isupper(character) && i > 0) {
@@ -271,10 +299,20 @@ std::string formatProblem(absl::string_view text,
   if (isReportedAfterItsToken(problem.message)) {
     position = previousTokenStart(text, position);
   }
-  return absl::StrCat(source, ":", position.line + kFirstLine, ":", position.column + kFirstColumn, ": ", explained);
+  return absl::StrCat(source, ":", position.line + kFirstLine, ":", characterColumn(text, position.line, position.column) + kFirstColumn,
+                      ": ", explained);
 }
 
 }  // namespace
+
+absl::Status CheckProtoMessageHeader(absl::string_view text, absl::string_view sourceName, const google::protobuf::Descriptor& descriptor) {
+  if (!headerMessage(text).has_value()) {
+    return absl::InvalidArgumentError(absl::StrCat(sourceName, ":1:1: ", sourceName,
+                                                   " names no schema: a configuration file opens with '# ", kProtoMessageHeader, " ",
+                                                   descriptor.full_name(), "' in its leading comment block"));
+  }
+  return absl::OkStatus();
+}
 
 absl::Status ParseTextprotoInto(absl::string_view text, absl::string_view sourceName, google::protobuf::Message* absl_nonnull message) {
   const google::protobuf::Descriptor* absl_nonnull descriptor = message->GetDescriptor();
@@ -307,6 +345,18 @@ absl::Status ParseTextprotoInto(absl::string_view text, absl::string_view source
   return absl::OkStatus();
 }
 
+absl::Status ParseTextprotoFileInto(absl::string_view path, google::protobuf::Message* absl_nonnull message) {
+  absl::StatusOr<std::string> text = ReadTextFile(path);
+  if (!text.ok()) {
+    return text.status();
+  }
+  absl::Status header = CheckProtoMessageHeader(*text, path, *message->GetDescriptor());
+  if (!header.ok()) {
+    return header;
+  }
+  return ParseTextprotoInto(*text, path, message);
+}
+
 absl::StatusOr<std::string> ReadTextFile(absl::string_view path) {
   const std::string pathString(path);
   std::ifstream file(pathString, std::ios::binary);
@@ -331,6 +381,10 @@ std::string WriteTextproto(const google::protobuf::Message& message) {
     text.clear();
   }
   return text;
+}
+
+std::string WriteTextprotoFile(const google::protobuf::Message& message) {
+  return absl::StrCat("# ", kProtoMessageHeader, " ", message.GetDescriptor()->full_name(), "\n", WriteTextproto(message));
 }
 
 }  // namespace nproto

@@ -28,7 +28,7 @@
 """The shipped network files parse strictly, and the two-machine example is the shipped bus split over two machines.
 
 The localhost network and the two-machine example both load with the bus's strict loader, and the example is the same
-bus split over the robot's computer and the laptop.
+bus (the same nodes, topics, QoS profiles and domain) with the robot on a machine of its own.
 """
 
 import os
@@ -49,17 +49,18 @@ class NetworkFilesTest(unittest.TestCase):
         self.localhost = load("network.textproto")
         self.example = load("two_machine.example.textproto")
 
-    def test_the_example_has_the_nodes_and_ports_of_the_shipped_network(self) -> None:
-        self.assertEqual(
-            [(node.name, node.port) for node in self.example.nodes],
-            [(node.name, node.port) for node in self.localhost.nodes],
-        )
+    def test_the_example_has_the_nodes_topics_and_domain_of_the_shipped_network(
+        self,
+    ) -> None:
+        self.assertEqual(self.example.node_names(), self.localhost.node_names())
+        self.assertEqual(self.example.topics, self.localhost.topics)
+        self.assertEqual(self.example.domain_id, self.localhost.domain_id)
 
-    def test_every_node_of_the_example_binds_every_interface(self) -> None:
+    def test_every_node_of_the_example_is_on_a_machine_address(self) -> None:
         for node in self.example.nodes:
             with self.subTest(node=node.name):
-                self.assertEqual(node.bind_host, "0.0.0.0")
-                self.assertNotIn(node.host, ("0.0.0.0", "*", "127.0.0.1", "localhost"))
+                self.assertTrue(robot_ipc.network_config.is_ipv4_address(node.host))
+                self.assertFalse(robot_ipc.network_config.is_loopback_host(node.host))
 
     def test_the_robot_is_on_a_machine_of_its_own(self) -> None:
         hosts = {node.name: node.host for node in self.example.nodes}
@@ -67,7 +68,12 @@ class NetworkFilesTest(unittest.TestCase):
         self.assertNotEqual(hosts["robot"], hosts["mpc"])
 
     def test_the_shipped_network_is_on_this_machine(self) -> None:
-        self.assertEqual({node.host for node in self.localhost.nodes}, {"127.0.0.1"})
+        self.assertTrue(
+            all(
+                robot_ipc.network_config.is_loopback_host(host)
+                for host in self.localhost.peer_hosts()
+            )
+        )
 
 
 if __name__ == "__main__":

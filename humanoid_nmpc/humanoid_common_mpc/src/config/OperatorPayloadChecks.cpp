@@ -38,6 +38,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/string_view.h"
 #include "google/protobuf/message.h"
 
+#include "humanoid_mpc_config/joint_pd_gains_file.pb.h"
+#include "humanoid_mpc_config/joint_pd_gains_update.pb.h"
 #include "humanoid_mpc_config/mpc_parameter_update.pb.h"
 #include "nproto/Schema.h"
 
@@ -74,6 +76,27 @@ absl::Status checkMpcParameterUpdate(const humanoid_mpc_config::MpcParameterUpda
     return absl::FailedPreconditionError(
         absl::StrCat("the MpcParameterUpdate is the task file ", message.config_path().empty() ? "<no config_path>" : message.config_path(),
                      ", and this one runs ", taskFileIdentity, ": an update of another configuration is not applied"));
+  }
+  return absl::OkStatus();
+}
+
+std::string jointPdGainsFileSchemaFingerprint() {
+  return nproto::SchemaFingerprint(*humanoid_mpc_config::JointPdGainsFile::descriptor());
+}
+
+absl::Status checkJointPdGainsUpdate(const humanoid_mpc_config::JointPdGainsUpdate& message, absl::string_view pdGainsFileIdentity) {
+  if (absl::Status schema = checkPayloadSchema(message); !schema.ok()) {
+    return schema;
+  }
+  if (const std::string own = jointPdGainsFileSchemaFingerprint(); message.schema_fingerprint() != own) {
+    return absl::FailedPreconditionError(absl::StrCat("the JointPdGainsUpdate has the schema fingerprint '", message.schema_fingerprint(),
+                                                      "', this build's is '", own,
+                                                      "': it was sent by a build with another schema version"));
+  }
+  if (!pdGainsFileIdentity.empty() && message.config_path() != pdGainsFileIdentity) {
+    return absl::FailedPreconditionError(absl::StrCat(
+        "the JointPdGainsUpdate is the joint PD gains file ", message.config_path().empty() ? "<no config_path>" : message.config_path(),
+        ", and this one runs ", pdGainsFileIdentity, ": an update of another configuration is not applied"));
   }
   return absl::OkStatus();
 }

@@ -31,7 +31,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cstdlib>
-#include <functional>
 #include <limits>
 #include <memory>
 #include <string>
@@ -54,6 +53,9 @@ extern "C" {
 }
 
 namespace ocs2::humanoid {
+
+// The header spells HPIPM's BALANCE mode without HPIPM's headers.
+static_assert(OcpQpHpipmSolver::Settings::kHpipmModeBalance == BALANCE, "kHpipmModeBalance is hpipm_mode BALANCE");
 
 namespace {
 
@@ -88,12 +90,12 @@ class MemoryBlock {
 struct Dimensions {
   int N = 0;
   std::vector<int> nx, nu, nbx, nbu, ng, nsbx, nsbu, nsg;
-
-  bool operator==(const Dimensions& rhs) const {
-    return N == rhs.N && nx == rhs.nx && nu == rhs.nu && nbx == rhs.nbx && nbu == rhs.nbu && ng == rhs.ng && nsbx == rhs.nsbx &&
-           nsbu == rhs.nsbu && nsg == rhs.nsg;
-  }
 };
+
+bool operator==(const Dimensions& lhs, const Dimensions& rhs) {
+  return lhs.N == rhs.N && lhs.nx == rhs.nx && lhs.nu == rhs.nu && lhs.nbx == rhs.nbx && lhs.nbu == rhs.nbu && lhs.ng == rhs.ng &&
+         lhs.nsbx == rhs.nsbx && lhs.nsbu == rhs.nsbu && lhs.nsg == rhs.nsg;
+}
 
 absl::Status stageError(int k, absl::string_view what) {
   return absl::InvalidArgumentError(absl::StrCat("[OcpQpHpipmSolver] stage ", k, ": ", what));
@@ -149,9 +151,9 @@ absl::Status checkStage(const OcpQpStage& stage, int k, int N) {
 
 }  // namespace
 
-OcpQpStage OcpQpStage::Zero(int nx, int nu, bool hasDynamics) {
+OcpQpStage OcpQpStage::Zero(int nx, int nu, OcpQpStageKind kind) {
   OcpQpStage stage;
-  if (hasDynamics) {
+  if (kind == OcpQpStageKind::kIntermediate) {
     stage.A = matrix_t::Zero(nx, nx);
     stage.B = matrix_t::Zero(nx, nu);
     stage.b = vector_t::Zero(nx);
@@ -238,6 +240,49 @@ scalar_t evaluateOcpQpMaxHardViolation(const OcpQpProblem& problem, const std::v
   return maxViolation;
 }
 
+namespace {
+
+/** InvalidArgument when the stages of `problem` are inconsistent with each other or with x0. */
+absl::Status checkProblem(const OcpQpProblem& problem) {
+  const int N = problem.numStages();
+  if (N < 1) {
+    return absl::InvalidArgumentError("[OcpQpHpipmSolver] the problem needs at least one stage");
+  }
+  for (int k = 0; k <= N; ++k) {
+    RETURN_IF_ERROR(checkStage(problem.stages[k], k, N));
+    if (k < N && problem.stages[k].A.rows() != problem.stages[k + 1].numStates()) {
+      return absl::InvalidArgumentError(absl::StrCat("[OcpQpHpipmSolver] dynamics of stage ", k, " do not match the next state size"));
+    }
+  }
+  if (problem.x0.size() != problem.stages[0].numStates()) {
+    return absl::InvalidArgumentError("[OcpQpHpipmSolver] x0 does not match the state dimension of stage 0");
+  }
+  return absl::OkStatus();
+}
+
+/** The HPIPM dimensions of `problem`: its stage-0 state box is the x0 equality, which replaces any user box there. */
+Dimensions dimensionsOf(const OcpQpProblem& problem) {
+  const int N = problem.numStages();
+  const int nx0 = problem.stages[0].numStates();
+  Dimensions dims;
+  dims.N = N;
+  for (std::vector<int>* absl_nonnull counts : {&dims.nx, &dims.nu, &dims.nbx, &dims.nbu, &dims.ng, &dims.nsbx, &dims.nsbu, &dims.nsg}) {
+    counts->assign(N + 1, 0);
+  }
+  for (int k = 0; k <= N; ++k) {
+    const OcpQpStage& s = problem.stages[k];
+    dims.nx[k] = s.numStates();
+    dims.nu[k] = s.numInputs();
+    dims.nbx[k] = (k == 0) ? nx0 : static_cast<int>(s.idxbx.size());
+    dims.nbu[k] = static_cast<int>(s.idxbu.size());
+    dims.ng[k] = s.numGeneralConstraints();
+    dims.nsg[k] = static_cast<int>(s.softGeneralIndices.size());
+  }
+  return dims;
+}
+
+}  // namespace
+
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
@@ -288,48 +333,26 @@ class OcpQpHpipmSolver::Impl {
   }
 
   absl::StatusOr<OcpQpSolution> solve(const OcpQpProblem& problem) {
-    const int N = problem.numStages();
-    if (N < 1) {
-      return absl::InvalidArgumentError("[OcpQpHpipmSolver] the problem needs at least one stage");
-    }
-    for (int k = 0; k <= N; ++k) {
-      RETURN_IF_ERROR(checkStage(problem.stages[k], k, N));
-      if (k < N && problem.stages[k].A.rows() != problem.stages[k + 1].numStates()) {
-        return absl::InvalidArgumentError(absl::StrCat("[OcpQpHpipmSolver] dynamics of stage ", k, " do not match the next state size"));
-      }
-    }
-    if (problem.x0.size() != problem.stages[0].numStates()) {
-      return absl::InvalidArgumentError("[OcpQpHpipmSolver] x0 does not match the state dimension of stage 0");
-    }
+    RETURN_IF_ERROR(checkProblem(problem));
+    const Dimensions dims = dimensionsOf(problem);
+    RETURN_IF_ERROR(allocate(dims));
+    setProblemData(problem, dims);
+    rewriteSoftConstraintMapping(problem, dims);
+    maskInfiniteBounds(problem);
+    d_ocp_qp_ipm_solve(&qp_, &sol_, &arg_, &ws_);
+    return readSolution(problem, dims);
+  }
 
+ private:
+  /** Hands the data of `problem`, of dimensions `dims`, to HPIPM's QP, with x0 as an equality box on the stage-0 state. */
+  void setProblemData(const OcpQpProblem& problem, const Dimensions& dims) {
+    const int N = problem.numStages();
     // The initial state is imposed as an equality box constraint on the stage-0 state (it replaces any user box there).
     const int nx0 = problem.stages[0].numStates();
     std::vector<int> idxbx0(nx0);
     for (int i = 0; i < nx0; ++i) idxbx0[i] = i;
     vector_t lbx0 = problem.x0;
     vector_t ubx0 = problem.x0;
-
-    Dimensions dims;
-    dims.N = N;
-    const std::function<void(std::vector<int>&)> resizeAll = [N](std::vector<int>& v) { v.assign(N + 1, 0); };
-    resizeAll(dims.nx);
-    resizeAll(dims.nu);
-    resizeAll(dims.nbx);
-    resizeAll(dims.nbu);
-    resizeAll(dims.ng);
-    resizeAll(dims.nsbx);
-    resizeAll(dims.nsbu);
-    resizeAll(dims.nsg);
-    for (int k = 0; k <= N; ++k) {
-      const OcpQpStage& s = problem.stages[k];
-      dims.nx[k] = s.numStates();
-      dims.nu[k] = s.numInputs();
-      dims.nbx[k] = (k == 0) ? nx0 : static_cast<int>(s.idxbx.size());
-      dims.nbu[k] = static_cast<int>(s.idxbu.size());
-      dims.ng[k] = s.numGeneralConstraints();
-      dims.nsg[k] = static_cast<int>(s.softGeneralIndices.size());
-    }
-    RETURN_IF_ERROR(allocate(dims));
 
     // Pointer tables. HPIPM copies the data inside d_ocp_qp_set_all, so stack-lifetime buffers are fine.
     std::vector<double* absl_nullable> A(N + 1, nullptr);
@@ -420,7 +443,11 @@ class OcpQpHpipmSolver::Impl {
     d_ocp_qp_set_all(A.data(), B.data(), b.data(), Q.data(), S.data(), R.data(), q.data(), r.data(), idxbx.data(), lbx.data(), ubx.data(),
                      idxbu.data(), lbu.data(), ubu.data(), C.data(), D.data(), lg.data(), ug.data(), Zl.data(), Zu.data(), zl.data(),
                      zu.data(), idxs.data(), lls.data(), lus.data(), &qp_);
+  }
 
+  /** Rewrites HPIPM's soft-constraint mapping of every stage from `problem` (see the comment inside). */
+  void rewriteSoftConstraintMapping(const OcpQpProblem& problem, const Dimensions& dims) {
+    const int N = problem.numStages();
     // Rewrite the soft-constraint mapping in full, rather than trusting what d_ocp_qp_set_all left behind.
     //
     // HPIPM keeps the mapping in qp_.idxs_rev: one entry per constrained row of the stage, in the order (input box,
@@ -458,7 +485,11 @@ class OcpQpHpipmSolver::Impl {
       }
       d_ocp_qp_set_idxs_rev(k, idxsRevBuffer.data(), &qp_);
     }
+  }
 
+  /** Masks out the general constraint bounds of `problem` that are +-kOcpQpInfiniteBound. */
+  void maskInfiniteBounds(const OcpQpProblem& problem) {
+    const int N = problem.numStages();
     // One-sided general constraints are declared with +-kOcpQpInfiniteBound; mask those bounds out so that HPIPM does not
     // carry a slack and a multiplier for a bound that can never become active.
     for (int k = 0; k <= N; ++k) {
@@ -474,9 +505,11 @@ class OcpQpHpipmSolver::Impl {
       d_ocp_qp_set_lg_mask(k, lgMask.data(), &qp_);
       d_ocp_qp_set_ug_mask(k, ugMask.data(), &qp_);
     }
+  }
 
-    d_ocp_qp_ipm_solve(&qp_, &sol_, &arg_, &ws_);
-
+  /** HPIPM's status, iteration count and trajectories after a solve of `problem`, and the objective of the trajectories. */
+  OcpQpSolution readSolution(const OcpQpProblem& problem, const Dimensions& dims) {
+    const int N = problem.numStages();
     OcpQpSolution solution;
     int status = -1;
     d_ocp_qp_ipm_get_status(&ws_, &status);
@@ -523,7 +556,6 @@ class OcpQpHpipmSolver::Impl {
     return solution;
   }
 
- private:
   Settings settings_;
   bool allocated_ = false;
   Dimensions dims_;

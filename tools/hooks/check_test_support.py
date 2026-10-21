@@ -102,7 +102,7 @@ def _with_marker(source: str, line: int, marker: str, path: str) -> str:
 def _with_marker_above(source: str, line: int, marker: str, path: str) -> str:
     lines = source.split("\n")
     indent = len(lines[line - 1]) - len(lines[line - 1].lstrip())
-    lines.insert(line - 1, " " * indent + f"{_comment(path)} {marker}")
+    lines.insert(line - 1, f'{" " * indent}{_comment(path)} {marker}')
     return "\n".join(lines)
 
 
@@ -163,9 +163,9 @@ def assert_hook_runs_the_linter(test: unittest.TestCase) -> None:
     """Asserts that the pre-commit hook runs the linter on the staged files after staging the formatter's changes."""
     hook = read_repository_file("tools/hooks/pre-commit")
     command = "python3 -m tools.hooks.lint_code --git-staged"
-    test.assertIn("if ! " + command + "; then", hook)
-    test.assertLess(hook.index('git add "$file"'), hook.index("if ! " + command))
-    after = hook[hook.index("if ! " + command) :]
+    test.assertIn(f"if ! {command}; then", hook)
+    test.assertLess(hook.index('git add "$file"'), hook.index(f"if ! {command}"))
+    after = hook[hook.index(f"if ! {command}") :]
     test.assertLess(after.index("exit 1"), after.index("completed successfully"))
 
 
@@ -214,7 +214,7 @@ def assert_check_behaves(
 
     # Vendored code is out of scope.
     if check.scope != lint_files.Scope.NOT_THIRDPARTY:
-        test.assertEqual(findings(name, flagged, "lib/vendored/" + path), [])
+        test.assertEqual(findings(name, flagged, f"lib/vendored/{path}"), [])
 
     # The staged version is what counts.
     repository = StagedRepository()
@@ -225,7 +225,7 @@ def assert_check_behaves(
             [(f.path, f.check) for f in repository.staged_findings(name)],
             [(path, name)],
         )
-        repository.write(path, clean if clean is not None else flagged + "\n")
+        repository.write(path, clean if clean is not None else f"{flagged}\n")
         test.assertEqual(len(repository.staged_findings(name)), 1)
     finally:
         repository.cleanup()

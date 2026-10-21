@@ -55,7 +55,7 @@ walking controllers.
   │     ├─ cancel requested?   (lockGantry on another thread) park, drop the impulse         │
   │     ├─ a throw is staged?  mj_kinematics, then setProjectileMass(clamped mass),          │
   │     │                      clearProjectileLaunch(...), place, set qvel, arm              │
-  │     │                      (no ball compiled in? schedule projectileArrivalMomentum)     │
+  │     │                      (no ball compiled in? schedule projectileArrivalVelocity)     │
   │     └─ armed?              ProjectileRestMonitor: slow for 0.25 s or 10 s in play: park  │
   │                                                                                          │
   │   groundTruthContactMask(..., ignoreBodyId)  and  ZMP marker's groundReaction(...)       │
@@ -73,7 +73,7 @@ walking controllers.
   │   setProjectileMass(m, b, mass)                 mass, inertia, derived constants         │
   │   setRobotJointDamping(m, b, damping)           every robot joint, never the ball        │
   │   clearProjectileLaunch(m, d, b, launch, g)     slide the start along its own path       │
-  │   projectileArrivalMomentum(v, t, m, g)         the no-ball fallback impulse             │
+  │   projectileImpactImpulse(m, M, e, v)           the no-ball fallback impulse             │
   │   ProjectileRestMonitor                         when a thrown ball is finished with      │
   └──────────────────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -95,10 +95,10 @@ exactly as it is on disk — the code's own default, so a robot that has not opt
 | --- | --- |
 | diameter | 0.216 m — a regulation 8.5-inch ball |
 | mass | 0.45 kg by default; the **Ball mass** slider sets 0.1 – 5.0 kg per throw |
-| restitution | 0.80 — measured 0.797 at the simulator's 0.5 ms step, 0.842 at 1 ms |
+| restitution | 0.80 — measured 0.797 at the simulator's 0.5 ms step, 0.782 at 1 ms |
 | sliding friction | 0.60 |
 | rolling and torsional friction | 5 mm — from 3 m/s a ball rolls to rest in about seven seconds |
-| contact time constant | 20 ms |
+| contact stiffness | a natural frequency of 300 rad/s at every restitution (time constant $1/(\zeta \cdot 300)$, 45 ms at 0.80) |
 
 At the default mass a 25 m/s throw carries about 11 N s. For scale, Atlas at 159.7 kg takes about 0.07 m/s of base
 velocity from that, before the bounce adds more: the default ball is a shove rather than a demolition, and what
@@ -108,23 +108,40 @@ absorb standing still.
 
 ### Restitution, and why MuJoCo does not have it
 
-MuJoCo models a contact as a spring-damper and exposes `solref = (timeconst, dampratio)`. A damping ratio below one
-is what makes a contact bounce, and the two are related by the logarithmic decrement of a damped oscillator:
+MuJoCo models a contact as a spring-damper and exposes `solref = (timeconst, dampratio)`: the penetration $x$ obeys
+$\ddot x = -\omega^{2} x - 2 \zeta \omega \dot x$ with $\omega = 1/(t_c \zeta)$ and $\zeta$ the damping ratio (the solver's
+impedance cancels out of both). A contact can only push, so the ball leaves it when the spring-damper force reaches zero,
+and not when $x$ returns to zero: that is the instant $\ddot x = 0$, where the rebound speed is at its largest, after
+$\omega_d t = \pi - 2 \arcsin \zeta$ of the damped oscillation. From an impact at speed $v_0$ the ball leaves at
+$v_0 e^{-\zeta \omega t}$, so
 
-$$e \;=\; \exp\!\left(\frac{-\pi \zeta}{\sqrt{1 - \zeta^{2}}}\right) \qquad \Longleftrightarrow \qquad \zeta \;=\; \frac{-\ln e}{\sqrt{\pi^{2} + \ln^{2} e}}.$$
+$$e(\zeta) \;=\; \exp\!\left(\frac{-2 \zeta \arccos \zeta}{\sqrt{1 - \zeta^{2}}}\right) \quad (\zeta < 1), \qquad e(1) = e^{-2} = 0.135, \qquad e(\zeta) \;=\; \exp\!\left(\frac{-2 \zeta \operatorname{arcosh} \zeta}{\sqrt{\zeta^{2} - 1}}\right) \quad (\zeta > 1),$$
 
-So the registry names the number an engineer actually knows and `contactDampRatioForRestitution` converts it:
-$e = 0.80$ gives $\zeta = 0.0708$. That relation only holds for the contact the ball actually gets, which takes two
-more things:
+independent of $\omega$ and of the impact speed. It is *not* the logarithmic decrement
+$\exp(-\pi \zeta / \sqrt{1 - \zeta^{2}})$, the speed at which an oscillator crosses $x = 0$ again half a period later —
+a point a one-sided contact never reaches. The two differ most where the damping is heavy: at $\zeta = 0.535$ the
+decrement says 0.137 and the contact gives 0.280, and a critically damped contact still bounces at 0.135. $e$ falls from
+1 at $\zeta = 0$ towards 0 (about $1/(4\zeta^{2})$) as the damping grows, so no finite damping stops a ball dead.
+
+So the registry names the number an engineer actually knows and `contactDampRatioForRestitution` inverts $e(\zeta)$ (by
+bisection): $e = 0.80$ gives $\zeta = 0.0744$; a restitution of 0 gets the most damped contact it allows, $\zeta = 10$,
+which returns 0.24% of the impact speed. `testProjectile.cpp` checks the closed form against an integration of the
+one-sided spring-damper, the energy ratio of one bounce, $e^{2}$, at every restitution, and the bounce MuJoCo produces.
+That relation only holds for the contact the ball actually gets, which takes two more things:
 
 - **Priority.** Two geoms of equal priority get the *average* of their solrefs. Every floor and robot geom in the
   shipped scenes carries `solref = (0.004, 1.0)`, so without priority the ball's contacts ran at a damping ratio of
-  about 0.54, a restitution of about 0.25, whatever the ball was configured with. The ball's geom has `priority = 1`,
-  so its solref, solimp, friction and condim govern every contact it makes.
-- **A time constant the integrator can resolve.** A lightly damped contact rings at about $1/(t_c \zeta)$. At 2 ms
-  and $\zeta = 0.07$ that is ~7000 rad/s, seven radians per 1 ms step, and the discrete contact then *adds* energy —
-  rebounds of 4 to 50 times the arrival speed were measured. At 20 ms it is ~740 rad/s, resolved at both 0.5 ms and
-  1 ms, and 20 ms is also about how long a foam ball is in contact with what it hits.
+  about 0.54, a restitution of about 0.25 (measured; $e(0.535) = 0.28$), whatever the ball was configured with. The
+  ball's geom has `priority = 1`, so its solref, solimp, friction and condim govern every contact it makes.
+- **A stiffness the integrator can resolve.** A fixed time constant would not do: the contact rings at
+  $\omega = 1/(t_c \zeta)$, which grows without bound as the damping vanishes, and a contact the integrator cannot
+  resolve *adds* energy. With the 20 ms of an earlier version, $e = 0.9$ and $0.95$ rang at 1500 and 3100 rad/s and
+  rebounded at 1.2 and 4 times the impact speed at a 1 ms step (at 2 ms and $\zeta = 0.07$, rebounds of 4 to 50 times
+  were measured). The time constant is therefore $1/(\zeta \, \omega_0)$ with $\omega_0 = 300$ rad/s for every
+  restitution, so only the damping carries it: a 0.5 ms step takes about forty steps per period, the measured restitution
+  is within 0.02 of the configured one from 0.3 to 0.99, a bounce lasts about 10 ms — the contact time of a foam ball —
+  and an 8 m/s throw compresses the ball by 25 mm, a quarter of its radius. (MuJoCo raises a time constant below two
+  steps to two steps, which lowers $\omega$ of a heavily damped contact and leaves its $\zeta$, and so its $e$, as it was.)
 
 ### Changing the mass after the scene is compiled
 
@@ -224,9 +241,10 @@ ZMP marker, "the zero moment point of the ground reaction", would be thrown mete
 Both take an `ignoreBodyId`, and the simulator and the marker pass the ball's.
 
 **Joint damping must never reach the ball.** Twenty N s/m on its free joint — the zero-torque ragdoll damping the
-simulator starts in — brings a thrown ball to a 0.2 m/s terminal speed within centimeters of where it was thrown.
-All three writers (the start-up default, the ragdoll boost and `disableTorques`) go through `setRobotJointDamping`,
-so the skip cannot drift apart between them again.
+simulator starts in (`sim_ragdoll_joint_damping`) — brings a thrown ball to a 0.2 m/s terminal speed within
+centimeters of where it was thrown. Both writers of the ragdoll damping (start-up and `disableTorques`) go through
+`setRobotJointDamping`, so the skip cannot drift apart between them again; `enableTorques` copies back the scene's own
+`dof_damping`, captured when it was loaded, which has the ball's at zero.
 
 **A thrown ball must be put away.** With the usual condim-3 contact a ball rolling on a plane keeps 5/7 of its speed
 forever. The ball has rolling friction, and `ProjectileRestMonitor` parks it once it has been slow for 0.25 s or in
@@ -244,10 +262,19 @@ reach, and it is beyond the far clipping plane of every camera on the robot.
 ## 5. No ball compiled in
 
 If `sim_projectile` is empty the Throw button still works. The flight is ballistic and known in closed form, so the
-simulator applies the momentum the ball would have *arrived* with, $m\,(\mathbf{v}_{\text{launch}} - g t \hat{\mathbf{z}})$
-at the slider's (clamped) mass, as a one-step force on the base when it would have arrived. That is a lower bound on
-the push: a real ball that bounces off hands over up to $(1 + e)$ times its momentum. The force lasts one physics
-step and the viewer samples the state about every thirty, so it is usually not drawn.
+simulator schedules the ball's arrival, at the velocity $\mathbf{v} = \mathbf{v}_{\text{launch}} - g t \hat{\mathbf{z}}$ and
+the slider's (clamped) mass $m$, and applies its impact to the base then: a frictionless head-on impact of a dodgeball
+(restitution $e = 0.8$) on the base's origin, which the throw was aimed at, along $\mathbf{n} = \mathbf{v}/|\mathbf{v}|$.
+Its impulse is the one that conserves momentum and reverses the relative normal velocity at $e$ times its speed,
+
+$$J \;=\; (1 + e)\,\frac{m M}{m + M}\,(\mathbf{v} - \mathbf{v}_p)\cdot\mathbf{n}, \qquad M \;=\; \frac{1}{\mathbf{n}^{\top} J_p M_q^{-1} J_p^{\top} \mathbf{n}},$$
+
+with $M$ the robot's effective mass at the point along $\mathbf{n}$ (from the joint-space inertia $M_q$ and the point's
+Jacobian $J_p$ of that step) and $\mathbf{v}_p$ the point's velocity; a rigid wall would take $(1+e)\,m v$. It is
+applied as a one-step force $J\mathbf{n}/\Delta t$ at the base's center of mass with the moment of that force about it,
+$(\mathbf{p} - \mathbf{c}) \times J\mathbf{n}/\Delta t$, so the robot gets the linear and the angular momentum of a push
+at the base's origin rather than at its center of mass (`projectileImpactImpulse`, `testMujocoSimInterfaceState.cpp`).
+The force lasts one physics step and the viewer samples the state about every thirty, so it is usually not drawn.
 
 ---
 
@@ -257,7 +284,7 @@ step and the viewer samples the state about every thirty, so it is usually not d
 | --- | --- |
 | `remote_control/test/test_dodgeball.py` | the geometry: spawn offset; the launch speed equals the slider's, or the minimum that reaches; the path passes through the base; the direct root, not the lob; arrival speed by energy conservation; momentum = mass × arrival speed; NaN and out-of-range clamping of all five parameters; randomization leaving distance, speed and mass alone; the payload keys against the golden file the C++ test reads; the topic against the one the bridge subscribes to; and the tab — all five sliders holding their ranges on screen and on the wire, a non-number rejected, the status line actually showing, the preview saying when a speed was raised |
 | `humanoid_common_mpc_app/robot/test/config/robot/testDodgeballThrowFromMessage.cpp` | the GUI's own throw (the golden `test/data/dodgeball_throw.textproto`) converts; every field the simulator uses is required and named when missing; non-finite values, a negative flight and a non-positive mass are rejected; an over-range mass is left for the simulator to clamp |
-| `mujoco_sim_interface/test/testProjectile.cpp` | registry; the logarithmic-decrement round trip; the ball compiled last, colliding, gravity-compensated, with priority, condim 6 and rolling friction; a parked ball staying put; **the restitution against a floor with the shipped contact parameters at 0.5 and 1 ms**; no energy gain at three timesteps; a rolling ball coming to rest before its lifetime; the broadphase park-then-throw cycle; `setProjectileMass` matching a fresh compile field by field, leaving `<statistic>` alone, keeping the restitution mass-invariant, clamping, and refusing anything that is not a centered sphere on its own free joint; the damping helper; path-sliding out of the robot and out of the floor, staying on the path, and refusing the impossible; the fallback impulse; the rest monitor; the contact mask and the ground reaction ignoring the ball, each with a positive control |
+| `mujoco_sim_interface/test/testProjectile.cpp` | registry; the restitution of the one-sided spring-damper against its integration, its inversion, and the energy ratio $e^{2}$ of a MuJoCo bounce from 0.3 to 0.95; the ball compiled last, colliding, gravity-compensated, with priority, condim 6 and rolling friction; a parked ball staying put; **the restitution against a floor with the shipped contact parameters at 0.5 and 1 ms**; no energy gain at three timesteps; a rolling ball coming to rest before its lifetime; the broadphase park-then-throw cycle; `setProjectileMass` matching a fresh compile field by field, leaving `<statistic>` alone, keeping the restitution mass-invariant, clamping, and refusing anything that is not a centered sphere on its own free joint; the damping helper; path-sliding out of the robot and out of the floor, staying on the path, and refusing the impossible; the arrival velocity; the rest monitor; the contact mask and the ground reaction ignoring the ball, each with a positive control |
 | `mujoco_sim_interface/test/testMujocoSimInterfaceDodgeball.cpp` | the real simulator, headless, on the shipped Atlas scene: the ball found, parked and undamped at start-up and through torque toggles; a throw flying the real ball at the slider's mass to the base; a hand-published mass clamped; an under-floor spawn lifted; catching the robot canceling the throw while re-locking an already-locked gantry does not; a reset parking it; a finished ball parked again |
 
 Every fix above was also checked the other way round: the bug was put back, and at least one of these tests failed.

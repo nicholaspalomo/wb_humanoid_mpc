@@ -34,9 +34,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
-#include <filesystem>
-#include <fstream>
-#include <iterator>
 #include <limits>
 #include <memory>
 #include <optional>
@@ -51,12 +48,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/memory/memory.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
-#include "absl/strings/match.h"
-#include "absl/strings/numbers.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
-#include "absl/strings/str_split.h"
 #include "absl/strings/string_view.h"
+#include "ocs2_core/NumericTraits.h"
 #include "ocs2_core/control/ControllerBase.h"
 #include "ocs2_core/control/ControllerType.h"
 #include "ocs2_core/control/ManifoldLinearController.h"
@@ -72,6 +67,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/config/weights/StateInputLayout.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
+#include "humanoid_nmpc/humanoid_common_mpc/test/equivalence/EulerChartStateManifold.h"
 
 namespace ocs2::humanoid {
 namespace {
@@ -85,37 +81,6 @@ constexpr scalar_t kWalkingTargetDistance = 1.0;
 constexpr scalar_t kWalkingTargetTime = 2.0;
 /** The walking reference's single supports. */
 constexpr size_t kWalkingSteps = 4;
-
-/** The column of the step size in an SQP log (SqpLogging). */
-constexpr char kStepSizeColumn[] = "stepSize";
-
-/** The step size of the one iteration of the SQP log in `directory`; ABSL_CHECK on a missing or unreadable log. */
-scalar_t loggedStepSize(const std::filesystem::path& directory) {
-  std::error_code error;
-  std::vector<std::filesystem::path> logs;
-  for (std::filesystem::directory_iterator file(directory, error); !error && file != std::filesystem::directory_iterator();
-       file.increment(error)) {
-    if (absl::StartsWith(file->path().filename().string(), "log_")) logs.push_back(file->path());
-  }
-  ABSL_CHECK(!error && logs.size() == 1) << "no single SQP log in " << directory.string();
-  std::ifstream log(logs.front());
-  std::string line;
-  ABSL_CHECK(std::getline(log, line)) << "an empty SQP log";
-  const std::vector<std::string> header = absl::StrSplit(line, ", ");
-  const std::vector<std::string>::const_iterator column = std::find(header.begin(), header.end(), kStepSizeColumn);
-  ABSL_CHECK(column != header.end()) << "the SQP log has no step size";
-  const size_t index = static_cast<size_t>(std::distance(header.cbegin(), column));
-  ABSL_CHECK(std::getline(log, line)) << "the SQP log has no iteration";
-  const std::vector<std::string> fields = absl::StrSplit(line, ", ");
-  scalar_t stepSize = 0.0;
-  ABSL_CHECK(index < fields.size() && absl::SimpleAtod(fields[index], &stepSize)) << "an unreadable SQP log line: " << line;
-  return stepSize;
-}
-
-std::string scratchDirectory() {
-  const char* absl_nullable tmp = std::getenv("TEST_TMPDIR");
-  return tmp != nullptr ? std::string(tmp) : std::filesystem::temp_directory_path().string();
-}
 
 /** Uniform in [low, high]; exactly `low` for an empty interval, which a zero bound gives. */
 scalar_t uniform(scalar_t low, scalar_t high, std::mt19937& generator) {
@@ -245,6 +210,10 @@ const MpcRobotModelBase<scalar_t>& MpcEquivalenceFixture::model() const {
 
 const PinocchioInterface& MpcEquivalenceFixture::pinocchioInterface() const {
   return centroidal_ != nullptr ? centroidal_->getPinocchioInterface() : wholeBody_->getPinocchioInterface();
+}
+
+std::shared_ptr<const StateManifold> MpcEquivalenceFixture::eulerChartPtr() const {
+  return std::make_shared<const EulerChartStateManifold>(manifold_, eulerLayout_);
 }
 
 const OptimalControlProblem& MpcEquivalenceFixture::problem() const {
@@ -462,21 +431,7 @@ std::vector<AnnotatedTime> MpcEquivalenceFixture::sqpNodeGrid(const EquivalenceR
   return timeDiscretizationWithEvents(reference.initTime, finalTime, sqpSettings().dt, referenceManager->getModeSchedule().eventTimes);
 }
 
-PrimalSolution MpcEquivalenceFixture::runSqp(std::shared_ptr<const StateManifold> manifold,
-                                             const EquivalenceReference& reference,
-                                             const vector_t& initState,
-                                             PrimalSolution warmStart,
-                                             const SqpRunOptions& options,
-                                             scalar_t* absl_nullable firstStepSize) const {
-  const std::shared_ptr<SwitchedModelReferenceManager> referenceManager =
-      centroidal_ != nullptr ? centroidal_->getSwitchedModelReferenceManagerPtr() : wholeBody_->getSwitchedModelReferenceManagerPtr();
-  const Initializer& initializer =
-      centroidal_ != nullptr ? static_cast<const Initializer&>(centroidal_->getInitializer()) : wholeBody_->getInitializer();
-  const scalar_t finalTime = reference.initTime + timeHorizon();
-  installReference(reference);
-
-  OptimalControlProblem problem = this->problem();
-  problem.stateManifoldPtr = std::move(manifold);
+sqp::Settings MpcEquivalenceFixture::solveSettings(const SqpRunOptions& options) const {
   sqp::Settings settings = sqpSettings();
   settings.sqpIteration = options.iterations;
   if (options.convergenceTolerance.has_value()) {
@@ -489,28 +444,35 @@ PrimalSolution MpcEquivalenceFixture::runSqp(std::shared_ptr<const StateManifold
   settings.printSolverStatus = false;
   settings.printSolverStatistics = false;
   settings.printLinesearch = false;
-  // The step size is only in the log, which the solver writes when it is destroyed.
-  const std::filesystem::path logDirectory =
-      std::filesystem::path(scratchDirectory()) / absl::StrCat("realtime_iteration_", iterationRuns_++);
-  std::error_code error;
-  std::filesystem::remove_all(logDirectory, error);
-  settings.enableLogging = firstStepSize != nullptr;
-  settings.logFilePath = absl::StrCat(logDirectory.string(), "/");
+  // What the tests read of an iteration the solver records (SqpSolver::getIterationRecords()); it writes no log.
+  settings.enableLogging = false;
+  return settings;
+}
+
+SqpRun MpcEquivalenceFixture::sqpRun(std::shared_ptr<const StateManifold> manifold,
+                                     const EquivalenceReference& reference,
+                                     const vector_t& initState,
+                                     PrimalSolution warmStart,
+                                     const SqpRunOptions& options) const {
+  const std::shared_ptr<SwitchedModelReferenceManager> referenceManager =
+      centroidal_ != nullptr ? centroidal_->getSwitchedModelReferenceManagerPtr() : wholeBody_->getSwitchedModelReferenceManagerPtr();
+  const Initializer& initializer =
+      centroidal_ != nullptr ? static_cast<const Initializer&>(centroidal_->getInitializer()) : wholeBody_->getInitializer();
+  const scalar_t finalTime = reference.initTime + timeHorizon();
+  installReference(reference);
+
+  OptimalControlProblem problem = this->problem();
+  problem.stateManifoldPtr = std::move(manifold);
   warmStart.modeSchedule_ = referenceManager->getModeSchedule();
 
-  PrimalSolution solution;
-  {
-    SqpSolver solver(settings, problem, initializer);
-    solver.setReferenceManager(referenceManager);
-    if (centroidal_ != nullptr && centroidal_->getContactPlannerModulePtr() != nullptr) {
-      solver.addSynchronizedModule(centroidal_->getContactPlannerModulePtr());
-    }
-    solver.run(reference.initTime, initState, reference.initMode, finalTime, warmStart);
-    solution = solver.primalSolution(finalTime);
-  }  // the solver writes its log when it is destroyed
-  if (firstStepSize != nullptr) *firstStepSize = loggedStepSize(logDirectory);
-  std::filesystem::remove_all(logDirectory, error);
-  return solution;
+  SqpSolver solver(solveSettings(options), problem, initializer);
+  solver.setReferenceManager(referenceManager);
+  if (centroidal_ != nullptr && centroidal_->getContactPlannerModulePtr() != nullptr) {
+    solver.addSynchronizedModule(centroidal_->getContactPlannerModulePtr());
+  }
+  solver.run(reference.initTime, initState, reference.initMode, finalTime, warmStart);
+  return SqpRun{
+      .solution = solver.primalSolution(finalTime), .iterations = solver.getIterationRecords(), .metrics = solver.getSolutionMetrics()};
 }
 
 PrimalSolution MpcEquivalenceFixture::sqpSolution(std::shared_ptr<const StateManifold> manifold,
@@ -518,7 +480,44 @@ PrimalSolution MpcEquivalenceFixture::sqpSolution(std::shared_ptr<const StateMan
                                                   const vector_t& initState,
                                                   PrimalSolution warmStart,
                                                   const SqpRunOptions& options) const {
-  return runSqp(std::move(manifold), reference, initState, std::move(warmStart), options, /*firstStepSize=*/nullptr);
+  return sqpRun(std::move(manifold), reference, initState, std::move(warmStart), options).solution;
+}
+
+std::vector<RealTimeSolve> MpcEquivalenceFixture::realTimeSolves(const EquivalenceReference& reference,
+                                                                 PrimalSolution plan,
+                                                                 size_t solves) const {
+  const std::shared_ptr<SwitchedModelReferenceManager> referenceManager =
+      centroidal_ != nullptr ? centroidal_->getSwitchedModelReferenceManagerPtr() : wholeBody_->getSwitchedModelReferenceManagerPtr();
+  const Initializer& initializer =
+      centroidal_ != nullptr ? static_cast<const Initializer&>(centroidal_->getInitializer()) : wholeBody_->getInitializer();
+  installReference(reference);
+  SqpSolver solver(solveSettings(SqpRunOptions{.iterations = 1, .convergenceTolerance = std::nullopt}), problem(), initializer);
+  solver.setReferenceManager(referenceManager);
+  if (centroidal_ != nullptr && centroidal_->getContactPlannerModulePtr() != nullptr) {
+    solver.addSynchronizedModule(centroidal_->getContactPlannerModulePtr());
+  }
+
+  std::vector<RealTimeSolve> sequence;
+  for (size_t solve = 0; solve < solves; ++solve) {
+    // One node after the last plan, from its state there: node 1, or the node after it where node 1 is an event's (the
+    // post-event node, at the same time), in the mode that follows.
+    ABSL_CHECK_GE(plan.timeTrajectory_.size(), size_t{3}) << "a plan of fewer than three nodes";
+    const size_t next = plan.timeTrajectory_[2] == plan.timeTrajectory_[1] ? 2 : 1;
+    const scalar_t initTime = plan.timeTrajectory_[next];
+    const vector_t initState = plan.stateTrajectory_[next];
+    const size_t initMode = referenceManager->getModeSchedule().modeAtTime(initTime + numeric_traits::weakEpsilon<scalar_t>());
+    const scalar_t finalTime = initTime + timeHorizon();
+    if (solve == 0) {
+      solver.run(initTime, initState, initMode, finalTime, plan);
+    } else {
+      solver.run(initTime, initState, initMode, finalTime);  // warm-started from its own last solution
+    }
+    ABSL_CHECK_EQ(solver.getIterationRecords().size(), size_t{1}) << "a real-time solve runs one iteration";
+    sequence.push_back(
+        RealTimeSolve{.initTime = initTime, .iteration = solver.getIterationRecords().front(), .metrics = solver.getSolutionMetrics()});
+    plan = solver.primalSolution(finalTime);
+  }
+  return sequence;
 }
 
 RealTimeIteration MpcEquivalenceFixture::realTimeIteration(std::shared_ptr<const StateManifold> manifold,
@@ -543,9 +542,10 @@ RealTimeIteration MpcEquivalenceFixture::realTimeIteration(std::shared_ptr<const
                                                            const vector_array_t& warmStartNodes,
                                                            const vector_t& warmStartInput) const {
   const std::shared_ptr<const StateManifold> iterationManifold = manifold;
-  scalar_t stepSize = 0.0;
-  const PrimalSolution solution = runSqp(std::move(manifold), reference, initState, warmStart,
-                                         SqpRunOptions{.iterations = 1, .convergenceTolerance = std::nullopt}, &stepSize);
+  const SqpRun run =
+      sqpRun(std::move(manifold), reference, initState, warmStart, SqpRunOptions{.iterations = 1, .convergenceTolerance = std::nullopt});
+  const PrimalSolution& solution = run.solution;
+  ABSL_CHECK_EQ(run.iterations.size(), size_t{1}) << "a real-time iteration is one iteration";
 
   const Eigen::Index nodes = static_cast<Eigen::Index>(solution.timeTrajectory_.size());
   ABSL_CHECK_GE(warmStartNodes.size(), solution.timeTrajectory_.size()) << "fewer warm-start nodes than the solver's";
@@ -566,7 +566,7 @@ RealTimeIteration MpcEquivalenceFixture::realTimeIteration(std::shared_ptr<const
   ABSL_CHECK(controller != nullptr && controller->getType() == ControllerType::MANIFOLD_LINEAR)
       << "an iteration on a state manifold has a manifold linear policy";
   iteration.firstGain = static_cast<const ManifoldLinearController*>(controller)->getFeedbackGains().front();
-  iteration.stepSize = stepSize;
+  iteration.stepSize = run.iterations.front().stepInfo.stepSize;
   return iteration;
 }
 

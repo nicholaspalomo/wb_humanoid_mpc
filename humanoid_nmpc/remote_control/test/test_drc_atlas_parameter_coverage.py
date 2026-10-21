@@ -150,7 +150,7 @@ class TestDrcAtlasParameterCoverage(unittest.TestCase):
         originals = {}
         for path in (self.task_file, self.planner_file):
             with open(
-                path + ".bak" if os.path.exists(path + ".bak") else path,
+                f"{path}.bak" if os.path.exists(f"{path}.bak") else path,
                 encoding="utf-8",
             ) as handle:
                 originals[path] = handle.read()

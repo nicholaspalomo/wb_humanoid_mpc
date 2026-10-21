@@ -56,7 +56,7 @@ namespace {
 constexpr char kStatesDirectory[] = "humanoid_nmpc/humanoid_mpc_validation/data/benchmark/states";
 
 // Three of the Unitree G1's CppAD libraries, as tape_operation_counts names them; the first is a small share of the total.
-constexpr char kSmallLibrary[] = "cppad_centroidal_mpc_g1/wrench_inputs/icp_Cost";
+constexpr char kSmallLibrary[] = "cppad_centroidal_mpc_g1/wrench_inputs/foot_l_contact_TaskSpaceKinematicsCost_yawRefHalfAngle";
 constexpr char kFlowMapLibrary[] = "cppad_centroidal_mpc_g1/wrench_inputs/dynamics_systemFlowMap";
 constexpr char kTwistLibrary[] = "cppad_centroidal_mpc_g1/wrench_inputs/foot_l_contact_twist";
 

@@ -47,6 +47,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "ocs2_core/Dimensions.h"
 #include "pinocchio/algorithm/center-of-mass.hpp"
 #include "pinocchio/algorithm/frames.hpp"
 #include "pinocchio/algorithm/joint-configuration.hpp"
@@ -62,6 +63,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact/ContactRectangle.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_common_mpc/pinocchio_model/PinocchioFrameConversions.h"
+#include "humanoid_common_mpc/pinocchio_model/pinocchioUtils.h"
 #include "humanoid_common_mpc_app/visualization/SceneContract.h"
 #include "humanoid_mpc_config/task_file.nproto.h"
 #include "humanoid_mpc_msgs/arrows.pb.h"
@@ -75,6 +77,13 @@ namespace {
 
 using Model = PinocchioInterface::Model;
 using Data = PinocchioInterface::Data;
+
+/** The configuration entries of an unbounded revolute joint: (cos, sin) of its angle. */
+constexpr int kUnboundedRevoluteJointNq = 2;
+/** The frames of the task file's collision constraint that a collision sphere may be drawn at. */
+constexpr size_t kCollisionSphereFrames = 10;
+/** The line strips of the plan: the end effectors', the base's and the CoM's paths. */
+constexpr size_t kPlanLineStrips = 3;
 
 void setVector3(const vector3_t& value, humanoid_mpc_msgs::Vector3* absl_nonnull message) {
   message->set_x(value.x());
@@ -142,11 +151,7 @@ absl::StatusOr<pinocchio::FrameIndex> findFrame(const Model& model, const std::s
 }  // namespace
 
 SceneBuilder::SceneBuilder(const VisualizationModel& model, const VisualizationConfig& /*config*/)
-    : pinocchioInterface_(*model.pinocchioInterface),
-      robotModel_(model.mpcRobotModel->clone()),
-      modelSettings_(robotModel_->modelSettings),
-      stateManifold_(model.stateManifold),
-      groundHeight_(robotModel_->modelSettings.terrainHeight) {}
+    : pinocchioInterface_(*model.pinocchioInterface), robotModel_(model.mpcRobotModel->clone()), stateManifold_(model.stateManifold) {}
 
 absl::StatusOr<std::unique_ptr<SceneBuilder>> SceneBuilder::Create(const VisualizationModel& model, const VisualizationConfig& config) {
   RETURN_IF_ERROR(checkVisualizationModel(model));
@@ -167,16 +172,16 @@ absl::Status SceneBuilder::initialize(const VisualizationModel& model, const Vis
   fullData_ = std::make_unique<Data>(fullModel_);
   fullConfiguration_ = pinocchio::neutral(fullModel_);
   collectLinkFrames(fullModel_, &fullLinkFrames_, &fullLinkNames_);
-  // Joint 0 is the universe and joint 1 the free-flyer root.
-  for (pinocchio::JointIndex joint = 2; joint < static_cast<pinocchio::JointIndex>(fullModel_.njoints); ++joint) {
+  for (pinocchio::JointIndex joint = kFirstJointAfterFloatingBase; joint < static_cast<pinocchio::JointIndex>(fullModel_.njoints);
+       ++joint) {
     const int nq = fullModel_.joints[joint].nq();
-    if (nq == 1 || nq == 2) {
+    if (nq == 1 || nq == kUnboundedRevoluteJointNq) {
       fullJoints_.push_back(FullModelJoint{.name = fullModel_.names[joint], .idxQ = fullModel_.joints[joint].idx_q(), .nq = nq});
     }
   }
 
-  if (modelSettings_.contactNames.size() < kNumContacts) {
-    return absl::InvalidArgumentError(absl::StrCat("the model settings name ", modelSettings_.contactNames.size(),
+  if (modelSettings().contactNames.size() < kNumContacts) {
+    return absl::InvalidArgumentError(absl::StrCat("the model settings name ", modelSettings().contactNames.size(),
                                                    " contacts; the visualization needs ", kNumContacts, "."));
   }
   // The contact polygons and the collision spheres of the typed task file.
@@ -185,18 +190,19 @@ absl::Status SceneBuilder::initialize(const VisualizationModel& model, const Vis
     return absl::InvalidArgumentError(absl::StrCat("the contact polygons do not load: ", task.status().message()));
   }
   for (size_t contact = 0; contact < kNumContacts; ++contact) {
-    ASSIGN_OR_RETURN(contactFrames_[contact], findFrame(mpcModel, modelSettings_.contactNames[contact], "contactNames"));
+    ASSIGN_OR_RETURN(contactFrames_[contact], findFrame(mpcModel, modelSettings().contactNames[contact], "contactNames"));
     const absl::StatusOr<ContactRectangle> rectangle =
-        contactRectangleFromConfig(task->contacts, modelSettings_, static_cast<int>(contact));
+        contactRectangleFromConfig(task->contacts, modelSettings(), static_cast<int>(contact));
     if (!rectangle.ok()) {
-      return absl::InvalidArgumentError(absl::StrCat(model.taskFile, ": the contact polygon of ", modelSettings_.contactNames[contact],
+      return absl::InvalidArgumentError(absl::StrCat(model.taskFile, ": the contact polygon of ", modelSettings().contactNames[contact],
                                                      " does not load: ", rectangle.status().message()));
     }
-    if (rectangle->getNumberOfContactPoints() != 4) {
-      return absl::InvalidArgumentError(absl::StrCat("the contact polygon of ", modelSettings_.contactNames[contact], " has ",
-                                                     rectangle->getNumberOfContactPoints(), " corners; the corner forces need 4."));
+    if (rectangle->getNumberOfContactPoints() != kFootCorners) {
+      return absl::InvalidArgumentError(absl::StrCat("the contact polygon of ", modelSettings().contactNames[contact], " has ",
+                                                     rectangle->getNumberOfContactPoints(), " corners; the corner forces need ",
+                                                     kFootCorners, "."));
     }
-    for (size_t corner = 0; corner < 4; ++corner) {
+    for (size_t corner = 0; corner < kFootCorners; ++corner) {
       ASSIGN_OR_RETURN(cornerFrames_[contact][corner],
                        findFrame(mpcModel, rectangle->getPolygonPointFrameName(static_cast<int>(corner)), "the contact polygon"));
     }
@@ -215,7 +221,7 @@ absl::Status SceneBuilder::initialize(const VisualizationModel& model, const Vis
     return absl::OkStatus();
   }
   const FootCollisionConstraint::Config& collision = *loaded;
-  const std::array<std::pair<const std::string* absl_nonnull, scalar_t>, 10> candidates = {{
+  const std::array<std::pair<const std::string* absl_nonnull, scalar_t>, kCollisionSphereFrames> candidates = {{
       {&collision.leftAnkleFrame, collision.footCollisionSphereRadius},
       {&collision.rightAnkleFrame, collision.footCollisionSphereRadius},
       {&collision.leftFootCenterFrame, collision.footCollisionSphereRadius},
@@ -259,8 +265,9 @@ void SceneBuilder::writeMeasuredFromSample(const msgs::RobotStateSample& sample,
   } else {
     orientation = quaternion_t::Identity();
   }
-  fullConfiguration_.head<3>() = vector3_t(sample.base_position_world.x, sample.base_position_world.y, sample.base_position_world.z);
-  fullConfiguration_.segment<4>(3) = orientation.coeffs();
+  fullConfiguration_.head<kPositionDim>() =
+      vector3_t(sample.base_position_world.x, sample.base_position_world.y, sample.base_position_world.z);
+  fullConfiguration_.segment<kQuaternionCoefficients>(kPositionDim) = orientation.coeffs();
   for (const FullModelJoint& joint : fullJoints_) {
     if (joint.sampleIndex < 0 || joint.sampleIndex >= sample.joint_positions.size()) {
       continue;
@@ -277,24 +284,6 @@ void SceneBuilder::writeMeasuredFromSample(const msgs::RobotStateSample& sample,
   pinocchio::forwardKinematics(fullModel_, *fullData_, fullConfiguration_);
   pinocchio::updateFramePlacements(fullModel_, *fullData_);
   writeLinkPoses(*fullData_, fullLinkFrames_, fullLinkNames_, scene::kMeasuredInstance, instance);
-}
-
-void SceneBuilder::updateGroundHeight(size_t mode) {
-  // HumanoidVisualizer's estimate (getGroundHeightEstimate()), without its function-static state: the stance feet's
-  // mean height, held while no foot is in contact.
-  const contact_flag_t stance = modeNumber2StanceLeg(mode);
-  const Data& data = pinocchioInterface_.getData();
-  scalar_t heightSum = 0.0;
-  size_t stanceFeet = 0;
-  for (size_t contact = 0; contact < kNumContacts; ++contact) {
-    if (stance[contact]) {
-      heightSum += data.oMf[contactFrames_[contact]].translation().z();
-      ++stanceFeet;
-    }
-  }
-  if (stanceFeet > 0) {
-    groundHeight_ = heightSum / static_cast<scalar_t>(stanceFeet);
-  }
 }
 
 void SceneBuilder::writeObservationMarkers(const SystemObservation& observation,
@@ -340,10 +329,10 @@ void SceneBuilder::writeObservationMarkers(const SystemObservation& observation,
       weightedCop += worldWrench[kWrenchForceZIndex] * cop;
       normalForceSum += worldWrench[kWrenchForceZIndex];
     }
-    addForceArrow(cop, worldWrench.head<3>(), contactForces);
+    addForceArrow(cop, worldWrench.head<kForceDim>(), contactForces);
 
-    const std::array<vector3_t, 4> cornerForcesLocal = cornerForceMappers_[contact].computeVisualizationForceArray(localWrench);
-    for (size_t corner = 0; corner < 4; ++corner) {
+    const std::array<vector3_t, kFootCorners> cornerForcesLocal = cornerForceMappers_[contact].computeVisualizationForceArray(localWrench);
+    for (size_t corner = 0; corner < kFootCorners; ++corner) {
       addForceArrow(data.oMf[cornerFrames_[contact][corner]].translation(),
                     rotateVectorLocalToWorld<scalar_t>(cornerForcesLocal[corner], data, frame), cornerForces);
     }
@@ -375,10 +364,9 @@ void SceneBuilder::computePlan(const PolicySnapshot& policy) {
   humanoid_mpc_msgs::LineStrip* absl_nonnull comStrip = planCom_.add_strips();
   for (const vector_t& state : policy.state) {
     const vector_t q = robotModel_->getGeneralizedCoordinates(state);
-    // centerOfMass() runs the forward kinematics the frame placements below are updated from.
-    vector3_t com = pinocchio::centerOfMass(model, data, q, /*computeSubtreeComs=*/false);
-    com.z() = groundHeight_;
-    setVector3(com, comStrip->add_points());
+    // centerOfMass() runs the forward kinematics the frame placements below are updated from. The CoM is drawn where it
+    // is, at its height: its height is the pendulum height of the plan, which a projection to the ground would hide.
+    setVector3(pinocchio::centerOfMass(model, data, q, /*computeSubtreeComs=*/false), comStrip->add_points());
     setVector3(robotModel_->getBasePosition(state), baseStrip->add_points());
     for (size_t frame = 0; frame < planFrames_.size(); ++frame) {
       setVector3(pinocchio::updateFramePlacement(model, data, planFrames_[frame]).translation(),
@@ -450,7 +438,6 @@ absl::Status SceneBuilder::build(const SceneInputs& inputs, humanoid_mpc_msgs::V
     Data& data = pinocchioInterface_.getData();
     pinocchio::forwardKinematics(model, data, robotModel_->getGeneralizedCoordinates(inputs.observation->state));
     pinocchio::updateFramePlacements(model, data);
-    updateGroundHeight(inputs.observation->mode);
     if (inputs.robotState == nullptr) {
       writeLinkPoses(data, mpcLinkFrames_, mpcLinkNames_, scene::kMeasuredInstance, scene->add_robots());
     }
@@ -477,7 +464,7 @@ absl::Status SceneBuilder::build(const SceneInputs& inputs, humanoid_mpc_msgs::V
   if (hasTerminalTarget_) {
     *scene->add_robots() = terminalTarget_;
   }
-  const std::array<std::pair<absl::string_view, const humanoid_mpc_msgs::LineStrips* absl_nonnull>, 3> lineStrips = {{
+  const std::array<std::pair<absl::string_view, const humanoid_mpc_msgs::LineStrips* absl_nonnull>, kPlanLineStrips> lineStrips = {{
       {scene::kPlanEndEffectors, &planEndEffectors_},
       {scene::kPlanBase, &planBase_},
       {scene::kPlanCom, &planCom_},

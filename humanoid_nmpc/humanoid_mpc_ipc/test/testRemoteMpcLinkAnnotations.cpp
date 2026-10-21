@@ -64,11 +64,10 @@ TEST(RemoteMpcLinkAnnotations, TheNewestAcceptedPolicysAnnotationsAreTakenOnce) 
   std::unique_ptr<mpc_test::ScriptedMpc> mpc = test_support::makeScriptedMpc();
   std::unique_ptr<robot::ipc::Bus> robotBus = test_support::createNodeBus("robot");
   std::unique_ptr<robot::ipc::Bus> mpcBus = test_support::createNodeBus("mpc");
-  test_support::connectBoth(*robotBus, *mpcBus);
   MpcResetSupervisor supervisor;
   RemoteMpcLink::Config linkConfig;
   linkConfig.dimensions = modelDimensions();
-  absl::StatusOr<std::unique_ptr<RemoteMpcLink>> link = RemoteMpcLink::Create(*robotBus, supervisor, linkConfig);
+  absl::StatusOr<std::unique_ptr<RemoteMpcLink>> link = RemoteMpcLink::Create(robotBus.get(), &supervisor, linkConfig);
   ASSERT_TRUE(link.ok()) << link.status();
 
   // Every policy carries two target patches and a velocity that counts the policies.
@@ -80,11 +79,10 @@ TEST(RemoteMpcLinkAnnotations, TheNewestAcceptedPolicysAnnotationsAreTakenOnce) 
     annotations->clear_target_contact_patches();
     for (int contact = 0; contact < 2; ++contact) {
       humanoid_mpc_msgs::TargetContactPatch* absl_nonnull patch = annotations->add_target_contact_patches();
-      patch->set_valid(true);
       patch->set_kind(contact == 0 ? humanoid_mpc_msgs::TargetContactPatch::KIND_NEXT_SWING
                                    : humanoid_mpc_msgs::TargetContactPatch::KIND_STANCE);
-      patch->set_x(0.1 * contact);
-      patch->set_yaw(0.2);
+      patch->mutable_pose()->set_x(0.1 * contact);
+      patch->mutable_pose()->set_yaw(0.2);
     }
     annotations->set_scaled_velocity_x(static_cast<double>(solve));
     annotations->set_scaled_yaw_rate(-0.3);
@@ -92,7 +90,7 @@ TEST(RemoteMpcLinkAnnotations, TheNewestAcceptedPolicysAnnotationsAreTakenOnce) 
   };
   MpcServer::Config serverConfig;
   serverConfig.dimensions = modelDimensions();
-  absl::StatusOr<std::unique_ptr<MpcServer>> server = MpcServer::Create(*mpcBus, *mpc, resetTargetsFor, serverConfig, hooks);
+  absl::StatusOr<std::unique_ptr<MpcServer>> server = MpcServer::Create(mpcBus.get(), mpc.get(), resetTargetsFor, serverConfig, hooks);
   ASSERT_TRUE(server.ok()) << server.status();
   ASSERT_TRUE(robotBus->start().ok());
   ASSERT_TRUE(mpcBus->start().ok());
@@ -109,10 +107,16 @@ TEST(RemoteMpcLinkAnnotations, TheNewestAcceptedPolicysAnnotationsAreTakenOnce) 
   }));
   ASSERT_TRUE((*link)->takeAnnotations(annotations));
   ASSERT_EQ(annotations.target_contact_patches.size(), 2u);
-  EXPECT_TRUE(annotations.target_contact_patches[0].valid);
+  if (!annotations.target_contact_patches[0].pose.has_value()) {
+    FAIL() << "the next swing's patch has a pose";
+  }
+  const msgs::TargetContactPatch& stancePatch = annotations.target_contact_patches[1];
+  if (!stancePatch.pose.has_value()) {
+    FAIL() << "the stance patch has a pose";
+  }
   EXPECT_EQ(annotations.target_contact_patches[0].kind, msgs::TargetContactPatch::Kind::kNextSwing);
-  EXPECT_EQ(annotations.target_contact_patches[1].kind, msgs::TargetContactPatch::Kind::kStance);
-  EXPECT_DOUBLE_EQ(annotations.target_contact_patches[1].x, 0.1);
+  EXPECT_EQ(stancePatch.kind, msgs::TargetContactPatch::Kind::kStance);
+  EXPECT_DOUBLE_EQ(stancePatch.pose->x, 0.1);
   EXPECT_DOUBLE_EQ(annotations.scaled_yaw_rate, -0.3);
   EXPECT_GE(annotations.scaled_velocity_x, 1.0);
   // Taken once: the same policy's annotations are not handed out again; the next accepted policy brings new ones.

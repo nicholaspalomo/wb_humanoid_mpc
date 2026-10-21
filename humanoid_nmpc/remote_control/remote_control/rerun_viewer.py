@@ -25,13 +25,16 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-"""The GUI's "Open Rerun viewer" button: starts the Rerun bridge, which opens the native Rerun viewer.
+"""The GUI's "Open Rerun viewer" button: starts a Rerun bridge of its own, which opens a native Rerun viewer.
 
 The bridge (humanoid_nmpc/humanoid_rerun_viewer; humanoid_nmpc/docs/distributed_runtime/README.md, "Visualization with
-Rerun") subscribes to viz/scene and viz/telemetry on the bus and spawns the viewer. The launch files start it next to
-the MPC; the button is for a viewer that was closed, or a session started without one. It runs the binary Bazel has
-built in the checkout, and says how to build it when it is missing: the GUI never runs Bazel itself, which would
-compete with the operator's own builds for the machine's memory (AGENTS.md).
+Rerun") subscribes to viz/scene and viz/telemetry on the bus and spawns the viewer. The launch files start another
+bridge next to the MPC, which serves the web viewer and holds the bridge's default gRPC port (9876); the button's bridge
+spawns its viewer on GUI_RERUN_GRPC_PORT instead, because rerun-sdk's spawn takes whatever listens on its port for a
+viewer and would then open none. The button is for a native window next to the web viewer, one that was closed, or a
+session started without a bridge. It runs the binary Bazel has built in the checkout, and says how to build it when it
+is missing: the GUI never runs Bazel itself, which would compete with the operator's own builds for the machine's
+memory (AGENTS.md).
 
 Free of Tk, so that test/test_rerun_viewer.py covers it headless.
 """
@@ -53,6 +56,12 @@ RERUN_BRIDGE_BINARY = os.path.join(
     ".bazel", "bin", "humanoid_nmpc", "humanoid_rerun_viewer", "humanoid_rerun_viewer"
 )
 # LINT.ThenChange(//.bazelrc:symlink_prefix)
+
+# The gRPC port of the native viewer the button's bridge spawns: not the bridge's default, which a launch file's
+# serve_web bridge holds. The viewer runs next to the bridge, which reaches it on 127.0.0.1, so it is never published.
+# LINT.IfChange(gui_viewer_port)
+GUI_RERUN_GRPC_PORT = 9877
+# LINT.ThenChange(//humanoid_nmpc/humanoid_rerun_viewer/python/humanoid_rerun_viewer/rerun_sinks.py:sink_defaults, //humanoid_nmpc/remote_control/README.md:gui_viewer_port)
 
 # How long close() waits for the bridge to exit after SIGTERM before it kills it [s].
 STOP_GRACE_PERIOD = 2.0
@@ -126,9 +135,14 @@ class RerunViewerLauncher:
         return os.path.join(self._repo_root, RERUN_BRIDGE_BINARY)
 
     def command(self) -> list[str]:
-        """The bridge's command line: its binary, the network file and, when known, the robot's URDF."""
+        """The bridge's command line: its binary, the network file, the spawn sink on the GUI's port and the URDF."""
         # LINT.IfChange(rerun_bridge_flags)
-        command = [self.binary, f"--network_config={self._network_config}"]
+        command = [
+            self.binary,
+            f"--network_config={self._network_config}",
+            "--rerun_sink=spawn",
+            f"--grpc_port={GUI_RERUN_GRPC_PORT}",
+        ]
         if self._urdf_file:
             command.append(f"--urdf={self._urdf_file}")
         # LINT.ThenChange(//humanoid_nmpc/humanoid_rerun_viewer/python/humanoid_rerun_viewer/cli.py)

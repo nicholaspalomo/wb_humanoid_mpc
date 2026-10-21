@@ -31,7 +31,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include <memory>
-#include <utility>
 
 #include "absl/base/nullability.h"
 #include "ocs2_core/cost/StateCost.h"
@@ -54,11 +53,10 @@ class JointLimitsSoftConstraint final : public StateCost {
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 
   /**
-   *
-   * @param positionlimits : {lower bounds, upper bounds} joint position limits.
+   * @param positionLimits : the lower and upper position limits of the MPC joints.
    * @param barrierSettings : Settings for the position barrier penalty function.
    */
-  JointLimitsSoftConstraint(std::pair<vector_t, vector_t> positionlimits,
+  JointLimitsSoftConstraint(JointPositionLimits positionLimits,
                             ocs2::PieceWisePolynomialBarrierPenalty::Config barrierSettings,
                             const MpcRobotModelBase<scalar_t>& mpcRobotModel);
 
@@ -82,7 +80,8 @@ class JointLimitsSoftConstraint final : public StateCost {
   ScalarFunctionQuadraticApproximation getQuadraticApproximation(const vector_t& jointPositions) const;
 
   void setGains(scalar_t mu, scalar_t delta);
-  void getGains(scalar_t& mu, scalar_t& delta) const;
+  /** The barrier's (mu, delta), as setGains() last set them. */
+  PieceWisePolynomialBarrierPenalty::Config getGains() const;
 
   bool isActive(scalar_t /*time*/) const override { return isActive_; }
   void setActive(bool isActive) { isActive_ = isActive; }
@@ -93,8 +92,7 @@ class JointLimitsSoftConstraint final : public StateCost {
 
   std::unique_ptr<PieceWisePolynomialBarrierPenalty> jointPositionPenaltyPtr_;
   const MpcRobotModelBase<scalar_t>* absl_nonnull mpcRobotModelPtr_;
-  std::pair<vector_t, vector_t> positionLimits_;
-  scalar_t offset_ = 0.0;
+  JointPositionLimits positionLimits_;
   bool isActive_ = true;
 };
 

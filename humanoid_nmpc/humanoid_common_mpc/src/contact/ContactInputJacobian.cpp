@@ -32,11 +32,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cmath>
 
 #include "absl/log/check.h"
+#include "ocs2_core/Dimensions.h"
 
 namespace ocs2::humanoid {
 
 matrix_t contactForceInputJacobian(const MpcRobotModelBase<scalar_t>& mpcRobotModel, size_t contactPointIndex) {
-  constexpr size_t kForceDim = 3;
   constexpr scalar_t kLinearityTolerance = 1.0e-12;
 
   const size_t inputDim = mpcRobotModel.getInputDim();
@@ -56,10 +56,10 @@ matrix_t contactForceInputJacobian(const MpcRobotModelBase<scalar_t>& mpcRobotMo
 }
 
 vector_t normalContactForceRow(const MpcRobotModelBase<scalar_t>& mpcRobotModel, size_t contactPointIndex) {
-  constexpr Eigen::Index kNormalRow = 2;
   constexpr scalar_t kSignTolerance = 1.0e-12;
 
-  const vector_t row = contactForceInputJacobian(mpcRobotModel, contactPointIndex).row(kNormalRow);
+  // The normal force: the z component of the contact force.
+  const vector_t row = contactForceInputJacobian(mpcRobotModel, contactPointIndex).row(kZAxisIndex);
   CHECK((row.array() >= -kSignTolerance).all()) << "[normalContactForceRow] the normal contact force must be non-negative in the "
                                                    "model's input parameterization, or it cannot serve as a load indicator";
   CHECK_GT(row.cwiseAbs().maxCoeff(), kSignTolerance)

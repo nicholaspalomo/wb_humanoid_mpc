@@ -91,7 +91,7 @@ class RobotBundleTest(unittest.TestCase):
         for binary in BINARIES:
             with self.subTest(binary=binary):
                 self.assertTrue(os.access(self.path(binary), os.X_OK))
-                self.assertTrue(os.path.isdir(self.path(binary + ".runfiles/_main")))
+                self.assertTrue(os.path.isdir(self.path(f"{binary}.runfiles/_main")))
         for script in (
             "robot_entrypoint.sh",
             "netem.sh",

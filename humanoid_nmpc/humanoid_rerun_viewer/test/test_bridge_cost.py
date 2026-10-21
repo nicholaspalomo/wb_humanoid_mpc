@@ -49,7 +49,8 @@ from humanoid_rerun_viewer import telemetry_contract
 from humanoid_rerun_viewer import urdf_model
 import synthetic_messages
 
-# A G1-sized robot: 29 joints, the four telemetryFrames of the shipped task files, a centroidal MPC's state and input.
+# A G1-sized robot: 29 joints, four telemetryFrames (as the Atlas, G1 and R1 task files track; the SA01's tracks three),
+# a centroidal MPC's state and input.
 JOINTS = tuple(f"joint_{index}" for index in range(29))
 FRAMES = ("foot_l_contact", "foot_r_contact", "pelvis", "torso_link")
 LINK_COUNT = 30
@@ -85,7 +86,7 @@ def box_robot(links: int) -> urdf_model.RobotModel:
         f'<joint name="joint_{index}" type="fixed"><parent link="link_0"/><child link="link_{index}"/></joint>'
         for index in range(1, links)
     )
-    return urdf_model.parse_urdf(text + "</robot>", "boxes.urdf")
+    return urdf_model.parse_urdf(f"{text}</robot>", "boxes.urdf")
 
 
 class BridgeCostTest(unittest.TestCase):

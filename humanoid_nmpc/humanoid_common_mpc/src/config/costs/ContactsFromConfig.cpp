@@ -61,6 +61,8 @@ namespace ocs2::humanoid {
 namespace {
 
 constexpr absl::string_view kWrenchCone = "contacts.contact_wrench_cone_soft_constraint";
+/** The fewest basis vectors of a wrench cone, as a signed count, to check a count before it becomes a size_t. */
+constexpr int32_t kMinConeBasisVectors = static_cast<int32_t>(ContactWrenchConeConstraint::Config::kMinNumBasisVectors);
 
 /** InvalidArgument naming `<block>.<field>` unless `value` is finite. */
 absl::Status checkFinite(absl::string_view block, absl::string_view field, double value) {
@@ -93,10 +95,10 @@ absl::StatusOr<T> requiredConeValue(std::optional<T> value, absl::string_view fi
       "friction_coefficient, torsional_friction_coefficient, min_normal_force, gripper_force and num_basis_vectors."));
 }
 
-/** The relaxed barrier `block` {mu delta}, both finite. */
+/** The relaxed barrier `block` {mu delta}, both finite and positive. */
 absl::StatusOr<RelaxedBarrierPenalty::Config> relaxedBarrier(absl::string_view block, double mu, double delta) {
-  RETURN_IF_ERROR(checkFinite(block, "mu", mu));
-  RETURN_IF_ERROR(checkFinite(block, "delta", delta));
+  RETURN_IF_ERROR(checkPositive(block, "mu", mu));
+  RETURN_IF_ERROR(checkPositive(block, "delta", delta));
   return RelaxedBarrierPenalty::Config(mu, delta);
 }
 
@@ -129,6 +131,16 @@ absl::StatusOr<ContactRectangle> contactRectangleFromConfig(const mpc_config::Co
   RETURN_IF_ERROR(checkFinite(kBlock, "y_min", rectangle.y_min));
   RETURN_IF_ERROR(checkFinite(kBlock, "y_max", rectangle.y_max));
   RETURN_IF_ERROR(checkFinite(kBlock, "scale_factor", rectangle.scale_factor));
+  // An empty or inverted rectangle has no interior for the wrench cone and the center of pressure, and a scale factor of
+  // 0 or less shrinks it to a point or flips it.
+  if (!(rectangle.x_min < rectangle.x_max) || !(rectangle.y_min < rectangle.y_max)) {
+    return absl::InvalidArgumentError(absl::StrCat(kBlock, " is x in [", rectangle.x_min, ", ", rectangle.x_max, "], y in [",
+                                                   rectangle.y_min, ", ", rectangle.y_max,
+                                                   "], but it must have x_min < x_max and y_min < y_max."));
+  }
+  if (!(rectangle.scale_factor > 0.0)) {
+    return absl::InvalidArgumentError(absl::StrCat(kBlock, ".scale_factor is ", rectangle.scale_factor, ", but it must be positive."));
+  }
   return ContactRectangle(PolygonBounds(rectangle.x_min, rectangle.x_max, rectangle.y_min, rectangle.y_max), centerPoint,
                           rectangle.scale_factor);
 }
@@ -149,9 +161,9 @@ absl::StatusOr<ContactWrenchConeConstraint::Config> contactWrenchConeConfigFromC
   ASSIGN_OR_RETURN(const scalar_t gripperForce, requiredConeValue(cone.gripper_force, "gripper_force"));
   ASSIGN_OR_RETURN(const int32_t numBasisVectors, requiredConeValue(cone.num_basis_vectors, "num_basis_vectors"));
   // Checked before the conversion to size_t, which would turn a negative count into a huge one.
-  if (numBasisVectors < 3) {
-    return absl::InvalidArgumentError(absl::StrCat(kWrenchCone, ".num_basis_vectors is ", numBasisVectors,
-                                                   " but must be at least 3 (the facets of the friction pyramid)."));
+  if (numBasisVectors < kMinConeBasisVectors) {
+    return absl::InvalidArgumentError(absl::StrCat(kWrenchCone, ".num_basis_vectors is ", numBasisVectors, " but must be at least ",
+                                                   kMinConeBasisVectors, " (the facets of the friction pyramid)."));
   }
   ContactWrenchConeConstraint::Config config(static_cast<size_t>(numBasisVectors), frictionCoefficient, torsionalFrictionCoefficient,
                                              minNormalForce, gripperForce);
@@ -181,7 +193,7 @@ absl::StatusOr<ContactWrenchConeBasisMatrix> contactWrenchConeBasisFromConfig(co
 
 absl::StatusOr<feet_array_t<ContactWrenchConeBasisMatrix>> contactWrenchConeBasesFromConfig(const mpc_config::ContactsConfig& contacts,
                                                                                             const ModelSettings& modelSettings) {
-  static_assert(kNumContacts == 2, "contactWrenchConeBasesFromConfig builds one basis per foot of a biped");
+  static_assert(kNumContacts == kBipedFootCount, "contactWrenchConeBasesFromConfig builds one basis per foot of a biped");
   ASSIGN_OR_RETURN(const ContactRectangle leftFootprint, contactRectangleFromConfig(contacts, modelSettings, /*contactIndex=*/0));
   ASSIGN_OR_RETURN(const ContactRectangle rightFootprint, contactRectangleFromConfig(contacts, modelSettings, /*contactIndex=*/1));
   ASSIGN_OR_RETURN(ContactWrenchConeBasisMatrix leftBasis, contactWrenchConeBasisFromConfig(contacts, leftFootprint));
@@ -192,8 +204,10 @@ absl::StatusOr<feet_array_t<ContactWrenchConeBasisMatrix>> contactWrenchConeBase
 absl::StatusOr<PieceWisePolynomialBarrierPenalty::Config> basisNonNegativityBarrierFromConfig(const mpc_config::ContactsConfig& contacts) {
   const mpc_config::ContactsConfig::BasisBarrier& barrier = contacts.basis_non_negativity_barrier;
   constexpr absl::string_view kBlock = "contacts.basis_non_negativity_barrier";
-  RETURN_IF_ERROR(checkFinite(kBlock, "mu", barrier.mu));
-  RETURN_IF_ERROR(checkFinite(kBlock, "delta", barrier.delta));
+  // A non-positive mu rewards a negative basis coefficient, and the polynomial barrier is discontinuous for a
+  // non-positive delta.
+  RETURN_IF_ERROR(checkPositive(kBlock, "mu", barrier.mu));
+  RETURN_IF_ERROR(checkPositive(kBlock, "delta", barrier.delta));
   return PieceWisePolynomialBarrierPenalty::Config(barrier.mu, barrier.delta);
 }
 

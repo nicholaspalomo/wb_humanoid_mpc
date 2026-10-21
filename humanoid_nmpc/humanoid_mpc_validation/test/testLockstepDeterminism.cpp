@@ -216,6 +216,19 @@ TEST(LockstepDeterminism, TwoRunsWithOneSolverThreadAgree) {
   ASSERT_EQ(gaps->cols(), 2);
   ASSERT_GT(gaps->rows(), 0);
   EXPECT_EQ(gaps->col(1).maxCoeff(), first->metrics.findPath("initial_state_gap.max_rotation_rad")->asNumber());
+  // So do its per-solve SQP steps, one per successful solve, and the swing residuals of the solves with a swing.
+  const golden_matrix_t* absl_nullable steps = first->timeSeries.find(time_series::kSolveSqpStep);
+  ASSERT_NE(steps, nullptr);
+  ASSERT_EQ(steps->cols(), time_series::kSolveSqpStepColumns);
+  ASSERT_GT(steps->rows(), 0);
+  EXPECT_EQ(static_cast<double>(steps->rows()), first->metrics.findPath("sqp_step.steps")->asNumber());
+  EXPECT_EQ(steps->col(time_series::kSolveSqpStepColumns - 1).maxCoeff(),
+            first->metrics.findPath("sqp_step.constraint_violation.max")->asNumber());
+  const golden_matrix_t* absl_nullable residuals = first->timeSeries.find(time_series::kSolveSwingNormalVelocityResidual);
+  ASSERT_NE(residuals, nullptr);
+  ASSERT_EQ(residuals->cols(), time_series::kSolveSwingResidualColumns);
+  ASSERT_GT(residuals->rows(), 0) << "the smoke run walks: some solve has a swing in its horizon";
+  EXPECT_EQ(residuals->col(1).maxCoeff(), first->metrics.findPath("sqp_step.swing_normal_velocity_residual.max")->asNumber());
 
   expectRunsAgree(first->metrics, first->finalObservationState, first->timeSeries, second->metrics, second->finalObservationState,
                   second->timeSeries);

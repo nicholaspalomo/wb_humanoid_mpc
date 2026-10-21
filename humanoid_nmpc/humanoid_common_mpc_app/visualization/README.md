@@ -22,7 +22,9 @@ MPC solver thread ---- setPolicy(command, solution) ----> [triple buffer]  --+
 bus IO thread -------- pushRobotState(sample) ----------> [bounded SPSC      |    every pollPeriod (5 ms):
   (subscribeRobotState: robot/state, every sample)          queue, 64]      --+    one viz/telemetry per sample,
                                                                                    viz/scene at rerun_scene_frequency
-                                                                                   -> Bus::publish()
+                                                                                   -> [IoThreadOutbox, SPSC, 32]
+                                                                                   -> bus IO thread, every pollPeriod:
+                                                                                      Bus::publishFromIoThread()
 ```
 
 Feeding never blocks and never waits for the visualization: each mailbox has one producer and copies into storage it
@@ -33,7 +35,12 @@ newer observation or policy replaces one not yet drawn. The visualization thread
 on time no other thread wants, and a solver thread that wakes on its core takes the core at once, which a raised nice
 value does not do (under EEVDF a woken thread may wait out the running thread's time slice whatever its nice value;
 [`mujoco_sim_interface`](../../../robot_runtime/mujoco_sim_interface/README.md) measured it for the viewer).
-`kInherited` keeps the starting thread's scheduling, for tests. A failure to switch is logged as a warning and the
+`kInherited` keeps the starting thread's scheduling, for tests. On a bus, the visualization thread takes none of the
+bus's locks: `Bus::publish()` takes its queue and counter mutexes, which the solver thread's own publishes take too, and
+a `SCHED_IDLE` thread preempted while it held one would hold the solver up until a core went idle. It posts its
+messages to a lock-free outbox (`IoThreadOutbox`) instead, which a periodic callback of the bus drains on the IO thread;
+a full outbox drops the message and counts it (`Statistics::publishFailures`). So `Create(model, bus)` comes before
+`bus->start()`. A failure to switch is logged as a warning and the
 thread runs on. `Options::cores` can pin it away from the solver's cores. Nothing of it runs on the robot's realtime
 thread.
 
@@ -93,8 +100,9 @@ of a bus for tests. Any process that runs a solver feeds it the same three calls
   file's contact rectangle), and the collision spheres (`collision_constraint` of the task file). The wrenches are the
   policy's input at the observation's time through the state-aware world-frame accessors, so they are right for the
   basis-vector inputs too.
-- The plan: the paths of `rerun_plan_frames`, of the base and of the CoM projected to the ground (the stance feet's mean
-  height at the observation), and the footholds where a foot lands inside the horizon, in the contact colors.
+- The plan: the paths of `rerun_plan_frames`, of the base and of the whole-body CoM at its height (not projected to the
+  ground, so that the plan's pendulum height shows), and the footholds where a foot lands inside the horizon, in the
+  contact colors.
 
 **Telemetry** (`TelemetryBuilder`): every group of the bridge's telemetry contract, at the sample's time, for three
 sources: measured (the sample, `RobotStateDecoder`), reference (the target trajectories of the latest policy's command)
@@ -110,6 +118,22 @@ buffers sized at construction, the ZYX Euler angles of each source's quaternion 
 it is display only and runs on this thread, never in the robot process; `mpc_observation/state` stays the raw state
 (the user's display decision: humanoid_nmpc/docs/quaternion_base_orientation/README.md, section 3.4).
 
+**Balance** (`BalanceQuantities.h`), per source: the whole-body CoM `c` and `c_dot` (Pinocchio's, of the source's `q`
+and `v`), the DCM / instantaneous capture point `xi = c_xy + c_dot_xy / omega` with `omega = sqrt(g / z0)` (`g` the
+Pinocchio model's gravity, `z0 = computeComHeightAboveFeet()` at `VisualizationModel::nominalState`, the MPC
+interface's initial state: the repository's one pendulum height, logged at start-up), the ZMP of the contact wrenches at
+the contact frames (`p_x = (h F_x - M_y) / F_z`, `p_y = (h F_y + M_x) / F_z`, `h` the normal-force-weighted contact
+height; NaN below 1 N), and the ACoM attitude (`AngularCenterOfMass`, NaN for a robot without a network) as roll,
+pitch, yaw. The measured wrenches carry no torque (the simulator's force sensors), so the measured ZMP is the
+normal-force-weighted mean of the contact frames, not a per-foot center of pressure.
+
+**The MPC solution** (`SolutionTermEvaluator`): with `VisualizationModel::solverProblem`, the solver's own problem (the
+first worker's of `SqpSolver::getOcpDefinitions()`, with the weights the parameter updater wrote), the post-solve
+observer evaluates every cost and constraint term by name at the solution's first node (the final terms at its last)
+on the solver thread, after the policy is published and before the next solve, when no worker runs; the
+`mpc_solution/*` groups plot them with the solver's `PerformanceIndex`. One precomputation request and one evaluation
+per term per node: tens of microseconds per solve, never on the robot's realtime thread.
+
 ## Design rules
 
 - **One measured robot.** It is drawn from `robot/state`, with every joint of the URDF.
@@ -123,8 +147,7 @@ it is display only and runs on this thread, never in the robot process; `mpc_obs
 - **Angular velocities say their frame.** The world-frame panels of `base_twist` say "(world)"; the Euler rates and the
   body angular velocity have rows of their own, computed from the quaternion state, with a gap at the pitch
   singularity.
-- **Frames from the task file.** The plan's frames are `rerun_plan_frames`, checked against the model at start-up; the
-  ground height is the builder's own state.
+- **Frames from the task file.** The plan's frames are `rerun_plan_frames`, checked against the model at start-up.
 - **Robust to clock rewinds.** The scene's rate is kept on the monotonic clock, and the measured acceleration restarts
   after a rewind.
 - **Off the realtime thread.** The publisher runs on a thread of its own in the MPC process, fed through lock-free
@@ -169,5 +192,5 @@ of its quaternion and their rates (`baseEulerAnglesZyx`, `baseEulerZyxRates`).
 | `:test_robot_state_decoder` | the base in the world frame, `q`'s quaternion and `v`'s body angular velocity, through the robot model's measurement helpers in every formulation; the display's Euler angles and rates: a level turn, tilted bases (the Euler layout's route through the world angular velocity to 1e-12, and the angles' central difference), near the pitch singularity down to `cos(pitch) = 1e-5`, and NaN below 1e-6; joints by name in any order; the PD law of the action; refusals |
 | `:test_scene_builder` | for the G1 centroidal, the Atlas with basis-vector inputs and the G1 whole-body MPC: every path once; link poses, plan points, footholds and collision spheres against an independently built Pinocchio model; forces ending at the hand-computed CoP; corner forces equivalent to the wrench; no NaN without force; sample-only and observation-only scenes; the plan recomputed only for a new policy |
 | `:test_telemetry_builder` | the group layout against the contract, the display coordinates' and the velocities' names; base, Euler angles, Euler rates (the decoder's, bit for bit), body and world angular velocities, twists, joints, wrenches, the reference and the plan against hand-computed values, the whole-body reference's angular velocity in every frame; the measured acceleration and its reset on a rewind; every value finite, but the Euler rates at the pitch singularity; every formulation |
-| `:test_visualization_publisher` | one series per sample in order; a held publisher makes the queue drop and never blocks the feeders; the scene's rate bound; no scene without news; rejected samples; start and stop; the thread under `SCHED_IDLE` by default, `kInherited` keeping the starting thread's policy; `robot/state` to `viz/telemetry` over loopback buses; the MPC node's attacher publishing `viz/telemetry` and `viz/scene` on the node's bus from the robot's samples and its observer, and refusing a null publisher |
+| `:test_visualization_publisher` | one series per sample in order; a held publisher makes the queue drop and never blocks the feeders; the scene's rate bound; no scene without news; a stale sample giving way to the observation; rejected samples; start and stop; the thread under `SCHED_IDLE` by default, `kInherited` keeping the starting thread's policy; `robot/state` to `viz/telemetry` over loopback buses, published by the bus's IO thread (never `Bus::publish()` on the visualization thread); the MPC node's attacher publishing `viz/telemetry` and `viz/scene` on the node's bus from the robot's samples and its observer, and refusing a null publisher |
 | `:test_end_to_end` | the driver (`:visualization_publisher_driver`) -> the bus -> the Rerun bridge's save sink: every link with visuals of all three instances, every marker, exactly the contract's telemetry groups and names, every series in the `.rrd` |

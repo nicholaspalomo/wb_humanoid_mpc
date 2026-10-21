@@ -60,7 +60,7 @@ configuration").
 - **The GUI.** The MPC Parameters, Joint PD Gains and Command Limits tabs are rendered from the schemas, so a field
   added to a schema (with its conversion in C++) appears on its tab without GUI code. A slider moved on the first two
   publishes the whole edited file to the running stack (`operator/mpc_parameters`, `operator/pd_gains`) without
-  writing it; `enable_online_tuning: false` in the task file locks both. **Save** writes the edited values into the
+  writing it; `enable_online_tuning: false` in the task file locks all three tabs. **Save** writes the edited values into the
   file and keeps every other byte of it - comments, blank lines, LINT directives, the spelling of the values not
   changed - replacing the file atomically, so that no watcher reads half a file; the file as first loaded is kept
   beside it as `<file>.bak`, which git ignores and the robot filegroups leave out (`bazel/robot_files.bzl`). It then

@@ -71,6 +71,28 @@ _OCS2_CORE_TYPES_HDRS = [
     "core/include/ocs2_core/misc/LinearAlgebra.h",
 ]
 
+# The dimensions and coefficient indices of three-dimensional geometry (ocs2_core/Dimensions.h): constants without any
+# dependency, so that code that uses neither Eigen nor OCS2, such as the robot runtime, can name its 3s, 4s and 6s too.
+# ocs2_core_types, and with it ocs2_core, re-exports it.
+_OCS2_DIMENSIONS_HDRS = ["core/include/ocs2_core/Dimensions.h"]
+
+cc_library(
+    name = "ocs2_dimensions",
+    hdrs = _OCS2_DIMENSIONS_HDRS,
+    includes = ["core/include"],
+)
+
+# The physical constants and unit conversions (ocs2_core/PhysicalConstants.h): the gravitational acceleration and the
+# submultiples of a second, without any dependency like ocs2_dimensions, for the robot runtime too. ocs2_core_types, and
+# with it ocs2_core, re-exports it.
+_OCS2_PHYSICAL_CONSTANTS_HDRS = ["core/include/ocs2_core/PhysicalConstants.h"]
+
+cc_library(
+    name = "ocs2_physical_constants",
+    hdrs = _OCS2_PHYSICAL_CONSTANTS_HDRS,
+    includes = ["core/include"],
+)
+
 cc_library(
     name = "ocs2_core_types",
     srcs = _OCS2_CORE_TYPES_SRCS,
@@ -79,6 +101,8 @@ cc_library(
     includes = ["core/include"],
     linkopts = _OCS2_LINKOPTS,
     deps = [
+        ":ocs2_dimensions",
+        ":ocs2_physical_constants",
         "@abseil-cpp//absl/base:nullability",
         "@eigen",
     ],
@@ -93,7 +117,7 @@ cc_library(
     ),
     hdrs = glob(
         ["core/include/**"],
-        exclude = _OCS2_CORE_TYPES_HDRS,
+        exclude = _OCS2_CORE_TYPES_HDRS + _OCS2_DIMENSIONS_HDRS + _OCS2_PHYSICAL_CONSTANTS_HDRS,
         allow_empty = True,
     ),
     copts = _OCS2_COPTS,
@@ -190,15 +214,15 @@ cc_library(
 # ==============================================================================
 
 cc_library(
-    name = "ocs2_hpipm_catkin",
+    name = "ocs2_hpipm_interface",
     srcs = glob(
-        ["sqp/hpipm_catkin/src/**/*.cpp"],
-        exclude = ["sqp/hpipm_catkin/src/**/test/**"],
+        ["sqp/hpipm_interface/src/**/*.cpp"],
+        exclude = ["sqp/hpipm_interface/src/**/test/**"],
         allow_empty = True,
     ),
-    hdrs = glob(["sqp/hpipm_catkin/include/**"], allow_empty = True),
+    hdrs = glob(["sqp/hpipm_interface/include/**"], allow_empty = True),
     copts = _OCS2_COPTS,
-    includes = ["sqp/hpipm_catkin/include"],
+    includes = ["sqp/hpipm_interface/include"],
     linkopts = _OCS2_LINKOPTS,
     deps = [
         ":ocs2_core",
@@ -229,7 +253,7 @@ cc_library(
         ":ocs2_core",
         ":ocs2_oc",
         ":ocs2_mpc",
-        ":ocs2_hpipm_catkin",
+        ":ocs2_hpipm_interface",
         "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/log",
         "@blasfeo",
@@ -344,6 +368,30 @@ cc_test(
     ],
 )
 
+# The constants of ocs2_core/Dimensions.h keep the value and the type of the literals they name.
+cc_test(
+    name = "test_dimensions",
+    size = "small",
+    srcs = ["core/test/testDimensions.cpp"],
+    copts = _OCS2_COPTS,
+    deps = [
+        ":ocs2_dimensions",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The constants of ocs2_core/PhysicalConstants.h keep the value and the type of the literals they name.
+cc_test(
+    name = "test_physical_constants",
+    size = "small",
+    srcs = ["core/test/testPhysicalConstants.cpp"],
+    copts = _OCS2_COPTS,
+    deps = [
+        ":ocs2_physical_constants",
+        "@googletest//:gtest_main",
+    ],
+)
+
 cc_test(
     name = "test_integrators",
     size = "small",
@@ -353,6 +401,19 @@ cc_test(
         ":ocs2_core",
         "@abseil-cpp//absl/base:nullability",
         "@eigen",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The Dormand-Prince 5(4) tableau RungeKuttaDormandPrince5 and steppers::DormandPrince5 share: its published
+# coefficients and the consistency conditions they satisfy.
+cc_test(
+    name = "test_dormand_prince5_tableau",
+    size = "small",
+    srcs = ["core/test/integration/testDormandPrince5Tableau.cpp"],
+    copts = _OCS2_COPTS,
+    deps = [
+        ":ocs2_core",
         "@googletest//:gtest_main",
     ],
 )
@@ -397,7 +458,8 @@ cc_test(
 )
 
 # SqpSolver::setLiveSettings(), the live retuning of the parameter updater: a solve after it is the solve of a solver
-# constructed with the same values, bit for bit (the filter line search included), and no other setting changes.
+# constructed with the same values, bit for bit (the filter line search included), and no other setting changes. And
+# SqpSolver::getIterationRecords(): every iteration of the last solve as its line search ended it, recorded only.
 cc_test(
     name = "test_sqp_live_settings",
     size = "small",
@@ -408,6 +470,24 @@ cc_test(
         ":ocs2_oc",
         ":ocs2_sqp",
         "@abseil-cpp//absl/base:nullability",
+        "@eigen",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# trajectorySpread() on the multiple-shooting solutions the SQP warm-starts from, whose post-event samples share their
+# event's time: an unchanged schedule keeps the plan and the next solve's warm start, and a moved, dropped or changed
+# event spreads the right mode's values.
+cc_test(
+    name = "test_trajectory_spreading",
+    size = "small",
+    srcs = ["oc/test/trajectory_adjustment/testTrajectorySpreading.cpp"],
+    copts = _OCS2_COPTS,
+    deps = [
+        ":ocs2_core",
+        ":ocs2_oc",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/strings",
         "@eigen",
         "@googletest//:gtest_main",
     ],
@@ -493,6 +573,22 @@ cc_test(
     ],
 )
 
+# The copies of the CppAD term bases (cost, constraints, dynamics) tape themselves, never the term they were copied
+# from. Generates and compiles five tiny libraries: exclusive, so that its compiler runs do not overlap other tests.
+cc_test(
+    name = "test_cppad_term_copies",
+    size = "medium",
+    srcs = ["core/test/automatic_differentiation/testCppAdTermCopies.cpp"],
+    copts = _OCS2_COPTS,
+    tags = ["exclusive"],
+    deps = [
+        ":ocs2_core",
+        "@abseil-cpp//absl/base:nullability",
+        "@eigen",
+        "@googletest//:gtest_main",
+    ],
+)
+
 # Tapes and generates C sources, but compiles none: not exclusive.
 cc_test(
     name = "test_cppad_codegen_determinism",
@@ -553,6 +649,23 @@ cc_test(
         ":ocs2_oc",
         "@abseil-cpp//absl/base:nullability",
         "@eigen",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The policy buffer as the control thread sees it: a failed try-lock is counted and not logged, and the solver side
+# destroys policies outside the buffer's lock.
+cc_test(
+    name = "test_mrt_policy_buffer",
+    size = "small",
+    srcs = ["mpc/test/testMrtPolicyBuffer.cpp"],
+    copts = _OCS2_COPTS,
+    deps = [
+        ":ocs2_core",
+        ":ocs2_mpc",
+        ":ocs2_oc",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/log:scoped_mock_log",
         "@googletest//:gtest_main",
     ],
 )

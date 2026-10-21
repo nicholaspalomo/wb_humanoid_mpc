@@ -51,6 +51,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_common_mpc/reference_manager/ProceduralMpcMotionManager.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
+#include "humanoid_nmpc/humanoid_common_mpc/test/support/StatusTestMacros.h"
 #include "support/AtlasReferenceStack.h"
 
 /*
@@ -88,21 +89,18 @@ class SolverStack {
     if (numThreads > 0) sqpSettings.nThreads = numThreads;
     mpc_ = std::make_unique<SqpMpc>(interface_->mpcSettings(), sqpSettings, interface_->getOptimalControlProblem(),
                                     interface_->getInitializer());
-    calculator_ =
-        CentroidalMpcTargetTrajectoriesCalculator::Create(referenceFile, interface_->getEffectiveMpcRobotModel(),
-                                                          interface_->getPinocchioInterface(), interface_->mpcSettings().timeHorizon_)
-            .value();
+    calculator_ = checkedValue(CentroidalMpcTargetTrajectoriesCalculator::Create(referenceFile, interface_->getEffectiveMpcRobotModel(),
+                                                                                 interface_->getPinocchioInterface(),
+                                                                                 interface_->mpcSettings().timeHorizon_));
     calculator_->setTerrainHeightSource(
         [referenceManager = interface_->getSwitchedModelReferenceManagerPtr()]() { return referenceManager->getAppliedTerrainHeight(); });
     CentroidalMpcTargetTrajectoriesCalculator* absl_nonnull calculator = calculator_.get();
-    motionManager_ =
-        ProceduralMpcMotionManager::Create(
-            gaitFile, referenceFile, interface_->getSwitchedModelReferenceManagerPtr(), interface_->getEffectiveMpcRobotModel(),
-            [calculator](const vector4_t& velocity, scalar_t initTime, scalar_t /*finalTime*/, const vector_t& initState,
-                         const BasePlanarMotion& measuredMotion) {
-              return calculator->commandedVelocityToTargetTrajectories(velocity, initTime, initState, measuredMotion);
-            })
-            .value();
+    motionManager_ = checkedValue(ProceduralMpcMotionManager::Create(
+        gaitFile, referenceFile, interface_->getSwitchedModelReferenceManagerPtr(), interface_->getEffectiveMpcRobotModel(),
+        [calculator](const vector4_t& velocity, scalar_t initTime, scalar_t /*finalTime*/, const vector_t& initState,
+                     const BasePlanarMotion& measuredMotion) {
+          return calculator->commandedVelocityToTargetTrajectories(velocity, initTime, initState, measuredMotion);
+        }));
     motionManager_->setResetHook([calculator]() { calculator->reset(); });
     mpc_->getSolverPtr()->setReferenceManager(interface_->getReferenceManagerPtr());
     mpc_->getSolverPtr()->addSynchronizedModule(motionManager_);

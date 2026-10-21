@@ -33,12 +33,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <limits>
 #include <memory>
 
+#include "humanoid_common_mpc/contact_planning/ContactScheduleAdaptation.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 
 namespace ocs2::humanoid {
 
 namespace {
-constexpr scalar_t kSameSwingTolerance = 1.0e-6;  // [s] lift-off times closer than this identify the same swing
 
 bool footInContact(const ModeSchedule& schedule, size_t phaseIndex, size_t foot) {
   return modeNumber2StanceLeg(schedule.modeSequence[phaseIndex])[foot];
@@ -63,11 +63,11 @@ feet_array_t<ContactEventReport> adaptScheduleWithRules(ModeSchedule& schedule,
     SwingTimingLatch& latch = latches[foot];
     ContactEventReport& report = reports[foot];
 
-    const std::optional<std::pair<scalar_t, scalar_t>> phase = swingPhaseAtTime(schedule, foot, time);
+    const std::optional<SwingWindow> phase = swingPhaseAtTime(schedule, foot, time);
     if (phase.has_value()) {
       // ---- the foot is scheduled to swing at `time`: latch the swing, then let the rules act on it ----
-      const scalar_t liftOff = phase->first;
-      const scalar_t touchDown = phase->second;
+      const scalar_t liftOff = phase->liftOff;
+      const scalar_t touchDown = phase->touchDown;
       if (!latch.active || std::abs(latch.liftOffTime - liftOff) > kSameSwingTolerance) {
         latch = SwingTimingLatch{};
         latch.active = true;

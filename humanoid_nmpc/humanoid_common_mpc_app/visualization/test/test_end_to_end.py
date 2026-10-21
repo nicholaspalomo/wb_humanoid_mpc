@@ -28,8 +28,8 @@
 """The C++ visualization publisher, the bus and the Rerun bridge together: the contracts' entity paths are in the .rrd.
 
 The driver (VisualizationPublisherDriver.cpp) publishes the G1's scene and telemetry, computed by the publisher from
-synthetic observations, policies and robot/state samples, on a bus bound to an ephemeral port that it prints. The
-bridge subscribes to it, as on the laptop, with its save sink, and the recording is read back.
+synthetic observations, policies and robot/state samples, on the test's own DDS domain (a network file the test
+writes). The bridge subscribes to it, as on the laptop, with its save sink, and the recording is read back.
 """
 
 from collections.abc import Callable
@@ -71,6 +71,8 @@ class EndToEndTest(unittest.TestCase):
     """Runs the driver and the bridge once for the class; the tests read what the bridge recorded."""
 
     directory: str
+    # The test's own DDS network, which the driver joins as node "visualization".
+    network: robot_ipc.NetworkConfig
     model: urdf_model.RobotModel
     bridge: bridge_module.RerunBridge
     # The first raw messages of viz/telemetry, for what an .rrd file does not keep: the order of the groups.
@@ -92,10 +94,15 @@ class EndToEndTest(unittest.TestCase):
 
         # The driver's log goes to a file, so that a full pipe can never hold it up.
         driver_log_path = os.path.join(cls.directory, "driver.log")
+        # The test's own DDS domain, which the driver joins as node "visualization".
+        cls.network = robot_ipc.isolated_test_network(["visualization"])
+        network_path = os.path.join(cls.directory, "network.textproto")
+        with open(network_path, "w", encoding="utf-8") as network_file:
+            network_file.write(robot_ipc.format_network_config(cls.network))
         with (
             open(driver_log_path, "w", encoding="utf-8") as driver_log,
             subprocess.Popen(
-                [DRIVER, "--duration=60s"],
+                [DRIVER, "--duration=60s", f"--network_config={network_path}"],
                 stdout=subprocess.PIPE,
                 stderr=driver_log,
                 text=True,
@@ -113,20 +120,17 @@ class EndToEndTest(unittest.TestCase):
     def _bridge_the_driver(
         cls, driver: subprocess.Popen[str], driver_log_path: str
     ) -> None:
-        """Bridges the bus the driver prints the port of until enough scenes and telemetry arrived, then stops."""
+        """Bridges the driver's bus until enough scenes and telemetry arrived, then stops."""
         assert driver.stdout is not None  # stdout=PIPE
         line = driver.stdout.readline()
-        if not line.startswith("PORT "):
+        if line.strip() != "READY":
             driver.kill()
             driver.wait(timeout=10)
             with open(driver_log_path, encoding="utf-8") as log:
                 raise AssertionError(
                     f"the driver printed {line!r}; its log: {log.read()}"
                 )
-        port = int(line.split()[1])
-        network = robot_ipc.NetworkConfig(
-            nodes=(robot_ipc.NodeEndpoint("visualization", "127.0.0.1", port),)
-        )
+        network = cls.network
         feed = bus_bridge.BusBridge(cls.bridge, network, flush_period=0.02)
         feed.start()
 

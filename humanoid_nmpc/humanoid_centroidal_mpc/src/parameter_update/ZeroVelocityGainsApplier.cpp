@@ -37,6 +37,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
+#include "ocs2_core/Dimensions.h"
 #include "ocs2_core/misc/Numerics.h"
 #include "ocs2_core/soft_constraint/StateInputSoftConstraint.h"
 
@@ -63,21 +64,25 @@ absl::Span<const absl::string_view> ZeroVelocityGainsApplier::staticFields() {
 
 EndEffectorKinematicsTwistConstraint::Config footTwistConfig(const ModelSettings::FootConstraintConfig& gains) {
   EndEffectorKinematicsTwistConstraint::Config config;
-  config.b.setZero(6);
-  config.Ax.setZero(6, 6);
-  config.Av.setZero(6, 6);
+  config.b.setZero(kPoseTangentDim);
+  config.Ax.setZero(kPoseTangentDim, kPoseTangentDim);
+  config.Av.setZero(kPoseTangentDim, kPoseTangentDim);
   if (!numerics::almost_eq(gains.positionErrorGain_z, /*y=*/0.0)) {
-    config.Ax(2, 2) = gains.positionErrorGain_z;
+    config.Ax(kZAxisIndex, kZAxisIndex) = gains.positionErrorGain_z;
   }
   if (!numerics::almost_eq(gains.orientationErrorGain, /*y=*/0.0)) {
-    config.Ax.block(3, 3, 3, 3) = Eigen::MatrixXd::Identity(3, 3) * gains.orientationErrorGain;
+    config.Ax.block(kTwistConstraintOrientationRowsStartIndex, kTwistConstraintOrientationRowsStartIndex, kRotationTangentDim,
+                    kRotationTangentDim) = Eigen::MatrixXd::Identity(kRotationTangentDim, kRotationTangentDim) * gains.orientationErrorGain;
   }
-  config.Av(0, 0) = gains.linearVelocityErrorGain_xy;
-  config.Av(1, 1) = gains.linearVelocityErrorGain_xy;
-  config.Av(2, 2) = gains.linearVelocityErrorGain_z;
-  config.Av(3, 3) = gains.angularVelocityErrorGain;
-  config.Av(4, 4) = gains.angularVelocityErrorGain;
-  config.Av(5, 5) = gains.angularVelocityErrorGain;
+  config.Av(kXAxisIndex, kXAxisIndex) = gains.linearVelocityErrorGain_xy;
+  config.Av(kYAxisIndex, kYAxisIndex) = gains.linearVelocityErrorGain_xy;
+  config.Av(kZAxisIndex, kZAxisIndex) = gains.linearVelocityErrorGain_z;
+  config.Av(kTwistConstraintOrientationRowsStartIndex + kXAxisIndex, kTwistConstraintOrientationRowsStartIndex + kXAxisIndex) =
+      gains.angularVelocityErrorGain;
+  config.Av(kTwistConstraintOrientationRowsStartIndex + kYAxisIndex, kTwistConstraintOrientationRowsStartIndex + kYAxisIndex) =
+      gains.angularVelocityErrorGain;
+  config.Av(kTwistConstraintOrientationRowsStartIndex + kZAxisIndex, kTwistConstraintOrientationRowsStartIndex + kZAxisIndex) =
+      gains.angularVelocityErrorGain;
   return config;
 }
 
@@ -85,7 +90,7 @@ void configureZeroVelocityConstraint(ZeroVelocityConstraintCppAd& constraint,
                                      const ModelSettings::FootConstraintConfig& gains,
                                      const EndEffectorKinematicsTwistConstraint::Config& twistConfig) {
   EndEffectorKinematicsTwistConstraint& twist = constraint.getTwistConstraint();
-  twist.setNumConstraints(gains.constrainOrientation ? 6 : 3);
+  twist.setNumConstraints(gains.constrainOrientation ? kPoseTangentDim : kPositionDim);
   twist.setConstrainYawRateAboutNormal(gains.constrainYawRateAboutContactNormal);
   twist.configure(EndEffectorKinematicsTwistConstraint::Config(twistConfig));
 }

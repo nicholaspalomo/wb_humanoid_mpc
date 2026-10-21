@@ -31,7 +31,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 // field reaches its setting, integrators are named as OCS2 names them, and what the settings cannot hold is refused
 // naming the field. The schema refuses the keys it retired, naming what to do.
 
+#include <functional>
+#include <limits>
 #include <string>
+#include <vector>
 
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
@@ -128,7 +131,9 @@ TEST(SolverSettingsFromConfigTest, AnEmptyBlockGivesTheDefaultsOfTheSettingsStru
   const absl::StatusOr<rollout::Settings> rolloutSettings = toRolloutSettings(mpc_config::RolloutSettingsConfig{});
   ASSERT_TRUE(rolloutSettings.ok()) << rolloutSettings.status();
   expectSameRolloutSettings(*rolloutSettings, rollout::Settings{});
-  expectSameMpcSettings(toMpcSettings(mpc_config::MpcSettingsConfig{}), mpc::Settings{});
+  const absl::StatusOr<mpc::Settings> mpcSettings = toMpcSettings(mpc_config::MpcSettingsConfig{});
+  ASSERT_TRUE(mpcSettings.ok()) << mpcSettings.status();
+  expectSameMpcSettings(*mpcSettings, mpc::Settings{});
 }
 
 TEST(SolverSettingsFromConfigTest, AnEmptyTaskFileGivesTheDefaults) {
@@ -284,6 +289,99 @@ TEST(SolverSettingsFromConfigTest, ANegativeCountIsRefusedNamingTheField) {
   mpc_config::SqpSettingsConfig none;
   none.sqp_iteration = 0;
   EXPECT_TRUE(toSqpSettings(none).ok());
+}
+
+/** A field of a solver block, by its path, and how a test writes a value into it. */
+template <typename Config>
+struct RangedField {
+  std::string path;
+  std::function<void(Config&, double)> set;
+  // Values outside the field's range besides NaN (0 and -1 for a positive field, -1 for a non-negative one, the upper
+  // ends for a factor below 1).
+  std::vector<double> outOfRange;
+};
+
+/** Expects `convert` to refuse every out-of-range value and NaN of every field, naming the field. */
+template <typename Config, typename Convert>
+void expectEveryOutOfRangeValueRefused(const std::vector<RangedField<Config>>& fields, Convert convert) {
+  for (const RangedField<Config>& field : fields) {
+    std::vector<double> values = field.outOfRange;
+    values.push_back(std::numeric_limits<double>::quiet_NaN());
+    for (const double value : values) {
+      Config config;
+      field.set(config, value);
+      expectRefused(convert(config).status(), absl::StrCat(field.path, ": "));
+    }
+  }
+}
+
+TEST(SolverSettingsFromConfigTest, ARealValueOutOfItsRangeIsRefusedNamingTheField) {
+  using Sqp = mpc_config::SqpSettingsConfig;
+  const std::vector<RangedField<Sqp>> sqpFields = {
+      {"multiple_shooting.dt", [](Sqp& c, double v) { c.dt = v; }, {0.0, -1.0}},
+      {"multiple_shooting.alpha_decay", [](Sqp& c, double v) { c.alpha_decay = v; }, {0.0, -1.0, 1.0, 1.5}},
+      {"multiple_shooting.alpha_min", [](Sqp& c, double v) { c.alpha_min = v; }, {0.0, -1.0, 1.5}},
+      {"multiple_shooting.delta_tol", [](Sqp& c, double v) { c.delta_tol = v; }, {0.0, -1.0}},
+      {"multiple_shooting.cost_tol", [](Sqp& c, double v) { c.cost_tol = v; }, {0.0, -1.0}},
+      {"multiple_shooting.g_max", [](Sqp& c, double v) { c.g_max = v; }, {0.0, -1.0}},
+      {"multiple_shooting.g_min", [](Sqp& c, double v) { c.g_min = v; }, {-1.0}},
+      {"multiple_shooting.armijo_factor", [](Sqp& c, double v) { c.armijo_factor = v; }, {-1.0, 1.0}},
+      {"multiple_shooting.gamma_c", [](Sqp& c, double v) { c.gamma_c = v; }, {-1.0, 1.0}},
+  };
+  expectEveryOutOfRangeValueRefused(sqpFields, [](const Sqp& c) { return toSqpSettings(c); });
+
+  using Rollout = mpc_config::RolloutSettingsConfig;
+  const std::vector<RangedField<Rollout>> rolloutFields = {
+      {"rollout.abs_tol_ode", [](Rollout& c, double v) { c.abs_tol_ode = v; }, {0.0, -1.0}},
+      {"rollout.rel_tol_ode", [](Rollout& c, double v) { c.rel_tol_ode = v; }, {0.0, -1.0}},
+      {"rollout.time_step", [](Rollout& c, double v) { c.time_step = v; }, {0.0, -1.0}},
+  };
+  expectEveryOutOfRangeValueRefused(rolloutFields, [](const Rollout& c) { return toRolloutSettings(c); });
+
+  using Mpc = mpc_config::MpcSettingsConfig;
+  const std::vector<RangedField<Mpc>> mpcFields = {
+      {"mpc.time_horizon", [](Mpc& c, double v) { c.time_horizon = v; }, {0.0, -1.0}},
+      {"mpc.solution_time_window", [](Mpc& c, double v) { c.solution_time_window = v; }, {0.0, -1.0}},
+      {"mpc.mpc_desired_frequency", [](Mpc& c, double v) { c.mpc_desired_frequency = v; }, {0.0, -1.0}},
+      {"mpc.mrt_desired_frequency", [](Mpc& c, double v) { c.mrt_desired_frequency = v; }, {0.0, -1.0}},
+  };
+  expectEveryOutOfRangeValueRefused(mpcFields, [](const Mpc& c) { return toMpcSettings(c); });
+}
+
+TEST(SolverSettingsFromConfigTest, GMinAboveGMaxIsRefused) {
+  mpc_config::SqpSettingsConfig config;
+  config.g_min = 2.0;
+  config.g_max = 1.0;
+  expectRefused(toSqpSettings(config).status(), "multiple_shooting.g_min (2) is greater than multiple_shooting.g_max (1)");
+  config.g_min = 1.0;
+  EXPECT_TRUE(toSqpSettings(config).ok()) << "g_min == g_max is an interval";
+}
+
+TEST(SolverSettingsFromConfigTest, TheEndsOfTheRangesAreAccepted) {
+  mpc_config::SqpSettingsConfig config;
+  config.alpha_min = 1.0;
+  config.g_min = 0.0;
+  config.armijo_factor = 0.0;
+  config.gamma_c = 0.0;
+  const absl::StatusOr<sqp::Settings> settings = toSqpSettings(config);
+  ASSERT_TRUE(settings.ok()) << settings.status();
+  EXPECT_EQ(settings->alpha_min, 1.0);
+}
+
+TEST(SolverSettingsFromConfigTest, AnAbsentWindowOrRateIsOcs2sSentinel) {
+  // The schema has no sentinel: an absent field is the whole horizon and solving as fast as possible, which OCS2's
+  // struct spells -1.
+  const absl::StatusOr<mpc::Settings> settings = toMpcSettings(mpc_config::MpcSettingsConfig{});
+  ASSERT_TRUE(settings.ok()) << settings.status();
+  EXPECT_LT(settings->solutionTimeWindow_, 0.0);
+  EXPECT_LT(settings->mpcDesiredFrequency_, 0.0);
+  mpc_config::MpcSettingsConfig given;
+  given.solution_time_window = 0.25;
+  given.mpc_desired_frequency = 40.0;
+  const absl::StatusOr<mpc::Settings> set = toMpcSettings(given);
+  ASSERT_TRUE(set.ok()) << set.status();
+  EXPECT_EQ(set->solutionTimeWindow_, 0.25);
+  EXPECT_EQ(set->mpcDesiredFrequency_, 40.0);
 }
 
 TEST(SolverSettingsFromConfigTest, AnErrorOfABlockIsTheErrorOfTheTaskFile) {

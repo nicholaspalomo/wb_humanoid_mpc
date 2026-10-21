@@ -44,8 +44,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 /**
  * The configuration files of a robot as the typed structs of humanoid_nmpc/humanoid_mpc_config, read strictly
- * (nproto::LoadTextprotoFile(): an unknown or retired field, a value of the wrong type or a file of another message is
- * an InvalidArgument naming the file, the line and the column). For the roots that take their files by path; everything
+ * (nproto::LoadTextprotoFile(): an unknown or retired field, a value of the wrong type, a file of another message or a
+ * file whose leading comment block has no `# proto-message:` line is an InvalidArgument naming the file, the line and
+ * the column). For the roots that take their files by path; everything
  * below them takes the structs.
  */
 namespace ocs2::humanoid {
@@ -83,10 +84,10 @@ absl::StatusOr<mpc_config::ContactPlanningFile> loadContactPlanningFile(absl::st
 absl::StatusOr<mpc_config::JointPdGainsFile> loadJointPdGainsFile(absl::string_view path);
 
 /**
- * The text of a task file, read as strictly as loadTaskFile() reads the file (the same leading-comment check and
- * parser); `source` names the text in errors, as a path would ("<source>:<line>:<column>: ..."). For a file that
- * arrives as text, such as the tuning GUI's Save on the bus (ConfigFileSave), which must be checked before it is
- * written anywhere.
+ * The text of a task file, read as strictly as loadTaskFile() reads the file (the same parser, and the same
+ * leading-comment check: the text must name its schema with `# proto-message:`); `source` names the text in errors, as a path would
+ * ("<source>:<line>:<column>: ..."). For a file that arrives as text, such as the tuning GUI's Save on the bus (ConfigFileSave), which must
+ * be checked before it is written anywhere.
  */
 absl::StatusOr<mpc_config::TaskFile> parseTaskFile(absl::string_view text, absl::string_view source);
 

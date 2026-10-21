@@ -18,7 +18,9 @@ supervisor (`humanoid_common_mpc:mpc_reset_supervisor`). No Pinocchio and no rob
 
 The C++ and Python topic names are tied together, and to the topic table of the distributed-runtime README, with
 `LINT.IfChange(topics)`; `:test_topics_py` reads `Topics.h` and checks that every constant has an equal Python twin.
-No topic may be a prefix of another, because ZeroMQ's SUB filter matches prefixes; both topic tests check that. Besides
+Every topic is a DDS topic of the same name, and `config/ipc/network.textproto` gives each one its QoS profile and
+publishers (`:test_topics` checks that it lists exactly these topics: `mpc/policy` is `reliable_latest`,
+`robot/mpc_observation` `latest`, the operator's one-off commands `reliable_events`). Besides
 the MPC link's streams and the operator's commands, the topics carry the GUI's two-copy Save: `operator/config_save`
 (`ConfigFileSave`, the saved file's text for the robot's persistent copy) and its answer `robot/config_save_status`
 (`ConfigFileSaveStatus`).
@@ -81,6 +83,15 @@ model's is for `checkDimensions()`, given the dimensions of the model the receiv
 state and input sizes, and `numModes`, which every mode of the message (the observation's, each of the mode schedule)
 must be below. A humanoid has 4, the contact combinations of its two feet; the controller looks the planned contacts up
 by mode (`modeNumber2StanceLeg()`), which has no contact flags for any other.
+
+**Model layout.** Equal dimensions do not make equal models: an MPC node restarted with another `fixed_joint_names`
+of the same count, or a robot image whose URDF orders the joints differently, exchanges states whose joints are
+permuted. Every observation and policy therefore carries `model_fingerprint`, `modelLayoutFingerprint()` of the
+sender's `ModelSettings` (the state layout tag, the robot name, the MPC model's joint and contact names in order). The
+MPC node refuses an observation of another layout, an unstamped one included, counts it in `observationsRejected` and
+does not solve it (`MpcServer::Config::modelFingerprint`); the robot refuses such a policy as one of other dimensions
+(`invalidPoliciesRejected`, `RemoteMpcLink::Config::modelFingerprint`), so it holds as for a lost link. 0 in the
+configuration checks nothing (the tests' links).
 
 **Allocation.** The `toProto()` functions resize the fields of the message they write into and keep its nested `Vector`
 messages, so a caller that keeps one message object allocates only while the message grows

@@ -34,15 +34,19 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <functional>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "absl/base/nullability.h"
+#include "absl/log/absl_check.h"
 #include "absl/log/check.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 #include "gtest/gtest.h"
+#include "ocs2_robotic_tools/common/RotationTransforms.h"
 
 #include "humanoid_common_mpc/contact_planning/ContactPlan.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningTermFactory.h"
@@ -50,6 +54,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/LipContactPlanner.h"
 #include "humanoid_common_mpc/contact_planning/MixedIntegerOcpQp.h"
 #include "humanoid_common_mpc/contact_planning/OcpQpHpipm.h"
+#include "humanoid_common_mpc/contact_planning/constraint/HipYawRangeConstraint.h"
 #include "humanoid_common_mpc/contact_planning/cost/PreviousFootholdConsistencyCost.h"
 #include "humanoid_common_mpc/contact_planning/cost/StepLengthCost.h"
 #include "humanoid_common_mpc/contact_planning/cost/StepWidthCost.h"
@@ -69,10 +74,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/problem/LayoutBuilder.h"
 #include "humanoid_common_mpc/contact_planning/problem/LipConstraint.h"
 #include "humanoid_common_mpc/contact_planning/problem/LipCost.h"
+#include "humanoid_common_mpc/contact_planning/problem/RowBuilder.h"
 #include "humanoid_common_mpc/contact_planning/problem/StageAccumulator.h"
 #include "humanoid_common_mpc/contact_planning/problem/TermCollection.h"
 #include "humanoid_common_mpc/contact_planning/search/CadenceStretchStage.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
+#include "humanoid_nmpc/humanoid_common_mpc/test/support/StatusTestMacros.h"
 
 namespace ocs2::humanoid {
 
@@ -143,7 +150,7 @@ const Derived& termAs(const TermCollection<T>& collection, absl::string_view nam
 /*============================================ layout and rows ============================================*/
 
 TEST(ContactPlanningTerms, LayoutIsComposedFromTheBlocksInOrder) {
-  const Layout lip = LipContactPlanner::makeLayout(makeConfig()).value();
+  HUMANOID_ASSERT_OK_AND_ASSIGN(const Layout lip, LipContactPlanner::makeLayout(makeConfig()));
   EXPECT_EQ(lip.nx, kLipStateDim);
   EXPECT_EQ(lip.nu, kLipInputDim);
   EXPECT_FALSE(lip.hasHeading);
@@ -153,7 +160,7 @@ TEST(ContactPlanningTerms, LayoutIsComposedFromTheBlocksInOrder) {
   EXPECT_EQ(lip.input(var::contact(1)), kLipCr);
   EXPECT_NE(lip.describe().find("x = [c_x c_y v_x v_y p_Lx p_Ly p_Rx p_Ry] (8)"), std::string::npos) << lip.describe();
 
-  const Layout heading = LipContactPlanner::makeLayout(makeHeadingConfig()).value();
+  HUMANOID_ASSERT_OK_AND_ASSIGN(const Layout heading, LipContactPlanner::makeLayout(makeHeadingConfig()));
   EXPECT_EQ(heading.nx, kLipStateDim + 2 + static_cast<int>(kNumContacts));
   EXPECT_EQ(heading.nu, kLipInputDim + 2 * static_cast<int>(kNumContacts));
   EXPECT_TRUE(heading.hasHeading);
@@ -166,17 +173,17 @@ TEST(ContactPlanningTerms, LayoutIsComposedFromTheBlocksInOrder) {
 
 TEST(ContactPlanningTerms, RowCountsPerNodeAreTheDocumentedOnes) {
   {
-    const std::unique_ptr<LipContactPlanner> planner = LipContactPlanner::Create(makeConfig()).value();
-    const OcpQpProblem problem = planner->buildProblem(makeStandingInput()).value();
+    HUMANOID_ASSERT_OK_AND_ASSIGN(const std::unique_ptr<LipContactPlanner> planner, LipContactPlanner::Create(makeConfig()));
+    HUMANOID_ASSERT_OK_AND_ASSIGN(const OcpQpProblem problem, planner->buildProblem(makeStandingInput()));
     EXPECT_EQ(problem.stages.front().numGeneralConstraints(), 27) << "1 no-flight + 12 support + 8 foot motion + 4 reach + 2 separation";
     EXPECT_EQ(problem.stages.back().numGeneralConstraints(), 6) << "the terminal node carries the kinematic rows only";
     EXPECT_EQ(static_cast<int>(problem.stages.front().softGeneralIndices.size()), 18);
     EXPECT_EQ(static_cast<int>(problem.stages.front().idxbu.size()), 6);
   }
   {
-    const std::unique_ptr<LipContactPlanner> planner = LipContactPlanner::Create(makeHeadingConfig()).value();
-    const OcpQpProblem problem = planner->buildProblem(makeStandingInput()).value();
-    EXPECT_EQ(problem.stages.front().numGeneralConstraints(), 37) << "+ 4 torque budget + 4 yaw pin + 2 hip range";
+    HUMANOID_ASSERT_OK_AND_ASSIGN(const std::unique_ptr<LipContactPlanner> planner, LipContactPlanner::Create(makeHeadingConfig()));
+    HUMANOID_ASSERT_OK_AND_ASSIGN(const OcpQpProblem problem, planner->buildProblem(makeStandingInput()));
+    EXPECT_EQ(problem.stages.front().numGeneralConstraints(), 41) << "+ 8 torque budget + 4 yaw pin + 2 hip range";
     EXPECT_EQ(problem.stages.back().numGeneralConstraints(), 8);
     EXPECT_EQ(static_cast<int>(problem.stages.front().idxbu.size()), 10);
   }
@@ -188,13 +195,13 @@ TEST(ContactPlanningTerms, TermsAreAssembledInListOrderAndOnTheirNodeSets) {
   config.formulation.softConstraints = {};
   config.formulation.hardConstraints = {term::kNoFlight};
   EXPECT_EQ(config.validateStatus(), absl::OkStatus());
-  const std::unique_ptr<LipContactPlanner> planner = LipContactPlanner::Create(config).value();
+  HUMANOID_ASSERT_OK_AND_ASSIGN(const std::unique_ptr<LipContactPlanner> planner, LipContactPlanner::Create(config));
   const ContactPlanningProblem& problem = planner->getProblem();
   ASSERT_EQ(problem.costs.size(), 2u);
   EXPECT_EQ(problem.costs.nameAt(0), term::kRegularization);
   EXPECT_EQ(problem.costs.nameAt(1), term::kVelocityTracking);
   EXPECT_EQ(termNamed(problem.costs, term::kVelocityTracking).nodeSet(), NodeSet::kAll);
-  const OcpQpProblem qp = planner->buildProblem(makeWalkingInput()).value();
+  HUMANOID_ASSERT_OK_AND_ASSIGN(const OcpQpProblem qp, planner->buildProblem(makeWalkingInput()));
   EXPECT_EQ(qp.stages.front().numGeneralConstraints(), 1);
   EXPECT_EQ(qp.stages.back().numGeneralConstraints(), 0);
   // The velocity tracking cost acts on the terminal node too: q_N carries -2 w v_cmd on the velocity entries.
@@ -212,7 +219,7 @@ TEST(ContactPlanningTerms, StepLengthCostTiesTheSwingDisplacementToTheCommandedS
   config.formulation.hardConstraints = {};
   config.stepLength.weight = 20.0;
   EXPECT_EQ(config.validateStatus(), absl::OkStatus());
-  const std::unique_ptr<LipContactPlanner> planner = LipContactPlanner::Create(config).value();
+  HUMANOID_ASSERT_OK_AND_ASSIGN(const std::unique_ptr<LipContactPlanner> planner, LipContactPlanner::Create(config));
   const StepLengthCost& cost = termAs<StepLengthCost>(planner->getProblem().costs, term::kStepLength);
   EXPECT_EQ(cost.nodeSet(), NodeSet::kRunning);
   // T_stride / T_swing = 2 (0.3 + 0.1) / 0.3
@@ -222,7 +229,7 @@ TEST(ContactPlanningTerms, StepLengthCostTiesTheSwingDisplacementToTheCommandedS
   EXPECT_NEAR(d.y(), 0.0, 1.0e-12);
 
   const scalar_t w = config.stepLength.weight;
-  const OcpQpProblem qp = planner->buildProblem(makeWalkingInput()).value();
+  HUMANOID_ASSERT_OK_AND_ASSIGN(const OcpQpProblem qp, planner->buildProblem(makeWalkingInput()));
   const OcpQpStage& stage = qp.stages.front();
   EXPECT_NEAR(stage.R(kLipDlx, kLipDlx), 2.0 * w, 1.0e-12);
   EXPECT_NEAR(stage.R(kLipDly, kLipDly), 2.0 * w, 1.0e-12);
@@ -238,7 +245,7 @@ TEST(ContactPlanningTerms, StepLengthCostTiesTheSwingDisplacementToTheCommandedS
   EXPECT_EQ(qp.stages.back().numInputs(), 0) << "not on the terminal node";
 
   // Standing still: the nominal is zero and the term is a plain regularizer of the foot displacement.
-  const OcpQpProblem standing = planner->buildProblem(makeStandingInput()).value();
+  HUMANOID_ASSERT_OK_AND_ASSIGN(const OcpQpProblem standing, planner->buildProblem(makeStandingInput()));
   EXPECT_NEAR(standing.stages.front().R(kLipDlx, kLipDlx), 2.0 * w, 1.0e-12);
   EXPECT_NEAR(standing.stages.front().R(kLipDlx, kLipCl), 0.0, 1.0e-12);
   EXPECT_NEAR(standing.stages.front().r(kLipCl), 0.0, 1.0e-12);
@@ -256,16 +263,16 @@ TEST(ContactPlanningTerms, TerminalDcmCanTrackTheCommandedVelocityInsteadOfComin
   EXPECT_EQ(rest.validateStatus(), absl::OkStatus());
   ContactPlanningConfig walking = rest;
   walking.terminalDcm.trackCommandedVelocity = true;
-  const std::unique_ptr<LipContactPlanner> restPlanner = LipContactPlanner::Create(rest).value();
-  const std::unique_ptr<LipContactPlanner> walkingPlanner = LipContactPlanner::Create(walking).value();
+  HUMANOID_ASSERT_OK_AND_ASSIGN(const std::unique_ptr<LipContactPlanner> restPlanner, LipContactPlanner::Create(rest));
+  HUMANOID_ASSERT_OK_AND_ASSIGN(const std::unique_ptr<LipContactPlanner> walkingPlanner, LipContactPlanner::Create(walking));
   EXPECT_FALSE(termAs<TerminalDcmCost>(restPlanner->getProblem().costs, term::kTerminalDcm).tracksCommandedVelocity());
   EXPECT_TRUE(termAs<TerminalDcmCost>(walkingPlanner->getProblem().costs, term::kTerminalDcm).tracksCommandedVelocity());
   EXPECT_NE(termNamed(walkingPlanner->getProblem().costs, term::kTerminalDcm).describe().find("v_cmd / omega"), std::string::npos);
 
   ContactPlannerInput input = makeWalkingInput();
   input.velocityCommand = vector2_t(0.4, -0.15);
-  const OcpQpProblem qpRest = restPlanner->buildProblem(input).value();
-  const OcpQpProblem qpWalking = walkingPlanner->buildProblem(input).value();
+  HUMANOID_ASSERT_OK_AND_ASSIGN(const OcpQpProblem qpRest, restPlanner->buildProblem(input));
+  HUMANOID_ASSERT_OK_AND_ASSIGN(const OcpQpProblem qpWalking, walkingPlanner->buildProblem(input));
   // ContactPlanningProblem::assemble allocates numNodes + 1 stages: the running nodes 0 ... numNodes - 1, which carry
   // inputs and dynamics, and the terminal stage numNodes, which carries neither. `last` below is therefore the index of
   // the last RUNNING node - the single node NodeSet::LAST_RUNNING selects - and stages.back() is the terminal stage.
@@ -425,8 +432,8 @@ TEST(ContactPlanningTerms, AnAccumulatedStageEvaluatesToTheFullSquaredResidual) 
   OcpQpProblem problem;
   problem.x0 = vector_t::Zero(kNumStates);
   problem.stages.resize(2);
-  problem.stages[0] = OcpQpStage::Zero(kNumStates, kNumInputs, true);
-  problem.stages[1] = OcpQpStage::Zero(kNumStates, 0, false);
+  problem.stages[0] = OcpQpStage::Zero(kNumStates, kNumInputs, OcpQpStageKind::kIntermediate);
+  problem.stages[1] = OcpQpStage::Zero(kNumStates, 0, OcpQpStageKind::kTerminal);
 
   // Two residuals on the running stage: one over both states and both inputs, one over a single state. Both offsets are
   // non-zero, which is the whole point - with a zero offset the assembled stage is right either way.
@@ -434,7 +441,7 @@ TEST(ContactPlanningTerms, AnAccumulatedStageEvaluatesToTheFullSquaredResidual) 
   const scalar_t firstOffset = 0.75;
   const scalar_t secondWeight = 0.5;
   const scalar_t secondOffset = -1.25;
-  StageAccumulator accumulator(problem.stages[0]);
+  StageAccumulator accumulator(&problem.stages[0]);
   accumulator.addQuadraticResidual({{0, 1.5}, {1, -0.5}}, {{0, 2.0}, {1, 0.25}}, firstOffset, firstWeight);
   accumulator.addQuadraticResidual({{1, 1.0}}, /*uCoefficients=*/{}, secondOffset, secondWeight);
 
@@ -476,8 +483,8 @@ TEST(ContactPlanningTerms, ObjectivesOfProblemsAssembledOnDifferentNodeGridsAreC
   ContactPlanningConfig stretchedConfig = config;
   stretchedConfig.planner.dt = kStretch * config.planner.dt;
   EXPECT_EQ(stretchedConfig.validateStatus(), absl::OkStatus());
-  const std::unique_ptr<LipContactPlanner> planner = LipContactPlanner::Create(config).value();
-  const std::unique_ptr<LipContactPlanner> stretchedPlanner = LipContactPlanner::Create(stretchedConfig).value();
+  HUMANOID_ASSERT_OK_AND_ASSIGN(const std::unique_ptr<LipContactPlanner> planner, LipContactPlanner::Create(config));
+  HUMANOID_ASSERT_OK_AND_ASSIGN(const std::unique_ptr<LipContactPlanner> stretchedPlanner, LipContactPlanner::Create(stretchedConfig));
 
   ContactPlannerInput input = makeStandingInput();
   input.velocityCommand = vector2_t(0.4, -0.25);  // both axes, so that neither of the two offsets per foot is zero
@@ -487,8 +494,8 @@ TEST(ContactPlanningTerms, ObjectivesOfProblemsAssembledOnDifferentNodeGridsAreC
   const vector2_t nominalDisplacement = input.velocityCommand * (config.planner.dt * strideToSwingRatio);
   const vector2_t stretchedDisplacement = input.velocityCommand * (stretchedConfig.planner.dt * strideToSwingRatio);
 
-  const OcpQpProblem qp = planner->buildProblem(input).value();
-  const OcpQpProblem stretchedQp = stretchedPlanner->buildProblem(input).value();
+  HUMANOID_ASSERT_OK_AND_ASSIGN(const OcpQpProblem qp, planner->buildProblem(input));
+  HUMANOID_ASSERT_OK_AND_ASSIGN(const OcpQpProblem stretchedQp, stretchedPlanner->buildProblem(input));
   // Anchor d_nom to what was actually assembled, so that a change of the nominal displacement shows up as a failure
   // here rather than silently moving both sides of the comparisons below.
   ASSERT_NEAR(qp.stages.front().R(kLipDlx, kLipCl), 2.0 * weight * nominalDisplacement.x(), 1.0e-12);
@@ -546,10 +553,11 @@ TEST(ContactPlanningTerms, AHeadingTermWithoutTheHeadingBlockIsRejected) {
   EXPECT_EQ(config.validateStatus().code(), absl::StatusCode::kInvalidArgument);
   // The problem checks it too, for a problem assembled by hand.
   ContactPlanningProblem problem;
-  ASSERT_EQ(problem.model.add(term::kLipCom, ContactPlanningTermFactory::makeModelBlock(term::kLipCom).value()), absl::OkStatus());
-  ASSERT_EQ(problem.model.add(term::kFootholdIntegrator, ContactPlanningTermFactory::makeModelBlock(term::kFootholdIntegrator).value()),
-            absl::OkStatus());
-  ASSERT_EQ(problem.costs.add(term::kHeadingTracking, ContactPlanningTermFactory::makeCost(term::kHeadingTracking).value()),
+  ASSERT_EQ(problem.model.add(term::kLipCom, checkedValue(ContactPlanningTermFactory::makeModelBlock(term::kLipCom))), absl::OkStatus());
+  ASSERT_EQ(
+      problem.model.add(term::kFootholdIntegrator, checkedValue(ContactPlanningTermFactory::makeModelBlock(term::kFootholdIntegrator))),
+      absl::OkStatus());
+  ASSERT_EQ(problem.costs.add(term::kHeadingTracking, checkedValue(ContactPlanningTermFactory::makeCost(term::kHeadingTracking))),
             absl::OkStatus());
   const absl::Status finalized = problem.finalize(makeConfig());
   EXPECT_EQ(finalized.code(), absl::StatusCode::kInvalidArgument);
@@ -570,9 +578,10 @@ TEST(ContactPlanningTerms, AProblemThatIsNotFinalizedRefusesToAssembleOrConfigur
 
   // The model has to start with the LIP block and the foothold block, in that order.
   ContactPlanningProblem reversed;
-  ASSERT_EQ(reversed.model.add(term::kFootholdIntegrator, ContactPlanningTermFactory::makeModelBlock(term::kFootholdIntegrator).value()),
-            absl::OkStatus());
-  ASSERT_EQ(reversed.model.add(term::kLipCom, ContactPlanningTermFactory::makeModelBlock(term::kLipCom).value()), absl::OkStatus());
+  ASSERT_EQ(
+      reversed.model.add(term::kFootholdIntegrator, checkedValue(ContactPlanningTermFactory::makeModelBlock(term::kFootholdIntegrator))),
+      absl::OkStatus());
+  ASSERT_EQ(reversed.model.add(term::kLipCom, checkedValue(ContactPlanningTermFactory::makeModelBlock(term::kLipCom))), absl::OkStatus());
   const absl::Status finalized = reversed.finalize(config);
   EXPECT_EQ(finalized.code(), absl::StatusCode::kInvalidArgument);
   EXPECT_NE(finalized.message().find("must start with"), std::string::npos) << finalized;
@@ -593,8 +602,9 @@ TEST(ContactPlanningTermsDeathTest, TheLayoutInvariantsCheckFailWithTheName) {
 
   // The foothold block first: the LIP block is then not where the fixed indices say it is.
   LayoutBuilder footFirst;
-  std::unique_ptr<LipModelBlock> foothold = ContactPlanningTermFactory::makeModelBlock(term::kFootholdIntegrator).value();
-  std::unique_ptr<LipModelBlock> lip = ContactPlanningTermFactory::makeModelBlock(term::kLipCom).value();
+  HUMANOID_ASSERT_OK_AND_ASSIGN(std::unique_ptr<LipModelBlock> foothold,
+                                ContactPlanningTermFactory::makeModelBlock(term::kFootholdIntegrator));
+  HUMANOID_ASSERT_OK_AND_ASSIGN(std::unique_ptr<LipModelBlock> lip, ContactPlanningTermFactory::makeModelBlock(term::kLipCom));
   foothold->declareVariables(footFirst);
   lip->declareVariables(footFirst);
   const Layout misordered = footFirst.build();
@@ -609,7 +619,7 @@ TEST(ContactPlanningTerms, ATermCollectionKeepsItsOrderAndItsNameIndexInStep) {
   TermCollection<LipCost> costs;
   const std::vector<std::string> names{term::kRegularization, term::kVelocityTracking, term::kStepWidth, term::kTerminalDcm};
   for (const std::string& name : names) {
-    ASSERT_EQ(costs.add(name, ContactPlanningTermFactory::makeCost(name).value()), absl::OkStatus()) << name;
+    ASSERT_EQ(costs.add(name, checkedValue(ContactPlanningTermFactory::makeCost(name))), absl::OkStatus()) << name;
   }
   ASSERT_EQ(costs.size(), names.size());
   EXPECT_EQ(costs.names(), names);
@@ -628,7 +638,7 @@ TEST(ContactPlanningTerms, ATermCollectionKeepsItsOrderAndItsNameIndexInStep) {
   EXPECT_NE(dynamic_cast<const TerminalDcmCost*>(costs.find(term::kTerminalDcm)), nullptr);
 
   // A duplicate and a null term are rejected, naming the term, and a missing name resolves to nothing.
-  const absl::Status duplicate = costs.add(term::kStepWidth, ContactPlanningTermFactory::makeCost(term::kStepWidth).value());
+  const absl::Status duplicate = costs.add(term::kStepWidth, checkedValue(ContactPlanningTermFactory::makeCost(term::kStepWidth)));
   EXPECT_EQ(duplicate.code(), absl::StatusCode::kInvalidArgument);
   EXPECT_NE(duplicate.message().find(term::kStepWidth), std::string::npos) << duplicate;
   const absl::Status null = costs.add("null_cost", /*term=*/nullptr);
@@ -711,17 +721,17 @@ TEST(ContactPlanningTerms, TheFactoryNamesTheSupportedTermsInItsErrors) {
 TEST(ContactPlanningTerms, EveryKnownTermCanBeBuiltAndDescribed) {
   const ContactPlanningConfig config = makeHeadingConfig();
   for (const std::string& name : knownTermNames(TermKind::kCost)) {
-    std::unique_ptr<LipCost> cost = ContactPlanningTermFactory::makeCost(name).value();
+    HUMANOID_ASSERT_OK_AND_ASSIGN(std::unique_ptr<LipCost> cost, ContactPlanningTermFactory::makeCost(name));
     cost->configure(config);
     EXPECT_FALSE(cost->describe().empty()) << name;
   }
   for (const std::string& name : knownTermNames(TermKind::kSoftConstraint)) {
-    std::unique_ptr<LipConstraint> constraint = ContactPlanningTermFactory::makeSoftConstraint(name).value();
+    HUMANOID_ASSERT_OK_AND_ASSIGN(std::unique_ptr<LipConstraint> constraint, ContactPlanningTermFactory::makeSoftConstraint(name));
     constraint->configure(config);
     EXPECT_EQ(constraint->softness(), Softness::kSoft) << name;
   }
   for (const std::string& name : knownTermNames(TermKind::kHardConstraint)) {
-    std::unique_ptr<LipConstraint> constraint = ContactPlanningTermFactory::makeHardConstraint(name).value();
+    HUMANOID_ASSERT_OK_AND_ASSIGN(std::unique_ptr<LipConstraint> constraint, ContactPlanningTermFactory::makeHardConstraint(name));
     constraint->configure(config);
     EXPECT_EQ(constraint->softness(), Softness::kHard) << name;
   }
@@ -734,7 +744,7 @@ TEST(ContactPlanningTerms, EveryKnownTermCanBeBuiltAndDescribed) {
   for (const std::string& name : knownTermNames(TermKind::kSearchStage)) {
     EXPECT_TRUE(ContactPlanningTermFactory::makeSearchStage(name).ok()) << name;
   }
-  const std::string summary = LipContactPlanner::formulationSummary(config).value();
+  HUMANOID_ASSERT_OK_AND_ASSIGN(const std::string summary, LipContactPlanner::formulationSummary(config));
   for (const std::string& name : config.formulation.costs) EXPECT_NE(summary.find(name), std::string::npos) << summary;
   EXPECT_NE(summary.find("x = [c_x c_y v_x v_y p_Lx p_Ly p_Rx p_Ry theta omega psi_L psi_R] (12)"), std::string::npos) << summary;
 }
@@ -742,16 +752,16 @@ TEST(ContactPlanningTerms, EveryKnownTermCanBeBuiltAndDescribed) {
 /*============================================ hot reload =================================================*/
 
 TEST(ContactPlanningTerms, ParametersReloadByTermNameWithoutReassembly) {
-  const std::unique_ptr<LipContactPlanner> planner = LipContactPlanner::Create(makeConfig()).value();
+  HUMANOID_ASSERT_OK_AND_ASSIGN(const std::unique_ptr<LipContactPlanner> planner, LipContactPlanner::Create(makeConfig()));
   const ContactPlannerInput input = makeWalkingInput();
-  const OcpQpProblem before = planner->buildProblem(input).value();
+  HUMANOID_ASSERT_OK_AND_ASSIGN(const OcpQpProblem before, planner->buildProblem(input));
   ContactPlanningConfig retuned = planner->getConfig();
   retuned.velocityTracking.weight *= 3.0;
   retuned.zmpSupportRegion.slack = SlackPenalty{.quadratic = 123.0, .linear = 4.0};
   ASSERT_EQ(planner->setConfig(retuned), absl::OkStatus());
   EXPECT_NEAR(termAs<VelocityTrackingCost>(planner->getProblem().costs, term::kVelocityTracking).weight(), retuned.velocityTracking.weight,
               1.0e-12);
-  const OcpQpProblem after = planner->buildProblem(input).value();
+  HUMANOID_ASSERT_OK_AND_ASSIGN(const OcpQpProblem after, planner->buildProblem(input));
   EXPECT_NEAR(after.stages.front().Q(kLipVx, kLipVx), 3.0 * before.stages.front().Q(kLipVx, kLipVx) - 2.0 * retuned.regularization.state,
               1.0e-9);
   // The ZMP rows are the first 12 soft rows of a running node; their penalty is the term's own, the rest keep the shared one.
@@ -762,7 +772,7 @@ TEST(ContactPlanningTerms, ParametersReloadByTermNameWithoutReassembly) {
 }
 
 TEST(ContactPlanningTerms, ChangingATermListReassemblesTheProblemAndKeepsTheWarmStartWhileTheLayoutHolds) {
-  const std::unique_ptr<LipContactPlanner> planner = LipContactPlanner::Create(makeConfig()).value();
+  HUMANOID_ASSERT_OK_AND_ASSIGN(const std::unique_ptr<LipContactPlanner> planner, LipContactPlanner::Create(makeConfig()));
   const ContactPlannerInput input = makeWalkingInput();
   const ContactPlan first = planner->plan(input);
   ASSERT_TRUE(first.valid);
@@ -770,26 +780,27 @@ TEST(ContactPlanningTerms, ChangingATermListReassemblesTheProblemAndKeepsTheWarm
   next.time += 0.1;
   next.contacts = first.contactsAtTime(next.time);
   ASSERT_GE(planner->defaultNominal(next).com.size(), 1u);
-  const bool warmBefore = planner->makeContext(next, planner->defaultNominal(next)).value().previousPlanShift >= 0;
+  const bool warmBefore = checkedValue(planner->makeContext(next, planner->defaultNominal(next))).previousPlanShift.has_value();
   EXPECT_TRUE(warmBefore);
 
   ContactPlanningConfig fewerCosts = planner->getConfig();
   fewerCosts.formulation.setCost(term::kStepWidth, /*on=*/false);
   ASSERT_EQ(planner->setConfig(fewerCosts), absl::OkStatus());
   EXPECT_FALSE(planner->getProblem().costs.has(term::kStepWidth));
-  EXPECT_GE(planner->makeContext(next, planner->defaultNominal(next)).value().previousPlanShift, 0)
+  EXPECT_TRUE(checkedValue(planner->makeContext(next, planner->defaultNominal(next))).previousPlanShift.has_value())
       << "same grid and layout: the warm start survives";
 
   ContactPlanningConfig heading = makeHeadingConfig();
   ASSERT_EQ(planner->setConfig(heading), absl::OkStatus());
   EXPECT_TRUE(planner->getLayout().hasHeading);
-  EXPECT_LT(planner->makeContext(next, planner->defaultNominal(next)).value().previousPlanShift, 0) << "a new layout drops the warm start";
+  EXPECT_FALSE(checkedValue(planner->makeContext(next, planner->defaultNominal(next))).previousPlanShift.has_value())
+      << "a new layout drops the warm start";
 }
 
 TEST(ContactPlanningTerms, SearchStagesFollowTheList) {
   ContactPlanningConfig config = makeConfig();
   config.formulation.search = {term::kWarmStartPreviousPlan};
-  const std::unique_ptr<LipContactPlanner> planner = LipContactPlanner::Create(config).value();
+  HUMANOID_ASSERT_OK_AND_ASSIGN(const std::unique_ptr<LipContactPlanner> planner, LipContactPlanner::Create(config));
   EXPECT_EQ(planner->getSearchStages().size(), 1u);
   const ContactPlan plan = planner->plan(makeWalkingInput());
   EXPECT_TRUE(plan.valid);
@@ -841,7 +852,7 @@ TEST(ContactPlanningTerms, DoubleSupportPenaltyChargesEveryNodeWithBothFeetDown)
   config.formulation.assignmentCosts = {term::kDoubleSupportPenalty};
   config.doubleSupportPenalty.cost = 5.0;
   EXPECT_EQ(config.validateStatus(), absl::OkStatus());
-  const std::unique_ptr<LipContactPlanner> planner = LipContactPlanner::Create(config).value();
+  HUMANOID_ASSERT_OK_AND_ASSIGN(const std::unique_ptr<LipContactPlanner> planner, LipContactPlanner::Create(config));
   const DoubleSupportPenaltyCost& cost =
       termAs<DoubleSupportPenaltyCost>(planner->getProblem().assignmentCosts, term::kDoubleSupportPenalty);
 
@@ -867,7 +878,7 @@ TEST(ContactPlanningTerms, DoubleSupportPenaltyChargesEveryNodeWithBothFeetDown)
   EXPECT_NEAR(cost.cost(state, a), 15.0, 1.0e-12) << "standing costs the whole horizon";
 
   config.doubleSupportPenalty.cost = 0.0;
-  const std::unique_ptr<LipContactPlanner> disabled = LipContactPlanner::Create(config).value();
+  HUMANOID_ASSERT_OK_AND_ASSIGN(const std::unique_ptr<LipContactPlanner> disabled, LipContactPlanner::Create(config));
   EXPECT_NEAR(termAs<DoubleSupportPenaltyCost>(disabled->getProblem().assignmentCosts, term::kDoubleSupportPenalty).cost(state, a), 0.0,
               1.0e-12)
       << "a zero cost is free whatever the assignment";
@@ -883,7 +894,7 @@ TEST(ContactPlanningTerms, DoubleSupportPenaltyIsALowerBoundOnAPartialAssignment
   config.formulation.assignmentCosts = {term::kDoubleSupportPenalty};
   config.doubleSupportPenalty.cost = 5.0;
   EXPECT_EQ(config.validateStatus(), absl::OkStatus());
-  const std::unique_ptr<LipContactPlanner> planner = LipContactPlanner::Create(config).value();
+  HUMANOID_ASSERT_OK_AND_ASSIGN(const std::unique_ptr<LipContactPlanner> planner, LipContactPlanner::Create(config));
   const DoubleSupportPenaltyCost& cost =
       termAs<DoubleSupportPenaltyCost>(planner->getProblem().assignmentCosts, term::kDoubleSupportPenalty);
 
@@ -952,7 +963,7 @@ TEST(ContactPlanningTerms, CadenceStretchIsDisabledWithoutSamples) {
   ContactPlanningConfig config = makeConfig();
   config.cadenceStretch.samples = 0;
   EXPECT_EQ(config.validateStatus(), absl::OkStatus());
-  std::unique_ptr<SearchStage> stage = ContactPlanningTermFactory::makeSearchStage(term::kCadenceStretch).value();
+  HUMANOID_ASSERT_OK_AND_ASSIGN(std::unique_ptr<SearchStage> stage, ContactPlanningTermFactory::makeSearchStage(term::kCadenceStretch));
   ASSERT_NE(stage, nullptr);
   stage->configure(config);
   EXPECT_NE(stage->describe().find("0 stretch"), std::string::npos);
@@ -1102,7 +1113,7 @@ TEST(ContactPlanningTerms, ContactSwitchCostIsExactWhenCompleteAndALowerBoundOnE
   ContactPlanningConfig config = makeConfig();
   config.contactSwitch.cost = 0.25;
   EXPECT_EQ(config.validateStatus(), absl::OkStatus());
-  std::unique_ptr<AssignmentCost> term = ContactPlanningTermFactory::makeAssignmentCost(term::kContactSwitch).value();
+  HUMANOID_ASSERT_OK_AND_ASSIGN(std::unique_ptr<AssignmentCost> term, ContactPlanningTermFactory::makeAssignmentCost(term::kContactSwitch));
   ASSERT_NE(term, nullptr);
   term->configure(config);
   EXPECT_NE(term->describe().find("per lift-off / touch-down event"), std::string::npos) << term->describe();
@@ -1176,7 +1187,8 @@ TEST(ContactPlanningTerms, ContactSwitchCostIsExactWhenCompleteAndALowerBoundOnE
   ContactPlanningConfig freePrice = config;
   freePrice.contactSwitch.cost = 0.0;
   EXPECT_EQ(freePrice.validateStatus(), absl::OkStatus());
-  std::unique_ptr<AssignmentCost> freeTerm = ContactPlanningTermFactory::makeAssignmentCost(term::kContactSwitch).value();
+  HUMANOID_ASSERT_OK_AND_ASSIGN(std::unique_ptr<AssignmentCost> freeTerm,
+                                ContactPlanningTermFactory::makeAssignmentCost(term::kContactSwitch));
   freeTerm->configure(freePrice);
   EXPECT_NEAR(freeTerm->cost(state, chattering), 0.0, 1.0e-12) << "a zero price charges nothing for any pattern";
 }
@@ -1195,7 +1207,8 @@ TEST(ContactPlanningTerms, PlanConsistencyCostShiftsIntoThePreviousPlanClampsAtI
   ContactPlanningConfig config = makeConfig();
   config.planConsistency.cost = 0.5;
   EXPECT_EQ(config.validateStatus(), absl::OkStatus());
-  std::unique_ptr<AssignmentCost> term = ContactPlanningTermFactory::makeAssignmentCost(term::kPlanConsistency).value();
+  HUMANOID_ASSERT_OK_AND_ASSIGN(std::unique_ptr<AssignmentCost> term,
+                                ContactPlanningTermFactory::makeAssignmentCost(term::kPlanConsistency));
   ASSERT_NE(term, nullptr);
   term->configure(config);
   EXPECT_NE(term->describe().find("per decided node whose contact differs from the previous plan"), std::string::npos) << term->describe();
@@ -1253,11 +1266,11 @@ TEST(ContactPlanningTerms, PlanConsistencyCostShiftsIntoThePreviousPlanClampsAtI
   state.previousPlanShift = 1;
   EXPECT_NEAR(term->cost(state, nearlyConsistent), 0.5, 1.0e-12) << "exactly one node-foot pair differs";
 
-  // No usable previous plan: the reference manager leaves previousPlanShift at -1 on the first cycle, after a reset and
+  // No usable previous plan: the reference manager leaves previousPlanShift empty on the first cycle, after a reset and
   // whenever the stored plan no longer matches the node count, and the term has to contribute nothing then rather than
   // index into a plan that is not there.
   ContactLogicState noShift = state;
-  noShift.previousPlanShift = -1;
+  noShift.previousPlanShift = std::nullopt;
   EXPECT_NEAR(term->cost(noShift, allUp), 0.0, 1.0e-12) << "no usable previous plan, no hysteresis";
   ContactLogicState noPlan = state;
   noPlan.previousAssignment = nullptr;
@@ -1359,9 +1372,9 @@ TEST(ContactPlanningTerms, PreviousFootholdConsistencyCostPullsEachNodeToTheShif
   ContactPlanningConfig config = makeConfig();
   config.previousFootholdConsistency.weight = kWeight;
   EXPECT_EQ(config.validateStatus(), absl::OkStatus());
-  const Layout layout = LipContactPlanner::makeLayout(config).value();
+  HUMANOID_ASSERT_OK_AND_ASSIGN(const Layout layout, LipContactPlanner::makeLayout(config));
   ASSERT_FALSE(layout.hasHeading) << "the flat planner, where the term is a plain quadratic on the foothold states";
-  std::unique_ptr<LipCost> term = ContactPlanningTermFactory::makeCost(term::kPreviousFootholdConsistency).value();
+  HUMANOID_ASSERT_OK_AND_ASSIGN(std::unique_ptr<LipCost> term, ContactPlanningTermFactory::makeCost(term::kPreviousFootholdConsistency));
   ASSERT_NE(term, nullptr);
   term->bind(layout);
   term->configure(config);
@@ -1390,8 +1403,9 @@ TEST(ContactPlanningTerms, PreviousFootholdConsistencyCostPullsEachNodeToTheShif
 
   for (int node = 0; node <= numNodes; ++node) {
     const bool running = node < numNodes;
-    OcpQpStage stage = OcpQpStage::Zero(layout.nx, running ? layout.nu : 0, running);
-    StageAccumulator accumulator(stage);
+    OcpQpStage stage =
+        OcpQpStage::Zero(layout.nx, running ? layout.nu : 0, running ? OcpQpStageKind::kIntermediate : OcpQpStageKind::kTerminal);
+    StageAccumulator accumulator(&stage);
     term->addToStage(ctx, node, accumulator);
 
     const int source = std::min(node + kShift, numNodes);
@@ -1422,28 +1436,28 @@ TEST(ContactPlanningTerms, PreviousFootholdConsistencyCostPullsEachNodeToTheShif
   const std::vector<int> clampedNodes = {numNodes - kShift, numNodes - 1, numNodes};
   const scalar_t lastLeftX = previousPlan.footholds.back()[0].x();
   for (const int node : clampedNodes) {
-    OcpQpStage stage = OcpQpStage::Zero(layout.nx, 0, false);
-    StageAccumulator accumulator(stage);
+    OcpQpStage stage = OcpQpStage::Zero(layout.nx, 0, OcpQpStageKind::kTerminal);
+    StageAccumulator accumulator(&stage);
     term->addToStage(ctx, node, accumulator);
     EXPECT_NEAR(stage.q(kLipPlx), -2.0 * kWeight * lastLeftX, 1.0e-12) << "node " << node << " reaches past the previous plan";
   }
   {
-    OcpQpStage stage = OcpQpStage::Zero(layout.nx, 0, false);
-    StageAccumulator accumulator(stage);
+    OcpQpStage stage = OcpQpStage::Zero(layout.nx, 0, OcpQpStageKind::kTerminal);
+    StageAccumulator accumulator(&stage);
     term->addToStage(ctx, numNodes - kShift - 1, accumulator);
     EXPECT_GT(std::abs(stage.q(kLipPlx) + 2.0 * kWeight * lastLeftX), 1.0e-6)
         << "the last node before the clamp must still read a node of its own";
   }
 
-  // No usable previous plan. previousPlanShift is -1 on the first cycle, after reset() and whenever the stored plan no
+  // No usable previous plan. previousPlanShift is empty on the first cycle, after reset() and whenever the stored plan no
   // longer matches the node count, and previousPlan is then null. The term has to emit nothing at all - not a pull
   // towards the origin, which is what a missing guard would produce and which would drag both feet to (0, 0).
   {
     ContactPlanningContext withoutPlan = ctx;
     withoutPlan.previousPlan = nullptr;
-    withoutPlan.previousPlanShift = -1;
-    OcpQpStage stage = OcpQpStage::Zero(layout.nx, layout.nu, true);
-    StageAccumulator accumulator(stage);
+    withoutPlan.previousPlanShift = std::nullopt;
+    OcpQpStage stage = OcpQpStage::Zero(layout.nx, layout.nu, OcpQpStageKind::kIntermediate);
+    StageAccumulator accumulator(&stage);
     term->addToStage(withoutPlan, /*node=*/0, accumulator);
     EXPECT_TRUE(stage.Q.isZero()) << "without a previous plan the term contributes nothing";
     EXPECT_TRUE(stage.q.isZero());
@@ -1451,9 +1465,9 @@ TEST(ContactPlanningTerms, PreviousFootholdConsistencyCostPullsEachNodeToTheShif
   }
   {  // A negative shift with a plan still present is the same "not usable" state and must not index at a negative node.
     ContactPlanningContext staleShift = ctx;
-    staleShift.previousPlanShift = -1;
-    OcpQpStage stage = OcpQpStage::Zero(layout.nx, layout.nu, true);
-    StageAccumulator accumulator(stage);
+    staleShift.previousPlanShift = std::nullopt;
+    OcpQpStage stage = OcpQpStage::Zero(layout.nx, layout.nu, OcpQpStageKind::kIntermediate);
+    StageAccumulator accumulator(&stage);
     term->addToStage(staleShift, /*node=*/0, accumulator);
     EXPECT_TRUE(stage.Q.isZero());
     EXPECT_TRUE(stage.q.isZero());
@@ -1462,11 +1476,12 @@ TEST(ContactPlanningTerms, PreviousFootholdConsistencyCostPullsEachNodeToTheShif
     ContactPlanningConfig unweighted = config;
     unweighted.previousFootholdConsistency.weight = 0.0;
     EXPECT_EQ(unweighted.validateStatus(), absl::OkStatus());
-    std::unique_ptr<LipCost> disabled = ContactPlanningTermFactory::makeCost(term::kPreviousFootholdConsistency).value();
+    HUMANOID_ASSERT_OK_AND_ASSIGN(std::unique_ptr<LipCost> disabled,
+                                  ContactPlanningTermFactory::makeCost(term::kPreviousFootholdConsistency));
     disabled->bind(layout);
     disabled->configure(unweighted);
-    OcpQpStage stage = OcpQpStage::Zero(layout.nx, layout.nu, true);
-    StageAccumulator accumulator(stage);
+    OcpQpStage stage = OcpQpStage::Zero(layout.nx, layout.nu, OcpQpStageKind::kIntermediate);
+    StageAccumulator accumulator(&stage);
     disabled->addToStage(ctx, /*node=*/0, accumulator);
     EXPECT_TRUE(stage.Q.isZero());
     EXPECT_TRUE(stage.q.isZero());
@@ -1497,9 +1512,9 @@ TEST(ContactPlanningTerms, StepWidthCostCouplesTheFourFootholdsAndTheHeadingAtAN
   config.stepWidth.weight = kWeight;
   config.stepWidth.nominalStepWidth = kNominalWidth;
   EXPECT_EQ(config.validateStatus(), absl::OkStatus());
-  const Layout layout = LipContactPlanner::makeLayout(config).value();
+  HUMANOID_ASSERT_OK_AND_ASSIGN(const Layout layout, LipContactPlanner::makeLayout(config));
   ASSERT_TRUE(layout.hasHeading);
-  std::unique_ptr<LipCost> term = ContactPlanningTermFactory::makeCost(term::kStepWidth).value();
+  HUMANOID_ASSERT_OK_AND_ASSIGN(std::unique_ptr<LipCost> term, ContactPlanningTermFactory::makeCost(term::kStepWidth));
   ASSERT_NE(term, nullptr);
   term->bind(layout);
   term->configure(config);
@@ -1516,7 +1531,7 @@ TEST(ContactPlanningTerms, StepWidthCostCouplesTheFourFootholdsAndTheHeadingAtAN
   ctx.nominal = &nominal;
   ctx.config = &config;
   ctx.previousPlan = nullptr;
-  ctx.previousPlanShift = -1;
+  ctx.previousPlanShift = std::nullopt;
   ctx.yawInertia = input.yawInertia;
   ctx.dt = config.planner.dt;
   ctx.numNodes = numNodes;
@@ -1545,8 +1560,8 @@ TEST(ContactPlanningTerms, StepWidthCostCouplesTheFourFootholdsAndTheHeadingAtAN
   coefficients(layout.state(var::footY(1))) = -ey.y();
   coefficients(layout.heading) = g;
 
-  OcpQpStage stage = OcpQpStage::Zero(layout.nx, layout.nu, true);
-  StageAccumulator accumulator(stage);
+  OcpQpStage stage = OcpQpStage::Zero(layout.nx, layout.nu, OcpQpStageKind::kIntermediate);
+  StageAccumulator accumulator(&stage);
   term->addToStage(ctx, kNode, accumulator);
 
   // The expansion, entry by entry. Q = 2 w l l', q = 2 w c l, constant = w c^2.
@@ -1594,8 +1609,8 @@ TEST(ContactPlanningTerms, StepWidthCostCouplesTheFourFootholdsAndTheHeadingAtAN
   ASSERT_NEAR(nominalSeparationZero.y(), 0.24, 1.0e-12);
   const vector2_t eyZero(-std::sin(thetaZero), std::cos(thetaZero));
   const scalar_t gZero = -(std::cos(thetaZero) * nominalSeparationZero.x() + std::sin(thetaZero) * nominalSeparationZero.y());
-  OcpQpStage stageZero = OcpQpStage::Zero(layout.nx, layout.nu, true);
-  StageAccumulator accumulatorZero(stageZero);
+  OcpQpStage stageZero = OcpQpStage::Zero(layout.nx, layout.nu, OcpQpStageKind::kIntermediate);
+  StageAccumulator accumulatorZero(&stageZero);
   term->addToStage(ctx, /*node=*/0, accumulatorZero);
   EXPECT_NEAR(stageZero.Q(kLipPly, kLipPly), 2.0 * kWeight * eyZero.y() * eyZero.y(), 1.0e-12);
   EXPECT_NEAR(stageZero.Q(layout.heading, layout.heading), 2.0 * kWeight * gZero * gZero, 1.0e-12);
@@ -1609,10 +1624,10 @@ TEST(ContactPlanningTerms, StepWidthCostCouplesTheFourFootholdsAndTheHeadingAtAN
   flatConfig.stepWidth.weight = kWeight;
   flatConfig.stepWidth.nominalStepWidth = kNominalWidth;
   EXPECT_EQ(flatConfig.validateStatus(), absl::OkStatus());
-  const Layout flatLayout = LipContactPlanner::makeLayout(flatConfig).value();
+  HUMANOID_ASSERT_OK_AND_ASSIGN(const Layout flatLayout, LipContactPlanner::makeLayout(flatConfig));
   ASSERT_FALSE(flatLayout.hasHeading);
   ASSERT_EQ(flatLayout.heading, -1);
-  std::unique_ptr<LipCost> flatTerm = ContactPlanningTermFactory::makeCost(term::kStepWidth).value();
+  HUMANOID_ASSERT_OK_AND_ASSIGN(std::unique_ptr<LipCost> flatTerm, ContactPlanningTermFactory::makeCost(term::kStepWidth));
   flatTerm->bind(flatLayout);
   flatTerm->configure(flatConfig);
   ContactPlannerInput yawedInput = makeStandingInput();
@@ -1627,8 +1642,8 @@ TEST(ContactPlanningTerms, StepWidthCostCouplesTheFourFootholdsAndTheHeadingAtAN
   flatCtx.omega = flatConfig.omega();
   flatCtx.bigM = flatConfig.shared.bigM;
   flatCtx.computeAxes();
-  OcpQpStage flatStage = OcpQpStage::Zero(flatLayout.nx, flatLayout.nu, true);
-  StageAccumulator flatAccumulator(flatStage);
+  OcpQpStage flatStage = OcpQpStage::Zero(flatLayout.nx, flatLayout.nu, OcpQpStageKind::kIntermediate);
+  StageAccumulator flatAccumulator(&flatStage);
   flatTerm->addToStage(flatCtx, kNode, flatAccumulator);
   const vector2_t flatEy(-std::sin(yawedInput.yaw), std::cos(yawedInput.yaw));
   EXPECT_NEAR(flatStage.Q(kLipPly, kLipPly), 2.0 * kWeight * flatEy.y() * flatEy.y(), 1.0e-12) << "the frame is the base yaw";
@@ -1636,6 +1651,272 @@ TEST(ContactPlanningTerms, StepWidthCostCouplesTheFourFootholdsAndTheHeadingAtAN
   EXPECT_NEAR(flatStage.q(kLipPly), -2.0 * kWeight * kNominalWidth * flatEy.y(), 1.0e-12) << "the offset is -w_nom alone";
   EXPECT_NEAR(flatStage.constant, kWeight * kNominalWidth * kNominalWidth, 1.0e-12);
   EXPECT_EQ(flatLayout.nx, kLipStateDim) << "no heading column exists for the term to couple to";
+}
+
+/*============================================ audit findings CP-2, CP-3, CP-5, CP-6 ======================================*/
+namespace {
+
+/** The rows `term` writes at `node`, as a stage. */
+OcpQpStage constraintRows(const LipConstraint& term, const ContactPlanningContext& ctx, const Layout& layout, int node) {
+  RowBuilder rows(layout.nx, layout.nu);
+  term.addRows(ctx, node, rows);
+  OcpQpStage stage = OcpQpStage::Zero(layout.nx, layout.nu, OcpQpStageKind::kIntermediate);
+  rows.writeTo(stage);
+  return stage;
+}
+
+/** Whether lower <= C x + D u <= upper holds for every row of `stage`, to `tolerance`. */
+bool rowsHold(const OcpQpStage& stage, const vector_t& x, const vector_t& u, scalar_t tolerance) {
+  const vector_t value = stage.C * x + stage.D * u;
+  for (int i = 0; i < value.size(); ++i) {
+    if (value(i) < stage.lg(i) - tolerance || value(i) > stage.ug(i) + tolerance) return false;
+  }
+  return true;
+}
+
+ContactPlanningContext makeHeadingContext(const ContactPlannerInput& input,
+                                          const Layout& layout,
+                                          const HeadingNominal& nominal,
+                                          const ContactPlanningConfig& config) {
+  ContactPlanningContext ctx;
+  ctx.input = &input;
+  ctx.layout = &layout;
+  ctx.nominal = &nominal;
+  ctx.config = &config;
+  ctx.yawInertia = input.yawInertia;
+  ctx.dt = config.planner.dt;
+  ctx.numNodes = config.planner.numNodes;
+  ctx.omega = config.omega();
+  ctx.bigM = config.shared.bigM;
+  ctx.computeAxes();
+  return ctx;
+}
+
+vector2_t rotated(scalar_t yaw, const vector2_t& vector) {
+  return vector2_t(std::cos(yaw) * vector.x() - std::sin(yaw) * vector.y(), std::sin(yaw) * vector.x() + std::cos(yaw) * vector.y());
+}
+
+}  // namespace
+
+/**
+ * Audit finding CP-2. Under the heading model a single-support ZMP box is the stance foot's footprint, so it turns with
+ * that foot's yaw and not with the heading. With the feet turned 0.6 and -0.5 rad away from the heading, every corner
+ * of the rotated footprint is admitted from just inside and refused from just outside - while the same corners lie
+ * outside the heading-aligned box the rows used to write.
+ */
+TEST(ContactPlanningTerms, TheSingleSupportZmpBoxIsTheStanceFootsRotatedFootprint) {
+  constexpr scalar_t kHeading = 0.1;
+  const feet_array_t<scalar_t> footYaws{kHeading + 0.6, kHeading - 0.5};
+  ContactPlanningConfig config = makeHeadingConfig();
+  config.zmpSupportRegion.halfWidthX = 0.1;
+  config.zmpSupportRegion.halfWidthY = 0.05;
+  ASSERT_EQ(config.validateStatus(), absl::OkStatus());
+  HUMANOID_ASSERT_OK_AND_ASSIGN(const Layout layout, LipContactPlanner::makeLayout(config));
+  ASSERT_TRUE(layout.hasHeading);
+  HUMANOID_ASSERT_OK_AND_ASSIGN(std::unique_ptr<LipConstraint> term,
+                                ContactPlanningTermFactory::makeSoftConstraint(term::kZmpSupportRegion));
+  term->bind(layout);
+  term->configure(config);
+
+  const int numNodes = config.planner.numNodes;
+  HeadingNominal nominal = makeTurningNominal(numNodes, /*headingAtStart=*/kHeading, /*headingPerNode=*/0.0);
+  nominal.footYaws.assign(static_cast<size_t>(numNodes) + 1u, footYaws);
+  const ContactPlannerInput input = makeStandingInput();
+  const ContactPlanningContext ctx = makeHeadingContext(input, layout, nominal, config);
+
+  const vector2_t halfWidths(config.zmpSupportRegion.halfWidthX, config.zmpSupportRegion.halfWidthY);
+  const feet_array_t<vector2_t> feet{vector2_t(0.31, 0.12), vector2_t(0.27, -0.13)};
+  for (const int node : {0, 4}) {
+    const OcpQpStage stage = constraintRows(*term, ctx, layout, node);
+    for (size_t stance = 0; stance < kNumContacts; ++stance) {
+      vector_t x = vector_t::Zero(layout.nx);
+      for (size_t foot = 0; foot < kNumContacts; ++foot) {
+        x(layout.state(var::footX(foot))) = feet[foot].x();
+        x(layout.state(var::footY(foot))) = feet[foot].y();
+      }
+      vector_t u = vector_t::Zero(layout.nu);
+      u(layout.input(var::contact(stance))) = 1.0;
+      int cornersOutsideTheHeadingBox = 0;
+      for (const scalar_t signX : {1.0, -1.0}) {
+        for (const scalar_t signY : {1.0, -1.0}) {
+          const vector2_t corner = rotated(footYaws[stance], vector2_t(signX * halfWidths.x(), signY * halfWidths.y()));
+          for (const scalar_t scale : {0.999, 1.001}) {
+            const vector2_t zmp = feet[stance] + scale * corner;
+            u(layout.input(var::kZmpX)) = zmp.x();
+            u(layout.input(var::kZmpY)) = zmp.y();
+            EXPECT_EQ(rowsHold(stage, x, u, /*tolerance=*/1.0e-12), scale < 1.0)
+                << "node " << node << ", stance " << stance << ", corner (" << signX << ", " << signY << "), scale " << scale;
+          }
+          const vector2_t inHeadingFrame = rotated(-kHeading, corner);
+          if (std::abs(inHeadingFrame.x()) > halfWidths.x() || std::abs(inHeadingFrame.y()) > halfWidths.y()) ++cornersOutsideTheHeadingBox;
+        }
+      }
+      EXPECT_GT(cornersOutsideTheHeadingBox, 0) << "the fixture must tell the footprint from the heading-aligned box";
+    }
+  }
+
+  // The nominal the planner builds itself takes the stance feet at their measured yaws.
+  HUMANOID_ASSERT_OK_AND_ASSIGN(const std::unique_ptr<LipContactPlanner> planner, LipContactPlanner::Create(config));
+  ContactPlannerInput turned = makeStandingInput();
+  turned.footYaws = footYaws;
+  const HeadingNominal plannerNominal = planner->defaultNominal(turned);
+  ASSERT_EQ(plannerNominal.footYaws.size(), static_cast<size_t>(numNodes) + 1u);
+  EXPECT_NEAR(plannerNominal.footYaws.front()[0], footYaws[0], 1.0e-12);
+  EXPECT_NEAR(plannerNominal.footYaws.front()[1], footYaws[1], 1.0e-12);
+}
+
+/**
+ * Audit finding CP-3. CadenceStretchStage compares objectives of the same N nodes on grids of dt and s dt, i.e. over
+ * horizons of different lengths. That comparison is per unit time already: a running cost summed over N equal nodes is N
+ * times its time average. A trajectory with the same velocity error everywhere scores the same on both grids, which a
+ * duration-weighted score (the integral) would not.
+ */
+TEST(ContactPlanningTerms, AConstantCostRateScoresTheSameOnEveryNodeGrid) {
+  constexpr scalar_t kStretch = 1.25;
+  ContactPlanningConfig config = makeConfig();
+  config.formulation.costs = {term::kVelocityTracking};
+  config.formulation.softConstraints = {};
+  config.formulation.hardConstraints = {};
+  config.velocityTracking.weight = 3.0;
+  ASSERT_EQ(config.validateStatus(), absl::OkStatus());
+  ContactPlanningConfig stretchedConfig = config;
+  stretchedConfig.planner.dt = kStretch * config.planner.dt;
+  ASSERT_EQ(stretchedConfig.validateStatus(), absl::OkStatus());
+  HUMANOID_ASSERT_OK_AND_ASSIGN(const std::unique_ptr<LipContactPlanner> planner, LipContactPlanner::Create(config));
+  HUMANOID_ASSERT_OK_AND_ASSIGN(const std::unique_ptr<LipContactPlanner> stretchedPlanner, LipContactPlanner::Create(stretchedConfig));
+  ContactPlannerInput input = makeStandingInput();
+  input.velocityCommand = vector2_t(0.4, -0.1);
+  HUMANOID_ASSERT_OK_AND_ASSIGN(const OcpQpProblem qp, planner->buildProblem(input));
+  HUMANOID_ASSERT_OK_AND_ASSIGN(const OcpQpProblem stretchedQp, stretchedPlanner->buildProblem(input));
+  ASSERT_EQ(qp.stages.size(), stretchedQp.stages.size());
+
+  const vector2_t velocityError(0.07, -0.02);
+  std::vector<vector_t> states;
+  std::vector<vector_t> inputs;
+  for (size_t k = 0; k < qp.stages.size(); ++k) {
+    vector_t x = vector_t::Zero(qp.stages[k].numStates());
+    x(kLipVx) = input.velocityCommand.x() + velocityError.x();
+    x(kLipVy) = input.velocityCommand.y() + velocityError.y();
+    x(kLipCx) = 0.3 * static_cast<scalar_t>(k);  // where the CoM is does not enter the rate
+    states.push_back(x);
+    if (k + 1 < qp.stages.size()) inputs.push_back(vector_t::Zero(qp.stages[k].numInputs()));
+  }
+  const scalar_t score = evaluateOcpQpObjective(qp, states, inputs);
+  const scalar_t stretchedScore = evaluateOcpQpObjective(stretchedQp, states, inputs);
+  ASSERT_GT(score, 0.0);
+  EXPECT_NEAR(stretchedScore, score, 1.0e-12) << "the same cost rate is the same score on both grids";
+  EXPECT_GT(std::abs(stretchedConfig.planner.dt * stretchedScore - config.planner.dt * score), 1.0e-3 * score)
+      << "a duration-weighted score would have charged the stretched grid for its longer horizon";
+}
+
+/**
+ * Audit finding CP-5. The hip yaw joint turns the foot against the pelvis. With the heading the ACoM's, the pelvis sits
+ * baseYaw - heading away from it, and the rows bound psi_i - theta_base to the joint range: at the planning node (theta =
+ * heading) a foot yaw is admitted exactly when psi_i - baseYaw is inside [lower_i, upper_i], across the +-pi seam too.
+ */
+TEST(ContactPlanningTerms, TheHipYawRangeIsMeasuredFromThePelvis) {
+  ContactPlanningConfig config = makeHeadingConfig();
+  config.hipYawRange.lower = {-0.3, -0.6};
+  config.hipYawRange.upper = {0.6, 0.3};
+  ASSERT_EQ(config.validateStatus(), absl::OkStatus());
+  HUMANOID_ASSERT_OK_AND_ASSIGN(const Layout layout, LipContactPlanner::makeLayout(config));
+  HUMANOID_ASSERT_OK_AND_ASSIGN(std::unique_ptr<LipConstraint> term, ContactPlanningTermFactory::makeSoftConstraint(term::kHipYawRange));
+  term->bind(layout);
+  term->configure(config);
+  const int numNodes = config.planner.numNodes;
+
+  struct Case {
+    scalar_t heading;
+    std::optional<scalar_t> baseYaw;
+  };
+  const std::vector<Case> cases = {{.heading = 0.4, .baseYaw = 0.55},
+                                   {.heading = 0.4, .baseYaw = std::nullopt},
+                                   {.heading = 3.10, .baseYaw = -3.05},  // the pelvis across the seam, 0.133 rad ahead
+                                   {.heading = -1.0, .baseYaw = -1.25}};
+  for (const Case& c : cases) {
+    ContactPlannerInput input = makeStandingInput();
+    input.heading = c.heading;
+    input.yaw = c.heading;
+    input.baseYaw = c.baseYaw;
+    const HeadingNominal nominal = makeTurningNominal(numNodes, /*headingAtStart=*/c.heading, /*headingPerNode=*/0.0);
+    const ContactPlanningContext ctx = makeHeadingContext(input, layout, nominal, config);
+    const OcpQpStage stage = constraintRows(*term, ctx, layout, /*node=*/0);
+    const scalar_t pelvis = c.baseYaw.value_or(c.heading);
+    for (size_t foot = 0; foot < kNumContacts; ++foot) {
+      for (int sample = 0; sample <= 40; ++sample) {
+        const scalar_t hipAngle = -1.0 + 0.05 * static_cast<scalar_t>(sample) + 0.0013;  // off the bounds themselves
+        vector_t x = vector_t::Zero(layout.nx);
+        x(layout.heading) = c.heading;
+        for (size_t other = 0; other < kNumContacts; ++other) x(layout.footYaw(other)) = c.heading;  // inside both ranges
+        // The foot yaw on the heading's branch, as the planner carries it.
+        x(layout.footYaw(foot)) = moduloAngleWithReference(pelvis + hipAngle, c.heading);
+        const vector_t u = vector_t::Zero(layout.nu);
+        const bool insideJointRange = config.hipYawRange.lower[foot] <= hipAngle && hipAngle <= config.hipYawRange.upper[foot];
+        EXPECT_EQ(rowsHold(stage, x, u, /*tolerance=*/1.0e-12), insideJointRange)
+            << "heading " << c.heading << ", foot " << foot << ", hip angle " << hipAngle;
+      }
+    }
+  }
+}
+
+/**
+ * Audit finding CP-6. The yaw torque a foot may carry, read off the rows for every contact state and both regimes of the
+ * two budgets: exactly T_t alone, (T_t + T_c) / 2 in double support and nothing swinging - or in flight, where the old
+ * single row allowed (T_t - T_c) / 2 when T_c < T_t and made flight infeasible when T_c > T_t. Between the corners the
+ * rows are the concave envelope of the budget, the largest convex combination of the corner budgets (an independent
+ * one-parameter maximization here).
+ */
+TEST(ContactPlanningTerms, TheYawTorqueBudgetIsExactAtEveryContactStateAndZeroInFlight) {
+  for (const std::pair<scalar_t, scalar_t>& budgets :
+       {std::pair<scalar_t, scalar_t>(20.0, 40.0), std::pair<scalar_t, scalar_t>(40.0, 20.0)}) {
+    ContactPlanningConfig config = makeHeadingConfig();
+    config.yawTorqueBudget.torsionalFrictionTorque = budgets.first;
+    config.yawTorqueBudget.doubleSupportYawCouple = budgets.second;
+    ASSERT_EQ(config.validateStatus(), absl::OkStatus());
+    HUMANOID_ASSERT_OK_AND_ASSIGN(const Layout layout, LipContactPlanner::makeLayout(config));
+    HUMANOID_ASSERT_OK_AND_ASSIGN(std::unique_ptr<LipConstraint> term,
+                                  ContactPlanningTermFactory::makeHardConstraint(term::kYawTorqueBudget));
+    term->bind(layout);
+    term->configure(config);
+    const ContactPlanningContext ctx;
+    const OcpQpStage stage = constraintRows(*term, ctx, layout, /*node=*/0);
+    const scalar_t alone = budgets.first;
+    const scalar_t shared = 0.5 * (budgets.first + budgets.second);
+
+    // The largest |tau_foot| the rows admit with the binaries at (own, other), for either sign of the torque.
+    const std::function<scalar_t(size_t, scalar_t, scalar_t, scalar_t)> budget = [&](size_t foot, scalar_t own, scalar_t other,
+                                                                                     scalar_t sign) {
+      vector_t u = vector_t::Zero(layout.nu);
+      u(layout.input(var::contact(foot))) = own;
+      u(layout.input(var::contact(1 - foot))) = other;
+      const int column = layout.input(var::yawTorque(foot));
+      scalar_t bound = std::numeric_limits<scalar_t>::infinity();
+      for (int i = 0; i < stage.numGeneralConstraints(); ++i) {
+        const scalar_t coefficient = sign * stage.D(i, column);
+        if (coefficient <= 0.0) continue;
+        bound = std::min(bound, (stage.ug(i) - stage.D.row(i).dot(u)) / coefficient);
+      }
+      return bound;
+    };
+    // The concave envelope: max over t of T_t (a - t) + D t, t = lambda_11 in [max(0, a + b - 1), min(a, b)].
+    const std::function<scalar_t(scalar_t, scalar_t)> envelope = [&](scalar_t own, scalar_t other) {
+      const scalar_t t = shared >= alone ? std::min(own, other) : std::max(0.0, own + other - 1.0);
+      return alone * (own - t) + shared * t;
+    };
+    for (size_t foot = 0; foot < kNumContacts; ++foot) {
+      for (const scalar_t sign : {1.0, -1.0}) {
+        EXPECT_NEAR(budget(foot, /*own=*/1.0, /*other=*/0.0, sign), alone, 1.0e-9) << "alone";
+        EXPECT_NEAR(budget(foot, /*own=*/1.0, /*other=*/1.0, sign), shared, 1.0e-9) << "double support";
+        EXPECT_NEAR(budget(foot, /*own=*/0.0, /*other=*/1.0, sign), 0.0, 1.0e-9) << "swinging";
+        EXPECT_NEAR(budget(foot, /*own=*/0.0, /*other=*/0.0, sign), 0.0, 1.0e-9) << "flight: zero torque, and feasible";
+        for (int sample = 0; sample < 25; ++sample) {
+          const scalar_t own = 0.1 + 0.2 * static_cast<scalar_t>(sample % 5);
+          const scalar_t other = 0.1 + 0.2 * static_cast<scalar_t>(sample / 5);
+          EXPECT_NEAR(budget(foot, own, other, sign), envelope(own, other), 1.0e-9) << "relaxation at (" << own << ", " << other << ")";
+        }
+      }
+    }
+  }
 }
 
 }  // namespace ocs2::humanoid

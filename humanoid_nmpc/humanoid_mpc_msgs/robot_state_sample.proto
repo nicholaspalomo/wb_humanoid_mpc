@@ -43,5 +43,9 @@ message RobotStateSample {
   // Measured contact state and foot wrenches (the simulator's force sensors; zero where the robot has none), in
   // contact order.
   repeated bool contact_flags = 16;
+  // LINT.IfChange(measured_contact_wrenches)
+  // In the world frame: the force each foot carries, the ground reaction less the foot's own weight and inertia, +z up
+  // while the foot stands, as the MPC's contact forces (mujoco_sim_interface footForceInWorldFrame()).
   repeated Wrench measured_contact_wrenches = 17;
+  // LINT.ThenChange(//robot_runtime/mujoco_sim_interface/include/mujoco_sim_interface/MujocoUtils.h:foot_force_frame)
 }

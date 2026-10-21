@@ -69,7 +69,7 @@ class FixedContactEstimator final : public robot::model::ContactEstimator {
  public:
   explicit FixedContactEstimator(std::vector<bool> flags) : flags_(std::move(flags)) {}
   void estimateContactFlags(const robot::model::RobotState& /*robotState*/, std::vector<bool>& flags) override { flags = flags_; }
-  std::string getName() const override { return "fixed"; }
+  absl::string_view getName() const override { return "fixed"; }
 
  private:
   std::vector<bool> flags_;

@@ -270,6 +270,7 @@ TEST(LocomotionHeuristicFormulas, FootholdOffsetsOfEveryListedHeuristicAreSummed
 
   FootholdHeuristicContext context = leftFoot();
   context.commandedVelocity = vector2_t(1.0, 0.0);
+  context.commandedVelocityAtMeasurement = vector2_t(1.0, 0.0);
   context.measuredVelocity = vector2_t(1.1, 0.0);
   // hip:            the left hip, (0.03, 0.08), at yaw 0
   // translational:  0.2 * 1.0 = 0.2 forward
@@ -661,11 +662,49 @@ TEST(LocomotionHeuristicFormulas, CapturePointPrefersTheOverrideThenTheMeasureme
   halfGain.capturePoint.gain = 0.5;
   EXPECT_NEAR(footholdOffsetOf("capture_point", halfGain, pushed).x(), 0.07572281660192283, 1.0e-9);
 
-  // gravity is the configured one: sqrt(0.9 / 3) * 0.5 = 0.2738612788, with the 0.25 m clamp opened so it cannot bind
-  LocomotionHeuristicConfig lowGravity = config;
-  lowGravity.capturePoint.gravity = 3.0;
-  lowGravity.capturePoint.maximumOffset = 1.0;
-  EXPECT_NEAR(footholdOffsetOf("capture_point", lowGravity, pushed).x(), 0.27386127875258304, 1.0e-9);
+  // gravity is the model's: sqrt(0.9 / 3) * 0.5 = 0.2738612788, with the 0.25 m clamp opened so it cannot bind
+  LocomotionHeuristicConfig unclamped = config;
+  unclamped.capturePoint.maximumOffset = 1.0;
+  LocomotionHeuristicModelParameters lowGravity = testModel();
+  lowGravity.gravity = 3.0;
+  EXPECT_NEAR(footholdOffsetOf("capture_point", unclamped, lowGravity, pushed).x(), 0.27386127875258304, 1.0e-9);
+}
+
+TEST(LocomotionHeuristicFormulas, CapturePointIsSilentOnAPerfectlyTrackedTurn) {
+  // A robot tracking a turning command exactly: at the solve it moves at the command of the solve, v_0, and the
+  // command at the touch-down has turned with the robot, R_z(psidot dt) v_0. The velocity error is zero, so the
+  // capture point must be zero at every speed, rate and look-ahead - not k sqrt(z / g) (v_0 - R_z(psidot dt) v_0),
+  // which on Atlas at 1 m/s, 1 rad/s and 0.45 s is a spurious 0.15 m step outwards.
+  const LocomotionHeuristicConfig config;
+  for (const scalar_t speed : {0.3, 1.0, 1.6}) {
+    for (const scalar_t yawRate : {-1.2, 0.5, 1.0}) {
+      for (const scalar_t lookAhead : {0.1, 0.45, 0.8}) {
+        for (const scalar_t heading : {0.0, 0.7, -2.4}) {
+          const vector2_t atSolve = speed * vector2_t(std::cos(heading), std::sin(heading));
+          const scalar_t turned = heading + yawRate * lookAhead;
+          FootholdHeuristicContext tracking = leftFoot();
+          tracking.measuredVelocity = atSolve;
+          tracking.commandedVelocityAtMeasurement = atSolve;
+          tracking.commandedVelocity = speed * vector2_t(std::cos(turned), std::sin(turned));
+          tracking.commandedYawRate = yawRate;
+          const vector2_t offset = footholdOffsetOf("capture_point", config, tracking);
+          EXPECT_LT(offset.norm(), 1.0e-12) << "v " << speed << ", psidot " << yawRate << ", dt " << lookAhead << ": "
+                                            << offset.transpose();
+        }
+      }
+    }
+  }
+
+  // Positive control: the same robot measured slower than the command of the solve does step - into the error, and
+  // by the error alone, whatever the command at the touch-down is.
+  FootholdHeuristicContext slow = leftFoot();
+  slow.commandedVelocityAtMeasurement = vector2_t(1.0, 0.0);
+  slow.measuredVelocity = vector2_t(0.8, 0.0);
+  slow.commandedVelocity = vector2_t(0.0, 1.0);
+  const scalar_t expected = std::sqrt(0.6125 / kGravity) * (0.8 - 1.0);
+  const vector2_t offset = footholdOffsetOf("capture_point", config, slow);
+  EXPECT_NEAR(offset.x(), expected, 1.0e-12);
+  EXPECT_NEAR(offset.y(), 0.0, 1.0e-12);
 }
 
 TEST(LocomotionHeuristicFormulas, CapturePointIsSilentWithNoUsablePendulumHeight) {
@@ -733,6 +772,43 @@ TEST(LocomotionHeuristicFormulas, CentripetalAbsoluteClampReplacesTheWeightRatio
   // ...and with it at 0 the ratio is the clamp.
   const LocomotionHeuristicConfig ratio;
   EXPECT_NEAR(wrenchOffsetOf("centripetal_acceleration", ratio, fast, kContactLeftIndex).x(), -0.3 * kWeight, 1.0e-9);
+}
+
+TEST(LocomotionHeuristicFormulas, CentripetalClampIsTheSameShareOfEachFootsFrictionBudgetInSingleAndDoubleSupport) {
+  // The property the clamp exists for. Each stance foot carries W / n of the weight, so its friction budget is
+  // mu W / n. A clamp on the TOTAL force, shared like the weight, leaves every foot the same fraction of its own budget
+  // whatever n is; a clamp on each foot's share would allow twice the fraction in double support. Evaluated on a
+  // demand far past the clamp, at several clamps and turn directions, against that ratio rather than a number.
+  const scalar_t mu = 0.5;
+  for (const scalar_t ratioOfWeight : {0.05, 0.2, 0.3}) {
+    for (const scalar_t yawRate : {-3.0, 2.0}) {
+      LocomotionHeuristicConfig config;
+      config.centripetalAcceleration.maximumForce = 0.0;
+      config.centripetalAcceleration.maximumForceRatioOfWeight = ratioOfWeight;
+      WrenchHeuristicContext single = leftSingleSupport(0.5);
+      single.commandedVelocity = vector2_t(4.0, -3.0);
+      single.commandedYawRate = yawRate;
+      WrenchHeuristicContext both = doubleSupport(0.5, 0.5);
+      both.commandedVelocity = single.commandedVelocity;
+      both.commandedYawRate = yawRate;
+      ASSERT_GT(kMass * std::abs(yawRate) * single.commandedVelocity.norm(), 2.0 * ratioOfWeight * kWeight) << "the demand must bind";
+
+      const scalar_t singleShare =
+          wrenchOffsetOf("centripetal_acceleration", config, single, kContactLeftIndex).norm() / (mu * kWeight / 1.0);
+      const scalar_t doubleShare =
+          wrenchOffsetOf("centripetal_acceleration", config, both, kContactLeftIndex).norm() / (mu * kWeight / 2.0);
+      EXPECT_NEAR(singleShare, ratioOfWeight / mu, 1.0e-12) << "ratio " << ratioOfWeight << ", yaw rate " << yawRate;
+      EXPECT_NEAR(doubleShare, ratioOfWeight / mu, 1.0e-12) << "ratio " << ratioOfWeight << ", yaw rate " << yawRate;
+      // The two feet of double support carry the same share, and together exactly the clamped total.
+      const vector3_t left = wrenchOffsetOf("centripetal_acceleration", config, both, kContactLeftIndex);
+      const vector3_t right = wrenchOffsetOf("centripetal_acceleration", config, both, kContactRightIndex);
+      EXPECT_LT((left - right).norm(), 1.0e-12);
+      EXPECT_NEAR((left + right).norm(), ratioOfWeight * kWeight, 1.0e-9);
+      // The direction survives the clamp: still m omega x v, towards the center of the turn.
+      const vector3_t unclamped(-kMass * yawRate * both.commandedVelocity.y(), kMass * yawRate * both.commandedVelocity.x(), 0.0);
+      EXPECT_NEAR(left.normalized().dot(unclamped.normalized()), 1.0, 1.0e-12);
+    }
+  }
 }
 
 TEST(LocomotionHeuristicFormulas, ImpulseScalingMeetsTheImpulseBudgetOverACycleOfItsDutyFactor) {
@@ -831,6 +907,52 @@ TEST(LocomotionHeuristicFormulas, SteppingDescriptionsNameTheStanceTerm) {
 
 /*=============================================== base-pose formulae (H42) ==============================================*/
 
+TEST(LocomotionHeuristicFormulas, PeriodicOrientationRatesAreTheTimeDerivativesOfItsOffsets) {
+  // Along a node trajectory the phase advances at gaitPhaseRate, so d(roll)/dt is the central difference of the roll
+  // over a step of the phase, times that rate - for both channels, at several phases, rates and coefficients - and it
+  // vanishes where the phase is frozen. Every other base-pose heuristic is a function of the command alone and leaves
+  // the rates at 0.
+  LocomotionHeuristicConfig config;
+  config.periodicOrientation.rollAmplitude = 0.03;
+  config.periodicOrientation.rollPhaseRate = 2.0 * M_PI;
+  config.periodicOrientation.rollPhaseOffset = 0.4;
+  config.periodicOrientation.pitchAmplitude = -0.02;
+  config.periodicOrientation.pitchPhaseRate = 4.0 * M_PI;
+  config.periodicOrientation.pitchPhaseOffset = -1.1;
+  const scalar_t step = 1.0e-7;
+  for (const scalar_t phase : {0.0, 0.13, 0.37, 0.5, 0.81}) {
+    for (const scalar_t phaseRate : {0.0, 0.625, 1.25}) {
+      BasePoseHeuristicContext context;
+      context.gaitPhase = phase;
+      context.gaitPhaseRate = phaseRate;
+      const BasePoseOffset offset = basePoseOffsetOf("periodic_orientation", config, context);
+      BasePoseHeuristicContext ahead = context;
+      ahead.gaitPhase = phase + step;
+      BasePoseHeuristicContext behind = context;
+      behind.gaitPhase = phase - step;
+      const BasePoseOffset aheadOffset = basePoseOffsetOf("periodic_orientation", config, ahead);
+      const BasePoseOffset behindOffset = basePoseOffsetOf("periodic_orientation", config, behind);
+      EXPECT_NEAR(offset.rollRate, (aheadOffset.roll - behindOffset.roll) / (2.0 * step) * phaseRate, 1.0e-7)
+          << "phase " << phase << ", rate " << phaseRate;
+      EXPECT_NEAR(offset.pitchRate, (aheadOffset.pitch - behindOffset.pitch) / (2.0 * step) * phaseRate, 1.0e-7)
+          << "phase " << phase << ", rate " << phaseRate;
+    }
+  }
+  BasePoseHeuristicContext moving;
+  moving.commandedVelocityInBaseFrame = vector2_t(1.1, -0.4);
+  moving.gaitPhase = 0.3;
+  moving.gaitPhaseRate = 1.25;
+  LocomotionHeuristicConfig commandOnly;
+  commandOnly.orientationCompensation.pitchPerForwardVelocity = 0.05;
+  commandOnly.orientationCompensation.rollPerLateralVelocity = 0.02;
+  commandOnly.heightCompensation.heightPerSpeed = -0.03;
+  for (const char* absl_nonnull name : {"orientation_compensation", "height_compensation"}) {
+    const BasePoseOffset offset = basePoseOffsetOf(name, commandOnly, moving);
+    EXPECT_EQ(offset.rollRate, 0.0) << name;
+    EXPECT_EQ(offset.pitchRate, 0.0) << name;
+  }
+}
+
 TEST(LocomotionHeuristicFormulas, HeightCompensationIsAQuadraticInTheSpeedMagnitude) {
   // At |v| = 1 along x, v, v^2 and |v_x| are all the same number; at v = (1.2, 0.9) they are 1.5, 2.25 and 1.2.
   LocomotionHeuristicConfig config;
@@ -905,7 +1027,7 @@ TEST(LocomotionHeuristicFormulas, PeriodicOrientationRollRunsAtItsOwnRateAndPhas
 
 TEST(LocomotionHeuristicFormulas, CreateRefusesAFootholdListThatNothingKeepsApart) {
   // With the step width at zero and no hip_centered_stepping, every other foothold heuristic corrects a target on the
-  // stance foot's own lateral line: the swing foot is aimed at the stance foot. SA01, G1 and R1 ship stepWidth 0.
+  // base's own lateral line: both feet are aimed at the same point. SA01, G1 and R1 ship stepWidth 0.
   LocomotionHeuristicConfig config;
   config.formulation.foothold = {"capture_point", "translational_stepping"};
   for (const scalar_t stepWidth : {0.0, -0.1, std::numeric_limits<scalar_t>::quiet_NaN()}) {
@@ -1200,8 +1322,6 @@ TEST(LocomotionHeuristicFormulas, ValidateRejectsEveryOutOfRangeKeyByName) {
        [](LocomotionHeuristicConfig& c) { c.heightCompensation.maximumHeightOffset = -0.01; }},
       {"locomotion_heuristics.capture_point.com_height_override",
        [](LocomotionHeuristicConfig& c) { c.capturePoint.comHeightOverride = -0.5; }},
-      {"locomotion_heuristics.capture_point.gravity", [](LocomotionHeuristicConfig& c) { c.capturePoint.gravity = 0.0; }},
-      {"locomotion_heuristics.capture_point.gravity", [](LocomotionHeuristicConfig& c) { c.capturePoint.gravity = -9.81; }},
       {"locomotion_heuristics.capture_point.maximum_offset", [](LocomotionHeuristicConfig& c) { c.capturePoint.maximumOffset = 0.0; }},
       {"locomotion_heuristics.capture_point.gain", [](LocomotionHeuristicConfig& c) { c.capturePoint.gain = -1.0; }},
       {"locomotion_heuristics.hip_centered_stepping.lateral_scale",
@@ -1272,6 +1392,52 @@ TEST(LocomotionHeuristicFormulas, ValidateAcceptsEachRangeBoundary) {
     const absl::Status status = config.validate();
     EXPECT_TRUE(status.ok()) << entry.key << ": " << status.message();
   }
+}
+
+TEST(LocomotionHeuristicFormulas, ValidateRejectsANotANumberInEveryRangeCheckedKey) {
+  // A NaN fails every comparison, so a check written `value <= 0` or `value < 0` lets it through and the heuristic then
+  // writes NaN into the reference at every node. Each range-checked key is set to NaN on its own, from a configuration
+  // that validates, and must be refused by name.
+  const scalar_t nan = std::numeric_limits<scalar_t>::quiet_NaN();
+  struct NotANumber {
+    const char* absl_nonnull key;
+    void (*absl_nonnull setNan)(LocomotionHeuristicConfig&, scalar_t);
+  };
+  const std::vector<NotANumber> cases{
+      {"orientation_compensation.maximum_tilt",
+       [](LocomotionHeuristicConfig& c, scalar_t v) { c.orientationCompensation.maximumTilt = v; }},
+      {"height_compensation.maximum_height_offset",
+       [](LocomotionHeuristicConfig& c, scalar_t v) { c.heightCompensation.maximumHeightOffset = v; }},
+      {"capture_point.com_height_override", [](LocomotionHeuristicConfig& c, scalar_t v) { c.capturePoint.comHeightOverride = v; }},
+      {"capture_point.maximum_offset", [](LocomotionHeuristicConfig& c, scalar_t v) { c.capturePoint.maximumOffset = v; }},
+      {"capture_point.gain", [](LocomotionHeuristicConfig& c, scalar_t v) { c.capturePoint.gain = v; }},
+      {"hip_centered_stepping.lateral_scale", [](LocomotionHeuristicConfig& c, scalar_t v) { c.hipCenteredStepping.lateralScale = v; }},
+      {"hip_centered_stepping.longitudinal_scale",
+       [](LocomotionHeuristicConfig& c, scalar_t v) { c.hipCenteredStepping.longitudinalScale = v; }},
+      {"impulse_scaling.scale", [](LocomotionHeuristicConfig& c, scalar_t v) { c.impulseScaling.scale = v; }},
+      {"impulse_scaling.minimum_duty_factor", [](LocomotionHeuristicConfig& c, scalar_t v) { c.impulseScaling.minimumDutyFactor = v; }},
+      {"impulse_scaling.maximum_force_ratio", [](LocomotionHeuristicConfig& c, scalar_t v) { c.impulseScaling.maximumForceRatio = v; }},
+      {"centripetal_acceleration.scale", [](LocomotionHeuristicConfig& c, scalar_t v) { c.centripetalAcceleration.scale = v; }},
+      {"centripetal_acceleration.maximum_force",
+       [](LocomotionHeuristicConfig& c, scalar_t v) { c.centripetalAcceleration.maximumForce = v; }},
+      {"centripetal_acceleration.maximum_force_ratio_of_weight",
+       [](LocomotionHeuristicConfig& c, scalar_t v) { c.centripetalAcceleration.maximumForceRatioOfWeight = v; }},
+  };
+  ASSERT_TRUE(LocomotionHeuristicConfig().validate().ok());
+  for (const NotANumber& entry : cases) {
+    LocomotionHeuristicConfig config;
+    entry.setNan(config, nan);
+    const absl::Status status = config.validate();
+    ASSERT_FALSE(status.ok()) << entry.key << " = NaN was accepted";
+    EXPECT_EQ(status.code(), absl::StatusCode::kInvalidArgument) << entry.key;
+    EXPECT_TRUE(absl::StrContains(status.message(), entry.key)) << "expected '" << entry.key << "' in: " << status.message();
+  }
+  // Both centripetal clamps NaN: neither is a positive clamp, so the pair is refused too (the per-key check names the
+  // first one; the point here is that the pair cannot slip through as "a clamp is set").
+  LocomotionHeuristicConfig both;
+  both.centripetalAcceleration.maximumForce = nan;
+  both.centripetalAcceleration.maximumForceRatioOfWeight = nan;
+  EXPECT_FALSE(both.validate().ok());
 }
 
 }  // namespace ocs2::humanoid

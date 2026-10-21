@@ -96,4 +96,6 @@ services:
 
 configs:
   network:
+    # LINT.IfChange(network_config)
     file: ${WB_ROBOT_NETWORK_SOURCE:-./config/ipc/network.textproto}
+    # LINT.ThenChange(//tools/deploy/session.sh:sim_network)

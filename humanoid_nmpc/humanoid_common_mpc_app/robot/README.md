@@ -90,14 +90,46 @@ binaries have no in-process MPC (`InProcessMpcLink` serves the controller unit t
 A backend is a `RobotBackend` (`RobotBackend.h`): the `robot::model::RobotHWInterfaceBase` the loop reads and writes,
 `initialize()` and `start()`, whether the actuators take the action (`acceptsJointAction()`: false while the torques are
 off), the measured foot forces, its safe state (`enterSafeState()`: MuJoCo's zero torque; the loop's last act when a
-cycle throws or the process stops), the contact estimators only it can provide, and its simulator, if it is one. A new
-backend is one `RobotBackendRegistry::add()`; an unknown `--backend` is refused with the list of the available names.
+cycle throws or the process stops), the switch back on (`enableTorques()`), the contact estimators only it can provide,
+the supervisor that drives it (`supervisorName()`) and its simulator, if it is one. A new backend is one
+`RobotBackendRegistry::add()`; an unknown `--backend` is refused with the list of the available names.
 
-**No hardware backend exists yet.** `RobotProcess` drives the simulator's gantry and torque switch through the
-`SimFsmBridge` and the `SimFallRecovery`, so `RobotProcess::Create()` refuses a backend without a simulator
-(Unimplemented). A hardware backend brings its own FSM bridge (the torque switch of its drives, no gantry); until then the
-robot deployment runs the MuJoCo backend without a viewer (`--viewer=none`) on the robot computer, which is a true
-split-machine simulation.
+### The supervisors
+
+The FSM bridge (`FsmBridge`: the operator's FSM commands, the JOINT_PD posture, the FSM state) and the fall recovery
+(`FallRecovery`: what a fall or a jump of the plant does) are interfaces; the backend names the pair that drives it,
+and `RobotSupervisorRegistry` builds it:
+
+<!-- LINT.IfChange(supervisor_names) -->
+| Supervisor | FSM bridge | Fall recovery | Backends |
+|---|---|---|---|
+| `sim` | `SimFsmBridge`: the simulator's torque switch, its virtual gantry and height slider, the dodgeballs | `SimFallRecovery`: the catch on the gantry, the simulator's own resets, the settle sequence ([`docs/mpc_reset`](../../docs/mpc_reset/README.md)) | `mujoco` |
+| `hardware` | `HardwareFsmBridge`: the backend's `enableTorques()` / `enterSafeState()`; the gantry commands are reported and ignored, the FSM state says the gantry is unlocked | `HardwareFallRecovery`: past `sim_max_base_tilt_angle` under torque, the safe state and ZERO_TORQUE, once; no discontinuity, no relocated base | a robot's own; `test/FakeRobotBackend.h` in the tests |
+<!-- LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_app/robot/include/humanoid_common_mpc_app/robot/RobotSupervisorRegistry.h:supervisor_names) -->
+
+The `sim` supervisor of a backend that is no simulator is refused at `RobotProcess::Create()`, naming `hardware`.
+
+### A hardware backend
+
+No robot's backend ships yet; one plugs in like this, and `:test_hardware_supervisor` runs the whole process on the
+test-only `FakeRobotBackend`, which does exactly it with a thread in place of the drives:
+
+1. A `robot::model::RobotHWInterfaceBase` subclass whose driver thread (the robot's EtherCAT or vendor SDK loop) calls
+   `publishRobotState()` with every new reading and `takeJointAction()` for every command it sends: the joints, the
+   contact flags of its foot sensors, the IMU's orientation and angular velocity as the base's, the IMU's specific force
+   (`setImuLinearAccelerationInLocalFrame()`, at the base's origin and in its frame: an IMU off the origin compensates
+   its lever arm), and for the base's position and linear velocity its best guess (the initial pose, a motion capture).
+   It executes an action only while `takeJointAction()` says it is fresh.
+2. A `RobotBackend` around it: `acceptsJointAction()` / `enableTorques()` / `enterSafeState()` are the drives' torque
+   switch (the safe state is the drives' damping), `readMeasuredContactForces()` its foot force sensors (zero without),
+   `registerContactEstimators()` any estimator only it provides, `supervisorName()` `kHardwareSupervisorName`, and
+   `simulator()` stays nullptr. Everything the realtime thread calls is lock-free and allocates nothing.
+3. One `RobotBackendRegistry::add()` under the robot's name, with an `OptionsCheck` of its options, and the name in the
+   `backend_names` table above; `--backend=<name>` (`WB_ROBOT_BACKEND`,
+   `make deploy-robot BACKEND=`) selects it.
+4. The task file's `state_estimator: "kalman"`, whose base position and velocity come from the IMU and the leg
+   kinematics instead of the backend's guess (`kalman_state_estimator` its noise model), and `contact_estimator:
+   "robot_state"` for the foot sensors' flags.
 
 ## The realtime thread
 
@@ -113,7 +145,9 @@ its rate without computing too long shows on the topic and in the Rerun bridge's
 
 The cycle (`RobotProcess::cycle()`):
 
-1. read the robot state from the backend;
+1. read the robot state from the backend, through the task file's state estimator (`state_estimator`): `ground_truth`
+   hands it on as it is, `kalman` replaces the base position and linear velocity with its estimate
+   (`humanoid_state_estimation`); what every later step reads;
 2. take the operator's joint targets into the JOINT_PD posture;
 3. hand the controller the mode and the posture (the centroidal controller the mode first, the whole-body controller
    the posture first: `CycleInputOrder`) and run `computeJointControlAction()`, which writes the observation into the
@@ -121,8 +155,10 @@ The cycle (`RobotProcess::cycle()`):
 4. tell the viewer the contact state the policy in use plans for now (the contact timeline);
 5. every telemetry decimation, copy the cycle into the telemetry ring;
 6. apply a contact estimator or a contact wrench gate that changed;
-7. the FSM bridge: a dodgeball throw, then one FSM command, or the gantry height slider;
-8. the fall recovery, and the MPC resets and FSM states it calls for;
+7. the FSM bridge: a dodgeball throw, then one FSM command, or the gantry height slider (the `sim` supervisor's; the
+   `hardware` one takes the FSM command only);
+8. the fall recovery, and the MPC resets and FSM states it calls for; a base the backend relocated (the simulator's
+   reset or catch) starts the state estimator again from the backend's state;
 9. send the joint action to the backend, unless the torques are off;
 10. the MPC's health into the FSM state.
 
@@ -163,28 +199,36 @@ restart policy brings the robot back in ZERO_TORQUE.
 
 The realtime thread calls no bus, protobuf, configuration or file function, takes no lock another thread holds, and writes no
 log line: the controllers report through their `ControllerEventSink`, which `RobotProcess::Create()` sets to the
-process's `RealtimeEventLog` (a diverged policy, a clock rewind, SAFETY, a new contact estimator or gate). Their
-per-cycle diagnostics of the ramp into WB_MPC and of JOINT_PD are gone; the telemetry (`robot/state`: targets, gains,
-feedforward and measured state of every joint) carries what they printed. The robot process adds no allocation, nor
-does the backend hand-over (`:test_robot_realtime_allocations`), and the controllers' own code allocates nothing in the
-observation, the passive modes and the hold of WB_MPC (`test_centroidal_mpc_mrt_joint_controller_allocations`,
-`testWBMpcMrtJointControllerAllocations`). What remains:
+process's `RealtimeEventLog` (a diverged policy, a clock rewind, SAFETY, a new contact estimator or gate, a policy buffer
+whose try-lock keeps failing). Their per-cycle diagnostics of the ramp into WB_MPC and of JOINT_PD are gone; the
+telemetry (`robot/state`: targets, gains, feedforward and measured state of every joint) carries what they printed.
+OCS2's `MRT_BASE::updatePolicy()` does not log either: it never waits for the policy buffer, and a failed try-lock is
+counted (`getConsecutiveFailedPolicyUpdateLocks()`, an atomic), which the controllers post once per run longer than
+`MRT_BASE::kPolicyUpdateLockContentionThreshold` as `kPolicyUpdateLockContended`; the solver side destroys the policies
+a reset or a discard drops after it has released the buffer's lock, so freeing them never holds that try-lock off
+(`//lib/ocs2:test_mrt_policy_buffer`). The robot process adds no allocation, nor does the backend hand-over, nor the
+`kalman` state estimator with its leg kinematics (`:test_robot_realtime_allocations`, which counts the realtime thread's
+allocations over hundreds of whole cycles of the process on the fake backend), and neither controller allocates: the
+observation, the passive modes, the hold of WB_MPC, a contact estimator swap (whose name is a view of a literal,
+`ContactEstimator::getName()`), the weight compensation of WB_MPC before its first policy and the execution of a policy
+in WB_MPC (`test_centroidal_mpc_mrt_joint_controller_allocations` on the wrench inputs of the G1 and the basis-vector
+inputs of the Atlas, `testWBMpcMrtJointControllerAllocations`; zero allocations each). The policy is evaluated at the
+lookahead and at the measurement on preallocated buffers (`LookaheadPolicyEvaluator` over `RealtimePolicyEvaluator`,
+bit-identical to MRT_BASE's by its parity test), the targets are read into workspaces sized at construction, and the
+rigid-body dynamics - the gravity torques, the centroidal momentum of the observation, the sole frames' orientations
+that rotate basis-vector wrenches into the world, and the inverse dynamics of a policy (base free) and of the weight
+compensation (base held) - run on `RealtimeRigidBodyDynamics` (humanoid_common_mpc/pinocchio_model). Pinocchio's passes
+over the MPC models' composite base joint, `Composite(Translation, Spherical)` (the quaternion floating base), make a
+heap temporary of the joint's dynamic-size motion subspace in every call (`crba()`, `rnea()`, `nonLinearEffects()`,
+`computeJointJacobians()`, `computeCentroidalMap()`); `RealtimeRigidBodyDynamics` runs them on a twin of the model whose
+root is a FreeFlyer, with the same q and the base velocity `[R' dp_W, w_B]` in place of `[dp_W, w_B]`, whose subspace
+is the fixed-size identity, and takes and returns the MPC model's coordinates (`testRealtimeRigidBodyDynamics` holds
+it to the MPC model's own passes and to RNEA, and its functions to zero allocations, against the composite root's
+positive count). A policy the evaluator refuses (a controller type it does not take on the state, or a policy of other
+dimensions) is never left to `MRT_BASE::evaluatePolicy()`, which allocates and aborts on a malformed policy: the robot
+is held with the JOINT_PD action and `kPolicyRefused` is posted once, until a policy the evaluator takes is in use.
+What remains:
 
-- Pinocchio's passes over the composite base joint of the MPC models (`Composite(Translation, Spherical)`, the
-  quaternion floating base) make one temporary each, as the Euler-angle base did, of the joint's dynamic-size motion
-  subspace: the centroidal map of the centroidal observation, the
-  nonlinear effects of the gravity compensation (JOINT_PD, GRAVITY_COMP, the WB_MPC hold). The tests measure those
-  passes and expect exactly them;
-
-- executing a policy in WB_MPC allocates: the model accessors return vectors by value (`getJointAngles()`,
-  `getGeneralizedVelocities()` through OCS2's centroidal mapping, the basis-vector decorator's wrench reconstruction)
-  and the inverse dynamics builds its Jacobians per call. Its policy evaluation does not (`RealtimePolicyEvaluator`,
-  bit-identical by its parity test), and a policy the evaluator refuses (a controller type it does not take on the
-  state, or a policy of other dimensions) is never left to `MRT_BASE::evaluatePolicy()`, which allocates and aborts
-  on a malformed policy: the robot is held with the JOINT_PD action and `kPolicyRefused` is posted once, until a
-  policy the evaluator takes is in use. These are temporaries freed in the cycle that made them, so in steady state
-  the allocator reuses the same blocks rather than growing the heap. They predate the quaternion base orientation,
-  which added none;
 - the simulator's viewer setters (`setTargetContactFlags()`, atomics).
 
 ## The communication thread
@@ -205,15 +249,15 @@ files](#the-configuration-files)).
 | `operator/dodgeball_throw` | all | `DodgeballThrow`, `dodgeballThrowFromMessage()`; the newest throw is handed over |
 | `operator/walking_velocity_command` | latest | `desired_pelvis_height`, clamped to 0.2-1.5 m: the gantry height while it is locked |
 | `operator/mpc_parameters` | latest | `MpcParameterUpdate`: the task file's `contact_estimator` and `contact_wrench_gate` (`controllerSideSettingsFromConfig()`, as the robot's task-file watcher reads them), as a whole file: no gate block is the instantaneous gate |
-| `operator/pd_gains` | latest | `JointPdGainsFile`, the controller's `setPdGains()` |
+| `operator/pd_gains` | latest | `JointPdGainsUpdate`, the controller's `setPdGains()` |
 | `operator/config_save` | all | `ConfigFileSave`, the configuration store (`ConfigFileStore`): checked and written on its writer thread, answered on `robot/config_save_status` |
 <!-- LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_app/robot/src/OperatorCommandMailbox.cpp:gantry_height_limits, //humanoid_nmpc/docs/distributed_runtime/README.md:topic_table) -->
 
 The walking commands' and the parameter updates' other consumer is the MPC node, on its own subscriptions. An
-`MpcParameterUpdate` of another configuration - its `config_path` is not the bundled task file's
-(`configFileIdentity()`, `RobotProcess::Config::taskFileIdentity`) - is refused before anything of it is taken, so that
-a GUI opened on another configuration of the robot (the centroidal G1's against the whole-body G1, whose `robot_name`
-is the same) changes nothing here.
+`MpcParameterUpdate` or `JointPdGainsUpdate` of another configuration - its `config_path` is not the bundled file's
+(`configFileIdentity()`, `RobotProcess::Config::taskFileIdentity`, `RobotProcess::Config::pdGainsFileIdentity`) - is refused
+before anything of it is taken, so that a GUI opened on another configuration of the robot (the centroidal G1's against
+the whole-body G1, whose `robot_name` and joints are the same) changes nothing here.
 
 ## The configuration files
 
@@ -252,7 +296,7 @@ writes over the bus (humanoid_nmpc/docs/distributed_runtime/README.md, "Saving t
 | `<file>.rejected` | a copy the robot did not start with where the bundle's started, replaced by the bundle's |
 | `mpc/contact_planning.textproto` | the bundle's contact planner's file, mirrored at every start (removed when the bundle has none); the MPC's file, which no save writes |
 | `.booting` | written at every start, removed once the start is confirmed (below) or the process stopped cleanly |
-<!-- LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_app/robot/src/RobotConfigDirectory.cpp:config_store_layout) -->
+<!-- LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_app/robot/src/RobotConfigDirectory.cpp:config_store_layout, //humanoid_nmpc/humanoid_common_mpc_app/robot/include/humanoid_common_mpc_app/robot/StoredConfigFileKinds.h:stored_config_backup_suffix) -->
 
 A missing copy is seeded at every start; `--config_seed` decides when a stored copy is replaced (the previous one kept
 as `.bak`):
@@ -302,8 +346,11 @@ GUI then reports in sync; a file the save did not change otherwise, which it rep
 |---|---|---|
 | `contact_estimator` | `"cheater_sim"` | the controller's measured contact state (`ContactEstimatorRegistry`; the backend adds `cheater_sim`); hot-reloaded |
 | `contact_wrench_gate` | the instantaneous gate | `debounce_time`, `ramp_time` [s] of the touch-down shaping; hot-reloaded as `contact_estimator` |
+| `state_estimator` | `"ground_truth"` | the base state the controller is handed (`StateEstimatorRegistry`): `"ground_truth"` the backend's, `"kalman"` estimated from the IMU and the leg kinematics; read at start-up |
+| `kalman_state_estimator` | its defaults | the noise model of `"kalman"` (`kalman_state_estimator_config.proto`): the IMU's noise, the random walks of the base and of the stance and swing feet, the kinematics' noise, the stance feet's height |
 | `sim_contact_force_threshold`, `sim_contact_timeline_window`, `sim_visualizations`, `gantry_hold`, `sim_projectile` | the simulator's; no viewer marker | the MuJoCo backend |
-| `sim_max_base_tilt_angle`, `sim_gantry_catch_lift` | 0 | the fall recovery ([`docs/mpc_reset`](../../docs/mpc_reset/README.md)) |
+| `sim_ragdoll_joint_damping`, `sim_auto_reset_base_height` | 20 N m s/rad, 0.2 m | the MuJoCo backend: the robot joints' damping while the torques are off (on, they have the MJCF's own), and the base height below which the robot is reset |
+| `sim_max_base_tilt_angle`, `sim_gantry_catch_lift` | absent (off) | the fall recovery ([`docs/mpc_reset`](../../docs/mpc_reset/README.md)) |
 | `mpc_entry_blend_time` | the controller's | [s] the ramp into WB_MPC (centroidal) |
 | `safety_decay_time_constant` | the controller's | [s] the SAFETY decay |
 | `wb_mpc_feedforward` | `"inverse_dynamics"` | the feedforward of WB_MPC: `"inverse_dynamics"` or `"gravity_compensation"` (centroidal only; a debugging aid) |
@@ -332,7 +379,10 @@ field.
 | `RobotController.h`, `MrtRobotController.h` | the MRT joint controller of either formulation, as the loop drives it |
 | `RemoteMpcLinkAdapter.h` | the controllers' `MpcLink` over `ipc::RemoteMpcLink` |
 | `OperatorCommandMailbox.h`, `FsmCommand.h`, `config/robot/DodgeballThrowFromMessage.h` | the operator's commands |
-| `SimFsmBridge.h`, `FsmStateMailbox.h`, `SimFallRecovery.h`, `InitialSimState.h` | the simulator's FSM and fall recovery |
+| `FsmBridge.h`, `FallRecovery.h`, `RobotSupervisorRegistry.h`, `FsmBridgeState.h`, `FsmStateMailbox.h` | the supervisors by name, and what every FSM bridge keeps |
+| `SimFsmBridge.h`, `SimFallRecovery.h`, `InitialSimState.h` | the simulator's FSM and fall recovery (`sim`) |
+| `HardwareFsmBridge.h`, `HardwareFallRecovery.h` | the FSM and the fall cut-off of a backend that is no simulator (`hardware`) |
+| `test/FakeRobotBackend.h`, `test/RobotTestSupport.h` | `:robot_test_support` (testonly): a backend that is no simulator, a scripted controller, the Atlas files, loopback buses |
 | `TelemetrySampler.h`, `TelemetrySink.h`, `BusTelemetrySink.h`, `TelemetrySinkRegistry.h` | the telemetry |
 | `MujocoViewerAnnotator.h` | the MPC's viewer annotations in the MuJoCo viewer |
 | `RobotProcessSettings.h`, `config/robot/RobotProcessSettingsFromConfig.h`, `TaskFileWatcher.h` | the task file |
@@ -349,7 +399,8 @@ field.
 | Target | What |
 |---|---|
 | `:test_realtime_loop_runner` | pacing on absolute deadlines (no drift with half the period computing), overruns counted, a snapshot per window, a clean stop, a set-up step the process may not take reported and skipped, a cycle that throws ending the loop and running the fault function once |
-| `:test_robot_realtime_allocations` | the realtime side of the mailboxes, the event log, the FSM state, the telemetry sampler (a full ring included) and the loop runner allocate nothing; the realtime side does not wait while the IO thread holds the mailbox's lock |
+| `:test_robot_realtime_allocations` | the realtime side of the mailboxes, the event log, the FSM state, the telemetry sampler (a full ring included) and the loop runner allocate nothing; the realtime side does not wait while the IO thread holds the mailbox's lock; the whole cycle of the process on the fake backend with the `kalman` state estimator, FSM commands included, allocates nothing |
+| `:test_hardware_supervisor` | the `hardware` supervisor: the FSM commands switch the backend's torques, the gantry commands are ignored, a tilt past the limit under torque switches them off once; the `sim` supervisor refused for a backend that is no simulator; the whole process running its cycles over the bus on the fake backend with either state estimator |
 | `:test_operator_command_mailbox` | FSM commands in order and once, aliases, unknown names; joint targets merged, the newest wins; dodgeballs; the gantry clamp; controller settings resolved, estimators kept alive, unknown names, a whole task file without a gate being the instantaneous gate; PD gains to the controller; the handlers, typed tuning payloads included, on a loopback bus |
 | `:test_sim_fsm_bridge` | the FSM against the headless simulator: torques, gantry, one command per cycle, the slider, controller resets and health in the state, joint targets, the dodgeball |
 | `:test_sim_fall_recovery`, `:test_base_tilt_angle` | the fall recovery against the real simulator (ported), and its reports |

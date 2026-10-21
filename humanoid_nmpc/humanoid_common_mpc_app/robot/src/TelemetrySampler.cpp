@@ -109,7 +109,7 @@ bool TelemetrySampler::sample(const robot::model::RobotState& robotState,
   return true;
 }
 
-size_t TelemetrySampler::drain(const std::function<void(const msgs::RobotStateSample& sample)>& consumer) {
+size_t TelemetrySampler::drain(absl::FunctionRef<void(const msgs::RobotStateSample& sample)> consumer) {
   size_t drained = 0;
   while (queue_.tryPopInPlace([&](const msgs::RobotStateSample& sample) { consumer(sample); })) {
     ++drained;

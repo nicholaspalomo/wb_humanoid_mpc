@@ -74,14 +74,14 @@ shared {  # parameters read by more than one term
   }
 # The file is one configuration split into blocks, because ifttt-lint cannot nest the small cross-file pairs below (the
 # pendulum against task.textproto's DCM cost, the two cadences against task.textproto's swing_time_scale) in a file-wide block.
-  # The pendulum, omega = sqrt(gravity / com_height). com_height left out is the robot's own: the model's center of mass
-  # above the mean height of its soles at task.textproto initial_state (computeComHeightAboveFeet), 0.6124 m for this
-  # URDF - the height this file used to write out by hand, measured with MuJoCo on zq_sa01.xml - so omega = 4.00 rad/s;
-  # the planner logs both at start-up. task.textproto dcm_terminal_cost resolves its own absent com_height with the same
-  # function, so the two pendulums agree by construction, and a plan carries the omega it was made on. A positive
-  # com_height is an explicit override; give dcm_terminal_cost.com_height and gravity the same values then.
+  # The pendulum, omega = sqrt(g / com_height), g the robot model's gravity (the one its dynamics use). com_height
+  # left out is the robot's own: the model's center of mass above the mean height of its soles at task.textproto
+  # initial_state (computeComHeightAboveFeet), 0.6124 m for this URDF - the height this file used to write out by
+  # hand, measured with MuJoCo on zq_sa01.xml - so omega = 4.00 rad/s; the planner logs both at start-up.
+  # task.textproto dcm_terminal_cost resolves its own absent com_height with the same function, so the two pendulums
+  # agree by construction, and a plan carries the omega it was made on. A positive com_height is an explicit override;
+  # give dcm_terminal_cost.com_height the same value then. gravity is the robot model's in both.
   # LINT.IfChange(sa01_pendulum)
-  gravity: 9.81  # [m/s^2]
   # com_height [m], the LIP height: left out, the model's center of mass above its feet at initial_state (0.6124 m).
   # LINT.ThenChange(//robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/task.textproto:sa01_dcm_pendulum)
   # Cadence. The stride period the planner can emit is bounded below by

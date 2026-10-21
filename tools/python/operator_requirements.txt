@@ -3,8 +3,12 @@
 # Bazel hub: @operator_deps (MODULE.bazel). After editing this file, regenerate the lock in the dev container with
 #   bazel run //tools/python:operator_requirements.update
 
-# IPC bus: ZeroMQ sockets and the humanoid_mpc_msgs Protocol Buffers runtime.
-pyzmq
+# IPC bus: Cyclone DDS and the humanoid_mpc_msgs Protocol Buffers runtime. The cyclonedds wheel bundles its own libddsc
+# of the same release as MODULE.bazel's cyclonedds module, so that the Python and C++ buses speak one DDS
+# implementation (manylinux x86_64 wheels; the operator tools run on the laptop).
+# LINT.IfChange(cyclonedds_version)
+cyclonedds==11.0.1
+# LINT.ThenChange(//MODULE.bazel:cyclonedds_version)
 # The runtime must be at least as new as the Python gencode of the protoc that MODULE.bazel's protobuf module ships
 # (protoc 36.0 generates 7.36.0) and share its major version.
 # LINT.IfChange(protobuf_version)

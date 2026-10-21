@@ -77,7 +77,7 @@ scalar_t armijoDescentMetric(const std::vector<ScalarFunctionQuadraticApproximat
                              const vector_array_t& deltaUSol) {
   // To determine if the solution is a descent direction for the cost: compute gradient(cost)' * [dx; du]
   scalar_t metric = 0.0;
-  for (int i = 0; i < cost.size(); i++) {
+  for (size_t i = 0; i < cost.size(); i++) {
     if (cost[i].dfdx.size() > 0) {
       metric += cost[i].dfdx.dot(deltaXSol[i]);
     }

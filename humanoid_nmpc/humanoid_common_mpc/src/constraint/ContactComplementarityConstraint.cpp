@@ -30,10 +30,42 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/constraint/ContactComplementarityConstraint.h"
 
 #include <cmath>
+#include <memory>
 
 #include "absl/log/check.h"
+#include "absl/memory/memory.h"
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
+#include "absl/strings/str_cat.h"
 
 namespace ocs2::humanoid {
+
+absl::StatusOr<std::unique_ptr<ContactComplementarityConstraint>> ContactComplementarityConstraint::Create(
+    const FootprintCornerHeights& cornerHeights,
+    const MpcRobotModelBase<scalar_t>& mpcRobotModel,
+    size_t contactPointIndex,
+    scalar_t terrainHeight,
+    scalar_t forceReference,
+    scalar_t heightReference,
+    scalar_t gapSmoothing) {
+  // Negated comparisons, so that NaN is refused too.
+  if (!(forceReference > 0.0)) {
+    return absl::InvalidArgumentError(
+        absl::StrCat("[ContactComplementarityConstraint] the force reference must be positive, got ", forceReference,
+                     "; it is the robot's weight, robotMass * g, taken from the URDF rather than configured"));
+  }
+  if (!(heightReference > 0.0)) {
+    return absl::InvalidArgumentError(
+        absl::StrCat("[ContactComplementarityConstraint] contact_implicit.height_reference must be positive, got ", heightReference));
+  }
+  if (!(gapSmoothing > 0.0)) {
+    return absl::InvalidArgumentError(
+        absl::StrCat("[ContactComplementarityConstraint] contact_implicit.gap_smoothing must be positive, got ", gapSmoothing));
+  }
+  // The constructor is private, so std::make_unique cannot call it (ToTW #134).
+  return absl::WrapUnique(new ContactComplementarityConstraint(cornerHeights, mpcRobotModel, contactPointIndex, terrainHeight,
+                                                               forceReference, heightReference, gapSmoothing));
+}
 
 ContactComplementarityConstraint::ContactComplementarityConstraint(const FootprintCornerHeights& cornerHeights,
                                                                    const MpcRobotModelBase<scalar_t>& mpcRobotModel,
@@ -49,15 +81,7 @@ ContactComplementarityConstraint::ContactComplementarityConstraint(const Footpri
       gapSmoothing_(gapSmoothing),
       inverseForceReference_(1.0 / forceReference),
       inverseHeightReference_(1.0 / heightReference),
-      normalForceRow_(normalContactForceRow(mpcRobotModel, contactPointIndex)) {
-  // The last line of defense, not the check an operator should meet: validateContactImplicitConfig() is the
-  // Status-returning check of the same task-file values, for the caller to run before it builds any term. The force
-  // reference is not a task-file key at all.
-  CHECK_GT(forceReference, 0.0) << "[ContactComplementarityConstraint] the force reference must be positive; it is the robot's weight, "
-                                   "robotMass * g, taken from the URDF rather than configured";
-  CHECK_GT(heightReference, 0.0) << "[ContactComplementarityConstraint] contact_implicit.height_reference must be positive";
-  CHECK_GT(gapSmoothing_, 0.0) << "[ContactComplementarityConstraint] contact_implicit.gap_smoothing must be positive";
-}
+      normalForceRow_(normalContactForceRow(mpcRobotModel, contactPointIndex)) {}
 
 ContactComplementarityConstraint::ContactComplementarityConstraint(const ContactComplementarityConstraint& rhs)
     : StateInputConstraint(rhs),

@@ -172,7 +172,7 @@ extend google.protobuf.EnumOptions {
 
 class NprotoOptionTest(unittest.TestCase):
     def test_a_message_without_the_option(self):
-        found = texts(IMPORT + "message Point {\n  double x = 1;\n}\n", "point.proto")
+        found = texts(f"{IMPORT}message Point {{\n  double x = 1;\n}}\n", "point.proto")
         self.assertEqual(len(found), 1)
         self.assertIn("option (nproto.generate_struct)", found[0])
         self.assertIn("first statement of its body", found[0])
@@ -193,7 +193,7 @@ class NprotoOptionTest(unittest.TestCase):
         self.assertIn("declared at file scope; move it into message Point", found[0])
 
     def test_the_option_must_be_the_first_statement(self):
-        source = IMPORT + "message Point {\n  double x = 1;\n" + struct("Point") + "}\n"
+        source = f'{IMPORT}message Point {{\n  double x = 1;\n{struct("Point")}}}\n'
         found = texts(source, "point.proto")
         self.assertEqual(len(found), 1)
         self.assertIn("must be the first statement", found[0])
@@ -206,13 +206,11 @@ class NprotoOptionTest(unittest.TestCase):
         self.assertEqual(len(texts(source, "kind.proto")), 1)
 
     def test_a_message_takes_generate_struct_and_an_enum_generate_enum(self):
-        found = texts(
-            IMPORT + "message Point {\n" + enum("Point") + "}\n", "point.proto"
-        )
+        found = texts(f'{IMPORT}message Point {{\n{enum("Point")}}}\n', "point.proto")
         self.assertEqual(len(found), 1)
         self.assertIn("takes (nproto.generate_struct)", found[0])
         found = texts(
-            IMPORT + "enum Kind {\n" + struct("Kind") + "  KIND_A = 0;\n}\n",
+            f'{IMPORT}enum Kind {{\n{struct("Kind")}  KIND_A = 0;\n}}\n',
             "kind.proto",
         )
         self.assertEqual(len(found), 1)
@@ -232,9 +230,7 @@ class NprotoOptionTest(unittest.TestCase):
         self.assertIn("nested type Outer.Inner", found[0])
 
     def test_the_struct_must_be_named_after_the_definition(self):
-        found = texts(
-            IMPORT + "message Point {\n" + struct("Other") + "}\n", "point.proto"
-        )
+        found = texts(f'{IMPORT}message Point {{\n{struct("Other")}}}\n', "point.proto")
         self.assertEqual(len(found), 1)
         self.assertIn("ending in ::Point", found[0])
 
@@ -260,9 +256,7 @@ class NprotoOptionTest(unittest.TestCase):
         self.assertIn("nproto/options.proto", found[0])
 
     def test_a_second_option_in_the_message(self):
-        source = (
-            IMPORT + "message Point {\n" + struct("Point") + struct("Point") + "}\n"
-        )
+        source = f'{IMPORT}message Point {{\n{struct("Point")}{struct("Point")}}}\n'
         found = texts(source, "point.proto")
         self.assertEqual(len(found), 1)
         self.assertIn("a second nproto option", found[0])

@@ -29,6 +29,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc_app/node/MpcNodeRuntime.h"
 
+#include <algorithm>
+#include <chrono>
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <string>
@@ -39,6 +42,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/memory/memory.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/time/time.h"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/common/ThreadAffinity.h"
@@ -56,6 +60,10 @@ namespace ocs2::humanoid::node {
 namespace {
 
 constexpr double kLogPeriodSeconds = 5.0;
+// How many times per walking command timeout the watchdog looks at the age of the last command, and the shortest period
+// it looks at: the stop command comes at most a quarter of the timeout late.
+constexpr int64_t kWalkingCommandChecksPerTimeout = 4;
+constexpr absl::Duration kMinWalkingCommandCheckPeriod = absl::Milliseconds(10);
 
 }  // namespace
 
@@ -90,8 +98,14 @@ absl::StatusOr<std::unique_ptr<MpcNodeRuntime>> MpcNodeRuntime::Create(std::uniq
   if (components.motionManager == nullptr) {
     return absl::InvalidArgumentError("MpcNodeRuntime: Components::motionManager is null");
   }
+  if (config.walkingCommandTimeout < absl::ZeroDuration()) {
+    return absl::InvalidArgumentError("MpcNodeRuntime: Config::walkingCommandTimeout is negative");
+  }
   std::unique_ptr<MpcNodeRuntime> runtime = absl::WrapUnique(new MpcNodeRuntime(std::move(bus), std::make_shared<Counters>()));
   RETURN_IF_ERROR(runtime->subscribeOperatorInputs(components, config.robotName, config.taskFileIdentity));
+  if (config.walkingCommandTimeout > absl::ZeroDuration()) {
+    RETURN_IF_ERROR(runtime->addWalkingCommandWatchdog(components.motionManager, config.walkingCommandTimeout));
+  }
 
   ipc::MpcServer::Hooks hooks;
   // On the solver thread, after the solve: the planner's targets and the command that solve started from.
@@ -123,8 +137,10 @@ absl::StatusOr<std::unique_ptr<MpcNodeRuntime>> MpcNodeRuntime::Create(std::uniq
   serverConfig.mpcDesiredFrequency = config.mpcDesiredFrequency;
   serverConfig.resetSupervisor = config.resetSupervisor;
   serverConfig.solverThread = std::move(config.solverThread);
-  ASSIGN_OR_RETURN(runtime->server_, ipc::MpcServer::Create(*runtime->bus_, *components.mpc, std::move(components.resetTargetTrajectories),
-                                                            std::move(serverConfig), std::move(hooks)));
+  serverConfig.modelFingerprint = config.modelFingerprint;
+  ASSIGN_OR_RETURN(runtime->server_,
+                   ipc::MpcServer::Create(runtime->bus_.get(), components.mpc, std::move(components.resetTargetTrajectories),
+                                          std::move(serverConfig), std::move(hooks)));
   return runtime;
 }
 
@@ -145,7 +161,11 @@ absl::Status MpcNodeRuntime::subscribeOperatorInputs(const Components& component
         if (!applied.ok()) {
           counters->velocityCommandsRejected.fetch_add(1);
           LOG_EVERY_N_SEC(WARNING, kLogPeriodSeconds) << "[MpcNode] Ignoring a walking velocity command: " << applied.message();
+          return;
         }
+        counters->lastWalkingCommandTime = std::chrono::steady_clock::now();
+        counters->lastPelvisHeight = message.desired_pelvis_height();
+        counters->walkingCommandTimedOut = false;
       };
   RETURN_IF_ERROR(bus_->subscribe<humanoid_mpc_msgs::WalkingVelocityCommand>(ipc::topics::kOperatorWalkingVelocityCommand,
                                                                              robot::ipc::Delivery::kLatest, onVelocityCommand));
@@ -176,6 +196,22 @@ absl::Status MpcNodeRuntime::subscribeOperatorInputs(const Components& component
                                                                   onParameters);
 }
 
+absl::Status MpcNodeRuntime::addWalkingCommandWatchdog(std::shared_ptr<ProceduralMpcMotionManager> motionManager, absl::Duration timeout) {
+  const absl::Duration period = std::max(timeout / kWalkingCommandChecksPerTimeout, kMinWalkingCommandCheckPeriod);
+  const std::chrono::steady_clock::duration maxAge = absl::ToChronoNanoseconds(timeout);
+  return bus_->addPeriodicCallback(period, [motionManager = std::move(motionManager), counters = counters_, maxAge, timeout]() {
+    if (!counters->lastWalkingCommandTime.has_value() || counters->walkingCommandTimedOut) return;
+    if (std::chrono::steady_clock::now() - *counters->lastWalkingCommandTime <= maxAge) return;
+    humanoid_mpc_msgs::WalkingVelocityCommand stop;
+    stop.set_desired_pelvis_height(counters->lastPelvisHeight);
+    // The last command converted, so its pelvis height does; the zero velocities always do.
+    applyWalkingVelocityCommand(stop, *motionManager).IgnoreError();
+    counters->walkingCommandTimedOut = true;
+    counters->walkingCommandTimeouts.fetch_add(1);
+    LOG(WARNING) << "[MpcNode] No walking command for " << timeout << ": the robot is commanded to stop.";
+  });
+}
+
 absl::Status MpcNodeRuntime::start() {
   RETURN_IF_ERROR(bus_->start());
   return server_->start();
@@ -192,6 +228,7 @@ MpcNodeRuntime::Statistics MpcNodeRuntime::statistics() const {
   statistics.velocityCommandsRejected = counters_->velocityCommandsRejected.load();
   statistics.parameterUpdatesReceived = counters_->parameterUpdatesReceived.load();
   statistics.parameterUpdatesRejected = counters_->parameterUpdatesRejected.load();
+  statistics.walkingCommandTimeouts = counters_->walkingCommandTimeouts.load();
   statistics.server = server_->statistics();
   return statistics;
 }

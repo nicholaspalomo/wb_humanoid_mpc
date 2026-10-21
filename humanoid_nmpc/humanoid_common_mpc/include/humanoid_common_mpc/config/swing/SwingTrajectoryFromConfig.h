@@ -44,7 +44,10 @@ namespace ocs2::humanoid {
  * verbose start-up prints the file.
  *
  * @param config The swing_trajectory_config block.
- * @return The settings; InvalidArgument naming the field when a value is not finite (inf or nan).
+ * @return The settings; InvalidArgument naming the field when a value is not finite (inf or nan) or out of the range its
+ *         schema comment states: swing_time_scale > 0, swing_height >= 0, impact_proximity_factor_lift_off_velocity
+ *         <= 0, impact_proximity_factor_touch_down_velocity >= 0, impact_proximity_factor_mid_point_value,
+ *         swing_pitch_rise_fraction and swing_pitch_fall_fraction in [0, 1].
  */
 absl::StatusOr<SwingTrajectoryPlanner::Config> swingTrajectorySettingsFromConfig(const mpc_config::SwingTrajectoryConfig& config);
 

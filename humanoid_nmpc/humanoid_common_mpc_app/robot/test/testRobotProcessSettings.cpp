@@ -45,6 +45,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc_app/robot/RobotProcessSettings.h"
 #include "humanoid_common_mpc_app/robot/TelemetrySinkRegistry.h"
 #include "humanoid_mpc_config/task_file.nproto.h"
+#include "humanoid_state_estimator/KalmanBaseEstimator.h"
+#include "humanoid_state_estimator/StateEstimatorRegistry.h"
 #include "mujoco_sim_interface/MujocoSimInterface.h"
 #include "robot_model/ContactEstimatorRegistry.h"
 
@@ -76,10 +78,11 @@ constexpr absl::string_view kShippedTaskFiles[] = {
 };
 // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_app/robot/BUILD.bazel:shipped_task_files)
 
-/** `content` written to `name` in the test's temporary directory; its path. */
+/** The task file `content`, on the line below the header that names its schema, written to `name` in the test's temporary directory; its
+ * path. */
 std::string writeTemporaryFile(absl::string_view name, absl::string_view content) {
   const std::string file = (std::filesystem::path(std::getenv("TEST_TMPDIR")) / std::string(name)).string();
-  std::ofstream(file, std::ios::trunc) << content;
+  std::ofstream(file, std::ios::trunc) << "# proto-message: humanoid_mpc_config.TaskFile\n" << content;
   return file;
 }
 
@@ -101,7 +104,7 @@ TEST(RobotProcessSettings, ATaskFileIsReadStrictlyAndItsErrorsNameIt) {
   const std::string unknown = writeTemporaryFile("robot_settings_unknown.textproto", "telemetry_sinks: \"bus\"\ntelemetry_rate: 50\n");
   const absl::StatusOr<RobotProcessSettings> unknownField = loadRobotProcessSettings(unknown);
   EXPECT_EQ(unknownField.status().code(), absl::StatusCode::kInvalidArgument);
-  EXPECT_TRUE(absl::StrContains(unknownField.status().message(), absl::StrCat(unknown, ":2:"))) << unknownField.status();
+  EXPECT_TRUE(absl::StrContains(unknownField.status().message(), absl::StrCat(unknown, ":3:"))) << unknownField.status();
   const std::string refused = writeTemporaryFile("robot_settings_refused.textproto", "telemetry_frequency: 0\n");
   const absl::StatusOr<RobotProcessSettings> refusedValue = loadRobotProcessSettings(refused);
   EXPECT_EQ(refusedValue.status().code(), absl::StatusCode::kInvalidArgument);
@@ -140,6 +143,9 @@ TEST(RobotProcessSettings, AFileThatSaysNothingGetsTheDefaultsOfTheSimsButNoList
   // link-loss timeout outlasts it with margin, so that a single lost packet does not hold the robot.
   constexpr scalar_t kLinuxMinimumTcpRetransmissionTimeout = 0.2;
   EXPECT_GE(settings->mpcLinkPolicyTimeout, 2.0 * kLinuxMinimumTcpRetransmissionTimeout);
+  // A new estimator stays off unless the file turns it on: the backend's state goes to the controller as it is.
+  EXPECT_EQ(settings->stateEstimator, "ground_truth");
+  EXPECT_TRUE(estimation::KalmanBaseEstimator::validateConfig(settings->kalmanStateEstimator).ok()) << "the defaults are usable";
 }
 
 TEST(RobotProcessSettings, EveryFieldIsRead) {
@@ -158,8 +164,23 @@ TEST(RobotProcessSettings, EveryFieldIsRead) {
       "wb_mpc_feedforward: \"gravity_compensation\"\n"
       "telemetry_sinks: []\n"
       "telemetry_frequency: 50\n"
-      "mpc_link { policy_timeout: 0.35 }\n");
+      "mpc_link { policy_timeout: 0.35 }\n"
+      "state_estimator: \"kalman\"\n"
+      "kalman_state_estimator { imu_acceleration_noise: 0.3 base_velocity_random_walk: 0.2 base_position_random_walk: 0.002 "
+      "stance_contact_random_walk: 0.02 swing_contact_random_walk: 5 kinematic_position_noise: 0.004 kinematic_velocity_noise: 0.06 "
+      "contact_height_noise: 0.02 contact_height: 0.03 }\n");
   ASSERT_TRUE(settings.ok()) << settings.status();
+  EXPECT_EQ(settings->stateEstimator, "kalman");
+  const estimation::KalmanBaseEstimator::Config& kalman = settings->kalmanStateEstimator;
+  EXPECT_DOUBLE_EQ(kalman.imuAccelerationNoise, 0.3);
+  EXPECT_DOUBLE_EQ(kalman.baseVelocityRandomWalk, 0.2);
+  EXPECT_DOUBLE_EQ(kalman.basePositionRandomWalk, 0.002);
+  EXPECT_DOUBLE_EQ(kalman.stanceContactRandomWalk, 0.02);
+  EXPECT_DOUBLE_EQ(kalman.swingContactRandomWalk, 5.0);
+  EXPECT_DOUBLE_EQ(kalman.kinematicPositionNoise, 0.004);
+  EXPECT_DOUBLE_EQ(kalman.kinematicVelocityNoise, 0.06);
+  EXPECT_DOUBLE_EQ(kalman.contactHeightNoise, 0.02);
+  EXPECT_DOUBLE_EQ(kalman.contactHeight, 0.03);
   EXPECT_EQ(settings->contactEstimator, "robot_state");
   EXPECT_DOUBLE_EQ(settings->simulator.contactForceThreshold, 8.0);
   EXPECT_DOUBLE_EQ(settings->simulator.contactTimelineWindow, 3.0);
@@ -185,7 +206,7 @@ TEST(RobotProcessSettings, AValueOfTheWrongTypeIsRefusedWhereItIsWrittenAndOneTh
     const std::string file = writeTemporaryFile("robot_settings_wrong_type.textproto", text);
     const absl::StatusOr<RobotProcessSettings> settings = loadRobotProcessSettings(file);
     EXPECT_EQ(settings.status().code(), absl::StatusCode::kInvalidArgument) << text;
-    EXPECT_THAT(settings.status().message(), HasSubstr(absl::StrCat(file, ":1:"))) << text;
+    EXPECT_THAT(settings.status().message(), HasSubstr(absl::StrCat(file, ":2:"))) << text;
   }
   struct Refused {
     std::string text;
@@ -238,6 +259,7 @@ TEST(RobotProcessSettings, EveryShippedTaskFileReadsWithRegisteredNamesAndTheShi
     EXPECT_TRUE(robot::mujoco_sim_interface::gantryHoldFromName(settings->simulator.gantryHold).ok()) << taskFile;
     // The debugging feedforward stays off in what ships.
     EXPECT_EQ(settings->wbMpcFeedforward, WbMpcFeedforward::kInverseDynamics) << taskFile;
+    EXPECT_TRUE(estimation::StateEstimatorRegistry().has(settings->stateEstimator)) << taskFile << ": state_estimator";
   }
 }
 

@@ -40,7 +40,7 @@ namespace robot::model {
 
 /**
  * An IDMapBase over the joint indices of a robot description: one slot per joint, read into Eigen vectors by lists of
- * joint indices. Not thread-safe.
+ * joint indices. Not thread-safe to write; its const methods may be called concurrently.
  */
 template <typename T>
 class JointIdMap : public IDMapBase<T> {

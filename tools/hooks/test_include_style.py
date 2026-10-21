@@ -52,9 +52,9 @@ def _repository_file(relative_path):
     raise FileNotFoundError(relative_path)
 
 
-# The Ubuntu development packages of protobuf, ZeroMQ (libzmq and cppzmq) and googletest.
+# The Ubuntu development packages of protobuf, Cyclone DDS and googletest.
 _BCR_BUILT_DEV_PACKAGES = re.compile(
-    r"^(libprotobuf\S*-dev|libprotoc\S*-dev|protobuf-compiler\S*|libzmq\S*-dev|cppzmq-dev|libgtest-dev|libgmock-dev"
+    r"^(libprotobuf\S*-dev|libprotoc\S*-dev|protobuf-compiler\S*|libcyclonedds\S*-dev|cyclonedds\S*-dev|libgtest-dev|libgmock-dev"
     r"|google-mock|googletest)$"
 )
 
@@ -139,8 +139,8 @@ class InstalledLibrariesTest(unittest.TestCase):
             "dependencies.txt installs a system Abseil",
         )
 
-    def test_no_system_protobuf_zeromq_or_googletest_is_installed(self):
-        # The same hazard for the other libraries Bazel builds from the BCR: protobuf, libzmq and cppzmq, and
+    def test_no_system_protobuf_cyclonedds_or_googletest_is_installed(self):
+        # The same hazard for the other libraries Bazel builds from the BCR: protobuf, Cyclone DDS and
         # googletest. Their headers on the default include path would let a target that misses its Bazel dependency
         # compile against another release, and a system protoc would generate code for another runtime. So neither the
         # image, nor the dependency list, nor the robotpkg script names one of their development packages. (robotpkg's
@@ -164,8 +164,8 @@ class InstalledLibrariesTest(unittest.TestCase):
             "libprotobuf-dev",
             "protobuf-compiler",
             "libprotoc-dev",
-            "libzmq3-dev",
-            "cppzmq-dev",
+            "libcyclonedds-dev",
+            "cyclonedds-dev",
             "libgtest-dev",
             "libgmock-dev",
             "google-mock",
@@ -187,12 +187,12 @@ class GeneralIncludeStyleTest(unittest.TestCase):
         self.assertEqual(self.findings(source), [])
 
     def test_every_other_angle_include_is_quoted(self):
-        source = "#include <Eigen/Dense>\n#include <pinocchio/fwd.hpp>\n#include <zmq.hpp>\n#include <absl/log/log.h>\n"
+        source = "#include <Eigen/Dense>\n#include <pinocchio/fwd.hpp>\n#include <dds/dds.h>\n#include <absl/log/log.h>\n"
         self.assertEqual(len(self.findings(source)), 4)
         fixed = include_style.fix_include_style(source, "src/a.cpp")
         self.assertEqual(
             fixed,
-            '#include "Eigen/Dense"\n#include "pinocchio/fwd.hpp"\n#include "zmq.hpp"\n#include "absl/log/log.h"\n',
+            '#include "Eigen/Dense"\n#include "pinocchio/fwd.hpp"\n#include "dds/dds.h"\n#include "absl/log/log.h"\n',
         )
         self.assertEqual(self.findings(fixed), [])
         self.assertEqual(include_style.fix_include_style(fixed, "src/a.cpp"), fixed)
@@ -204,9 +204,9 @@ class GeneralIncludeStyleTest(unittest.TestCase):
         )
 
     def test_flat_third_party_headers_need_no_directory(self):
-        # cppzmq, libzmq, cpp-httplib, TurboJPEG, HPIPM and BLASFEO install their headers without a directory of their own.
+        # cpp-httplib, TurboJPEG, HPIPM and BLASFEO install their headers without a directory of their own.
         source = (
-            '#include "zmq.hpp"\n#include "httplib.h"\n#include "turbojpeg.h"\n'
+            '#include "httplib.h"\n#include "turbojpeg.h"\n'
             '#include "hpipm_d_ocp_qp_ipm.h"\n#include "blasfeo_d_aux.h"\n'
         )
         self.assertEqual(self.findings(source), [])

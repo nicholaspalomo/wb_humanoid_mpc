@@ -37,7 +37,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-/** `heading_rate_tracking`: w (omega_k - omega_cmd)^2 at every node. */
+/**
+ * `heading_rate_tracking`: w (omega_k - omega_cmd)^2 at every node.
+ *
+ * Not thread-safe, like every ContactPlanningTerm: the planner that owns it configures and evaluates it from one thread at a time.
+ */
 class HeadingRateTrackingCost final : public LipWeightedCost {
  public:
   std::string describe() const override;

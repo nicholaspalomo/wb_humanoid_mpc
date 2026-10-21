@@ -31,6 +31,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <memory>
 
+#include "absl/base/nullability.h"
 #include "absl/status/statusor.h"
 #include "ocs2_mpc/MRT_BASE.h"
 #include "ocs2_mpc/SystemObservation.h"
@@ -61,7 +62,7 @@ class RemoteMpcLinkAdapter final : public MpcLink {
    * A link on `bus` (not running yet), which must outlive it. `config` is ipc::RemoteMpcLink's: the dimensions of the
    * controller's model (the effective input dimension under basis-vector contact inputs) and mpc_link.policy_timeout.
    */
-  static absl::StatusOr<std::unique_ptr<RemoteMpcLinkAdapter>> Create(robot::ipc::Bus& bus,
+  static absl::StatusOr<std::unique_ptr<RemoteMpcLinkAdapter>> Create(robot::ipc::Bus* absl_nonnull bus,
                                                                       ipc::RemoteMpcLink::Config config,
                                                                       MpcResetSupervisor::Config supervisorConfig = {});
 

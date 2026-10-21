@@ -31,6 +31,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cmath>
+#include <filesystem>
 #include <limits>
 #include <map>
 #include <memory>
@@ -38,6 +39,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <utility>
 
+#include "absl/base/nullability.h"
 #include "absl/log/log.h"
 #include "absl/memory/memory.h"
 #include "absl/strings/str_cat.h"
@@ -72,14 +74,14 @@ constexpr double kMaxGantryHeight = 1.5;
 
 ControllerSettingsUpdate settingsPrototype() {
   ControllerSettingsUpdate prototype;
-  prototype.contactEstimatorName.reserve(64);
+  prototype.contactEstimatorName.reserve(ControllerSettingsUpdate::kContactEstimatorNameCapacity);
   return prototype;
 }
 
 }  // namespace
 
 absl::StatusOr<std::unique_ptr<OperatorCommandMailbox>> OperatorCommandMailbox::Create(
-    Config config, const robot::model::ContactEstimatorRegistry& contactEstimators, Hooks hooks) {
+    Config config, const robot::model::ContactEstimatorRegistry* absl_nonnull contactEstimators, Hooks hooks) {
   if (config.jointNames.size() != config.initialNominalPositions.size()) {
     return absl::InvalidArgumentError(absl::StrCat("OperatorCommandMailbox: ", config.initialNominalPositions.size(),
                                                    " initial joint positions for ", config.jointNames.size(), " joints"));
@@ -90,7 +92,9 @@ absl::StatusOr<std::unique_ptr<OperatorCommandMailbox>> OperatorCommandMailbox::
   return absl::WrapUnique(new OperatorCommandMailbox(std::move(config), contactEstimators, std::move(hooks)));
 }
 
-OperatorCommandMailbox::OperatorCommandMailbox(Config config, const robot::model::ContactEstimatorRegistry& contactEstimators, Hooks hooks)
+OperatorCommandMailbox::OperatorCommandMailbox(Config config,
+                                               const robot::model::ContactEstimatorRegistry* absl_nonnull contactEstimators,
+                                               Hooks hooks)
     : config_(std::move(config)),
       contactEstimatorRegistry_(contactEstimators),
       hooks_(std::move(hooks)),
@@ -130,9 +134,9 @@ absl::Status OperatorCommandMailbox::registerOnBus(robot::ipc::Bus& bus) {
         [this](const humanoid_mpc_config::MpcParameterUpdate& message) { onMpcParameters(message); });
   }
   if (status.ok()) {
-    status = bus.subscribe<humanoid_mpc_config::JointPdGainsFile>(
+    status = bus.subscribe<humanoid_mpc_config::JointPdGainsUpdate>(
         ipc::topics::kOperatorPdGains, robot::ipc::Delivery::kLatest,
-        [this](const humanoid_mpc_config::JointPdGainsFile& message) { onPdGains(message); });
+        [this](const humanoid_mpc_config::JointPdGainsUpdate& message) { onPdGains(message); });
   }
   return status;
 }
@@ -255,6 +259,7 @@ void OperatorCommandMailbox::onWalkingVelocityCommand(const humanoid_mpc_msgs::W
 }
 
 void OperatorCommandMailbox::onMpcParameters(const humanoid_mpc_config::MpcParameterUpdate& message) {
+  const std::filesystem::file_time_type arrival = std::filesystem::file_time_type::clock::now();
   if (const absl::Status refused = checkMpcParameterUpdate(message, config_.robotName, config_.taskFileIdentity); !refused.ok()) {
     controllerSettingsRejected_.fetch_add(1);
     LOG_EVERY_N_SEC(WARNING, kLogPeriodSeconds)
@@ -268,19 +273,28 @@ void OperatorCommandMailbox::onMpcParameters(const humanoid_mpc_config::MpcParam
     LOG(WARNING) << "[OperatorCommandMailbox] Ignoring operator/mpc_parameters, which does not convert: " << converted.message();
     return;
   }
+  {
+    absl::MutexLock lock(&mpcParametersArrivalMutex_);
+    lastMpcParametersArrival_ = arrival;
+  }
   postControllerSettings(controllerSideSettingsFromConfig(update.task), "operator/mpc_parameters");
 }
 
-void OperatorCommandMailbox::onPdGains(const humanoid_mpc_config::JointPdGainsFile& message) {
+std::optional<std::filesystem::file_time_type> OperatorCommandMailbox::lastMpcParametersArrival() const {
+  absl::MutexLock lock(&mpcParametersArrivalMutex_);
+  return lastMpcParametersArrival_;
+}
+
+void OperatorCommandMailbox::onPdGains(const humanoid_mpc_config::JointPdGainsUpdate& message) {
   pdGainsDocuments_.fetch_add(1);
-  if (const absl::Status schema = checkPayloadSchema(message); !schema.ok()) {
+  if (const absl::Status valid = checkJointPdGainsUpdate(message, config_.pdGainsFileIdentity); !valid.ok()) {
     pdGainsRejected_.fetch_add(1);
     LOG_EVERY_N_SEC(WARNING, kLogPeriodSeconds)
-        << "[OperatorCommandMailbox] Ignoring operator/pd_gains: " << schema.message() << "; the gains in use are kept.";
+        << "[OperatorCommandMailbox] Ignoring operator/pd_gains: " << valid.message() << "; the gains in use are kept.";
     return;
   }
   mpc_config::JointPdGainsFile gains;
-  const absl::Status converted = mpc_config::FromProto(message, &gains);
+  const absl::Status converted = mpc_config::FromProto(message.gains(), &gains);
   if (!converted.ok()) {
     pdGainsRejected_.fetch_add(1);
     LOG(WARNING) << "[OperatorCommandMailbox] Ignoring operator/pd_gains, which does not convert: " << converted.message();
@@ -335,11 +349,11 @@ absl::StatusOr<std::shared_ptr<robot::model::ContactEstimator>> OperatorCommandM
   if (cached != estimators_.end()) {
     return cached->second;
   }
-  if (!contactEstimatorRegistry_.has(canonical)) {
+  if (!contactEstimatorRegistry_->has(canonical)) {
     return absl::NotFoundError(
-        absl::StrCat("There is no contact estimator '", name, "'. Available: ", contactEstimatorRegistry_.availableNames(), "."));
+        absl::StrCat("There is no contact estimator '", name, "'. Available: ", contactEstimatorRegistry_->availableNames(), "."));
   }
-  std::shared_ptr<robot::model::ContactEstimator> estimator = contactEstimatorRegistry_.create(canonical);
+  std::shared_ptr<robot::model::ContactEstimator> estimator = contactEstimatorRegistry_->create(canonical);
   // Checked before anything can install it: the realtime thread never sees an estimator the controller would refuse.
   if (hooks_.checkContactEstimator) {
     RETURN_IF_ERROR(hooks_.checkContactEstimator(*estimator, canonical));

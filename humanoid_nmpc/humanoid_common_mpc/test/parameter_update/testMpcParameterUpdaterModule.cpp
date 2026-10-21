@@ -49,6 +49,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/string_view.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/synchronization/notification.h"
+#include "absl/time/time.h"
 #include "absl/types/span.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
@@ -175,13 +176,9 @@ void solve(MpcParameterUpdaterModule& updater) {
   updater.preSolverRun(/*initTime=*/0.0, /*finalTime=*/1.0, vector_t::Zero(1), referenceManager);
 }
 
-/** Drives `updater` past its ~1 Hz poll of the watched files (every 100th pre-solve hook). */
-void runFileWatch(MpcParameterUpdaterModule& updater) {
-  for (size_t i = 0; i < 100; ++i) solve(updater);
-}
-
 // The command limits a reference file must give (referenceSettingsFromConfig()), but max_rotation_velocity.
 constexpr char kReferenceFileLimits[] =
+    "# proto-message: humanoid_mpc_config.ReferenceFile\n"
     "target_displacement_velocity: 0.5\n"
     "target_rotation_velocity: 0.5\n"
     "max_displacement_velocity_x: 1.0\n"
@@ -199,14 +196,25 @@ mpc_config::MpcParameterUpdate updateWithScaling(scalar_t scaling) {
 /** The fixture: a termless MPC, an event log and the options of an updater watching nothing. */
 class MpcParameterUpdaterModuleMechanicsTest : public ::testing::Test {
  protected:
+  absl::Time now_ = absl::FromUnixSeconds(1000);
+
   /** The updater of the termless MPC with `appliers` and `options`'s files. */
   std::unique_ptr<MpcParameterUpdaterModule> makeUpdater(std::vector<std::unique_ptr<HotFieldApplier>> appliers,
                                                          MpcParameterUpdaterModule::Options options = {}) {
     options.inputDim = kInputDim;
     options.appliers = std::move(appliers);
+    if (!options.clock) {
+      options.clock = [this]() { return now_; };
+    }
     absl::StatusOr<std::unique_ptr<MpcParameterUpdaterModule>> created = MpcParameterUpdaterModule::Create(&mpc_.mpc, std::move(options));
     EXPECT_TRUE(created.ok()) << created.status();
     return created.ok() ? *std::move(created) : nullptr;
+  }
+
+  /** Drives `updater` past its ~1 Hz poll of the watched files by advancing the test clock and running solve(). */
+  void runFileWatch(MpcParameterUpdaterModule& updater) {
+    now_ += absl::Seconds(1);
+    solve(updater);
   }
 
   /** A recording applier `name` declaring `fields`. */
@@ -314,7 +322,7 @@ TEST_F(MpcParameterUpdaterModuleMechanicsTest, AnUpdateEnqueuedWhileASolveApplie
 
 TEST_F(MpcParameterUpdaterModuleMechanicsTest, AWatchedTaskFileIsReloadedOncePerChange) {
   const std::filesystem::path taskFile = freshDirectory("updater_mechanics_task") / "task.textproto";
-  writeWatched(taskFile, "state_weights { scaling: 1.5 }\n", /*seconds=*/1);
+  writeWatched(taskFile, "# proto-message: humanoid_mpc_config.TaskFile\nstate_weights { scaling: 1.5 }\n", /*seconds=*/1);
   MpcParameterUpdaterModule::Options options;
   options.taskFile = taskFile.string();
   std::unique_ptr<MpcParameterUpdaterModule> updater = makeUpdater(twoFakes(), std::move(options));
@@ -322,7 +330,7 @@ TEST_F(MpcParameterUpdaterModuleMechanicsTest, AWatchedTaskFileIsReloadedOncePer
   runFileWatch(*updater);
   runFileWatch(*updater);
   EXPECT_THAT(applies(), testing::IsEmpty()) << "an untouched task file was reloaded";
-  writeWatched(taskFile, "state_weights { scaling: 2.5 }\n", /*seconds=*/2);
+  writeWatched(taskFile, "# proto-message: humanoid_mpc_config.TaskFile\nstate_weights { scaling: 2.5 }\n", /*seconds=*/2);
   runFileWatch(*updater);
   runFileWatch(*updater);
   runFileWatch(*updater);
@@ -462,6 +470,101 @@ TEST_F(MpcParameterUpdaterModuleMechanicsTest, WithoutAnMpcNothingIsAppliedAndNo
   (*created)->enqueueParameterUpdate(updateWithScaling(/*scaling=*/2.0));
   solve(**created);
   EXPECT_THAT(log_.events(), testing::IsEmpty());
+}
+
+TEST_F(MpcParameterUpdaterModuleMechanicsTest, FileCheckOnlyRunsWhenClockAdvancesByPeriod) {
+  const std::filesystem::path taskFile = freshDirectory("updater_clock_period") / "task.textproto";
+  writeWatched(taskFile, "# proto-message: humanoid_mpc_config.TaskFile\nstate_weights { scaling: 1.0 }\n", /*seconds=*/1);
+  MpcParameterUpdaterModule::Options options;
+  options.taskFile = taskFile.string();
+  options.fileCheckPeriod = absl::Seconds(1);
+  std::unique_ptr<MpcParameterUpdaterModule> updater = makeUpdater(twoFakes(), std::move(options));
+  ASSERT_NE(updater, nullptr);
+  // Initial solve initializes lastFileCheck_ to now_.
+  solve(*updater);
+
+  // Modify file on disk.
+  writeWatched(taskFile, "# proto-message: humanoid_mpc_config.TaskFile\nstate_weights { scaling: 2.0 }\n", /*seconds=*/2);
+
+  // Advance time by only 500ms (less than period of 1s).
+  now_ += absl::Milliseconds(500);
+  solve(*updater);
+  EXPECT_THAT(applies(), testing::IsEmpty()) << "file was checked before the fileCheckPeriod elapsed";
+
+  // Advance time past the 1s threshold.
+  now_ += absl::Milliseconds(500);
+  solve(*updater);
+  EXPECT_THAT(applies(), testing::ElementsAre("first:apply 2", "second:apply 2")) << "file was not reloaded after fileCheckPeriod elapsed";
+}
+
+TEST_F(MpcParameterUpdaterModuleMechanicsTest, TaskFileReadAtControlsReloadBaseline) {
+  const std::filesystem::path taskFile = freshDirectory("updater_read_at") / "task.textproto";
+  writeWatched(taskFile, "# proto-message: humanoid_mpc_config.TaskFile\nstate_weights { scaling: 1.0 }\n", /*seconds=*/1);
+  const std::optional<std::filesystem::file_time_type> baselineReadAt = lastWriteTime(taskFile.string());
+  ASSERT_TRUE(baselineReadAt.has_value());
+
+  // An edit occurs before updater is constructed.
+  writeWatched(taskFile, "# proto-message: humanoid_mpc_config.TaskFile\nstate_weights { scaling: 2.0 }\n", /*seconds=*/2);
+  const std::optional<std::filesystem::file_time_type> editedTime = lastWriteTime(taskFile.string());
+  ASSERT_TRUE(editedTime.has_value());
+  if (baselineReadAt.has_value() && editedTime.has_value()) {
+    ASSERT_NE(*baselineReadAt, *editedTime);
+  }
+
+  // Case A: updater given baselineReadAt detects the change made during startup.
+  {
+    MpcParameterUpdaterModule::Options options;
+    options.taskFile = taskFile.string();
+    options.taskFileReadAt = baselineReadAt;
+    std::unique_ptr<MpcParameterUpdaterModule> updater = makeUpdater(twoFakes(), std::move(options));
+    ASSERT_NE(updater, nullptr);
+    runFileWatch(*updater);
+    EXPECT_THAT(applies(), testing::ElementsAre("first:apply 2", "second:apply 2"))
+        << "updater with earlier taskFileReadAt did not reload file modified after readAt";
+  }
+
+  log_.clear();
+
+  // Case B: updater given editedTime as taskFileReadAt considers it already the baseline.
+  {
+    MpcParameterUpdaterModule::Options options;
+    options.taskFile = taskFile.string();
+    options.taskFileReadAt = editedTime;
+    std::unique_ptr<MpcParameterUpdaterModule> updater = makeUpdater(twoFakes(), std::move(options));
+    ASSERT_NE(updater, nullptr);
+    runFileWatch(*updater);
+    EXPECT_THAT(applies(), testing::IsEmpty()) << "updater with matching taskFileReadAt reloaded without change";
+  }
+}
+
+TEST_F(MpcParameterUpdaterModuleMechanicsTest, AFileSavedBeforeTheNewestUpdateDoesNotUndoIt) {
+  // A Save followed by more tuning within one poll period: the poll notices the saved file after the newer update.
+  const std::filesystem::path taskFile = freshDirectory("updater_superseded_file") / "task.textproto";
+  writeWatched(taskFile, "# proto-message: humanoid_mpc_config.TaskFile\nstate_weights { scaling: 1.0 }\n", /*seconds=*/1);
+  MpcParameterUpdaterModule::Options options;
+  options.taskFile = taskFile.string();
+  std::unique_ptr<MpcParameterUpdaterModule> updater = makeUpdater(twoFakes(), std::move(options));
+  ASSERT_NE(updater, nullptr);
+  writeWatched(taskFile, "# proto-message: humanoid_mpc_config.TaskFile\nstate_weights { scaling: 2.0 }\n", /*seconds=*/-5);
+  updater->enqueueParameterUpdate(updateWithScaling(/*scaling=*/7.0));
+  runFileWatch(*updater);
+  runFileWatch(*updater);
+  EXPECT_THAT(applies(), testing::ElementsAre("first:apply 7", "second:apply 7")) << "the older saved file undid the newer update";
+}
+
+TEST_F(MpcParameterUpdaterModuleMechanicsTest, AFileWrittenAfterTheNewestUpdateIsAppliedOverIt) {
+  const std::filesystem::path taskFile = freshDirectory("updater_newer_file") / "task.textproto";
+  writeWatched(taskFile, "# proto-message: humanoid_mpc_config.TaskFile\nstate_weights { scaling: 1.0 }\n", /*seconds=*/1);
+  MpcParameterUpdaterModule::Options options;
+  options.taskFile = taskFile.string();
+  std::unique_ptr<MpcParameterUpdaterModule> updater = makeUpdater(twoFakes(), std::move(options));
+  ASSERT_NE(updater, nullptr);
+  solve(*updater);
+  // Both reach the same solve; the file is the newer edit, so it is the one the MPC runs.
+  updater->enqueueParameterUpdate(updateWithScaling(/*scaling=*/3.0));
+  writeWatched(taskFile, "# proto-message: humanoid_mpc_config.TaskFile\nstate_weights { scaling: 2.0 }\n", /*seconds=*/2);
+  runFileWatch(*updater);
+  EXPECT_THAT(applies(), testing::ElementsAre("first:apply 3", "second:apply 3", "first:apply 2", "second:apply 2"));
 }
 
 }  // namespace

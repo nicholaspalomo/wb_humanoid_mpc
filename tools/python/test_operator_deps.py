@@ -50,7 +50,6 @@ REQUIREMENTS_FILE = os.path.join(
 IMPORT_NAMES: dict[str, str] = {
     "protobuf": "google.protobuf",
     "pyyaml": "yaml",
-    "pyzmq": "zmq",
     "rerun-sdk": "rerun",
 }
 
@@ -84,12 +83,12 @@ class ReadRequirementsTest(unittest.TestCase):
         path = os.path.join(os.environ["TEST_TMPDIR"], "requirements.txt")
         with open(path, "w", encoding="utf-8") as requirements_file:
             requirements_file.write(
-                "# comment\n\npyzmq\nprotobuf==7.36.0  # pinned\nnumpy>=2\nRerun_SDK==0.38.1\n"
+                "# comment\n\npygame\nprotobuf==7.36.0  # pinned\nnumpy>=2\nRerun_SDK==0.38.1\n"
             )
         self.assertEqual(
             read_requirements(path),
             [
-                Requirement("pyzmq", None),
+                Requirement("pygame", None),
                 Requirement("protobuf", "7.36.0"),
                 Requirement("numpy", None),
                 Requirement("rerun-sdk", "0.38.1"),

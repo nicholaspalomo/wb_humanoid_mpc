@@ -28,6 +28,7 @@ robot process and the simulator, in the exec configuration.
 | `gantry_hold`, `projectile`, `visualization` | `gantryHoldNames()`, `availableProjectiles()`, `availableVisualizations()` (mujoco_sim_interface) |
 | `hard_constraint`, `soft_constraint`, `mpc_cost` | `mpcHardConstraintNames()`, `mpcSoftConstraintNames()`, `mpcCostNames()` |
 | `locomotion_heuristic` | `knownHeuristicNames()` of every list |
+| `state_estimator` | `estimation::StateEstimatorRegistry::names()` (humanoid_state_estimation) |
 | `telemetry_sink`, `wb_mpc_feedforward` | `TelemetrySinkRegistry::names()`, `wbMpcFeedforwardNames()` (the robot process) |
 
 A registry named in a schema for the first time is added to `collectConfigRegistries()` (`ConfigRegistries.cpp`,

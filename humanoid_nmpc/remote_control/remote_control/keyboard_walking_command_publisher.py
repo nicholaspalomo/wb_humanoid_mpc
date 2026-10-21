@@ -28,11 +28,18 @@
 
 """Publishes walking commands from the keyboard of the terminal it runs in.
 
-    bazel run //humanoid_nmpc/remote_control:keyboard_velocity_publisher -- [--network_config=...] [--ipc_node=teleop]
+    bazel run //humanoid_nmpc/remote_control:keyboard_velocity_publisher -- --reference_file=<reference.textproto> \\
+        [--network_config=...] [--ipc_node=teleop]
 
 Hold a key to command: the arrow keys walk (up/down forward and back, left/right sideways), `a` and `d` turn, `w` and
-`s` raise and lower the pelvis height target by 1 cm per tick. Releasing every key stops the robot. Publishes
-operator/walking_velocity_command as the `teleop` node at the topic's 25 Hz; Ctrl-C ends it and restores the terminal.
+`s` raise and lower the pelvis height target by 1 cm per tick, which starts at the reference file's
+default_base_height. Releasing every key stops the robot. Publishes operator/walking_velocity_command as the `teleop`
+node at the topic's 25 Hz; Ctrl-C ends it, sends the stop command (zero velocities, the pelvis height kept), since the
+MPC keeps the last command it received, and restores the terminal.
+
+Do not run it next to a GUI that publishes walking commands (base_velocity_controller_gui --walking_commands=publish,
+the launch files' default): both publish the same topic, and the MPC alternates between the two. Start the GUI with
+--walking_commands=off, or untick its "Publish walking commands", to keep its FSM and tuning tabs.
 
 KeyboardCommand and read_key() are free of the terminal and of the bus, so test/test_keyboard_walking_command_publisher.py
 covers them headless.
@@ -223,7 +230,7 @@ class KeyboardWalkingCommandPublisher:
         if key is not None:
             self._discard_pending()
         self._publisher.publish(self.state.apply(key))
-        self._output.write(self.state.status_line() + "\r")
+        self._output.write(f"{self.state.status_line()}\r")
         self._output.flush()
 
 
@@ -232,6 +239,7 @@ def build_parser() -> argparse.ArgumentParser:
         description="Publishes walking commands from the keyboard of this terminal on the IPC bus."
     )
     teleop.add_bus_flags(parser, default_node=operator_bus.TELEOP_NODE)
+    teleop.add_reference_file_flag(parser)
     return parser
 
 
@@ -247,16 +255,22 @@ def main(argv: list[str] | None = None) -> int:
     signal.signal(signal.SIGINT, lambda signum, frame: stop.set())
     signal.signal(signal.SIGTERM, lambda signum, frame: stop.set())
 
+    state = KeyboardCommand(
+        pelvis_height=teleop.initial_pelvis_height(args.reference_file)
+    )
     publisher = teleop.connect_walking_command_publisher(
         args.network_config, args.ipc_node
     )
     try:
         with TerminalInput() as terminal:
             node = KeyboardWalkingCommandPublisher(
-                publisher, terminal.read_char, terminal.discard_pending
+                publisher, terminal.read_char, terminal.discard_pending, state=state
             )
-            teleop.run_periodically(teleop.WALKING_COMMAND_RATE_HZ, node.tick, stop)
+            teleop.publish_until_stopped(
+                publisher, node.tick, stop, lambda: state.pelvis_height
+            )
     finally:
+        # publish_until_stopped() has closed the bus; a failure before it leaves it to close here.
         publisher.bus.close()
         print()
     return 0

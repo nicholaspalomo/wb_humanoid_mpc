@@ -71,6 +71,17 @@ constexpr unsigned int kGlVersion = 0x1F02;
 constexpr unsigned int kGlExtensions = 0x1F03;
 constexpr unsigned int kGlMaxRenderbufferSize = 0x84E8;
 constexpr unsigned int kGlMaxSamples = 0x8D57;
+constexpr unsigned int kGlMaxTextureSize = 0x0D33;
+// The most OpenGL errors queryGlCapabilities() clears after its queries, so that MuJoCo's first error check sees none.
+constexpr int kMaxClearedGlErrors = 16;
+
+// The framebuffer of the EGL config: 8-bit red, green, blue and alpha, a 24-bit depth and an 8-bit stencil buffer.
+constexpr EGLint kColorChannelBits = 8;
+constexpr EGLint kDepthBufferBits = 24;
+constexpr EGLint kStencilBufferBits = 8;
+// The attribute lists below: key-value pairs, then EGL_NONE.
+constexpr int kConfigAttributeListSize = 17;
+constexpr int kPbufferAttributeListSize = 5;
 
 std::string eglErrorName(EGLint error) {
   switch (error) {
@@ -227,23 +238,10 @@ absl::StatusOr<std::unique_ptr<EglContext>> EglContext::Create(const EglLibrary*
     return absl::UnavailableError(absl::StrCat("EGL on ", initialized.description, " offers no desktop OpenGL (",
                                                eglErrorName(egl.getError()), "); ", howToRunWithoutEgl()));
   }
-  const std::array<EGLint, 17> attributes = {EGL_SURFACE_TYPE,
-                                             EGL_PBUFFER_BIT,
-                                             EGL_RENDERABLE_TYPE,
-                                             EGL_OPENGL_BIT,
-                                             EGL_RED_SIZE,
-                                             8,
-                                             EGL_GREEN_SIZE,
-                                             8,
-                                             EGL_BLUE_SIZE,
-                                             8,
-                                             EGL_ALPHA_SIZE,
-                                             8,
-                                             EGL_DEPTH_SIZE,
-                                             24,
-                                             EGL_STENCIL_SIZE,
-                                             8,
-                                             EGL_NONE};
+  const std::array<EGLint, kConfigAttributeListSize> attributes = {
+      EGL_SURFACE_TYPE, EGL_PBUFFER_BIT,   EGL_RENDERABLE_TYPE, EGL_OPENGL_BIT,     EGL_RED_SIZE,   kColorChannelBits,
+      EGL_GREEN_SIZE,   kColorChannelBits, EGL_BLUE_SIZE,       kColorChannelBits,  EGL_ALPHA_SIZE, kColorChannelBits,
+      EGL_DEPTH_SIZE,   kDepthBufferBits,  EGL_STENCIL_SIZE,    kStencilBufferBits, EGL_NONE};
   EGLConfig config = nullptr;
   EGLint numConfigs = 0;
   if (egl.chooseConfig(initialized.display, attributes.data(), &config, /*config_size=*/1, &numConfigs) != EGL_TRUE || numConfigs < 1) {
@@ -258,7 +256,7 @@ absl::StatusOr<std::unique_ptr<EglContext>> EglContext::Create(const EglLibrary*
   }
   void* absl_nullable surface = EGL_NO_SURFACE;
   if (!hasExtension(egl.queryString(initialized.display, EGL_EXTENSIONS), "EGL_KHR_surfaceless_context")) {
-    const std::array<EGLint, 5> pbuffer = {EGL_WIDTH, 1, EGL_HEIGHT, 1, EGL_NONE};
+    const std::array<EGLint, kPbufferAttributeListSize> pbuffer = {EGL_WIDTH, 1, EGL_HEIGHT, 1, EGL_NONE};  // 1 x 1 px
     surface = egl.createPbufferSurface(initialized.display, config, pbuffer.data());
     if (surface == EGL_NO_SURFACE) {
       const std::string error = eglErrorName(egl.getError());
@@ -324,8 +322,9 @@ absl::StatusOr<GlCapabilities> EglContext::queryGlCapabilities() const {
   capabilities.extensions = glString(getString, kGlExtensions);
   getIntegerv(kGlMaxRenderbufferSize, &capabilities.maxRenderbufferSize);
   getIntegerv(kGlMaxSamples, &capabilities.maxSamples);  // GL_INVALID_ENUM, and 0 left, before OpenGL 3.0
+  getIntegerv(kGlMaxTextureSize, &capabilities.maxTextureSize);
   // Clear what the queries raised, so that MuJoCo's first error check does not report it as its own.
-  for (int pending = 0; pending < 16; ++pending) {
+  for (int pending = 0; pending < kMaxClearedGlErrors; ++pending) {
     if (getError() == 0) break;
   }
   if (capabilities.version.empty()) {

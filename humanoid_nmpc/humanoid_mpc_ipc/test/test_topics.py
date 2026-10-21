@@ -25,7 +25,7 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-"""The Python topic names are the C++ ones, unique, and safe for ZeroMQ's prefix filter.
+"""The Python topic names are the C++ ones, unique, and valid DDS topic names.
 
 The C++ header include/humanoid_mpc_ipc/Topics.h is data of this test, so that a topic changed on one side only fails
 here as well as in the LINT.IfChange review.
@@ -88,12 +88,10 @@ class TopicsTest(unittest.TestCase):
         for topic in (topics.OPERATOR_CONFIG_SAVE, topics.ROBOT_CONFIG_SAVE_STATUS):
             self.assertEqual(topics.ALL_TOPICS.count(topic), 1)
 
-    def test_no_topic_is_a_prefix_of_another(self) -> None:
-        # ZeroMQ's SUB filter matches a prefix of the topic frame.
+    def test_every_topic_is_a_dds_topic_name(self) -> None:
+        # Letters, digits, '_' and '/', not starting with a digit: Cyclone DDS refuses anything else.
         for topic in topics.ALL_TOPICS:
-            for other in topics.ALL_TOPICS:
-                if topic != other:
-                    self.assertFalse(other.startswith(topic), f"{topic} begins {other}")
+            self.assertRegex(topic, r"^[A-Za-z_/][A-Za-z0-9_/]*$")
 
 
 if __name__ == "__main__":

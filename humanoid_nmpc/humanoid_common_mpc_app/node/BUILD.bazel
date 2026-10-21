@@ -9,8 +9,17 @@ load("//bazel:copts.bzl", "FIRST_PARTY_COPTS")
 
 package(default_visibility = ["//visibility:public"])
 
-# What every laptop-side binary needs: the shutdown on SIGINT / SIGTERM, its bus from --network_config / --ipc_node, and
-# the robot's files.
+# The exit status of a usage error (include/humanoid_common_mpc_app/node/ExitCodes.h), with no dependencies: the laptop
+# binaries and the tools of tools/ and humanoid_mpc_validation exit with it.
+cc_library(
+    name = "exit_codes",
+    hdrs = ["include/humanoid_common_mpc_app/node/ExitCodes.h"],
+    copts = FIRST_PARTY_COPTS,
+    includes = ["include"],
+)
+
+# What every laptop-side binary needs: the shutdown on SIGINT / SIGTERM, its bus from --network_config / --ipc_node and
+# the robot's files (and :exit_codes, its exit status for a usage error).
 cc_library(
     name = "node_process",
     srcs = [
@@ -106,6 +115,7 @@ cc_library(
         "//robot_runtime/robot_realtime",
         "@abseil-cpp//absl/base:core_headers",
         "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/functional:function_ref",
         "@abseil-cpp//absl/log",
         "@abseil-cpp//absl/memory",
         "@abseil-cpp//absl/status",
@@ -130,6 +140,7 @@ cc_library(
     hdrs = ["test/ScriptedRobot.h"],
     copts = FIRST_PARTY_COPTS,
     deps = [
+        "//robot_runtime/robot_ipc:test_network",
         "//humanoid_nmpc/humanoid_common_mpc:humanoid_common_mpc_types",
         "//humanoid_nmpc/humanoid_mpc_ipc",
         "//humanoid_nmpc/humanoid_mpc_msgs:messages_cc_proto",
@@ -176,6 +187,7 @@ cc_test(
     data = ["//config/ipc:network.textproto"],
     deps = [
         ":node_process",
+        "//humanoid_nmpc/humanoid_mpc_ipc",
         "//robot_runtime/robot_core:resource_paths",
         "//robot_runtime/robot_ipc",
         "@abseil-cpp//absl/base:nullability",

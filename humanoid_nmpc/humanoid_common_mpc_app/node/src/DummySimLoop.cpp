@@ -42,6 +42,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/memory/memory.h"
 #include "absl/strings/str_cat.h"
 #include "absl/time/clock.h"
+#include "ocs2_core/PhysicalConstants.h"
 #include "ocs2_core/reference/TargetTrajectories.h"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
@@ -51,6 +52,13 @@ namespace ocs2::humanoid::node {
 namespace {
 
 constexpr double kLogPeriodSeconds = 5.0;
+/** The leading state coefficients the progress log prints. */
+constexpr Eigen::Index kLoggedStateCoefficients = 12;
+/**
+ * [MPC periods] How close to the time of the observation sent for an update the policy solved from it starts; an older
+ * policy starts an MPC period or more earlier.
+ */
+constexpr scalar_t kPolicyStartTolerance = 0.1;
 /** How long a wait for a policy sleeps between two looks at the policy buffer. */
 constexpr absl::Duration kPolicyPollPeriod = absl::Microseconds(100);
 
@@ -70,7 +78,7 @@ absl::StatusOr<std::unique_ptr<DummySimLoop>> DummySimLoop::Create(std::unique_p
     return absl::InvalidArgumentError(absl::StrCat("DummySimLoop: the MPC frequency is ", config.mpcDesiredFrequency, " Hz"));
   }
   std::unique_ptr<DummySimLoop> loop = absl::WrapUnique(new DummySimLoop(std::move(bus), std::move(config)));
-  ASSIGN_OR_RETURN(loop->link_, ipc::RemoteMpcLink::Create(*loop->bus_, loop->supervisor_, loop->config_.link));
+  ASSIGN_OR_RETURN(loop->link_, ipc::RemoteMpcLink::Create(loop->bus_.get(), &loop->supervisor_, loop->config_.link));
   loop->link_->initRollout(&rollout);
   return loop;
 }
@@ -82,7 +90,7 @@ DummySimLoop::~DummySimLoop() {
   bus_->stop();
 }
 
-absl::Status DummySimLoop::run(const SystemObservation& initialObservation, const std::function<bool()>& shouldStop) {
+absl::Status DummySimLoop::run(const SystemObservation& initialObservation, absl::FunctionRef<bool()> shouldStop) {
   if (ran_) {
     return absl::FailedPreconditionError("DummySimLoop::run(): the loop has run before; it runs once");
   }
@@ -108,7 +116,7 @@ absl::Status DummySimLoop::run(const SystemObservation& initialObservation, cons
                              : std::string("in real time"))
             << ".";
 
-  const std::chrono::nanoseconds period(static_cast<int64_t>(std::llround(1.0e9 / config_.simulationFrequency)));
+  const std::chrono::nanoseconds period(static_cast<int64_t>(std::llround(kNanosecondsPerSecond / config_.simulationFrequency)));
   robot::realtime::PeriodicTimer timer(period, robot::realtime::OverrunPolicy::kSkipMissedPeriods);
   SystemObservation observation = initialObservation;
   if (!synchronized) {
@@ -138,16 +146,17 @@ absl::Status DummySimLoop::run(const SystemObservation& initialObservation, cons
     }
     publishLatest(observation);
     steps_.fetch_add(1);
-    LOG_EVERY_N_SEC(INFO, kLogPeriodSeconds) << "[DummySim] t = " << observation.time << " s, base state "
-                                             << observation.state.head(std::min<Eigen::Index>(12, observation.state.size())).transpose();
+    LOG_EVERY_N_SEC(INFO, kLogPeriodSeconds)
+        << "[DummySim] t = " << observation.time << " s, base state "
+        << observation.state.head(std::min<Eigen::Index>(kLoggedStateCoefficients, observation.state.size())).transpose();
     timer.waitForNextPeriod();
   }
   LOG(INFO) << "[DummySim] Stopped at t = " << observation.time << " s.";
   return absl::OkStatus();
 }
 
-bool DummySimLoop::awaitInitialPolicy(const SystemObservation& initialObservation, const std::function<bool()>& shouldStop) {
-  const std::chrono::nanoseconds period(static_cast<int64_t>(std::llround(1.0e9 / config_.simulationFrequency)));
+bool DummySimLoop::awaitInitialPolicy(const SystemObservation& initialObservation, absl::FunctionRef<bool()> shouldStop) {
+  const std::chrono::nanoseconds period(static_cast<int64_t>(std::llround(kNanosecondsPerSecond / config_.simulationFrequency)));
   robot::realtime::PeriodicTimer timer(period, robot::realtime::OverrunPolicy::kSkipMissedPeriods);
   timer.start();
   while (!link_->initialPolicyReceived()) {
@@ -158,10 +167,10 @@ bool DummySimLoop::awaitInitialPolicy(const SystemObservation& initialObservatio
   return true;
 }
 
-bool DummySimLoop::awaitPolicyFor(scalar_t time, const std::function<bool()>& shouldStop) {
+bool DummySimLoop::awaitPolicyFor(scalar_t time, absl::FunctionRef<bool()> shouldStop) {
   // A policy solved from the observation sent for this update starts at its time; an older one, still in flight when
   // the observation was sent, starts an MPC period or more earlier.
-  const scalar_t tolerance = 0.1 / config_.mpcDesiredFrequency;
+  const scalar_t tolerance = kPolicyStartTolerance / config_.mpcDesiredFrequency;
   absl::Time nextLog = absl::Now() + config_.waitLogPeriod;
   while (!shouldStop()) {
     if (link_->updatePolicy()) {

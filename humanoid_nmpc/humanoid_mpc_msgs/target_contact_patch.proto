@@ -6,22 +6,40 @@ import "nproto/options.proto";
 
 // A foot placement the contact planner targets, for the MuJoCo viewer only
 // (robot_runtime/mujoco_sim_interface/MujocoContactPatch.h, TargetContactPatch).
-// Next ID: 8
+// Next ID: 10
 message TargetContactPatch {
   option (nproto.generate_struct) = "ocs2::humanoid::msgs::TargetContactPatch";
 
-  reserved 8 to max;
+  reserved 10 to max;
+  // 1 to 7 were `bool valid`, the kind (an enum whose stance was 0) and the pose x, y, z, yaw and yaw_planned. The
+  // kind and the pose moved to new numbers so that a payload of the old layout is not read as the new one.
+  reserved 1 to 7;
 
+  // Which step the patch belongs to. A value that is no enumerator, KIND_UNSPECIFIED included (a sender that set
+  // none), is drawn as a stance patch.
   enum Kind {
-    KIND_STANCE = 0;
-    KIND_SWING_IN_FLIGHT = 1;
-    KIND_NEXT_SWING = 2;
+    KIND_UNSPECIFIED = 0;
+    KIND_STANCE = 1;
+    KIND_SWING_IN_FLIGHT = 2;
+    KIND_NEXT_SWING = 3;
   }
-  bool valid = 1;
-  Kind kind = 2;
-  double x = 3;
-  double y = 4;
-  double z = 5;
-  double yaw = 6;
-  bool yaw_planned = 7;
+
+  // Where the foot's contact frame lands, in the world frame.
+  // Next ID: 6
+  message Pose {
+    reserved 6 to max;
+
+    // [m]
+    double x = 1;
+    double y = 2;
+    double z = 3;
+    // [rad] The heading of the contact frame about the vertical.
+    double yaw = 4;
+    // Whether the yaw is planned (the heading model); otherwise it is the measured yaw of the foot.
+    bool yaw_planned = 5;
+  }
+
+  Kind kind = 8;
+  // Absent: the planner has no target for this foot, or its pose is not finite; the viewer draws nothing for it.
+  optional Pose pose = 9;
 }

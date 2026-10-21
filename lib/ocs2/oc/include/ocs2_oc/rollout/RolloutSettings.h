@@ -39,14 +39,20 @@ namespace rollout {
  * This structure contains the settings for forward rollout algorithms.
  */
 struct Settings {
+  static constexpr scalar_t kDefaultOdeAbsoluteTolerance = 1e-9;
+  static constexpr scalar_t kDefaultOdeRelativeTolerance = 1e-6;
+  static constexpr size_t kDefaultMaxNumStepsPerSecond = 10'000;
+  /** [s] */
+  static constexpr scalar_t kDefaultTimeStep = 1e-2;
+
   /** This value determines the absolute tolerance error for ode solvers. */
-  scalar_t absTolODE = 1e-9;
+  scalar_t absTolODE = kDefaultOdeAbsoluteTolerance;
   /** This value determines the relative tolerance error for ode solvers. */
-  scalar_t relTolODE = 1e-6;
+  scalar_t relTolODE = kDefaultOdeRelativeTolerance;
   /** This value determines the maximum number of integration points per a second for ode solvers. */
-  size_t maxNumStepsPerSecond = 10000;
+  size_t maxNumStepsPerSecond = kDefaultMaxNumStepsPerSecond;
   /** The integration time step used in the fixed time-step rollout methods */
-  scalar_t timeStep = 1e-2;
+  scalar_t timeStep = kDefaultTimeStep;
   /** Rollout integration scheme type */
   IntegratorType integratorType = IntegratorType::ODE45;
 

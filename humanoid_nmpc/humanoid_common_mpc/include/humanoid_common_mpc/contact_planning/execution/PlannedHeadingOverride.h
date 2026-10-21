@@ -62,11 +62,16 @@ scalar_t acomHeadingOffset(const AngularCenterOfMass& acom, const vector_t& join
  *
  * Only the knots inside the plan's horizon are rewritten (planCoversTime): past the plan's end the plan's heading
  * lookup clamps to its last node, which froze the yaw reference there instead of leaving the operator's.
+ *
+ * Not thread-safe, like every ContactPlanningTerm: the planner that owns it configures and evaluates it from one thread at a time.
  */
 class PlannedHeadingOverride final : public ExecutionRule {
  public:
-  /** `acom` is the manager's evaluator slot: it may be set after construction and is read at every cycle. */
-  PlannedHeadingOverride(const MpcRobotModelBase<scalar_t>& mpcRobotModel, const std::shared_ptr<AngularCenterOfMass>* absl_nullable acom)
+  /**
+   * `acom` is the manager's evaluator slot, null for none: it may be filled after construction and is read at every
+   * cycle, so the slot, like `mpcRobotModel`, must outlive the rule.
+   */
+  PlannedHeadingOverride(const MpcRobotModelBase<scalar_t>& mpcRobotModel, const std::unique_ptr<AngularCenterOfMass>* absl_nullable acom)
       : mpcRobotModel_(&mpcRobotModel), acom_(acom) {}
 
   std::string describe() const override;
@@ -77,7 +82,7 @@ class PlannedHeadingOverride final : public ExecutionRule {
 
  private:
   const MpcRobotModelBase<scalar_t>* absl_nonnull mpcRobotModel_;
-  const std::shared_ptr<AngularCenterOfMass>* absl_nullable acom_;
+  const std::unique_ptr<AngularCenterOfMass>* absl_nullable acom_;
 };
 
 }  // namespace ocs2::humanoid

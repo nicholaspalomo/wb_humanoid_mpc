@@ -32,9 +32,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <memory>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "absl/base/nullability.h"
+#include "absl/log/absl_check.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
@@ -47,6 +49,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/ContactPlanningTermFactory.h"
 #include "humanoid_common_mpc/contact_planning/hlip/HlipContactPlanner.h"
 #include "humanoid_common_mpc/contact_planning/problem/Layout.h"
+#include "humanoid_nmpc/humanoid_common_mpc/test/support/StatusTestMacros.h"
 
 namespace ocs2::humanoid {
 
@@ -102,22 +105,22 @@ ContactPlanningConfig makeWorkingHlipConfig() {
 std::unique_ptr<ContactPlanningTerm> makeTerm(TermKind kind, const std::string& name) {
   switch (kind) {
     case TermKind::kModelBlock:
-      return ContactPlanningTermFactory::makeModelBlock(name).value();
+      return checkedValue(ContactPlanningTermFactory::makeModelBlock(name));
     case TermKind::kCost:
-      return ContactPlanningTermFactory::makeCost(name).value();
+      return checkedValue(ContactPlanningTermFactory::makeCost(name));
     case TermKind::kSoftConstraint:
-      return ContactPlanningTermFactory::makeSoftConstraint(name).value();
+      return checkedValue(ContactPlanningTermFactory::makeSoftConstraint(name));
     case TermKind::kHardConstraint:
-      return ContactPlanningTermFactory::makeHardConstraint(name).value();
+      return checkedValue(ContactPlanningTermFactory::makeHardConstraint(name));
     case TermKind::kLogicRule:
-      return ContactPlanningTermFactory::makeLogicRule(name).value();
+      return checkedValue(ContactPlanningTermFactory::makeLogicRule(name));
     case TermKind::kAssignmentCost:
-      return ContactPlanningTermFactory::makeAssignmentCost(name).value();
+      return checkedValue(ContactPlanningTermFactory::makeAssignmentCost(name));
     case TermKind::kSearchStage:
-      return ContactPlanningTermFactory::makeSearchStage(name).value();
+      return checkedValue(ContactPlanningTermFactory::makeSearchStage(name));
     case TermKind::kExecutionRule:
       if (name == term::kPlannedHeadingOverride || name == term::kPlannedComOverride) return nullptr;
-      return ContactPlanningTermFactory::makeExecutionRule(name).value();
+      return checkedValue(ContactPlanningTermFactory::makeExecutionRule(name));
   }
   return nullptr;
 }
@@ -447,7 +450,8 @@ TEST(ContactPlanningConfigWarnings, TheDefaultHlipBlockIsSafeOnceTheRuleAndTheTh
   const ContactPlanningConfig config = makeWorkingHlipConfig();
   EXPECT_TRUE(config.validateStatus().ok()) << config.validateStatus().message();
   EXPECT_TRUE(config.warnings().empty()) << joinWarnings(config.warnings());
-  EXPECT_LE(HlipContactPlanner::startUpLateralStep(config), config.hlip.maxStepWidth);
+  HUMANOID_ASSERT_OK_AND_ASSIGN(const scalar_t startUpStep, HlipContactPlanner::startUpLateralStep(config));
+  EXPECT_LE(startUpStep, config.hlip.maxStepWidth);
 }
 
 TEST(ContactPlanningConfigWarnings, HlipWithoutPlannedComOverrideIsReported) {
@@ -475,7 +479,7 @@ TEST(ContactPlanningConfigWarnings, AFirstStepThatDoesNotFitTheStepWidthClipIsRe
   // above the demand is silent and one just below it is reported.
   ContactPlanningConfig config = makeWorkingHlipConfig();
   config.hlip.sspDuration = 0.35;  // README 3b's "cadence that fell"
-  const scalar_t demand = HlipContactPlanner::startUpLateralStep(config);
+  HUMANOID_ASSERT_OK_AND_ASSIGN(const scalar_t demand, HlipContactPlanner::startUpLateralStep(config));
   ASSERT_GT(demand, config.hlip.stepWidth);
 
   config.hlip.maxStepWidth = demand + 0.005;

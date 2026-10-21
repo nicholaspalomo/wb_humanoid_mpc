@@ -11,8 +11,9 @@
 # - Custom telemetry paths (placed into custom_tab_title, default "Signals")
 #
 # Configured 3D robot visualizations:
-# - robot_instances: "measured", "terminal_state" (default: all)
-# - draw_terminal_state: false (disables end-of-trajectory robot visualization)
+# - robot_instances: "measured", "terminal_state", "terminal_target" (default: every instance the scene carries)
+# - draw_terminal_state: false draws only "measured" (no end-of-trajectory robots, whatever robot_instances says), as
+#   this file does; --terminal_state on the bridge brings them back
 #
 # The MuJoCo viewer of the robot process, which reads it from its plot configuration unless a viewer is named
 # (make launch-<robot>-sim: PLOT_CONFIG=, default this directory's plot_config.textproto; VIEWER= names one):

@@ -47,9 +47,10 @@ absl::Status HipCenteredSteppingHeuristic::configure(const LocomotionHeuristicCo
 
 vector2_t HipCenteredSteppingHeuristic::offset(const FootholdHeuristicContext& context) const {
   // H_r(Theta) = PTP(R(Theta) r_hip): the hip's position in the base frame, rotated into the world by the base yaw
-  // predicted at the touch-down and dropped onto the ground. R(Theta) is the full body rotation in the dissertation and R_z(yaw) here,
-  // which is the same simplification the control model itself makes for its orientation dynamics (section 3.2.1):
-  // the roll and pitch of a walking base are small, and PTP() would flatten their contribution anyway.
+  // predicted at the touch-down and dropped onto the ground. R(Theta) is the full body rotation in the dissertation and
+  // R_z(yaw) here - a choice of this heuristic, not a simplification of the control model, which carries the full base
+  // rotation: only the heading at the touch-down is predicted, and the roll and pitch of a walking base move a
+  // ground-projected hip offset by a second-order amount.
   const vector2_t hip = hipPositionInBaseFrame_[context.contactIndex];
   const scalar_t longitudinal = parameters_.longitudinalScale * hip.x();
   const scalar_t lateral = parameters_.lateralScale * hip.y();
@@ -58,7 +59,7 @@ vector2_t HipCenteredSteppingHeuristic::offset(const FootholdHeuristicContext& c
   const vector2_t hipInWorld(context.basePosition.x() + cosYaw * longitudinal - sinYaw * lateral,
                              context.basePosition.y() + sinYaw * longitudinal + cosYaw * lateral);
   // This heuristic MOVES THE ANCHOR: SwitchedModelReferenceManager::nominalFoothold() adds the offsets of a list that
-  // contains it to the predicted base rather than to the stance-foot anchor. Everything here is expressed relative to
+  // contains it to the predicted base rather than to the step-width anchor. Everything here is expressed relative to
   // that predicted base, so what it has to return is exactly the hip position relative to it.
   return vector2_t(hipInWorld - context.basePosition);
 }

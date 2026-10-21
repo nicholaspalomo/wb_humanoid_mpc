@@ -38,6 +38,7 @@ cc_library(
         # The Euler boundary of the robot model (include/humanoid_wb_mpc/common/WBAccelMpcRobotModel.h).
         "//humanoid_nmpc/humanoid_common_mpc:orientation",
         "//lib/ocs2:ocs2_robotic_tools",
+        "//humanoid_nmpc/humanoid_common_mpc:lookahead_policy_evaluator",
         "//humanoid_nmpc/humanoid_mpc_ipc:realtime_policy_evaluator",
         "//robot_runtime/robot_model",
         "//lib/ocs2:ocs2_core",
@@ -58,6 +59,7 @@ cc_library(
         "@abseil-cpp//absl/strings",
         "@abseil-cpp//absl/strings:string_view",
         "@abseil-cpp//absl/synchronization",
+        "@abseil-cpp//absl/time",
         "@abseil-cpp//absl/types:span",
         "@eigen",
         "@pinocchio",
@@ -78,6 +80,98 @@ cc_library(
     deps = [
         ":humanoid_wb_mpc",
         "@abseil-cpp//absl/base:nullability",
+    ],
+)
+
+# A numerical oracle for the time derivatives of the stance foot's orientation error (test/OrientationErrorRateOracle.h):
+# the production error differenced along a motion of prescribed angular velocity and acceleration.
+cc_library(
+    name = "orientation_error_rate_oracle",
+    testonly = True,
+    srcs = ["test/OrientationErrorRateOracle.cpp"],
+    hdrs = ["test/OrientationErrorRateOracle.h"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//lib/ocs2:ocs2_robotic_tools",
+        "@eigen",
+    ],
+)
+
+# The math of the stance foot's orientation rates (end_effector/OrientationErrorWrtPlaneRates.h), taped, generated and
+# compiled as the end-effector dynamics' libraries are, against the oracle: level, tilted up to 80 degrees, steep (80
+# degrees to 1 + v.n = 1e-2) and near the anti-parallel normal (to 1e-5); near the guard and inside it, the tape against
+# its plain double instantiation; the level closed form, the guard's fallback and finite Jacobian, and the tape's
+# Jacobian against its differences, entry by entry, rejecting a 1e-6 change of its maps. Compiles one small CppAD
+# library.
+cc_test(
+    name = "testOrientationErrorWrtPlaneRates",
+    size = "small",
+    srcs = ["test/testOrientationErrorWrtPlaneRates.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":humanoid_wb_mpc",
+        ":orientation_error_rate_oracle",
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//lib/ocs2:ocs2_core",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:str_format",
+        "@eigen",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The orientation error with respect to a plane of ocs2_robotic_tools (rotationMatrixDistanceToPlane(),
+# quaternionDistanceToPlane()): the closed form on random attitudes and planes, finite with a finite taped Jacobian where
+# the end-effector normal points away from the plane (the shortest arc used to divide 0 by 0), continuous across the
+# clamp of the shortest arc's norm, and its taped Jacobian against central differences. Tapes, compiles nothing.
+cc_test(
+    name = "testOrientationErrorWrtPlaneGuard",
+    size = "small",
+    srcs = ["test/testOrientationErrorWrtPlaneGuard.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_robotic_tools",
+        "@abseil-cpp//absl/strings",
+        "@eigen",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The whole-body stance-foot constraint on the G1 (ZeroAccelerationConstraintCppAd with the shipped gains): Pinocchio's
+# frame rates are the derivatives along the robot's motion, the value is the PD law Kp e + Kd de/dt + Ka d2e/dt2
+# assembled from double-precision kinematics and the oracle, the rescaled gains hold a level foot as the former law did,
+# and the linearization is the derivative along the state manifold (rejecting a 1e-6 change and the frozen-map form).
+# Large: it tapes and compiles the six end-effector dynamics libraries of one foot.
+cc_test(
+    name = "testStanceFootOrientationRates",
+    size = "large",
+    srcs = ["test/testStanceFootOrientationRates.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    # LINT.IfChange(stance_foot_orientation_rates_test_data)
+    data = [
+        "//robot_models/unitree_g1/g1_description",
+        "//robot_models/unitree_g1/g1_wb_mpc",
+    ],
+    # LINT.ThenChange(//humanoid_nmpc/humanoid_wb_mpc/test/testStanceFootOrientationRates.cpp:robot_files)
+    deps = [
+        ":humanoid_wb_mpc",
+        ":orientation_error_rate_oracle",
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_pinocchio_interface",
+        "//lib/ocs2:ocs2_robotic_tools",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/functional:function_ref",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:str_format",
+        "@eigen",
+        "@googletest//:gtest_main",
+        "@pinocchio",
     ],
 )
 
@@ -174,6 +268,31 @@ cc_test(
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
         "@googletest//:gtest_main",
+        "//humanoid_nmpc/humanoid_common_mpc:status_test_macros",
+    ],
+)
+
+# The contact planner's reference manager reads the commanded and the measured yaw rate of a whole-body knot, which
+# stores w_B, through getTargetPlanarCommand(). Builds no CppAD model.
+cc_test(
+    name = "testContactPlannerYawRateOnTheWholeBody",
+    size = "small",
+    srcs = ["test/testContactPlannerYawRateOnTheWholeBody.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = [
+        "//robot_models/unitree_g1/g1_description",
+        "//robot_models/unitree_g1/g1_wb_mpc",
+    ],
+    deps = [
+        ":humanoid_wb_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
+        "//lib/ocs2:ocs2_core",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@googletest//:gtest_main",
     ],
 )
 
@@ -260,7 +379,11 @@ cc_test(
     linkstatic = True,
     deps = [
         ":humanoid_wb_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc",
         "//humanoid_nmpc/humanoid_common_mpc:null_mpc_link",
+        "//humanoid_nmpc/humanoid_common_mpc:scripted_policy_mpc_link",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_oc",
         "//robot_runtime/robot_model",
         "//robot_runtime/robot_realtime:allocation_counter",
         "@abseil-cpp//absl/base:nullability",
@@ -486,6 +609,7 @@ cc_test(
         "@eigen",
         "@googletest//:gtest_main",
         "@pinocchio",
+        "//humanoid_nmpc/humanoid_common_mpc:status_test_macros",
     ],
 )
 
@@ -515,6 +639,7 @@ cc_test(
         "@abseil-cpp//absl/status:statusor",
         "@googletest//:gtest_main",
         "@pinocchio",
+        "//humanoid_nmpc/humanoid_common_mpc:status_test_macros",
     ],
 )
 
@@ -545,8 +670,9 @@ cc_test(
 )
 
 # The stance-foot constraint's linearization against its value, on an affine stand-in for the end-effector dynamics:
-# exact for the block-diagonal gains the interface builds, orientation rows included, and blind to the off-diagonal
-# blocks of Ax. Builds no CppAD model.
+# exact for the gains the interface builds and for random full gains of every row count, orientation rows included, the
+# velocity and acceleration gains on the pose rates rather than the linear velocity and acceleration; Create() refuses
+# coefficients of another shape. Builds no CppAD model.
 cc_test(
     name = "testEndEffectorDynamicsAccelerationsConstraint",
     size = "small",
@@ -565,8 +691,8 @@ cc_test(
 )
 
 # ZeroAccelerationConstraintCppAd::Create() and SwingLegVerticalConstraintCppAd::Create() on the G1 reference manager:
-# end-effector dynamics of other than one end effector are refused, one end effector makes the constraint. Builds no
-# CppAD model.
+# end-effector dynamics of other than one end effector are refused, one end effector makes the constraint; the stance
+# constraint with the shipped gains acts on the pose rates of its dynamics. Builds no CppAD model.
 cc_test(
     name = "testFootConstraintsCreate",
     size = "small",
@@ -579,6 +705,8 @@ cc_test(
     deps = [
         ":affine_end_effector_dynamics",
         ":humanoid_wb_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//lib/ocs2:ocs2_core",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
@@ -600,7 +728,6 @@ cc_test(
         "//robot_models/unitree_g1/g1_wb_mpc",
     ],
     deps = [
-        ":affine_end_effector_dynamics",
         ":humanoid_wb_mpc",
         "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/status:statusor",
@@ -663,6 +790,7 @@ cc_test(
         "@abseil-cpp//absl/strings:string_view",
         "@googletest//:gtest_main",
         "@pinocchio",
+        "//humanoid_nmpc/humanoid_common_mpc:status_test_macros",
     ],
 )
 
@@ -748,6 +876,7 @@ cc_test(
         "@eigen",
         "@googletest//:gtest_main",
         "@pinocchio",
+        "//humanoid_nmpc/humanoid_common_mpc:status_test_macros",
     ],
 )
 
@@ -800,6 +929,8 @@ cc_test(
         "@abseil-cpp//absl/strings:string_view",
         "@googletest//:gtest_main",
         "@pinocchio",
+        "@abseil-cpp//absl/status:status_matchers",
+        "@googletest//:gtest",
     ],
 )
 
@@ -822,7 +953,8 @@ cc_test(
 
 # The (state, input) overloads of computeJointTorques and computeBaseHeldJointTorques on the G1 whole-body model: they
 # hand the (q, v, qdd_j, wrenches) functions the state's and the input's pieces, and the base-held one - the gantry
-# feedforward - is g_j(q) for a robot hanging at rest. Builds no CppAD model.
+# feedforward - is g_j(q) for a robot hanging at rest. With the contact frames renamed, the base acceleration and the
+# torques are RNEA's with the wrenches at the configured frames. Builds no CppAD model.
 cc_test(
     name = "testJointTorqueStateInputOverloads",
     size = "small",
@@ -837,10 +969,12 @@ cc_test(
     deps = [
         ":humanoid_wb_mpc",
         "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings:string_view",
         "@googletest//:gtest_main",
         "@pinocchio",
+        "//humanoid_nmpc/humanoid_common_mpc:status_test_macros",
     ],
 )
 
@@ -890,7 +1024,6 @@ cc_test(
     ],
     # LINT.ThenChange(//humanoid_nmpc/humanoid_wb_mpc/test/live_tuning/WholeBodyLiveTuningFixture.cpp:robot_files)
     deps = [
-        ":affine_end_effector_dynamics",
         ":humanoid_wb_mpc",
         "//humanoid_nmpc/humanoid_common_mpc",
         # The tuning layout of the robot model (orientation/EulerBoundary.h), which the orientation-row case reads Q by.

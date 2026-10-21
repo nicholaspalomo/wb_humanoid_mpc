@@ -37,6 +37,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_cat.h"
 
 namespace ocs2::humanoid {
+namespace {
+
+/** kCaughtAndSettling: the index of sim_gantry_catch_lift [m] in RealtimeEvent::values (SimFallRecovery's report). */
+constexpr size_t kCatchLiftValueIndex = 2;
+
+}  // namespace
 
 absl::string_view realtimeEventText(const RealtimeEvent& event) {
   const size_t length = ::strnlen(event.text.data(), event.text.size());
@@ -60,7 +66,7 @@ std::string formatRealtimeEvent(const RealtimeEvent& event) {
     case RealtimeEventCode::kCaughtAndSettling:
       return absl::StrCat("[SimFallRecovery] Caught on the gantry in JOINT_PD, resetting the controller: ",
                           discontinuityReason(static_cast<DiscontinuityCause>(event.detail), event.count, event.values[0], event.values[1]),
-                          ". The gantry lifts the robot by ", event.values[2],
+                          ". The gantry lifts the robot by ", event.values[kCatchLiftValueIndex],
                           " m (sim_gantry_catch_lift) until it rests at the nominal posture, then lowers it back; WB_MPC is accepted after "
                           "that.");
     case RealtimeEventCode::kDiscontinuity:
@@ -83,6 +89,11 @@ std::string formatRealtimeEvent(const RealtimeEvent& event) {
       return "[SimFallRecovery] The robot rests on its feet on the gantry; WB_MPC is accepted again.";
     case RealtimeEventCode::kContactEstimatorSwapped:
       return absl::StrCat("[RobotProcess] The measured contact state now comes from the contact estimator '", text, "'.");
+    case RealtimeEventCode::kGantryCommandIgnored:
+      return absl::StrCat("FSM command received: ", text, " - ignored: the robot process drives no gantry on this robot.");
+    case RealtimeEventCode::kFallTorquesOff:
+      return absl::StrCat("[HardwareFallRecovery] The base tilted ", event.values[0], " rad, past sim_max_base_tilt_angle ",
+                          event.values[1], " rad: torques off (ZERO_TORQUE). An FSM command switches them on again.");
     case RealtimeEventCode::kControllerEvent:
       return formatControllerEvent(
           makeControllerEvent(static_cast<ControllerEventCode>(event.detail), event.source, event.values[0], event.values[1], text));
@@ -96,6 +107,8 @@ bool isWarningEvent(const RealtimeEvent& event) {
     case RealtimeEventCode::kDiscontinuity:
     case RealtimeEventCode::kLiftedSettleTimedOut:
     case RealtimeEventCode::kOnFeetSettleTimedOut:
+    case RealtimeEventCode::kGantryCommandIgnored:
+    case RealtimeEventCode::kFallTorquesOff:
       return true;
     case RealtimeEventCode::kControllerEvent:
       return isWarningControllerEvent(makeControllerEvent(static_cast<ControllerEventCode>(event.detail), event.source));
@@ -140,7 +153,7 @@ bool RealtimeEventLog::post(const ControllerEvent& event) {
   });
 }
 
-size_t RealtimeEventLog::drain(const std::function<void(const RealtimeEvent&)>& consumer) {
+size_t RealtimeEventLog::drain(absl::FunctionRef<void(const RealtimeEvent&)> consumer) {
   size_t drained = 0;
   while (queue_.tryPopInPlace([&](const RealtimeEvent& event) { consumer(event); })) {
     ++drained;

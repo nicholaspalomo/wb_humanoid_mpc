@@ -44,6 +44,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "google/protobuf/message.h"
 #include "google/protobuf/unknown_field_set.h"
 
+#include "nproto/Fnv1a64Constants.h"
+
 namespace nproto {
 namespace {
 
@@ -52,11 +54,6 @@ using google::protobuf::EnumDescriptor;
 using google::protobuf::FieldDescriptor;
 using google::protobuf::Message;
 using google::protobuf::Reflection;
-
-// LINT.IfChange(fnv1a)
-constexpr uint64_t kFnvOffsetBasis = 14'695'981'039'346'656'037ULL;
-constexpr uint64_t kFnvPrime = 1'099'511'628'211ULL;
-// LINT.ThenChange(//tools/nproto/nproto_schema.py:fnv1a)
 
 /** Appends the unknown fields of `message` and of the messages below it, under `path`, to `paths`. */
 void collectUnknownFields(const Message& message, const std::string& path, std::vector<std::string>& paths) {

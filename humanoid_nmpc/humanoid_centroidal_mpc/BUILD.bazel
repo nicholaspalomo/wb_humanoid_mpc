@@ -14,7 +14,6 @@ cc_library(
         "src/dynamics/CentroidalDynamicsAD.cpp",
         "src/dynamics/CentroidalDynamicsBasisInputsAD.cpp",
         "src/cost/CentroidalMpcEndEffectorFootCost.cpp",
-        "src/cost/ICPCost.cpp",
         "src/cost/DcmTerminalCost.cpp",
         "src/constraint/ZeroVelocityConstraintCppAd.cpp",
         "src/constraint/NormalVelocityConstraintCppAd.cpp",
@@ -44,6 +43,7 @@ cc_library(
         # The Euler boundary of the robot model (include/humanoid_centroidal_mpc/common/CentroidalMpcRobotModel.h).
         "//humanoid_nmpc/humanoid_common_mpc:orientation",
         "//lib/ocs2:ocs2_robotic_tools",
+        "//humanoid_nmpc/humanoid_common_mpc:lookahead_policy_evaluator",
         "//humanoid_nmpc/humanoid_mpc_ipc:realtime_policy_evaluator",
         "//robot_runtime/robot_model",
         "//lib/ocs2:ocs2_core",
@@ -65,6 +65,7 @@ cc_library(
         "@abseil-cpp//absl/strings",
         "@abseil-cpp//absl/strings:string_view",
         "@abseil-cpp//absl/synchronization",
+        "@abseil-cpp//absl/time",
         "@abseil-cpp//absl/types:span",
         "@eigen",
         "@pinocchio",
@@ -98,7 +99,9 @@ cc_test(
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/time",
         "@googletest//:gtest_main",
+        "//humanoid_nmpc/humanoid_common_mpc:status_test_macros",
     ],
 )
 
@@ -131,6 +134,9 @@ cc_test(
     timeout = "eternal",
     srcs = ["test/testLiveUpdateEqualsFreshStart.cpp"],
     copts = FIRST_PARTY_COPTS,
+    # About 10 GB at its peak while it generates the CppAD libraries: next to another test under --local_test_jobs=2 it
+    # passed the 14 GB container cap and was killed, so it runs alone.
+    tags = ["exclusive"],
     data = [
         "//humanoid_nmpc/humanoid_common_mpc:gait_config",
         "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
@@ -159,6 +165,7 @@ cc_test(
         "@abseil-cpp//absl/strings:string_view",
         "@googletest//:gtest_main",
         "@protobuf",
+        "//humanoid_nmpc/humanoid_common_mpc:status_test_macros",
     ],
 )
 
@@ -202,6 +209,7 @@ cc_test(
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
         "@googletest//:gtest_main",
+        "//humanoid_nmpc/humanoid_common_mpc:status_test_macros",
     ],
 )
 
@@ -223,6 +231,7 @@ cc_test(
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
         "@googletest//:gtest_main",
+        "//humanoid_nmpc/humanoid_common_mpc:status_test_macros",
     ],
 )
 
@@ -328,6 +337,7 @@ cc_test(
         "@googletest//:gtest_main",
         ":typed_config_support",
         "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
+        "//humanoid_nmpc/humanoid_common_mpc:status_test_macros",
     ],
 )
 
@@ -356,6 +366,8 @@ cc_test(
         "@abseil-cpp//absl/strings:string_view",
         "@googletest//:gtest_main",
         ":typed_config_support",
+        "@abseil-cpp//absl/status:status_matchers",
+        "@googletest//:gtest",
     ],
 )
 
@@ -384,6 +396,30 @@ cc_test(
         "@abseil-cpp//absl/strings:string_view",
         "@googletest//:gtest_main",
         ":typed_config_support",
+        "//humanoid_nmpc/humanoid_common_mpc:status_test_macros",
+    ],
+)
+
+# The contact frames of the centroidal MPC's model exist under model_settings' names, and a contact on a joint the
+# model lacks is refused with a status (CentroidalMpcInterface::setupModels(), checkContactFramesExist()).
+cc_test(
+    name = "testCentroidalContactFrames",
+    size = "small",
+    srcs = ["test/testCentroidalContactFrames.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = [
+        "//robot_models/unitree_g1/g1_centroidal_mpc",
+        "//robot_models/unitree_g1/g1_description",
+    ],
+    deps = [
+        ":humanoid_centroidal_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings:string_view",
+        "@googletest//:gtest_main",
+        "@pinocchio",
     ],
 )
 
@@ -405,6 +441,7 @@ cc_test(
         "@googletest//:gtest_main",
         ":typed_config_support",
         "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
+        "//humanoid_nmpc/humanoid_common_mpc:status_test_macros",
     ],
 )
 
@@ -474,6 +511,7 @@ cc_library(
         "@abseil-cpp//absl/strings",
         "@googletest//:gtest",
         ":typed_config_support",
+        "//humanoid_nmpc/humanoid_common_mpc:status_test_macros",
     ],
 )
 
@@ -511,7 +549,10 @@ cc_test(
     deps = [
         ":contact_test_support",
         ":humanoid_centroidal_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc:status_test_macros",
         "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
         "@googletest//:gtest_main",
     ],
 )
@@ -570,6 +611,7 @@ cc_test(
         "@googletest//:gtest_main",
         ":typed_config_support",
         "@abseil-cpp//absl/status:statusor",
+        "//humanoid_nmpc/humanoid_common_mpc:status_test_macros",
     ],
 )
 
@@ -630,6 +672,7 @@ cc_test(
         "@abseil-cpp//absl/strings:string_view",
         "@googletest//:gtest_main",
         ":typed_config_support",
+        "//humanoid_nmpc/humanoid_common_mpc:status_test_macros",
     ],
 )
 
@@ -689,6 +732,7 @@ cc_library(
         "@abseil-cpp//absl/strings:string_view",
         ":typed_config_support",
         "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
+        "//humanoid_nmpc/humanoid_common_mpc:status_test_macros",
     ],
 )
 
@@ -711,6 +755,32 @@ cc_test(
         "@abseil-cpp//absl/strings",
         "@abseil-cpp//absl/strings:string_view",
         "@googletest//:gtest_main",
+    ],
+)
+
+# A reload of the contact planner's file plans as a fresh start from the reloaded file, every RELOAD_HOT field perturbed.
+cc_test(
+    name = "testContactPlanningReloadEqualsFreshStart",
+    size = "medium",
+    srcs = ["test/testContactPlanningReloadEqualsFreshStart.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = [
+        "//humanoid_nmpc/humanoid_common_mpc:gait_config",
+        "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+        "//robot_models/drc_atlas/drc_atlas_description",
+    ],
+    deps = [
+        ":humanoid_centroidal_mpc",
+        ":reference_stack_support",
+        "//humanoid_nmpc/humanoid_mpc_config:config_cc_proto",
+        "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
+        "@googletest//:gtest_main",
+        "@protobuf",
     ],
 )
 
@@ -899,9 +969,10 @@ cc_test(
     ],
 )
 
-# The yaw residual of the swing-foot cost: the wrapped yaw error at every non-singular orientation, and finite
-# derivatives at a yaw of exactly zero, where the atan2 it replaced had none; and the cost's parameters, which read the
-# reference manager and not the solver's target. Generates the foot cost's CppAD library.
+# The yaw residual of the swing-foot cost: the wrapped yaw error, yaw - ref, at every non-singular orientation, and
+# finite derivatives at a yaw of exactly zero, where the atan2 it replaced had none; and the cost's parameters, which read
+# the reference manager and not the solver's target: the swing planner's height on any ground, and the configured swing
+# velocity reference weight. Generates the foot cost's CppAD library.
 cc_test(
     name = "testFootYawResidual",
     size = "large",
@@ -914,9 +985,13 @@ cc_test(
     deps = [
         ":contact_test_support",
         ":humanoid_centroidal_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc",
         "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/strings",
+        "@eigen",
         "@googletest//:gtest_main",
         "@pinocchio",
+        "//humanoid_nmpc/humanoid_common_mpc:status_test_macros",
     ],
 )
 
@@ -943,6 +1018,7 @@ cc_test(
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
         "@googletest//:gtest_main",
+        "//humanoid_nmpc/humanoid_common_mpc:status_test_macros",
     ],
 )
 
@@ -1201,6 +1277,7 @@ cc_test(
         "@abseil-cpp//absl/strings:string_view",
         "@googletest//:gtest_main",
         "@pinocchio",
+        "//humanoid_nmpc/humanoid_common_mpc:status_test_macros",
     ],
 )
 

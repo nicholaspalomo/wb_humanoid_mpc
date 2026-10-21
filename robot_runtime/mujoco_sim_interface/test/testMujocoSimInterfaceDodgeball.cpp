@@ -71,6 +71,20 @@ std::unique_ptr<MujocoSimInterface> makeSim(bool gantryLocked) {
   return *std::move(sim);
 }
 
+// Atlas with no ball compiled in, at the default render rate: a throw is an impulse on the base, applied over one
+// physics step, and a snapshot is published every renderPublishInterval steps.
+std::unique_ptr<MujocoSimInterface> makeSimWithoutABall() {
+  MujocoSimConfig config;
+  config.scenePath = kAtlasScene;
+  config.viewer.names = {kNoViewerName};
+  config.projectile = "";
+  config.isGantryLocked = true;
+  config.gantryHold = "weld_constraint";
+  absl::StatusOr<std::unique_ptr<MujocoSimInterface>> sim = MujocoSimInterface::Create(config, kAtlasUrdf);
+  ABSL_CHECK_OK(sim);
+  return *std::move(sim);
+}
+
 int firstFreeBody(const mjModel* absl_nonnull model) {
   for (int body = 1; body < model->nbody; ++body) {
     if (model->body_jntnum[body] > 0 && model->jnt_type[model->body_jntadr[body]] == mjJNT_FREE) return body;
@@ -258,6 +272,29 @@ TEST(SimDodgeball, AFinishedBallIsParkedAgain) {
   ASSERT_TRUE(isArmed(*sim));
   step(*sim, stepsFor(*sim, ProjectileRestMonitor::kLifetime + 0.5));
   EXPECT_TRUE(isParked(*sim));
+}
+
+// Without a ball, the push lasts one physics step in xfrc_applied, which a snapshot holds only when that step is a
+// publish step (about one throw in 33): the external_forces marker showed nothing for the others. Every snapshot now
+// carries the last push, with its impulse, for the marker to hold.
+TEST(SimDodgeball, WithoutABallEverySnapshotCarriesThePush) {
+  const std::unique_ptr<MujocoSimInterface> sim = makeSimWithoutABall();
+  ASSERT_LT(sim->projectileBodyId(), 0);
+  const double flightTime = 0.0123;  // an impact step that is not a publish step
+  sim->throwDodgeball(aimedThrow({{1.5, 0.0, 0.3}}, flightTime, /*mass=*/0.45));
+  step(*sim, stepsFor(*sim, flightTime) + 40);  // past the impact and the next publish
+  const Snapshot after(*sim);
+  const int base = firstFreeBody(sim->getModel());
+  EXPECT_EQ(after.state.push.bodyId, base);
+  const double impulse = std::hypot(after.state.push.impulseWorld[0], after.state.push.impulseWorld[1], after.state.push.impulseWorld[2]);
+  EXPECT_GT(impulse, 0.1) << "the snapshot holds no push";
+  EXPECT_LT(after.state.push.impulseWorld[0], 0.0) << "the ball came from +x";
+  // Applied at the impact, which the snapshot (published at most a publish interval before the last step) follows.
+  const double sinceThePush = after.state.data->time - after.state.push.simTimeApplied;
+  EXPECT_GE(sinceThePush, 0.0);
+  EXPECT_LE(sinceThePush, 41.0 * sim->getModel()->opt.timestep);
+  // The force itself was cleared after its step.
+  for (int axis = 0; axis < 3; ++axis) EXPECT_EQ(after.state.data->xfrc_applied[6 * base + axis], 0.0);
 }
 
 }  // namespace robot::mujoco_sim_interface

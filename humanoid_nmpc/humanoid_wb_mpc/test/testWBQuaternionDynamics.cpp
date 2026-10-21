@@ -91,7 +91,7 @@ struct WholeBodyDynamics {
   std::unique_ptr<ModelSettings> modelSettings;
   std::unique_ptr<PinocchioInterface> pinocchioInterface;
   std::unique_ptr<WBAccelMpcRobotModel<scalar_t>> model;
-  // Retained by `dynamics` (WBAccelDynamicsAD holds a reference), so declared before it.
+  // Retained by `dynamics` (WBAccelDynamicsAD keeps a pointer to it), so declared before it.
   std::unique_ptr<WBAccelMpcRobotModel<ad_scalar_t>> modelCppAd;
   std::unique_ptr<WBAccelDynamicsAD> dynamics;
 };
@@ -113,8 +113,8 @@ absl::StatusOr<std::unique_ptr<WholeBodyDynamics>> loadDynamics() {
   loaded->pinocchioInterface = std::make_unique<PinocchioInterface>(std::move(pinocchioInterface));
   loaded->model = std::make_unique<WBAccelMpcRobotModel<scalar_t>>(*loaded->modelSettings);
   loaded->modelCppAd = std::make_unique<WBAccelMpcRobotModel<ad_scalar_t>>(*loaded->modelSettings);
-  loaded->dynamics =
-      std::make_unique<WBAccelDynamicsAD>(*loaded->pinocchioInterface, *loaded->modelCppAd, "dynamics_flow_map", *loaded->modelSettings);
+  loaded->dynamics = std::make_unique<WBAccelDynamicsAD>(*loaded->pinocchioInterface, loaded->modelCppAd.get(), "dynamics_flow_map",
+                                                         *loaded->modelSettings);
   return loaded;
 }
 

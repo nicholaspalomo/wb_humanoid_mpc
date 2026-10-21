@@ -87,22 +87,22 @@ namespace ocs2::humanoid {
 
 namespace {
 
-absl::Status unknownTerm(TermKind kind, const std::string& name) {
+absl::Status unknownTerm(TermKind kind, absl::string_view name) {
   return absl::InvalidArgumentError(absl::StrCat("[ContactPlanningTermFactory] unknown ", termKindName(kind), " term '", name,
                                                  "'; supported: ", absl::StrJoin(knownTermNames(kind), ", ")));
 }
 
-absl::Status unavailableExecutionRule(const std::string& canonical) {
+absl::Status unavailableExecutionRule(absl::string_view canonical) {
   return absl::InvalidArgumentError(absl::StrCat("[ContactPlanningTermFactory] the execution rule '", canonical,
                                                  "' is not available here (it needs the reference manager's robot model)"));
 }
 
-absl::Status missingBlock(absl::string_view what, const std::string& name, const std::string& block) {
+absl::Status missingBlock(absl::string_view what, absl::string_view name, absl::string_view block) {
   return absl::InvalidArgumentError(absl::StrCat("[ContactPlanningTermFactory] ", what, " '", name, "' needs the '", block, "' block"));
 }
 
 /** The canonical spelling of a term name, or the InvalidArgument listing the supported names. */
-absl::StatusOr<std::string> canonicalOrError(TermKind kind, const std::string& name) {
+absl::StatusOr<std::string> canonicalOrError(TermKind kind, absl::string_view name) {
   std::string canonical = canonicalTermName(kind, name);
   if (canonical.empty()) return unknownTerm(kind, name);
   return canonical;
@@ -112,7 +112,7 @@ absl::StatusOr<std::string> canonicalOrError(TermKind kind, const std::string& n
 template <typename T>
 absl::Status addTerms(const std::vector<std::string>& names,
                       TermKind kind,
-                      absl::StatusOr<std::unique_ptr<T>> (*absl_nonnull make)(const std::string&),
+                      absl::StatusOr<std::unique_ptr<T>> (*absl_nonnull make)(absl::string_view),
                       TermCollection<T>& collection) {
   for (const std::string& name : names) {
     ASSIGN_OR_RETURN(const std::string canonical, canonicalOrError(kind, name));
@@ -125,7 +125,7 @@ absl::Status addTerms(const std::vector<std::string>& names,
 }  // namespace
 
 // LINT.IfChange(term_factory)
-absl::StatusOr<std::unique_ptr<LipModelBlock>> ContactPlanningTermFactory::makeModelBlock(const std::string& name) {
+absl::StatusOr<std::unique_ptr<LipModelBlock>> ContactPlanningTermFactory::makeModelBlock(absl::string_view name) {
   ASSIGN_OR_RETURN(const std::string canonical, canonicalOrError(TermKind::kModelBlock, name));
   if (canonical == term::kLipCom) return std::make_unique<LipComDynamics>();
   if (canonical == term::kFootholdIntegrator) return std::make_unique<FootholdIntegrator>();
@@ -133,7 +133,7 @@ absl::StatusOr<std::unique_ptr<LipModelBlock>> ContactPlanningTermFactory::makeM
   return unknownTerm(TermKind::kModelBlock, name);
 }
 
-absl::StatusOr<std::unique_ptr<LipCost>> ContactPlanningTermFactory::makeCost(const std::string& name) {
+absl::StatusOr<std::unique_ptr<LipCost>> ContactPlanningTermFactory::makeCost(absl::string_view name) {
   ASSIGN_OR_RETURN(const std::string canonical, canonicalOrError(TermKind::kCost, name));
   if (canonical == term::kRegularization) return std::make_unique<RegularizationCost>();
   if (canonical == term::kPreviousFootholdConsistency) return std::make_unique<PreviousFootholdConsistencyCost>();
@@ -151,7 +151,7 @@ absl::StatusOr<std::unique_ptr<LipCost>> ContactPlanningTermFactory::makeCost(co
   return unknownTerm(TermKind::kCost, name);
 }
 
-absl::StatusOr<std::unique_ptr<LipConstraint>> ContactPlanningTermFactory::makeSoftConstraint(const std::string& name) {
+absl::StatusOr<std::unique_ptr<LipConstraint>> ContactPlanningTermFactory::makeSoftConstraint(absl::string_view name) {
   ASSIGN_OR_RETURN(const std::string canonical, canonicalOrError(TermKind::kSoftConstraint, name));
   if (canonical == term::kZmpSupportRegion) return std::make_unique<ZmpSupportRegionConstraint>();
   if (canonical == term::kReachability) return std::make_unique<ReachabilityConstraint>();
@@ -160,7 +160,7 @@ absl::StatusOr<std::unique_ptr<LipConstraint>> ContactPlanningTermFactory::makeS
   return unknownTerm(TermKind::kSoftConstraint, name);
 }
 
-absl::StatusOr<std::unique_ptr<LipConstraint>> ContactPlanningTermFactory::makeHardConstraint(const std::string& name) {
+absl::StatusOr<std::unique_ptr<LipConstraint>> ContactPlanningTermFactory::makeHardConstraint(absl::string_view name) {
   ASSIGN_OR_RETURN(const std::string canonical, canonicalOrError(TermKind::kHardConstraint, name));
   if (canonical == term::kNoFlight) return std::make_unique<NoFlightConstraint>();
   if (canonical == term::kFootMotionInSwingOnly) return std::make_unique<FootMotionInSwingOnlyConstraint>();
@@ -169,7 +169,7 @@ absl::StatusOr<std::unique_ptr<LipConstraint>> ContactPlanningTermFactory::makeH
   return unknownTerm(TermKind::kHardConstraint, name);
 }
 
-absl::StatusOr<std::unique_ptr<ContactLogicRule>> ContactPlanningTermFactory::makeLogicRule(const std::string& name) {
+absl::StatusOr<std::unique_ptr<ContactLogicRule>> ContactPlanningTermFactory::makeLogicRule(absl::string_view name) {
   ASSIGN_OR_RETURN(const std::string canonical, canonicalOrError(TermKind::kLogicRule, name));
   if (canonical == term::kPhaseDurations) return std::make_unique<PhaseDurationsRule>();
   if (canonical == term::kNoFlight) return std::make_unique<NoFlightRule>();
@@ -178,7 +178,7 @@ absl::StatusOr<std::unique_ptr<ContactLogicRule>> ContactPlanningTermFactory::ma
   return unknownTerm(TermKind::kLogicRule, name);
 }
 
-absl::StatusOr<std::unique_ptr<AssignmentCost>> ContactPlanningTermFactory::makeAssignmentCost(const std::string& name) {
+absl::StatusOr<std::unique_ptr<AssignmentCost>> ContactPlanningTermFactory::makeAssignmentCost(absl::string_view name) {
   ASSIGN_OR_RETURN(const std::string canonical, canonicalOrError(TermKind::kAssignmentCost, name));
   if (canonical == term::kContactSwitch) return std::make_unique<ContactSwitchCost>();
   if (canonical == term::kPlanConsistency) return std::make_unique<PlanConsistencyCost>();
@@ -186,7 +186,7 @@ absl::StatusOr<std::unique_ptr<AssignmentCost>> ContactPlanningTermFactory::make
   return unknownTerm(TermKind::kAssignmentCost, name);
 }
 
-absl::StatusOr<std::unique_ptr<SearchStage>> ContactPlanningTermFactory::makeSearchStage(const std::string& name) {
+absl::StatusOr<std::unique_ptr<SearchStage>> ContactPlanningTermFactory::makeSearchStage(absl::string_view name) {
   ASSIGN_OR_RETURN(const std::string canonical, canonicalOrError(TermKind::kSearchStage, name));
   if (canonical == term::kWarmStartPreviousPlan) return std::make_unique<WarmStartPreviousPlanStage>();
   if (canonical == term::kDiving) return std::make_unique<DivingStage>();
@@ -207,7 +207,7 @@ std::unique_ptr<ExecutionRule> executionRuleOrNull(const std::string& canonical,
 }
 }  // namespace
 
-absl::StatusOr<std::unique_ptr<ExecutionRule>> ContactPlanningTermFactory::makeExecutionRule(const std::string& name,
+absl::StatusOr<std::unique_ptr<ExecutionRule>> ContactPlanningTermFactory::makeExecutionRule(absl::string_view name,
                                                                                              const ExtraRuleMaker& extra) {
   ASSIGN_OR_RETURN(const std::string canonical, canonicalOrError(TermKind::kExecutionRule, name));
   std::unique_ptr<ExecutionRule> rule = executionRuleOrNull(canonical, extra);

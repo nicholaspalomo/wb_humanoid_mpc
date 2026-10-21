@@ -7,10 +7,11 @@
 # - Pinocchio, coal and eigenpy: docker/install_robotpkg.sh installs them from robotpkg into /opt/openrobots.
 # - Boost: no Boost package is installed explicitly. Pinocchio and coal pull the Boost 1.83 libraries they link as their
 #   own dependencies, and that is the only reason Boost is on the system.
-# - Abseil, Protocol Buffers, ZeroMQ and googletest: Bazel builds them from the BCR. A second copy of their headers on
-#   the compiler's default include path lets a target that misses a Bazel dependency compile against the wrong release
+# - Abseil, Protocol Buffers, Cyclone DDS and googletest: Bazel builds them from the BCR. A second copy of their headers
+#   on the compiler's default include path lets a target that misses a Bazel dependency compile against the wrong release
 #   (tools/hooks/test_include_style.py).
-# - ROS: the processes talk over ZeroMQ + Protocol Buffers and draw with Rerun (humanoid_nmpc/docs/distributed_runtime).
+# - ROS: the processes talk over Cyclone DDS + Protocol Buffers and draw with Rerun
+#   (humanoid_nmpc/docs/distributed_runtime).
 
 # Toolchain. cmake also builds blasfeo and hpipm in their repository rules (bazel/system_libs.bzl).
 clang-format

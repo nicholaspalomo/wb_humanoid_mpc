@@ -32,11 +32,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_wb_mpc/cost/EndEffectorDynamicsFootCost.h"
 
+#include <cmath>
+#include <memory>
 #include <string>
 
 #include "absl/log/log.h"
+#include "absl/memory/memory.h"
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "ocs2_core/Dimensions.h"
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
 #include "ocs2_robotic_tools/common/RotationTransforms.h"
 #include "pinocchio/algorithm/frames.hpp"
@@ -44,9 +50,74 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "pinocchio/multibody/data.hpp"
 #include "pinocchio/multibody/model.hpp"
 
+#include "humanoid_common_mpc/common/StatusMacros.h"
+#include "humanoid_common_mpc/cost/EndEffectorKinematicCostHelpers.h"
 #include "humanoid_wb_mpc/dynamics/DynamicsHelperFunctions.h"
 
 namespace ocs2::humanoid {
+
+namespace {
+
+// The parameters of the cost, one after the other: its reference (PlanarEndEffectorDynamicsReference), the square roots
+// of its weights (EndEffectorDynamicsWeights::toVector()) and the impact proximity scaler.
+constexpr int kSqrtWeightsOffset = kFootCostDim;
+constexpr int kImpactProximityScalerIndex = kSqrtWeightsOffset + kFootCostDim;
+constexpr int kParameterDim = kImpactProximityScalerIndex + 1;
+
+/**
+ * Returns InvalidArgument naming the first weight of `weights` that is negative or not finite: the cost weighs each
+ * error by the square root of its weight, which is NaN for a negative one.
+ */
+absl::Status checkWeights(const EndEffectorDynamicsWeights& weights) {
+  const VECTOR18_T<scalar_t> values = weights.toVector();
+  for (Eigen::Index i = 0; i < values.size(); ++i) {
+    // Negated, so that NaN is refused too.
+    if (!(values(i) >= 0.0) || !std::isfinite(values(i))) {
+      return absl::InvalidArgumentError(absl::StrCat("[EndEffectorDynamicsFootCost] weight ", i, " of the 18 is ", values(i),
+                                                     ": every weight must be finite and non-negative; the cost keeps its weights."));
+    }
+  }
+  return absl::OkStatus();
+}
+
+}  // namespace
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+
+absl::StatusOr<std::unique_ptr<EndEffectorDynamicsFootCost>> EndEffectorDynamicsFootCost::Create(
+    const SwitchedModelReferenceManager& referenceManager,
+    const EndEffectorDynamicsWeights& weights,
+    const PinocchioInterface& pinocchioInterface,
+    const WBAccelMpcRobotModel<ad_scalar_t>& mpcRobotModel,
+    size_t contactIndex,
+    const std::string& modelName,
+    const ModelSettings& modelSettings) {
+  RETURN_IF_ERROR(checkWeights(weights));
+  if (contactIndex >= modelSettings.contactNames.size()) {
+    return absl::InvalidArgumentError(absl::StrCat("[EndEffectorDynamicsFootCost] contact ", contactIndex, " of ",
+                                                   modelSettings.contactNames.size(), " contacts of model_settings"));
+  }
+  const std::string& frameName = modelSettings.contactNames[contactIndex];
+  if (!pinocchioInterface.getModel().existFrame(frameName)) {
+    return absl::NotFoundError(
+        absl::StrCat("[EndEffectorDynamicsFootCost] the contact frame \"", frameName, "\" is not a frame of the robot model"));
+  }
+  // The constructor is private, so std::make_unique cannot reach it.
+  return absl::WrapUnique(new EndEffectorDynamicsFootCost(referenceManager, weights, pinocchioInterface, mpcRobotModel, contactIndex,
+                                                          modelName, modelSettings));
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+
+absl::Status EndEffectorDynamicsFootCost::setWeights(const EndEffectorDynamicsWeights& weights) {
+  RETURN_IF_ERROR(checkWeights(weights));
+  sqrtWeights_ = weights.toVector().cwiseSqrt();
+  return absl::OkStatus();
+}
 
 /******************************************************************************************************/
 /******************************************************************************************************/
@@ -55,7 +126,6 @@ namespace ocs2::humanoid {
 EndEffectorDynamicsFootCost::EndEffectorDynamicsFootCost(const SwitchedModelReferenceManager& referenceManager,
                                                          const EndEffectorDynamicsWeights& weights,
                                                          const PinocchioInterface& pinocchioInterface,
-                                                         const EndEffectorDynamics<scalar_t>& endEffectorDynamics,
                                                          const WBAccelMpcRobotModel<ad_scalar_t>& mpcRobotModel,
                                                          size_t contactIndex,
                                                          const std::string& modelName,
@@ -66,9 +136,8 @@ EndEffectorDynamicsFootCost::EndEffectorDynamicsFootCost(const SwitchedModelRefe
       contactIndex_(contactIndex),
       frameID_(pinocchioInterface.getModel().getFrameId(modelSettings.contactNames[contactIndex])),
       pinocchioInterfaceCppAd_(pinocchioInterface.toCppAd()),
-      endEffectorDynamicsPtr_(endEffectorDynamics.clone()),
       mpcRobotModelPtr_(mpcRobotModel.clone()) {
-  initialize(mpcRobotModel.getStateDim(), mpcRobotModel.getInputDim(), /*parameterDim=*/37, modelName, modelSettings.modelFolderCppAd,
+  initialize(mpcRobotModel.getStateDim(), mpcRobotModel.getInputDim(), kParameterDim, modelName, modelSettings.modelFolderCppAd,
              modelSettings.recompileLibrariesCppAd);
   LOG(INFO) << "Frame ID: " << frameID_;
   LOG(INFO) << "Initialized EndEffectorDynamicsFootCost with weights: " << weights.toVector().transpose();
@@ -84,7 +153,7 @@ std::string EndEffectorDynamicsFootCost::termName(absl::string_view footName) {
 }
 
 std::string EndEffectorDynamicsFootCost::libraryModelName(absl::string_view footName) {
-  return absl::StrCat(footName, "_TaskSpaceTrackingCost");
+  return absl::StrCat(footName, "_TaskSpaceTrackingCost", kLibraryVersionSuffix);
 }
 // LINT.ThenChange(//humanoid_nmpc/humanoid_wb_mpc/test/testJointTorqueCostLibraryName.cpp:term_and_library_names)
 
@@ -99,7 +168,6 @@ EndEffectorDynamicsFootCost::EndEffectorDynamicsFootCost(const EndEffectorDynami
       contactIndex_(other.contactIndex_),
       frameID_(other.frameID_),
       pinocchioInterfaceCppAd_(other.pinocchioInterfaceCppAd_),
-      endEffectorDynamicsPtr_(other.endEffectorDynamicsPtr_->clone()),
       mpcRobotModelPtr_(other.mpcRobotModelPtr_->clone()) {}
 
 /******************************************************************************************************/
@@ -123,19 +191,20 @@ ad_vector_t EndEffectorDynamicsFootCost::costVectorFunction(ad_scalar_t /*time*/
   const pinocchio::SE3Tpl<ad_scalar_t> frameData = pinocchio::updateFramePlacement(model, data, frameID_);
 
   ad_vector3_t linearVelocity = pinocchio::getFrameVelocity(model, data, frameID_, rf).linear();
-  ad_quaternion_t orientation = matrixToQuaternion(frameData.rotation());
   ad_vector3_t angularVelocity = pinocchio::getFrameVelocity(model, data, frameID_, rf).angular();
   const pinocchio::MotionTpl<ad_scalar_t> accel = pinocchio::getFrameClassicalAcceleration(model, data, frameID_, rf);
   ad_vector3_t linearAccel = accel.linear();
   ad_vector3_t angularAccel = accel.angular();
 
-  const PlanarEndEffectorDynamicsReference<ad_scalar_t> reference(parameters.head(18));
-  const ad_vector_t sqrtWeightParams = parameters.segment(18, 18);  // EndEffectorDynamicsWeights vector element
-  const ad_scalar_t& impactProximityScaler = parameters[36];
+  const PlanarEndEffectorDynamicsReference<ad_scalar_t> reference(parameters.head(kFootCostDim));
+  const ad_vector_t sqrtWeightParams = parameters.segment(kSqrtWeightsOffset, kFootCostDim);  // EndEffectorDynamicsWeights vector element
+  const ad_scalar_t& impactProximityScaler = parameters[kImpactProximityScalerIndex];
 
+  // The orientation error is the tilt from the reference plane, in radians (tiltAngleToPlane()): its weights are per rad^2,
+  // as those of the centroidal foot cost and the end-effector costs.
   // LINT.IfChange(foot_cost_errors)
-  ad_vector_t errors(18);
-  errors << ad_vector3_t::Zero(), quaternionDistanceToPlane<ad_scalar_t>(orientation, reference.getPlaneNormal()),
+  ad_vector_t errors(kFootCostDim);
+  errors << ad_vector3_t::Zero(), tiltAngleToPlane<ad_scalar_t>(frameData.rotation(), reference.getPlaneNormal()),
       (linearVelocity - reference.getLinearVelocity()), (angularVelocity - reference.getAngularVelocity()),
       (linearAccel - reference.getLinearAcceleration()), (angularAccel - reference.getAngularAcceleration());
   // LINT.ThenChange(//humanoid_nmpc/humanoid_wb_mpc/src/config/costs/EndEffectorDynamicsWeightsFromConfig.cpp:inert_foot_cost_weights)
@@ -155,20 +224,21 @@ vector_t EndEffectorDynamicsFootCost::getParameters(scalar_t time,
   const scalar_t impactProximityScaler = referenceManagerPtr_->getSwingTrajectoryPlanner()->getImpactProximityFactor(contactIndex_, time);
 
   // TODO(npalomo): Update this reference for non flat ground in the future.
-  vector_t parameters(37);
-  parameters.head(3) = vector3_t(0.0, 0.0, 0.0);  // Reference position
+  vector_t parameters(kParameterDim);
+  parameters.head(kPositionDim) = vector3_t(0.0, 0.0, 0.0);  // Reference position
   // The ground's normal, tilted toe-up during a swing by swing_trajectory_config.swing_pitch_angle (exactly (0, 0, 1)
   // in contact and with the default pitch of 0), as the centroidal foot cost tracks it.
   // LINT.IfChange(foot_cost_ground_normal)
-  parameters.segment(3, 3) = referenceManagerPtr_->getSwingFootPlaneNormal(contactIndex_, time);
+  parameters.segment(kFootReferencePlaneNormalOffset, kPositionDim) = referenceManagerPtr_->getSwingFootPlaneNormal(contactIndex_, time);
   // LINT.ThenChange(//humanoid_nmpc/humanoid_wb_mpc/src/config/costs/EndEffectorDynamicsWeightsFromConfig.cpp:inert_foot_cost_weights)
-  parameters.segment(6, 3) = vector3_t(0.0, 0.0, 0.0);   // Reference linear velocity
-  parameters.segment(9, 3) = vector3_t(0.0, 0.0, 0.0);   // Reference angular velocity
-  parameters.segment(12, 3) = vector3_t(0.0, 0.0, 0.0);  // Reference linear acceleration
-  parameters.segment(15, 3) = vector3_t(0.0, 0.0, 0.0);  // Reference angular acceleration
-  parameters.segment(18, 18) = sqrtWeights_;             // EndEffectorDynamicsWeights vector element
+  // Reference linear and angular velocities and accelerations.
+  parameters.segment(kFootReferenceLinearVelocityOffset, kPositionDim) = vector3_t(0.0, 0.0, 0.0);
+  parameters.segment(kFootReferenceAngularVelocityOffset, kRotationTangentDim) = vector3_t(0.0, 0.0, 0.0);
+  parameters.segment(kFootReferenceLinearAccelerationOffset, kPositionDim) = vector3_t(0.0, 0.0, 0.0);
+  parameters.segment(kFootReferenceAngularAccelerationOffset, kRotationTangentDim) = vector3_t(0.0, 0.0, 0.0);
+  parameters.segment(kSqrtWeightsOffset, kFootCostDim) = sqrtWeights_;  // EndEffectorDynamicsWeights vector element
 
-  parameters[36] = impactProximityScaler;
+  parameters[kImpactProximityScalerIndex] = impactProximityScaler;
 
   return parameters;
 }

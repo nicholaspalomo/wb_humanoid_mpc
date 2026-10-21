@@ -29,6 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <ocs2_core/dynamics/SystemDynamicsBaseAD.h>
 
+#include <memory>
+
 namespace ocs2 {
 
 /******************************************************************************************************/
@@ -41,8 +43,10 @@ SystemDynamicsBaseAD::SystemDynamicsBaseAD() : SystemDynamicsBase() {}
 /******************************************************************************************************/
 SystemDynamicsBaseAD::SystemDynamicsBaseAD(const SystemDynamicsBaseAD& rhs)
     : SystemDynamicsBase(rhs),
-      flowMapADInterfacePtr_(new CppAdInterface(*rhs.flowMapADInterfacePtr_)),
-      jumpMapADInterfacePtr_(new CppAdInterface(*rhs.jumpMapADInterfacePtr_)),
+      stateDim_(rhs.stateDim_),
+      inputDim_(rhs.inputDim_),
+      flowMapADInterfacePtr_(std::make_unique<CppAdInterface>(*rhs.flowMapADInterfacePtr_, tapedFlowMap())),
+      jumpMapADInterfacePtr_(std::make_unique<CppAdInterface>(*rhs.jumpMapADInterfacePtr_, tapedJumpMap())),
       tapedTimeStateInput_(rhs.tapedTimeStateInput_.size()),
       tapedTimeState_(rhs.tapedTimeState_.size()) {}
 
@@ -51,23 +55,13 @@ SystemDynamicsBaseAD::SystemDynamicsBaseAD(const SystemDynamicsBaseAD& rhs)
 /******************************************************************************************************/
 void SystemDynamicsBaseAD::initialize(size_t stateDim, size_t inputDim, const std::string& modelName, const std::string& modelFolder,
                                       bool recompileLibraries, bool verbose) {
+  stateDim_ = stateDim;
+  inputDim_ = inputDim;
   tapedTimeStateInput_.resize(1 + stateDim + inputDim);
   tapedTimeState_.resize(1 + stateDim);
 
-  auto flowMap = [this, stateDim, inputDim](const ad_vector_t& x, ad_vector_t& y) {
-    const ad_scalar_t time = x(0);
-    const ad_vector_t state = x.segment(1, stateDim);
-    const ad_vector_t input = x.tail(inputDim);
-    y = this->systemFlowMap(time, state, input);
-  };
-  flowMapADInterfacePtr_.reset(new CppAdInterface(flowMap, 1 + stateDim + inputDim, modelName + "_flow_map", modelFolder));
-
-  auto jumpMap = [this, stateDim](const ad_vector_t& x, ad_vector_t& y) {
-    const ad_scalar_t time = x(0);
-    const ad_vector_t state = x.tail(stateDim);
-    y = this->systemJumpMap(time, state);
-  };
-  jumpMapADInterfacePtr_.reset(new CppAdInterface(jumpMap, 1 + stateDim, modelName + "_jump_map", modelFolder));
+  flowMapADInterfacePtr_ = std::make_unique<CppAdInterface>(tapedFlowMap(), 1 + stateDim + inputDim, modelName + "_flow_map", modelFolder);
+  jumpMapADInterfacePtr_ = std::make_unique<CppAdInterface>(tapedJumpMap(), 1 + stateDim, modelName + "_jump_map", modelFolder);
 
   if (recompileLibraries) {
     flowMapADInterfacePtr_->createModels(CppAdInterface::ApproximationOrder::First, verbose);
@@ -76,6 +70,32 @@ void SystemDynamicsBaseAD::initialize(size_t stateDim, size_t inputDim, const st
     flowMapADInterfacePtr_->loadModelsIfAvailable(CppAdInterface::ApproximationOrder::First, verbose);
     jumpMapADInterfacePtr_->loadModelsIfAvailable(CppAdInterface::ApproximationOrder::First, verbose);
   }
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+CppAdInterface::ad_function_t SystemDynamicsBaseAD::tapedFlowMap() const {
+  const size_t stateDim = stateDim_;
+  const size_t inputDim = inputDim_;
+  return [this, stateDim, inputDim](const ad_vector_t& x, ad_vector_t& y) {
+    const ad_scalar_t time = x(0);
+    const ad_vector_t state = x.segment(1, stateDim);
+    const ad_vector_t input = x.tail(inputDim);
+    y = this->systemFlowMap(time, state, input);
+  };
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+CppAdInterface::ad_function_t SystemDynamicsBaseAD::tapedJumpMap() const {
+  const size_t stateDim = stateDim_;
+  return [this, stateDim](const ad_vector_t& x, ad_vector_t& y) {
+    const ad_scalar_t time = x(0);
+    const ad_vector_t state = x.tail(stateDim);
+    y = this->systemJumpMap(time, state);
+  };
 }
 
 /******************************************************************************************************/

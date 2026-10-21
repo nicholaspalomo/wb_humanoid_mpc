@@ -43,6 +43,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 
 namespace ocs2::humanoid {
+namespace {
+
+/** The coefficient of the quadratic term of the smoothstep 3 u^2 - 2 u^3 (swingPitchProfile()). */
+constexpr scalar_t kSmoothStepQuadraticCoefficient = 3.0;
+
+}  // namespace
 
 /******************************************************************************************************/
 /******************************************************************************************************/
@@ -102,7 +108,7 @@ scalar_t SwingTrajectoryPlanner::swingPitchProfile(scalar_t tau) const {
   // fractions sum to more than one, in which case the profile simply never reaches its peak.
   const scalar_t rise = std::clamp(config_.swingPitchRiseFraction, 0.0, 1.0);
   const scalar_t fall = std::clamp(config_.swingPitchFallFraction, 0.0, 1.0 - rise);
-  const std::function<scalar_t(scalar_t)> smoothStep = [](scalar_t u) { return u * u * (3.0 - 2.0 * u); };
+  const std::function<scalar_t(scalar_t)> smoothStep = [](scalar_t u) { return u * u * (kSmoothStepQuadraticCoefficient - 2.0 * u); };
 
   if (tau <= 0.0 || tau >= 1.0) return 0.0;
   if (rise > 0.0 && tau < rise) return smoothStep(tau / rise);
@@ -170,7 +176,9 @@ void SwingTrajectoryPlanner::update(const ModeSchedule& modeSchedule,
   feet_array_t<std::vector<int>> startTimesIndices;
   feet_array_t<std::vector<int>> finalTimesIndices;
   for (size_t leg = 0; leg < numFeet_; ++leg) {
-    std::tie(startTimesIndices[leg], finalTimesIndices[leg]) = updateFootSchedule(eesContactFlagStocks[leg]);
+    FootSwingEventIndices swings = updateFootSchedule(eesContactFlagStocks[leg]);
+    startTimesIndices[leg] = std::move(swings.startTimeIndices);
+    finalTimesIndices[leg] = std::move(swings.finalTimeIndices);
   }
 
   for (size_t j = 0; j < numFeet_; ++j) {
@@ -200,75 +208,25 @@ void SwingTrajectoryPlanner::update(const ModeSchedule& modeSchedule,
       }
 
       if (!eesContactFlagStocks[j][p]) {
-        const scalar_t scaling = swingTrajectoryScaling(swingStartTime, swingFinalTime, config_.swingTimeScale);  // for leg in the air
-        // The pitch reference is evaluated on the whole swing, which may span several phases of the mode sequence.
+        // Every phase of a swing, which spans several phases in a gait with flight phases (run: the swing of one foot is
+        // FLY | other foot in stance | FLY), gets the same splines over the whole swing, so the references are
+        // continuous at the inner events and have one apex and one short-swing scaling per swing. The heights are read
+        // at the swing's first and last phase so that every phase of the swing reads the same ones.
+        const scalar_t scaling = swingTrajectoryScaling(swingStartTime, swingFinalTime, config_.swingTimeScale);
+        const scalar_t liftOffHeight = liftOffHeightSequence[j][swingStartIndex + 1];
+        const scalar_t touchDownHeight = touchDownHeightSequence[j][swingFinalIndex];
         SwingWindow window;
         window.isSwing = true;
         window.startTime = swingStartTime;
         window.finalTime = swingFinalTime;
         window.scaling = scaling;
         window.searching = searching;
-        window.descentStartHeight = touchDownHeightSequence[j][p];
+        window.descentStartHeight = touchDownHeight;
         window.descentVelocity = searching ? std::max(0.0, search->descentVelocity) : 0.0;
         swingWindows_[j].push_back(window);
-        if (eesContactFlagStocks[j][p - 1] && eesContactFlagStocks[j][p + 1]) {  // For a swing leg, only in the air for current mode
-
-          const CubicSpline::Node liftOffHeight{
-              .time = swingStartTime, .position = liftOffHeightSequence[j][p], .velocity = scaling * config_.liftOffVelocity};
-          const CubicSpline::Node touchDownHeight{
-              .time = swingFinalTime, .position = touchDownHeightSequence[j][p], .velocity = scaling * config_.touchDownVelocity};
-          const scalar_t midHeight = std::min(liftOffHeightSequence[j][p], touchDownHeightSequence[j][p]) + scaling * config_.swingHeight;
-          feetHeightTrajectories_[j].emplace_back(liftOffHeight, midHeight, touchDownHeight);
-
-          const CubicSpline::Node impactProximityLiftOff{
-              .time = swingStartTime, .position = 1.0, .velocity = scaling * config_.impactProximityFactorLiftOffVelocity};
-          const CubicSpline::Node impactProximityTouchDown{
-              .time = swingFinalTime, .position = 1.0, .velocity = scaling * config_.impactProximityFactorTouchDownVelocity};
-
-          impactProximityTrajectories_[j].emplace_back(impactProximityLiftOff, config_.impactProximityFactorMidPointValue,
-                                                       impactProximityTouchDown);
-        } else if (eesContactFlagStocks[j][p - 1]) {  // For foot just leaving the ground and staying in the air
-          const scalar_t midHeight = liftOffHeightSequence[j][p] + config_.swingHeight;
-          const CubicSpline::Node liftOffHeight{
-              .time = swingStartTime, .position = liftOffHeightSequence[j][p], .velocity = config_.liftOffVelocity};
-          const CubicSpline::Node touchDownHeight{.time = swingFinalTime, .position = midHeight, .velocity = 0.0};
-          feetHeightTrajectories_[j].emplace_back(liftOffHeight, midHeight, touchDownHeight);
-
-          const CubicSpline::Node impactProximityLiftOff{
-              .time = swingStartTime, .position = 1.0, .velocity = config_.impactProximityFactorLiftOffVelocity};
-          const CubicSpline::Node impactProximityTouchDown{
-              .time = swingFinalTime, .position = config_.impactProximityFactorMidPointValue, .velocity = 0.0};
-
-          impactProximityTrajectories_[j].emplace_back(impactProximityLiftOff, config_.impactProximityFactorMidPointValue,
-                                                       impactProximityTouchDown);
-        } else if (eesContactFlagStocks[j][p + 1]) {  // For foot that was in the air and is impacting in the next mode
-          const scalar_t midHeight = touchDownHeightSequence[j][p] + config_.swingHeight;
-          const CubicSpline::Node liftOffHeight{.time = swingStartTime, .position = midHeight, .velocity = 0.0};
-          const CubicSpline::Node touchDownHeight{
-              .time = swingFinalTime, .position = touchDownHeightSequence[j][p], .velocity = config_.touchDownVelocity};
-          feetHeightTrajectories_[j].emplace_back(liftOffHeight, midHeight, touchDownHeight);
-
-          const CubicSpline::Node impactProximityLiftOff{
-              .time = swingStartTime, .position = config_.impactProximityFactorMidPointValue, .velocity = 0.0};
-          const CubicSpline::Node impactProximityTouchDown{
-              .time = swingFinalTime, .position = 1.0, .velocity = config_.impactProximityFactorTouchDownVelocity};
-
-          impactProximityTrajectories_[j].emplace_back(impactProximityLiftOff, config_.impactProximityFactorMidPointValue,
-                                                       impactProximityTouchDown);
-        } else {  // For foot in the air for last, current and next mode
-          const scalar_t midHeight = touchDownHeightSequence[j][p] + config_.swingHeight;
-          const CubicSpline::Node liftOffHeight{.time = swingStartTime, .position = midHeight, .velocity = 0.0};
-          const CubicSpline::Node touchDownHeight{.time = swingFinalTime, .position = midHeight, .velocity = 0.0};
-          feetHeightTrajectories_[j].emplace_back(liftOffHeight, midHeight, touchDownHeight);
-
-          const CubicSpline::Node impactProximityLiftOff{
-              .time = swingStartTime, .position = config_.impactProximityFactorMidPointValue, .velocity = 0.0};
-          const CubicSpline::Node impactProximityTouchDown{
-              .time = swingFinalTime, .position = config_.impactProximityFactorMidPointValue, .velocity = 0.0};
-
-          impactProximityTrajectories_[j].emplace_back(impactProximityLiftOff, config_.impactProximityFactorMidPointValue,
-                                                       impactProximityTouchDown);
-        }
+        const SwingSplines splines = makeSwingSplines(window, liftOffHeight, touchDownHeight);
+        feetHeightTrajectories_[j].push_back(splines.height);
+        impactProximityTrajectories_[j].push_back(splines.impactProximity);
       } else {  // for a stance leg
         swingWindows_[j].push_back(SwingWindow{});
         // Note: setting the time here arbitrarily to 0.0 -> 1.0 makes the assert in CubicSpline fail
@@ -291,7 +249,32 @@ void SwingTrajectoryPlanner::update(const ModeSchedule& modeSchedule,
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-std::pair<std::vector<int>, std::vector<int>> SwingTrajectoryPlanner::updateFootSchedule(const std::vector<bool>& contactFlagStock) {
+SwingTrajectoryPlanner::SwingSplines SwingTrajectoryPlanner::makeSwingSplines(const SwingWindow& window,
+                                                                              scalar_t liftOffHeight,
+                                                                              scalar_t touchDownHeight) const {
+  const scalar_t scaling = window.scaling;
+  // The apex is swingHeight above the higher end, so that a step up taller than swingHeight still reaches the
+  // touch-down height from above rather than from below.
+  const scalar_t apexHeight = std::max(liftOffHeight, touchDownHeight) + scaling * config_.swingHeight;
+  const CubicSpline::Node heightLiftOff{.time = window.startTime, .position = liftOffHeight, .velocity = scaling * config_.liftOffVelocity};
+  const CubicSpline::Node heightTouchDown{
+      .time = window.finalTime, .position = touchDownHeight, .velocity = scaling * config_.touchDownVelocity};
+
+  const CubicSpline::Node impactProximityLiftOff{
+      .time = window.startTime, .position = 1.0, .velocity = scaling * config_.impactProximityFactorLiftOffVelocity};
+  const CubicSpline::Node impactProximityTouchDown{
+      .time = window.finalTime, .position = 1.0, .velocity = scaling * config_.impactProximityFactorTouchDownVelocity};
+  return SwingSplines{
+      .height = SplineCpg(heightLiftOff, apexHeight, heightTouchDown),
+      .impactProximity = SplineCpg(impactProximityLiftOff, config_.impactProximityFactorMidPointValue, impactProximityTouchDown),
+  };
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+
+SwingTrajectoryPlanner::FootSwingEventIndices SwingTrajectoryPlanner::updateFootSchedule(const std::vector<bool>& contactFlagStock) {
   const size_t numPhases = contactFlagStock.size();
 
   std::vector<int> startTimeIndexStock(numPhases, 0);
@@ -300,10 +283,12 @@ std::pair<std::vector<int>, std::vector<int>> SwingTrajectoryPlanner::updateFoot
   // find the startTime and finalTime indices for swing feet
   for (size_t i = 0; i < numPhases; ++i) {
     if (!contactFlagStock[i]) {
-      std::tie(startTimeIndexStock[i], finalTimeIndexStock[i]) = findIndex(i, contactFlagStock);
+      const SwingEventIndices swing = findIndex(i, contactFlagStock);
+      startTimeIndexStock[i] = swing.startTimeIndex;
+      finalTimeIndexStock[i] = swing.finalTimeIndex;
     }
   }
-  return {startTimeIndexStock, finalTimeIndexStock};
+  return FootSwingEventIndices{.startTimeIndices = std::move(startTimeIndexStock), .finalTimeIndices = std::move(finalTimeIndexStock)};
 }
 
 /******************************************************************************************************/
@@ -329,12 +314,12 @@ feet_array_t<std::vector<bool>> SwingTrajectoryPlanner::extractContactFlags(cons
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-std::pair<int, int> SwingTrajectoryPlanner::findIndex(size_t index, const std::vector<bool>& contactFlagStock) {
+SwingTrajectoryPlanner::SwingEventIndices SwingTrajectoryPlanner::findIndex(size_t index, const std::vector<bool>& contactFlagStock) {
   const size_t numPhases = contactFlagStock.size();
 
   // skip if it is a stance leg
   if (contactFlagStock[index]) {
-    return {0, 0};
+    return SwingEventIndices{.startTimeIndex = 0, .finalTimeIndex = 0};
   }
 
   // find the starting time
@@ -355,7 +340,7 @@ std::pair<int, int> SwingTrajectoryPlanner::findIndex(size_t index, const std::v
     }
   }
 
-  return {startTimesIndex, finalTimesIndex};
+  return SwingEventIndices{.startTimeIndex = startTimesIndex, .finalTimeIndex = finalTimesIndex};
 }
 
 /******************************************************************************************************/

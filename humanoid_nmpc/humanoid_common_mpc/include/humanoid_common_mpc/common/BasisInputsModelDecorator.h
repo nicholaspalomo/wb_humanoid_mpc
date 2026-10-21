@@ -40,6 +40,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/base/nullability.h"
 #include "absl/log/absl_check.h"
 #include "absl/status/statusor.h"
+#include "ocs2_core/Dimensions.h"
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
 #include "pinocchio/multibody/data.hpp"
 #include "pinocchio/multibody/model.hpp"
@@ -76,16 +77,14 @@ namespace ocs2::humanoid {
  * by numBasisPerFoot_ scaling variables.
  *
  * Template parameter SCALAR_T must match the wrapped model.
+ *
+ * The const methods are safe to call concurrently when the wrapped model's are: the frame rotations are computed on a
+ * copy of the Pinocchio data per call.
  */
 template <typename SCALAR_T>
 class BasisInputsModelDecorator : public MpcRobotModelBase<SCALAR_T> {
  public:
   using Base = MpcRobotModelBase<SCALAR_T>;
-
-  // Spatial wrench/force/moment dimensions.
-  static constexpr size_t kWrenchDim = 6;
-  static constexpr size_t kForceDim = 3;
-  static constexpr size_t kMomentDim = 3;
 
   /**
    * @param wrappedModel       The model to decorate (ownership transferred).
@@ -150,7 +149,8 @@ class BasisInputsModelDecorator : public MpcRobotModelBase<SCALAR_T> {
     const size_t jointDim = this->modelSettings.mpc_joint_dim;
     matrix_t M = matrix_t::Zero(wrenchInputDim, this->input_dim);
     for (size_t i = 0; i < kNumContacts; ++i) {
-      M.block(wrappedModel_->getContactWrenchStartIndices(i), getContactWrenchStartIndices(i), kWrenchDim, numBasisPerFoot_) = B_local_[i];
+      M.block(wrappedModel_->getContactWrenchStartIndices(i), getContactWrenchStartIndices(i), kContactWrenchDim, numBasisPerFoot_) =
+          B_local_[i];
     }
     M.block(wrappedModel_->getJointVelocitiesStartindex(), getJointVelocitiesStartindex(), jointDim, jointDim).setIdentity();
     return M;
@@ -289,8 +289,11 @@ class BasisInputsModelDecorator : public MpcRobotModelBase<SCALAR_T> {
    * getContactWrenchInWorldFrame(state, input, i) to obtain the world-frame wrench.
    */
   VECTOR6_T<SCALAR_T> getContactWrench(const VECTOR_T<SCALAR_T>& input, size_t contactIndex) const override {
-    const VECTOR_T<SCALAR_T> lambda = input.segment(getContactWrenchStartIndices(contactIndex), numBasisPerFoot_);
-    return B_local_[contactIndex].template cast<SCALAR_T>() * lambda;
+    // Into the fixed-size result, without a vector of the scalings in between: the realtime controllers call it.
+    VECTOR6_T<SCALAR_T> wrench;
+    wrench.noalias() =
+        B_local_[contactIndex].template cast<SCALAR_T>() * input.segment(getContactWrenchStartIndices(contactIndex), numBasisPerFoot_);
+    return wrench;
   }
 
   VECTOR3_T<SCALAR_T> getContactForce(const VECTOR_T<SCALAR_T>& input, size_t contactIndex) const override {
@@ -298,7 +301,7 @@ class BasisInputsModelDecorator : public MpcRobotModelBase<SCALAR_T> {
   }
 
   VECTOR3_T<SCALAR_T> getContactMoment(const VECTOR_T<SCALAR_T>& input, size_t contactIndex) const override {
-    return getContactWrench(input, contactIndex).template tail<kMomentDim>();
+    return getContactWrench(input, contactIndex).template tail<kTorqueDim>();
   }
 
   /**
@@ -334,7 +337,7 @@ class BasisInputsModelDecorator : public MpcRobotModelBase<SCALAR_T> {
 
   void setContactMoment(VECTOR_T<SCALAR_T>& input, const VECTOR3_T<SCALAR_T>& moment, size_t contactIndex) const override {
     VECTOR6_T<SCALAR_T> wrench = VECTOR6_T<SCALAR_T>::Zero();
-    wrench.template tail<kMomentDim>() = moment;
+    wrench.template tail<kTorqueDim>() = moment;
     setContactWrench(input, wrench, contactIndex);
   }
 
@@ -356,10 +359,14 @@ class BasisInputsModelDecorator : public MpcRobotModelBase<SCALAR_T> {
   VECTOR6_T<SCALAR_T> rotateWrenchLocalToWorld(const VECTOR_T<SCALAR_T>& state,
                                                const VECTOR6_T<SCALAR_T>& wrenchLocal,
                                                size_t contactIndex) const {
-    const MATRIX3_T<SCALAR_T> w_R_l = getContactFrameRotationLocalToWorld(state, contactIndex);
+    return rotateWrenchLocalToWorld(getContactFrameRotationLocalToWorld(state, contactIndex), wrenchLocal);
+  }
+
+  /** Rotates a local contact-frame wrench into the world frame with the contact frame's orientation `w_R_l`. */
+  static VECTOR6_T<SCALAR_T> rotateWrenchLocalToWorld(const MATRIX3_T<SCALAR_T>& w_R_l, const VECTOR6_T<SCALAR_T>& wrenchLocal) {
     VECTOR6_T<SCALAR_T> wrenchWorld;
     wrenchWorld.template head<kForceDim>() = w_R_l * wrenchLocal.template head<kForceDim>();
-    wrenchWorld.template tail<kMomentDim>() = w_R_l * wrenchLocal.template tail<kMomentDim>();
+    wrenchWorld.template tail<kTorqueDim>() = w_R_l * wrenchLocal.template tail<kTorqueDim>();
     return wrenchWorld;
   }
 
@@ -370,7 +377,7 @@ class BasisInputsModelDecorator : public MpcRobotModelBase<SCALAR_T> {
     const MATRIX3_T<SCALAR_T> l_R_w = getContactFrameRotationLocalToWorld(state, contactIndex).transpose();
     VECTOR6_T<SCALAR_T> wrenchLocal;
     wrenchLocal.template head<kForceDim>() = l_R_w * wrenchWorld.template head<kForceDim>();
-    wrenchLocal.template tail<kMomentDim>() = l_R_w * wrenchWorld.template tail<kMomentDim>();
+    wrenchLocal.template tail<kTorqueDim>() = l_R_w * wrenchWorld.template tail<kTorqueDim>();
     return wrenchLocal;
   }
 
@@ -378,6 +385,12 @@ class BasisInputsModelDecorator : public MpcRobotModelBase<SCALAR_T> {
                                                    const VECTOR_T<SCALAR_T>& input,
                                                    size_t contactIndex) const override {
     return rotateWrenchLocalToWorld(state, getContactWrench(input, contactIndex), contactIndex);
+  }
+
+  VECTOR6_T<SCALAR_T> getContactWrenchInWorldFrameGivenRotation(const VECTOR_T<SCALAR_T>& input,
+                                                                const MATRIX3_T<SCALAR_T>& contactFrameRotation,
+                                                                size_t contactIndex) const override {
+    return rotateWrenchLocalToWorld(contactFrameRotation, getContactWrench(input, contactIndex));
   }
 
   VECTOR3_T<SCALAR_T> getContactForceInWorldFrame(const VECTOR_T<SCALAR_T>& state,
@@ -389,7 +402,7 @@ class BasisInputsModelDecorator : public MpcRobotModelBase<SCALAR_T> {
   VECTOR3_T<SCALAR_T> getContactMomentInWorldFrame(const VECTOR_T<SCALAR_T>& state,
                                                    const VECTOR_T<SCALAR_T>& input,
                                                    size_t contactIndex) const override {
-    return getContactWrenchInWorldFrame(state, input, contactIndex).template tail<kMomentDim>();
+    return getContactWrenchInWorldFrame(state, input, contactIndex).template tail<kTorqueDim>();
   }
 
   void setContactWrenchInWorldFrame(const VECTOR_T<SCALAR_T>& state,

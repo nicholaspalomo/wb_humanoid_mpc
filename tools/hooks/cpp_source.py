@@ -226,7 +226,7 @@ def _tokenize(source: str, keep_preprocessor: bool) -> tuple[Token, ...]:
         if c in "uULR":
             raw = _RAW_STRING.match(source, i)
             if raw:
-                terminator = ")" + raw.group(1) + '"'
+                terminator = f'){raw.group(1)}"'
                 end = source.find(terminator, raw.end())
                 end = n if end < 0 else end + len(terminator)
                 emit(STRING, i, end)
@@ -339,7 +339,7 @@ def mask(source: str) -> tuple[str, str]:
             if j < n and source[j] == '"' and word.group(0) in _RAW_STRING_PREFIXES:
                 opening = _RAW_STRING_OPENING.match(source, j)
                 if opening:
-                    terminator = ")" + opening.group(1) + '"'
+                    terminator = f'){opening.group(1)}"'
                     end = source.find(terminator, opening.end())
                     end = n if end < 0 else end + len(terminator)
                     _blank(code, j, end)
@@ -486,8 +486,21 @@ CODE_SCOPE = "code"  # function bodies, lambdas and the blocks inside them
 INIT_SCOPE = "init"  # braced initializers
 
 _CLASS_KEYS = frozenset({"class", "struct", "union"})
+# The specifiers after a function's or a lambda's parameter list that can stand right before its body.
 _FUNCTION_QUALIFIERS = frozenset(
-    {"const", "override", "final", "noexcept", "mutable", "volatile", "try", "&", "&&"}
+    {
+        "const",
+        "override",
+        "final",
+        "noexcept",
+        "mutable",
+        "volatile",
+        "try",
+        "&",
+        "&&",
+        "constexpr",
+        "consteval",
+    }
 )
 
 
@@ -522,7 +535,7 @@ def _brace_kind(tokens: tuple[Token, ...], index: int, kinds: dict[int, str]) ->
         return NAMESPACE_SCOPE
     if texts[:1] == ["extern"] and len(texts) == 2 and header[1].kind == STRING:
         return NAMESPACE_SCOPE
-    if "enum" in texts:
+    if _declares_enum(texts):
         return ENUM_SCOPE
     has_parenthesis = "(" in texts
     for k, token in enumerate(header):
@@ -540,9 +553,37 @@ def _brace_kind(tokens: tuple[Token, ...], index: int, kinds: dict[int, str]) ->
     ):
         return CODE_SCOPE
     if previous.kind == IDENTIFIER or previous.text in (">", ">>"):
-        # `auto f() -> T {` is a body; `Type name{...}` and `T{...}` are braced initializers.
-        return CODE_SCOPE if "->" in texts else INIT_SCOPE
+        # `auto f() -> T {` and `[](T x) requires C<T> {` are bodies; `Type name{...}` and `T{...}` are braced
+        # initializers.
+        is_body = "->" in texts or ("requires" in texts and previous.text != "requires")
+        return CODE_SCOPE if is_body else INIT_SCOPE
     return CODE_SCOPE
+
+
+def _declares_enum(texts: list[str]) -> bool:
+    """Tells whether the header of a `{` declares an enum.
+
+    Args:
+      texts: The texts of the header's tokens, from the previous statement boundary to the `{`.
+
+    Returns:
+      True for an `enum` outside parentheses (not a parameter's type) with no parameter list after it: `enum Color
+      parse(int x) {` is a function returning an elaborated enum type. A `(` after `decltype` or `alignas` is not a
+      parameter list (`enum E : decltype(kX) {`).
+    """
+    depth = 0
+    enum_seen = False
+    for k, text in enumerate(texts):
+        if text == "(" and enum_seen and depth == 0:
+            if k == 0 or texts[k - 1] not in ("decltype", "alignas"):
+                return False
+        if text in ("(", "["):
+            depth += 1
+        elif text in (")", "]"):
+            depth -= 1
+        elif text == "enum" and depth == 0:
+            enum_seen = True
+    return enum_seen
 
 
 def _is_label(tokens: tuple[Token, ...], colon: int) -> bool:
@@ -640,6 +681,38 @@ def _structure(
     if start is not None:
         found.append(Statement(start, n, tuple(stack), None))
     return tuple(scope_of), tuple(found)
+
+
+@functools.lru_cache(maxsize=16)
+def code_bodies_in_initializers(source: str) -> tuple[tuple[int, int], ...]:
+    """Finds the code bodies, lambdas', inside the braced initializers of `source`.
+
+    scopes() and statements() take a braced initializer whole, as part of the statement around it, so a lambda body
+    inside one is in INIT_SCOPE there. This finds those bodies: the outermost `{` inside an initializer that opens code
+    (after a lambda's `]`, `)`, specifiers, trailing return type or requires clause) and its `}`.
+
+    Args:
+      source: C++ source.
+
+    Returns:
+      The indices of each body's `{` and `}` among the code tokens of `source` (code_tokens()), in order.
+    """
+    tokens = code_tokens(source)
+    in_scopes = scopes(source)
+    bodies = []
+    k = 0
+    while k < len(tokens):
+        if (
+            tokens[k].text == "{"
+            and in_scopes[k][-1:] == (INIT_SCOPE,)
+            and _brace_kind(tokens, k, {}) == CODE_SCOPE
+        ):
+            close = matching(tokens, k)
+            bodies.append((k, close))
+            k = close + 1
+            continue
+        k += 1
+    return tuple(bodies)
 
 
 def scopes(source: str) -> tuple[tuple[str, ...], ...]:

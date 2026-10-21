@@ -30,7 +30,7 @@ cc_library(
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
         "@cpp-httplib//:httplib",
-        "@cppzmq",
+        "@cyclonedds//:ddsc",
         "@eigen",
         "@glew",
         "@glfw",

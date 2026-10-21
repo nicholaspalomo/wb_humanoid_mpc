@@ -31,11 +31,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <string>
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/contact_planning/logic/ContactLogicHelpers.h"
 
 namespace ocs2::humanoid {
 
-static_assert(kNumContacts == 2, "the no-flight rule is written for a biped");
+static_assert(kNumContacts == kBipedFootCount, "the no-flight rule is written for a biped");
 
 std::string NoFlightRule::describe() const {
   return "c_L + c_R >= 1 at every node";

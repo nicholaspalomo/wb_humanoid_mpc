@@ -29,6 +29,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
+#include <limits>
 #include <memory>
 #include <string>
 #include <utility>
@@ -45,7 +46,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_mpc_config/task_file.nproto.h"
-#include "humanoid_nmpc/humanoid_wb_mpc/test/AffineEndEffectorDynamics.h"
 #include "humanoid_nmpc/humanoid_wb_mpc/test/live_tuning/WholeBodyLiveTuningFixture.h"
 #include "humanoid_wb_mpc/WBMpcInterface.h"
 #include "humanoid_wb_mpc/WBMpcPreComputation.h"
@@ -127,38 +127,75 @@ ModelSettings::FootConstraintConfig retunedFootGains(const WBMpcInterface& inter
   return gains;
 }
 
+/** The foot cost of contact `foot` of `interface` with `weights`, or null (a test failure) when Create() refuses them. */
+std::unique_ptr<EndEffectorDynamicsFootCost> footCost(WBMpcInterface& interface, const EndEffectorDynamicsWeights& weights, size_t foot) {
+  absl::StatusOr<std::unique_ptr<EndEffectorDynamicsFootCost>> created = EndEffectorDynamicsFootCost::Create(
+      *interface.getSwitchedModelReferenceManagerPtr(), weights, interface.getPinocchioInterface(), interface.getMpcRobotModelAD(), foot,
+      EndEffectorDynamicsFootCost::libraryModelName(interface.modelSettings().contactNames[foot]), interface.modelSettings());
+  EXPECT_TRUE(created.ok()) << created.status();
+  return created.ok() ? *std::move(created) : nullptr;
+}
+
+/** The joint torque cost of `interface` with `weights`, or null (a test failure) when Create() refuses them. */
+std::unique_ptr<JointTorqueCostCppAd> jointTorqueCost(WBMpcInterface& interface, const vector_t& weights) {
+  absl::StatusOr<std::unique_ptr<JointTorqueCostCppAd>> created =
+      JointTorqueCostCppAd::Create(weights, interface.getPinocchioInterface(), interface.getMpcRobotModelAD(),
+                                   JointTorqueCostCppAd::kLibraryCostName, interface.modelSettings());
+  EXPECT_TRUE(created.ok()) << created.status();
+  return created.ok() ? *std::move(created) : nullptr;
+}
+
 TEST(WholeBodyTermSetters, TheFootCostsSetWeightsEqualsAFootCostBuiltWithThem) {
   WBMpcInterface* absl_nullable const interface = shippedWholeBodyMpc();
   ASSERT_NE(interface, nullptr);
   expectQuaternionLayout(*interface);
   const std::vector<EvaluationPoint> points = evaluationPoints(*interface, kNumPoints);
-  // The cost keeps a clone of the end-effector dynamics and never evaluates it: a stand-in does.
-  const test_support::AffineEndEffectorDynamics footDynamics;
   for (size_t foot = 0; foot < kNumContacts; ++foot) {
     scheduleOneSwing(*interface, foot);
     const std::string& footName = interface->modelSettings().contactNames[foot];
-    const std::string modelName = EndEffectorDynamicsFootCost::libraryModelName(footName);
-    EndEffectorDynamicsFootCost retuned(*interface->getSwitchedModelReferenceManagerPtr(), EndEffectorDynamicsWeights(),
-                                        interface->getPinocchioInterface(), footDynamics, interface->getMpcRobotModelAD(), foot, modelName,
-                                        interface->modelSettings());
-    retuned.setWeights(retunedFootWeights());
-    const EndEffectorDynamicsFootCost fresh(*interface->getSwitchedModelReferenceManagerPtr(), retunedFootWeights(),
-                                            interface->getPinocchioInterface(), footDynamics, interface->getMpcRobotModelAD(), foot,
-                                            modelName, interface->modelSettings());
+    const std::unique_ptr<EndEffectorDynamicsFootCost> retuned = footCost(*interface, EndEffectorDynamicsWeights(), foot);
+    const std::unique_ptr<EndEffectorDynamicsFootCost> fresh = footCost(*interface, retunedFootWeights(), foot);
+    const std::unique_ptr<EndEffectorDynamicsFootCost> unchanged = footCost(*interface, EndEffectorDynamicsWeights(), foot);
+    ASSERT_TRUE(retuned != nullptr && fresh != nullptr && unchanged != nullptr);
+    ASSERT_EQ(retuned->setWeights(retunedFootWeights()), absl::OkStatus());
     SCOPED_TRACE(footName);
-    expectSameCost(fresh, retuned, points);
+    expectSameCost(*fresh, *retuned, points);
     // Positive control: the weights reach the cost.
-    const EndEffectorDynamicsFootCost unchanged(*interface->getSwitchedModelReferenceManagerPtr(), EndEffectorDynamicsWeights(),
-                                                interface->getPinocchioInterface(), footDynamics, interface->getMpcRobotModelAD(), foot,
-                                                modelName, interface->modelSettings());
     const PreComputation preComputation;
     const EvaluationPoint& swing = points.front();
-    EXPECT_NE(unchanged.getValue(swing.time, swing.state, swing.input, TargetTrajectories(), preComputation),
-              fresh.getValue(swing.time, swing.state, swing.input, TargetTrajectories(), preComputation));
+    EXPECT_NE(unchanged->getValue(swing.time, swing.state, swing.input, TargetTrajectories(), preComputation),
+              fresh->getValue(swing.time, swing.state, swing.input, TargetTrajectories(), preComputation));
     // A copy, the solver's per-worker clone, carries them.
-    const std::unique_ptr<EndEffectorDynamicsFootCost> workerCopy(retuned.clone());
-    expectSameCost(fresh, *workerCopy, points);
+    const std::unique_ptr<EndEffectorDynamicsFootCost> workerCopy(retuned->clone());
+    expectSameCost(*fresh, *workerCopy, points);
   }
+}
+
+TEST(WholeBodyTermSetters, ANegativeOrNanFootCostWeightIsRefusedAndChangesNothing) {
+  // The cost weighs each error by the square root of its weight: a negative weight would be a NaN in the running cost.
+  WBMpcInterface* absl_nullable const interface = shippedWholeBodyMpc();
+  ASSERT_NE(interface, nullptr);
+  expectQuaternionLayout(*interface);
+  const std::vector<EvaluationPoint> points = evaluationPoints(*interface, /*count=*/2);
+  const size_t foot = 0;
+  scheduleOneSwing(*interface, foot);
+  EndEffectorDynamicsWeights negative = retunedFootWeights();
+  negative.contactLinearVelocityErrorWeight.y() = -1.0;
+  EndEffectorDynamicsWeights nan = retunedFootWeights();
+  nan.contactAngularAccelerationErrorWeight.z() = std::numeric_limits<scalar_t>::quiet_NaN();
+  const std::unique_ptr<EndEffectorDynamicsFootCost> cost = footCost(*interface, retunedFootWeights(), foot);
+  const std::unique_ptr<EndEffectorDynamicsFootCost> original = footCost(*interface, retunedFootWeights(), foot);
+  ASSERT_TRUE(cost != nullptr && original != nullptr);
+  for (const EndEffectorDynamicsWeights& refusedWeights : {negative, nan}) {
+    EXPECT_EQ(cost->setWeights(refusedWeights).code(), absl::StatusCode::kInvalidArgument);
+    const absl::StatusOr<std::unique_ptr<EndEffectorDynamicsFootCost>> created = EndEffectorDynamicsFootCost::Create(
+        *interface->getSwitchedModelReferenceManagerPtr(), refusedWeights, interface->getPinocchioInterface(),
+        interface->getMpcRobotModelAD(), foot, EndEffectorDynamicsFootCost::libraryModelName(interface->modelSettings().contactNames[foot]),
+        interface->modelSettings());
+    EXPECT_EQ(created.status().code(), absl::StatusCode::kInvalidArgument);
+  }
+  // The refused updates kept the running weights.
+  expectSameCost(*original, *cost, points);
 }
 
 TEST(WholeBodyTermSetters, TheJointTorqueCostsSetWeightsEqualsAJointTorqueCostBuiltWithThem) {
@@ -170,29 +207,37 @@ TEST(WholeBodyTermSetters, TheJointTorqueCostsSetWeightsEqualsAJointTorqueCostBu
   const Eigen::Index numJoints = static_cast<Eigen::Index>(interface->getMpcRobotModel().getJointDim());
   vector_t weights(numJoints);
   for (Eigen::Index j = 0; j < numJoints; ++j) weights(j) = 0.5 + 0.25 * static_cast<scalar_t>(j % 7);
-  JointTorqueCostCppAd retuned(vector_t::Ones(numJoints), interface->getPinocchioInterface(), interface->getMpcRobotModelAD(),
-                               JointTorqueCostCppAd::kLibraryCostName, interface->modelSettings());
-  ASSERT_EQ(retuned.setWeights(weights), absl::OkStatus());
-  const JointTorqueCostCppAd fresh(weights, interface->getPinocchioInterface(), interface->getMpcRobotModelAD(),
-                                   JointTorqueCostCppAd::kLibraryCostName, interface->modelSettings());
-  expectSameCost(fresh, retuned, points);
-  const std::unique_ptr<JointTorqueCostCppAd> workerCopy(retuned.clone());
-  expectSameCost(fresh, *workerCopy, points);
+  const std::unique_ptr<JointTorqueCostCppAd> retuned = jointTorqueCost(*interface, vector_t::Ones(numJoints));
+  const std::unique_ptr<JointTorqueCostCppAd> fresh = jointTorqueCost(*interface, weights);
+  ASSERT_TRUE(retuned != nullptr && fresh != nullptr);
+  ASSERT_EQ(retuned->setWeights(weights), absl::OkStatus());
+  expectSameCost(*fresh, *retuned, points);
+  const std::unique_ptr<JointTorqueCostCppAd> workerCopy(retuned->clone());
+  expectSameCost(*fresh, *workerCopy, points);
 }
 
-TEST(WholeBodyTermSetters, AJointTorqueWeightCountThatIsNotOnePerJointIsRefusedAndChangesNothing) {
+TEST(WholeBodyTermSetters, AJointTorqueWeightCountThatIsNotOnePerJointOrANegativeOrNanWeightIsRefusedAndChangesNothing) {
   WBMpcInterface* absl_nullable const interface = variantWholeBodyMpc();
   ASSERT_NE(interface, nullptr);
   expectQuaternionLayout(*interface);
   const std::vector<EvaluationPoint> points = evaluationPoints(*interface, /*count=*/2);
   const Eigen::Index numJoints = static_cast<Eigen::Index>(interface->getMpcRobotModel().getJointDim());
-  JointTorqueCostCppAd cost(vector_t::Ones(numJoints), interface->getPinocchioInterface(), interface->getMpcRobotModelAD(),
-                            JointTorqueCostCppAd::kLibraryCostName, interface->modelSettings());
-  const absl::Status refused = cost.setWeights(vector_t::Constant(numJoints + 1, /*value=*/2.0));
-  EXPECT_EQ(refused.code(), absl::StatusCode::kInvalidArgument) << refused;
-  const JointTorqueCostCppAd original(vector_t::Ones(numJoints), interface->getPinocchioInterface(), interface->getMpcRobotModelAD(),
-                                      JointTorqueCostCppAd::kLibraryCostName, interface->modelSettings());
-  expectSameCost(original, cost, points);
+  const std::unique_ptr<JointTorqueCostCppAd> cost = jointTorqueCost(*interface, vector_t::Ones(numJoints));
+  const std::unique_ptr<JointTorqueCostCppAd> original = jointTorqueCost(*interface, vector_t::Ones(numJoints));
+  ASSERT_TRUE(cost != nullptr && original != nullptr);
+  vector_t negative = vector_t::Constant(numJoints, /*value=*/2.0);
+  negative(numJoints - 1) = -0.5;
+  vector_t nan = vector_t::Constant(numJoints, /*value=*/2.0);
+  nan(0) = std::numeric_limits<scalar_t>::quiet_NaN();
+  for (const vector_t& refusedWeights : {vector_t(vector_t::Constant(numJoints + 1, /*value=*/2.0)), negative, nan}) {
+    const absl::Status refused = cost->setWeights(refusedWeights);
+    EXPECT_EQ(refused.code(), absl::StatusCode::kInvalidArgument) << refused;
+    const absl::StatusOr<std::unique_ptr<JointTorqueCostCppAd>> created =
+        JointTorqueCostCppAd::Create(refusedWeights, interface->getPinocchioInterface(), interface->getMpcRobotModelAD(),
+                                     JointTorqueCostCppAd::kLibraryCostName, interface->modelSettings());
+    EXPECT_EQ(created.status().code(), absl::StatusCode::kInvalidArgument);
+  }
+  expectSameCost(*original, *cost, points);
 }
 
 TEST(WholeBodyTermSetters, TheStanceConfigHasEachGainOnItsDiagonal) {

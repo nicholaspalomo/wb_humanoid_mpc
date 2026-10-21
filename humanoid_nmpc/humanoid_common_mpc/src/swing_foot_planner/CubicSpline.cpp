@@ -31,6 +31,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/swing_foot_planner/CubicSpline.h"
 
 namespace ocs2::humanoid {
+namespace {
+
+/**
+ * The degree of the spline, the factor its cubic term's derivative brings in (d(t^3)/dt = 3 t^2), and with it the
+ * Hermite coefficients that the end velocity condition p'(1) = c1 + 2 c2 + 3 c3 gives.
+ */
+constexpr scalar_t kCubicDegree = 3.0;
+/** The factor of the cubic term's second derivative, d^2(t^3)/dt^2 = 6 t. */
+constexpr scalar_t kCubicSecondDerivativeFactor = 6.0;
+
+}  // namespace
 
 /******************************************************************************************************/
 /******************************************************************************************************/
@@ -45,12 +56,12 @@ CubicSpline::CubicSpline(Node start, Node end) {
 
   dc0_ = 0.0;
   dc1_ = start.velocity;
-  dc2_ = -(3.0 * start.velocity + dv);
+  dc2_ = -(kCubicDegree * start.velocity + dv);
   dc3_ = (2.0 * start.velocity + dv);
 
   c0_ = dc0_ * dt_ + start.position;
   c1_ = dc1_ * dt_;
-  c2_ = dc2_ * dt_ + 3.0 * dp;
+  c2_ = dc2_ * dt_ + kCubicDegree * dp;
   c3_ = dc3_ * dt_ - 2.0 * dp;
 }
 
@@ -67,7 +78,7 @@ scalar_t CubicSpline::position(scalar_t time) const {
 /******************************************************************************************************/
 scalar_t CubicSpline::velocity(scalar_t time) const {
   scalar_t tn = normalizedTime(time);
-  return (3.0 * c3_ * tn * tn + 2.0 * c2_ * tn + c1_) / dt_;
+  return (kCubicDegree * c3_ * tn * tn + 2.0 * c2_ * tn + c1_) / dt_;
 }
 
 /******************************************************************************************************/
@@ -75,7 +86,7 @@ scalar_t CubicSpline::velocity(scalar_t time) const {
 /******************************************************************************************************/
 scalar_t CubicSpline::acceleration(scalar_t time) const {
   scalar_t tn = normalizedTime(time);
-  return (6.0 * c3_ * tn + 2.0 * c2_) / (dt_ * dt_);
+  return (kCubicSecondDerivativeFactor * c3_ * tn + 2.0 * c2_) / (dt_ * dt_);
 }
 
 /******************************************************************************************************/

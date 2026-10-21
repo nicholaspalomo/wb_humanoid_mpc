@@ -34,6 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 #include "absl/status/statusor.h"
+#include "ocs2_core/Dimensions.h"
 
 #include <ocs2_core/Types.h>
 #include <ocs2_core/manifold/StateManifold.h>
@@ -84,6 +85,8 @@ class ProductStateManifold final : public StateManifold {
   void interpolateInto(const vector_t& x0, const vector_t& x1, scalar_t alpha, vector_t& x) const override;
   void project(vector_t& x) const override;
   scalar_t getMaximumRotationAngle(const vector_t& dx) const override;
+  /** False when a quaternion block's |xi|^2 is not above kQuaternionNormalizationEpsilon^2 (the guard), NaN included. */
+  bool hasRepresentableRotations(const vector_t& x) const override;
   void pullBackStateColumns(const vector_t& x, matrix_t& J) const override;
   void pullBackStateRows(const vector_t& x, matrix_t& M) const override;
   void pullBackGradient(const vector_t& x, vector_t& g) const override;
@@ -104,14 +107,16 @@ class ProductStateManifold final : public StateManifold {
   explicit ProductStateManifold(std::vector<StateManifoldSegment> segments);
 
   /** M <- M with the columns of each quaternion block multiplied by columnMaps[k] (4 x 3), the others shifted. */
-  void mapQuaternionColumns(const std::vector<Eigen::Matrix<scalar_t, 4, 3>>& columnMaps, matrix_t& M) const;
+  void mapQuaternionColumns(const std::vector<Eigen::Matrix<scalar_t, kQuaternionCoefficients, kRotationTangentDim>>& columnMaps,
+                            matrix_t& M) const;
 
   /** M <- M with the rows of each quaternion block replaced by rowMaps[k] (3 x 4) times them, the others shifted. */
   template <typename Derived>
-  void mapQuaternionRows(const std::vector<Eigen::Matrix<scalar_t, 3, 4>>& rowMaps, Eigen::PlainObjectBase<Derived>& M) const;
+  void mapQuaternionRows(const std::vector<Eigen::Matrix<scalar_t, kRotationTangentDim, kQuaternionCoefficients>>& rowMaps,
+                         Eigen::PlainObjectBase<Derived>& M) const;
 
   /** E(xi) of every quaternion block of x. */
-  std::vector<Eigen::Matrix<scalar_t, 4, 3>> tangentMaps(const vector_t& x) const;
+  std::vector<Eigen::Matrix<scalar_t, kQuaternionCoefficients, kRotationTangentDim>> tangentMaps(const vector_t& x) const;
 
   std::vector<StateManifoldSegment> segments_;
   std::vector<Block> blocks_;

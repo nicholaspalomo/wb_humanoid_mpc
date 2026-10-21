@@ -35,6 +35,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/base/nullability.h"
 #include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 #include "ocs2_core/cost/StateInputGaussNewtonCostAd.h"
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
@@ -64,14 +65,16 @@ class JointTorqueCostCppAd final : public StateInputCostGaussNewtonAd {
   // LINT.ThenChange(//humanoid_nmpc/humanoid_wb_mpc/test/testJointTorqueCostLibraryName.cpp:term_and_library_names)
 
   /**
-   * Tapes, or loads, the library libraryName(costName) under modelSettings.modelFolderCppAd. `weights` has one entry
-   * per joint of `mpcRobotModel` (checked: a mismatch is a programming error); the robot model is cloned.
+   * Tapes, or loads, the library libraryName(costName) under modelSettings.modelFolderCppAd; the robot model is cloned.
+   *
+   * @return InvalidArgument when `weights` does not have one entry per joint of `mpcRobotModel`, or has one that is
+   *         negative or not finite (the cost weighs each torque by the square root of its weight).
    */
-  JointTorqueCostCppAd(const vector_t& weights,
-                       const PinocchioInterface& pinocchioInterface,
-                       const WBAccelMpcRobotModel<ad_scalar_t>& mpcRobotModel,
-                       const std::string& costName,
-                       const ModelSettings& modelSettings);
+  static absl::StatusOr<std::unique_ptr<JointTorqueCostCppAd>> Create(const vector_t& weights,
+                                                                      const PinocchioInterface& pinocchioInterface,
+                                                                      const WBAccelMpcRobotModel<ad_scalar_t>& mpcRobotModel,
+                                                                      const std::string& costName,
+                                                                      const ModelSettings& modelSettings);
 
   ~JointTorqueCostCppAd() override = default;
   JointTorqueCostCppAd& operator=(const JointTorqueCostCppAd&) = delete;
@@ -97,11 +100,17 @@ class JointTorqueCostCppAd final : public StateInputCostGaussNewtonAd {
    * Weighs the joint torques by `weights` from the next evaluation on, as a cost built with them would: they are the
    * parameters of the taped function. For the parameter updater, between solves.
    *
-   * @return InvalidArgument when `weights` does not have one entry per joint of the cost, which then keeps its weights.
+   * @return InvalidArgument when `weights` does not have one entry per joint of the cost, or has one that is negative or
+   *         not finite; the cost then keeps its weights.
    */
   absl::Status setWeights(const vector_t& weights);
 
  private:
+  JointTorqueCostCppAd(const vector_t& weights,
+                       const PinocchioInterface& pinocchioInterface,
+                       const WBAccelMpcRobotModel<ad_scalar_t>& mpcRobotModel,
+                       const std::string& costName,
+                       const ModelSettings& modelSettings);
   JointTorqueCostCppAd(const JointTorqueCostCppAd& other);
 
   ad_vector_t costVectorFunction(ad_scalar_t time,

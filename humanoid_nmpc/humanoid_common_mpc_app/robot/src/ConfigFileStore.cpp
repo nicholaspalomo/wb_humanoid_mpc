@@ -73,7 +73,6 @@ namespace {
 using Result = humanoid_mpc_msgs::ConfigFileSaveStatus::Result;
 
 constexpr double kLogPeriodSeconds = 5.0;
-constexpr absl::string_view kBackupSuffix = ".bak";
 
 /** What the messages call the file of `kind`. */
 absl::string_view kindName(msgs::ConfigFileKind kind) {
@@ -409,7 +408,8 @@ humanoid_mpc_msgs::ConfigFileSaveStatus ConfigFileStore::write(const PendingSave
     return answerOf(kind, save.sequence, save.configPath, humanoid_mpc_msgs::ConfigFileSaveStatus::RESULT_UNCHANGED,
                     absl::StrCat(path, " holds this text already"), path);
   }
-  absl::Status backedUp = current.ok() ? writeFileAtomically(absl::StrCat(path, kBackupSuffix), *current) : absl::OkStatus();
+  absl::Status backedUp =
+      current.ok() ? writeFileAtomically(absl::StrCat(path, kStoredConfigFileBackupSuffix), *current) : absl::OkStatus();
   if (absl::IsDataLoss(backedUp)) {
     // The backup is there, only perhaps not after a power loss: the save goes on.
     LOG(WARNING) << "[ConfigFileStore] " << backedUp.message();
@@ -428,7 +428,7 @@ humanoid_mpc_msgs::ConfigFileSaveStatus ConfigFileStore::write(const PendingSave
                     absl::StrCat("writing failed, the robot's copy is the one it had: ", written.message()), path);
   }
   LOG(INFO) << "[ConfigFileStore] Stored the saved " << kindName(save.kind) << " in " << path << " (the copy it replaced: " << path
-            << kBackupSuffix << ").";
+            << kStoredConfigFileBackupSuffix << ").";
   return answerOf(kind, save.sequence, save.configPath, humanoid_mpc_msgs::ConfigFileSaveStatus::RESULT_SAVED,
                   absl::StrCat("stored in ", path), path);
 }

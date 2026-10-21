@@ -81,19 +81,17 @@ C_SYSTEM_HEADERS = frozenset(
 C_SYSTEM_DIRECTORIES = frozenset(
     "sys arpa asm asm-generic bits gnu net netinet protocols rpc rpcsvc scsi drm linux misc mtd rdma sound video xen".split()
 )
-# Third-party headers that have no directory of their own: cppzmq and libzmq, cpp-httplib's single header and
-# libjpeg-turbo's TurboJPEG API (MODULE.bazel), and HPIPM and BLASFEO, which install their headers flat
-# (bazel/system_libs.bzl). .clang-format's include categories sort them with the other libraries.
+# Third-party headers that have no directory of their own: cpp-httplib's single header and libjpeg-turbo's TurboJPEG
+# API (MODULE.bazel), and HPIPM and BLASFEO, which install their headers flat (bazel/system_libs.bzl). .clang-format's
+# include categories sort them with the other libraries.
 # LINT.IfChange(directoryless_third_party)
-DIRECTORYLESS_THIRD_PARTY = frozenset(
-    {"zmq.hpp", "zmq_addon.hpp", "zmq.h", "httplib.h", "turbojpeg.h"}
-)
+DIRECTORYLESS_THIRD_PARTY = frozenset({"httplib.h", "turbojpeg.h"})
 _DIRECTORYLESS_THIRD_PARTY_PATTERN = re.compile(r"^(hpipm|blasfeo)_[a-z0-9_]+\.h$")
 # LINT.ThenChange(//.clang-format:include_categories)
 
 
 def is_directoryless_third_party(header: str) -> bool:
-    """True for a third-party header that its library installs without a directory, such as `zmq.hpp`."""
+    """True for a third-party header that its library installs without a directory, such as `httplib.h`."""
     return header in DIRECTORYLESS_THIRD_PARTY or bool(
         _DIRECTORYLESS_THIRD_PARTY_PATTERN.match(header)
     )

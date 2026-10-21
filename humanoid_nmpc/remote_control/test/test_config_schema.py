@@ -195,7 +195,7 @@ class WalkTest(unittest.TestCase):
     def test_an_absent_optional_block_and_a_deprecated_field_are_left_out(self):
         self.assertFalse(any(path.startswith("gate") for path in self.specs))
         self.assertNotIn("old_gain", self.specs)
-        with_gate = _specs(TEXT + "gate { }\n")
+        with_gate = _specs(f"{TEXT}gate {{ }}\n")
         self.assertEqual(
             with_gate["gate.rate"].source, config_schema.ValueSource.DEFAULT
         )
@@ -218,7 +218,7 @@ class WalkTest(unittest.TestCase):
         self.assertEqual(self.specs["times[0]"].label, "times[0]")
         self.assertEqual(self.specs["weights.position.x"].label, "position.x")
         self.assertEqual(self.specs["weights.scaling"].label, "scaling")
-        duplicate = _specs(TEXT + 'gains { joint: "l_leg_kny" kp: 1 }\n')
+        duplicate = _specs(f'{TEXT}gains {{ joint: "l_leg_kny" kp: 1 }}\n')
         self.assertIn(
             "gains[1].kp", duplicate
         )  # keys that are not unique select nothing: by index
@@ -274,6 +274,44 @@ class WalkTest(unittest.TestCase):
                 config_schema.Condition("mode", ("MODE_WALK", "MODE_STAND")),
             ),
         )
+
+    def test_minimum_is_inherited_from_a_block_and_overridden_by_a_field(self):
+        parent = config_schema.Tuning(minimum=10.0)
+        # default_gains does not set minimum, so it inherits parent.minimum.
+        block_field = (
+            joint_pd_gains_file_pb2.JointPdGainsFile.DESCRIPTOR.fields_by_name[
+                "default_gains"
+            ]
+        )
+        inherited = config_schema.inherit(parent, block_field)
+        self.assertEqual(inherited.minimum, 10.0)
+
+        # kp sets minimum = 0, so it overrides parent.minimum.
+        leaf_field = (
+            joint_pd_gains_file_pb2.JointPdGainsFile.Gains.DESCRIPTOR.fields_by_name[
+                "kp"
+            ]
+        )
+        overridden = config_schema.inherit(parent, leaf_field)
+        self.assertEqual(overridden.minimum, 0.0)
+
+    def test_the_base_controller_label_is_each_fields_own(self):
+        task = task_file_pb2.TaskFile.DESCRIPTOR
+        estimator = task.fields_by_name["contact_estimator"]
+        own = config_schema.inherit(config_schema.Tuning(), estimator)
+        self.assertEqual(own.base_controller_label, "Contact estimator")
+        # A block's label does not reach the fields below it, with or without options of their own.
+        parent = config_schema.Tuning(base_controller_label="Block")
+        for name in ("terrain_height", "multiple_shooting"):
+            with self.subTest(field=name):
+                inherited = config_schema.inherit(parent, task.fields_by_name[name])
+                self.assertEqual(inherited.base_controller_label, "")
+        # Only choices carry one in the shipped task schema, so that the Base Controller tab can offer each as a
+        # drop-down.
+        for field in config_schema.schema_fields(task):
+            if field.tuning.base_controller_label:
+                with self.subTest(path=field.path):
+                    self.assertEqual(field.kind, config_schema.Kind.CHOICE)
 
     def test_tabs_of_top_level_blocks(self):
         self.assertEqual(

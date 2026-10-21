@@ -1,6 +1,6 @@
 # tools/ipc
 
-Inspects the ZeroMQ bus of the distributed runtime from the command line: the topics it carries, their messages and
+Inspects the Cyclone DDS bus of the distributed runtime from the command line: the topics it carries, their messages and
 their rates.
 The bus itself is described in [`humanoid_nmpc/docs/distributed_runtime/README.md`](../../humanoid_nmpc/docs/distributed_runtime/README.md).
 
@@ -18,20 +18,25 @@ Or run the built binary directly: `.bazel/bin/tools/ipc/ipc_tool list`.
 ## How it listens
 
 The tool only receives. It reads the network file (`--network_config`, default `config/ipc/network.textproto`, looked
-up from the directory the tool was started in and then from the repository root) and connects one SUB socket to the
-endpoint of **every** node in it, so it sees a topic whichever process publishes it, and processes may start before
-or after it. The file is read with the bus library's own loader (`robot_ipc.load_network_config`, see
-[`robot_runtime/robot_ipc`](../../robot_runtime/robot_ipc/README.md)), so the tool accepts exactly the files the
-processes accept and reports a malformed one alike, with its line and column. The receiving half of the bus contract
-is implemented on pyzmq directly, so the tool checks the documented framing rather than reusing `robot_ipc.Bus`.
+up from the directory the tool was started in and then from the repository root) and joins its DDS domain as a bus
+that only subscribes (`robot_ipc.Bus("", network)`), with discovery sent to the host of **every** node, so it sees a
+topic whichever process publishes it, and processes may start before or after it. The file is read with the bus
+library's own loader (`robot_ipc.load_network_config`, see [`robot_runtime/robot_ipc`](../../robot_runtime/robot_ipc/README.md)),
+so the tool accepts exactly the files the processes accept and reports a malformed one alike, with its line and column.
+`list` discovers the topics from the DDS writers it sees, so it shows a topic from the first sample written after its
+writer was discovered; `echo` and `hz` subscribe to the one topic they are given.
 
-Every message is three frames: the topic, the full protobuf type name and the payload. The tool imports every
-generated module of `humanoid_mpc_msgs` and of `humanoid_mpc_config` (the configuration files the tuning GUI publishes
-whole on `operator/mpc_parameters` and `operator/pd_gains`), so the protobuf default descriptor pool knows every
-message, and decodes a payload by the type name of its second frame. A message of a type outside those packages is
-described (`# type: unknown message type, N bytes`) rather than decoded.
+Every topic is a DDS topic of the same name whose samples are one `robot_ipc::Envelope`: the wire protocol's version
+(`kWireProtocolVersion`, `robot_runtime/robot_ipc/include/robot_ipc/WireProtocol.h`), the writer's sequence number,
+the full protobuf type name and the payload; a sample of another protocol version is counted as malformed and skipped.
+The tool imports every generated module of `humanoid_mpc_msgs` and of `humanoid_mpc_config` (the configuration files
+the tuning GUI publishes whole on `operator/mpc_parameters` and `operator/pd_gains`), so the protobuf default descriptor
+pool knows every message, and decodes a payload by the type name its envelope carries. A message of a type outside
+those packages is described (`# type: unknown message type, N bytes`) rather than decoded.
 
-ZeroMQ filters subscriptions by prefix; `echo` and `hz` drop messages whose topic only starts with the requested one.
+`echo` prints the newest message when it cannot keep up (a large topic such as `mpc/policy` arrives faster than it is
+formatted): it takes what waits, prints the last one and writes `# skipped N message(s)` to stderr, so that the output
+stays current and no backlog piles up in the tool.
 
 ## Subcommands
 
@@ -44,10 +49,12 @@ ZeroMQ filters subscriptions by prefix; `echo` and `hz` drop messages whose topi
 <!-- LINT.IfChange(output_formats) -->
 `--format text` (the default) prints each message in protobuf text format, a textproto that
 `google.protobuf.text_format.Parse` reads back into the message type. Unlike `text_format.MessageToString`, it prints
-every field, fields at their default value included (`healthy: false`, `time_trajectory: []`, an unset submessage as
-its defaults), so that a zero reads as a zero rather than as a missing line; repeated scalars are one list
-(`data: [0.0, 0.5]`), enums print by name, and a oneof member that is not set is a `# name: not set` comment.
-`--format json` prints the same values as JSON, which `google.protobuf.json_format.ParseDict` reads back.
+every field, fields at their default value included (`healthy: false`, `time_trajectory: []`, an unset submessage of a
+proto3 message as its defaults), so that a zero reads as a zero rather than as a missing line; repeated scalars are one
+list (`data: [0.0, 0.5]`), enums print by name, and a field that tracks presence and is not set - a oneof member, a
+proto3 `optional` field, a field of an edition-2023 file such as the tuning payloads' gains, where absent means "the
+controller's default" - is a `# name: not set` comment. `--format json` prints the same values as JSON, an unset field
+of those as `null`, which `google.protobuf.json_format.ParseDict` reads back.
 
 ```textproto
 solver_status {
@@ -76,10 +83,10 @@ Exit status: 0 on success, 1 when the expected messages did not arrive (`echo` r
 | File | Contents |
 |---|---|
 | `ipc_tool.py` | the command line (`main`, `run_list`, `run_echo`, `run_hz`) |
-| `bus_listener.py` | the network file (through `robot_ipc`) and `BusListener`, the SUB socket |
+| `bus_listener.py` | the network file (through `robot_ipc`) and `BusListener`, a subscribe-only bus feeding a queue |
 | `message_decoding.py` | decoding by type name, field paths, the output formats |
 | `topic_statistics.py` | `RateStatistics` for `hz`, `TopicCensus` for `list` |
-| `bus_test_publisher.py` | test-only: a raw PUB socket on an ephemeral loopback port, and a network file naming it |
+| `bus_test_publisher.py` | test-only: publishers of raw messages and envelopes on the test's own DDS domain, and its network file |
 
-`bazel test //tools/ipc/...` runs the tests; the end-to-end ones publish with a raw pyzmq PUB socket in the bus's
-framing on loopback.
+`bazel test //tools/ipc/...` runs the tests; the end-to-end ones publish raw messages through a bus of the test
+process's own DDS domain and tag (`robot_ipc.isolated_test_network()`), so tests that run at once never see each other.

@@ -251,7 +251,7 @@ class ValueEditTest(unittest.TestCase):
 
     def test_absent_fields_are_inserted(self):
         result = self.edit(textproto_save.SetValue("sfixed32_value", -3))
-        self.assertEqual(result.text, SCALARS_TEXT + "sfixed32_value: -3\n")
+        self.assertEqual(result.text, f"{SCALARS_TEXT}sfixed32_value: -3\n")
         self.assertEqual(result.message.sfixed32_value, -3)
 
     def test_edit_leaves_the_parsed_file_as_it_was(self):
@@ -520,7 +520,7 @@ scalars { string_value: "l_leg_hpx" double_value: 25 }  # hip roll
             self.edit(
                 textproto_save.SetValue("scalars[int32_value=3].double_value", 1.0)
             )  # not a string: not created
-        twice = self.TASK + 'scalars { string_value: "back_bkz" }\n'
+        twice = f'{self.TASK}scalars {{ string_value: "back_bkz" }}\n'
         with self.assertRaises(textproto_save.SaveError):
             textproto_save.apply_edits(
                 twice,

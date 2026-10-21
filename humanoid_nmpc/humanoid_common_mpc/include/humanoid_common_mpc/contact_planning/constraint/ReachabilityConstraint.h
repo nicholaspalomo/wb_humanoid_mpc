@@ -40,6 +40,8 @@ namespace ocs2::humanoid {
  * `reachability` (soft, every node): -reachX <= e_x . (p_i - c) <= reachX and reachYInner <= side_i e_y . (p_i - c) <=
  * reachYOuter (side +1 for the left foot, -1 for the right), with the first-order heading term of the frame. Imposed at
  * the terminal node too: the foothold of a swing that ends at the horizon is a state of node N.
+ *
+ * Not thread-safe, like every ContactPlanningTerm: the planner that owns it configures and evaluates it from one thread at a time.
  */
 class ReachabilityConstraint final : public LipConstraintBase {
  public:

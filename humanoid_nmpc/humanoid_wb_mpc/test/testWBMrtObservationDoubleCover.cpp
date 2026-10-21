@@ -54,6 +54,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/orientation/EulerBoundary.h"
 #include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
 #include "humanoid_mpc_config/task_file.nproto.h"
+#include "humanoid_nmpc/humanoid_common_mpc/test/support/StatusTestMacros.h"
 #include "humanoid_wb_mpc/common/WBAccelMpcRobotModel.h"
 #include "humanoid_wb_mpc/mrt/WBMpcMrtJointController.h"
 #include "robot_core/ResourcePaths.h"
@@ -132,14 +133,15 @@ class WholeBodyController {
  public:
   WholeBodyController()
       // LINT.IfChange(robot_files)
-      : task_(loadTaskFile(robot::resolveResourcePath("robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.textproto").value()).value()),
-        urdfFile_(robot::resolveResourcePath("robot_models/unitree_g1/g1_description/urdf/g1_29dof.urdf").value()),
+      : task_(checkedValue(
+            loadTaskFile(checkedValue(robot::resolveResourcePath("robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.textproto"))))),
+        urdfFile_(checkedValue(robot::resolveResourcePath("robot_models/unitree_g1/g1_description/urdf/g1_29dof.urdf"))),
         // LINT.ThenChange(//humanoid_nmpc/humanoid_wb_mpc/BUILD.bazel:double_cover_test_data)
-        modelSettings_(ModelSettings::Create(task_, urdfFile_, "wb_mpc_", /*verbose=*/false).value()),
-        pinocchioInterface_(loadCustomPinocchioInterface(task_, urdfFile_, modelSettings_).value()),
+        modelSettings_(checkedValue(ModelSettings::Create(task_, urdfFile_, "wb_mpc_", /*verbose=*/false))),
+        pinocchioInterface_(checkedValue(loadCustomPinocchioInterface(task_, urdfFile_, modelSettings_))),
         model_(modelSettings_),
-        mpc_(toMpcSettings(task_.mpc), model_.getInputDim()),
-        description_(robot::model::RobotDescription::Create(urdfFile_).value()),
+        mpc_(*toMpcSettings(task_.mpc), model_.getInputDim()),
+        description_(checkedValue(robot::model::RobotDescription::Create(urdfFile_))),
         robotState_(description_),
         action_(description_) {
     mpcJointIndices_ = description_.getJointIndices(modelSettings_.mpcModelJointNames);
@@ -147,7 +149,8 @@ class WholeBodyController {
     InProcessMpcLink::Config config;
     config.execution = InProcessMpcLink::Execution::kCaller;
     absl::StatusOr<std::unique_ptr<WBMpcMrtJointController>> created = WBMpcMrtJointController::Create(
-        description_, modelSettings_, InProcessMpcLink::factory(mpc_, std::move(config), &link_), pinocchioInterface_);
+        description_, modelSettings_, InProcessMpcLink::factory(mpc_, std::move(config), &link_), pinocchioInterface_,
+        checkedValue(robot::resolveResourcePath("robot_models/unitree_g1/g1_wb_mpc/config/controller/joint_pd_gains.textproto")));
     EXPECT_TRUE(created.ok()) << created.status();
     if (created.ok()) controller_ = *std::move(created);
   }

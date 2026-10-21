@@ -51,6 +51,13 @@ inline constexpr std::array<msgs::ConfigFileKind, 3> kStoredConfigFileKinds = {
 
 inline constexpr size_t kNumStoredConfigFileKinds = kStoredConfigFileKinds.size();
 
+/** The suffix of the copy of a stored file's previous contents both stores write before they replace the file. */
+// LINT.IfChange(stored_config_backup_suffix)
+inline constexpr absl::string_view kStoredConfigFileBackupSuffix = ".bak";
+// clang-format off
+// LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_app/robot/README.md:config_store_layout, //tools/deploy/README.md:config_store_layout)
+// clang-format on
+
 /** Returns the index of `kind` in kStoredConfigFileKinds; nullopt for a kind the robot does not store (kUnspecified). */
 std::optional<size_t> storedConfigFileKindIndex(msgs::ConfigFileKind kind);
 

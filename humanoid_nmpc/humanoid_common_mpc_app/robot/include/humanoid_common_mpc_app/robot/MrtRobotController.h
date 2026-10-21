@@ -45,6 +45,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
+ * [Hz] The control frequency of the realtime loop of a robot process over an MrtRobotController when the task file sets
+ * no positive mrt_desired_frequency.
+ */
+inline constexpr scalar_t kMrtFallbackControlFrequency = 100.0;
+
+/**
  * The order in which a cycle hands its mode and posture to the controller, per formulation: the centroidal robot process
  * sets the mode first, the whole-body robot process the posture first.
  */
@@ -56,6 +62,8 @@ enum class CycleInputOrder {
 /**
  * RobotController over an MRT joint controller of either formulation; both have the same interface. Owns the
  * controller.
+ *
+ * Not thread-safe: the realtime thread drives it, as RobotController says.
  */
 template <typename Controller>
 class MrtRobotController final : public RobotController {

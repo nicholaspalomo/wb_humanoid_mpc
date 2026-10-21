@@ -30,12 +30,18 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
 #include <algorithm>
+#include <array>
+#include <set>
 #include <string>
+#include <string_view>
 #include <vector>
 
+#include "absl/base/nullability.h"
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/str_split.h"
 #include "absl/strings/string_view.h"
+#include "google/protobuf/descriptor.h"
 #include "gtest/gtest.h"
 
 #include "humanoid_centroidal_mpc/mrt/CentroidalMpcParameterUpdater.h"
@@ -142,6 +148,74 @@ TEST(HotFieldCoverage, EveryFormulationNameOfTheSchemaIsAFormulation) {
       EXPECT_TRUE(isKnown) << leaf.path << " names the formulation \"" << name << "\", which is not \"" << kCentroidalFormulation
                            << "\" or \"" << kWholeBodyFormulation << "\"";
     }
+  }
+}
+
+/** The field at the leaf path `path` of the task file ("a.b[*].c"), or null when there is none. */
+const google::protobuf::FieldDescriptor* absl_nullable fieldAt(absl::string_view path) {
+  const google::protobuf::Descriptor* absl_nullable message = humanoid_mpc_config::TaskFile::descriptor();
+  const google::protobuf::FieldDescriptor* absl_nullable field = nullptr;
+  for (absl::string_view segment : absl::StrSplit(path, '.')) {
+    if (message == nullptr) return nullptr;
+    if (absl::EndsWith(segment, "[*]")) segment.remove_suffix(std::string_view("[*]").size());
+    field = message->FindFieldByName(segment);
+    if (field == nullptr) return nullptr;
+    message = field->message_type();
+  }
+  return field;
+}
+
+bool isNumber(const google::protobuf::FieldDescriptor& field) {
+  switch (field.cpp_type()) {
+    case google::protobuf::FieldDescriptor::CPPTYPE_DOUBLE:
+    case google::protobuf::FieldDescriptor::CPPTYPE_FLOAT:
+    case google::protobuf::FieldDescriptor::CPPTYPE_INT32:
+    case google::protobuf::FieldDescriptor::CPPTYPE_INT64:
+    case google::protobuf::FieldDescriptor::CPPTYPE_UINT32:
+    case google::protobuf::FieldDescriptor::CPPTYPE_UINT64:
+      return true;
+    default:
+      return false;
+  }
+}
+
+/**
+ * The RELOAD_HOT leaves of the task file that hold no number (a bool, an enum, a registry name, a name list) and the
+ * test that shows each one applied as a fresh start would apply it: the live-update parity tests
+ * (humanoid_centroidal_mpc:testLiveUpdateEqualsFreshStart, humanoid_wb_mpc:testWholeBodyLiveUpdateEqualsFreshStart)
+ * perturb numbers only.
+ */
+/** A RELOAD_HOT leaf without a number, and the test that shows it applied live as a fresh start reads it. */
+struct NonNumericHotLeaf {
+  const char* absl_nonnull path;
+  const char* absl_nonnull test;
+};
+
+constexpr std::array<NonNumericHotLeaf, 3> kNonNumericHotLeaves = {{
+    {.path = "arm_swing.generator",
+     .test = "humanoid_common_mpc:parameter_update_test, TheArmSwingGeneratorIsAppliedLiveAsAFreshStartReadsIt"},
+    {.path = "contacts.basis_regularization",
+     .test = "humanoid_centroidal_mpc:testMpcParameterUpdaterModule, TheRegularizationOfTheBasisSpaceInputCostIsReloadedByName"},
+    {.path = "model_settings.foot_constraint.stance_constraint",
+     .test = "humanoid_centroidal_mpc:testMpcParameterUpdaterModule, AStanceConstraintReloadChangesTheRowsOfTheHardZeroVelocityTermItself"},
+}};
+
+TEST(HotFieldCoverage, EveryHotLeafThatIsNotANumberNamesTheTestThatAppliesIt) {
+  std::set<std::string> found;
+  for (const ConfigLeaf& leaf : taskFileLeaves()) {
+    if (!leaf.tunable || leaf.reload != ConfigReload::kHot || !isReadByTheMpc(leaf.consumer)) continue;
+    const google::protobuf::FieldDescriptor* absl_nullable field = fieldAt(leaf.path);
+    ASSERT_NE(field, nullptr) << leaf.path;
+    if (!isNumber(*field)) found.insert(leaf.path);
+  }
+  std::set<std::string> listed;
+  for (const NonNumericHotLeaf& entry : kNonNumericHotLeaves) listed.insert(entry.path);
+  for (const std::string& path : found) {
+    EXPECT_TRUE(listed.contains(path)) << path << " is RELOAD_HOT and holds no number, which the live-update parity tests do not "
+                                       << "perturb: add a case that applies it live and from a fresh start, and list it here";
+  }
+  for (const std::string& path : listed) {
+    EXPECT_TRUE(found.contains(path)) << path << " is listed but is no RELOAD_HOT leaf without a number";
   }
 }
 

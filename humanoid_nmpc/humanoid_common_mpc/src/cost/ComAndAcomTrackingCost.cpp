@@ -44,6 +44,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "ocs2_core/Dimensions.h"
 #include "pinocchio/algorithm/center-of-mass.hpp"
 #include "pinocchio/multibody/data.hpp"
 #include "pinocchio/multibody/model.hpp"
@@ -116,11 +117,11 @@ absl::StatusOr<std::vector<std::string>> ComAndAcomTrackingCost::actuatedJointNa
 }
 
 absl::Status ComAndAcomTrackingCost::validateWeights(const matrix_t& Q_com, const matrix_t& Q_acom) {
-  if (Q_com.rows() != 3 || Q_com.cols() != 3) {
+  if (Q_com.rows() != kPositionDim || Q_com.cols() != kPositionDim) {
     return absl::InvalidArgumentError(
         absl::StrCat("[ComAndAcomTrackingCost] Q_com, the weight of com_weights, must be 3x3, got ", Q_com.rows(), "x", Q_com.cols(), "."));
   }
-  if (Q_acom.rows() != 3 || Q_acom.cols() != 3) {
+  if (Q_acom.rows() != kRotationTangentDim || Q_acom.cols() != kRotationTangentDim) {
     return absl::InvalidArgumentError(absl::StrCat("[ComAndAcomTrackingCost] Q_acom, the weight of acom_weights, must be 3x3, got ",
                                                    Q_acom.rows(), "x", Q_acom.cols(), "."));
   }
@@ -234,7 +235,7 @@ ScalarFunctionQuadraticApproximation ComAndAcomTrackingCost::getQuadraticApproxi
       headingTiltError(acom_->acomAttitude(mpcRobotModelPtr_->getBaseOrientation(state), qJoints), acomAttitudeOf(stateRef));
   const AcomAttitudeTangentJacobian acomTangent = acom_->acomAttitudeTangentJacobian(qJoints);
   const matrix_t baseRotationJacobian = mpcRobotModelPtr_->getBaseRotationTangentJacobian(state);  // 3 x orientation slots
-  matrix_t J_acom_dx = matrix_t::Zero(3, static_cast<Eigen::Index>(mpcRobotModelPtr_->getStateDim()));
+  matrix_t J_acom_dx = matrix_t::Zero(kRotationTangentDim, static_cast<Eigen::Index>(mpcRobotModelPtr_->getStateDim()));
   J_acom_dx.middleCols(static_cast<Eigen::Index>(mpcRobotModelPtr_->getBaseOrientationStartIndex()), baseRotationJacobian.cols()) =
       acomError.jacobianBodyTangent * acomTangent.baseOrientation * baseRotationJacobian;
   J_acom_dx.middleCols(static_cast<Eigen::Index>(mpcRobotModelPtr_->getJointStartindex()), acomTangent.jointAngles.cols()) =

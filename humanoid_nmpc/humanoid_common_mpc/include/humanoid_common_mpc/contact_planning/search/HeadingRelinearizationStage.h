@@ -44,6 +44,8 @@ namespace ocs2::humanoid {
  * around the incumbent's own heading and footholds and re-solve the QP with the contacts fixed (successive
  * linearization), within the plan's time budget, so that the frame the constraints were written in is the frame the
  * plan actually turns through.
+ *
+ * Not thread-safe, like every ContactPlanningTerm: the planner that owns it configures and evaluates it from one thread at a time.
  */
 class HeadingRelinearizationStage final : public SearchStage {
  public:

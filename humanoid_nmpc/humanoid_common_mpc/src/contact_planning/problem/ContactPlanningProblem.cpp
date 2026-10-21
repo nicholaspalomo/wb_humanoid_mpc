@@ -52,6 +52,11 @@ namespace ocs2::humanoid {
 
 namespace {
 
+// The blocks the model starts with, lip_com and foothold_integrator, which own the layout.
+constexpr int kLeadingModelBlocks = 2;
+// The propagation runs at most this many passes per node to reach its fixpoint.
+constexpr int kMaxPropagationPassesPerNode = 4;
+
 template <typename T>
 absl::Status checkRequiredBlocks(const TermCollection<T>& collection, const TermCollection<LipModelBlock>& model, absl::string_view what) {
   for (size_t i = 0; i < collection.size(); ++i) {
@@ -93,8 +98,8 @@ void describeAll(std::string& out, absl::string_view title, const TermCollection
 }  // namespace
 
 absl::Status ContactPlanningProblem::finalize(const ContactPlanningConfig& config) {
-  if (model.size() < 2 || !model.has(term::kLipCom) || !model.has(term::kFootholdIntegrator) || model.nameAt(0) != term::kLipCom ||
-      model.nameAt(1) != term::kFootholdIntegrator) {
+  if (model.size() < kLeadingModelBlocks || !model.has(term::kLipCom) || !model.has(term::kFootholdIntegrator) ||
+      model.nameAt(0) != term::kLipCom || model.nameAt(1) != term::kFootholdIntegrator) {
     return absl::InvalidArgumentError(absl::StrCat("[ContactPlanningProblem] the model must start with the '", term::kLipCom, "' and '",
                                                    term::kFootholdIntegrator, "' blocks"));
   }
@@ -143,10 +148,10 @@ absl::StatusOr<OcpQpProblem> ContactPlanningProblem::assemble(const ContactPlann
   for (int k = 0; k <= N; ++k) {
     const bool terminal = (k == N);
     OcpQpStage& s = problem.stages[static_cast<size_t>(k)];
-    s = OcpQpStage::Zero(nx, terminal ? 0 : nu, !terminal);
+    s = OcpQpStage::Zero(nx, terminal ? 0 : nu, terminal ? OcpQpStageKind::kTerminal : OcpQpStageKind::kIntermediate);
 
     // Costs, in collection order (the accumulation order of the stage matrices).
-    StageAccumulator accumulator(s);
+    StageAccumulator accumulator(&s);
     for (const std::unique_ptr<LipCost>& cost : costs) {
       if (nodeSetContains(cost->nodeSet(), k, N)) cost->addToStage(ctx, k, accumulator);
     }
@@ -185,7 +190,7 @@ std::vector<MiqpBinaryVariable> ContactPlanningProblem::binaryVariables(int numN
 bool ContactPlanningProblem::propagate(const ContactLogicState& state, MiqpAssignment& a) const {
   // The rules are run to a fixpoint. Every rule reads the live assignment, so it sees what the others - and the same
   // rule earlier in the same pass - have already fixed; a pass that fixes nothing ends the propagation.
-  for (int pass = 0; pass < 4 * state.numNodes; ++pass) {
+  for (int pass = 0; pass < kMaxPropagationPassesPerNode * state.numNodes; ++pass) {
     bool changed = false;
     for (const std::unique_ptr<ContactLogicRule>& rule : logicRules) {
       if (!rule->propagate(state, a, changed)) return false;
@@ -205,9 +210,10 @@ void ContactPlanningProblem::decode(const ContactPlanningContext& ctx, const Miq
   for (const std::unique_ptr<LipModelBlock>& block : model) block->decode(ctx, result, plan);
 }
 
-absl::StatusOr<std::pair<int, int>> ContactPlanningProblem::countRows(const ContactPlanningContext& ctx) const {
+absl::StatusOr<ContactPlanningProblem::GeneralRowCounts> ContactPlanningProblem::countRows(const ContactPlanningContext& ctx) const {
   ASSIGN_OR_RETURN(const OcpQpProblem problem, assemble(ctx));
-  return std::pair<int, int>(problem.stages.front().numGeneralConstraints(), problem.stages.back().numGeneralConstraints());
+  return GeneralRowCounts{.running = problem.stages.front().numGeneralConstraints(),
+                          .terminal = problem.stages.back().numGeneralConstraints()};
 }
 
 std::string ContactPlanningProblem::summary(const ContactPlanningContext* absl_nullable ctx) const {
@@ -219,9 +225,9 @@ std::string ContactPlanningProblem::summary(const ContactPlanningContext* absl_n
   describeAll(out, "logic rules", logicRules);
   describeAll(out, "assignment costs", assignmentCosts);
   if (ctx != nullptr && finalized_) {
-    const absl::StatusOr<std::pair<int, int>> rows = countRows(*ctx);
+    const absl::StatusOr<GeneralRowCounts> rows = countRows(*ctx);
     if (rows.ok()) {
-      absl::StrAppend(&out, "general rows: ", rows->first, " per running node, ", rows->second, " at the terminal node\n");
+      absl::StrAppend(&out, "general rows: ", rows->running, " per running node, ", rows->terminal, " at the terminal node\n");
     } else {
       absl::StrAppend(&out, "general rows: ", rows.status().message(), "\n");
     }

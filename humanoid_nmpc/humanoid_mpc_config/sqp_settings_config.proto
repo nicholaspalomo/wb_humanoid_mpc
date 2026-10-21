@@ -39,30 +39,31 @@ message SqpSettingsConfig {
 
   // The SQP iterations of one solve, at least 0; 1 is the real-time iteration scheme.
   int32 sqp_iteration = 1 [default = 10, (humanoid_mpc_config.tuning) = { reload: RELOAD_HOT }];
-  // Termination: the RMS updates of x(t) and of u(t) are both below this.
+  // Termination: the RMS updates of x(t) and of u(t) are both below this, positive.
   double delta_tol = 2 [default = 1e-6, (humanoid_mpc_config.tuning) = { reload: RELOAD_HOT log_scale: true }];
-  // Termination: the cost decreases by less than this while the constraint violation is below g_min.
+  // Termination: the cost decreases by less than this while the constraint violation is below g_min; positive.
   double cost_tol = 3 [default = 1e-4, (humanoid_mpc_config.tuning) = { log_scale: true }];
 
-  // Line search: the factor the step size is multiplied by each time a step is rejected.
-  double alpha_decay = 4 [default = 0.5];
-  // Line search: the step size below which the search gives up.
+  // Line search: the factor the step size is multiplied by each time a step is rejected, in (0, 1): at 1 or more the
+  // step never shrinks and the search never ends.
+  double alpha_decay = 4 [default = 0.5, (humanoid_mpc_config.tuning) = { slider_max: 1.0 }];
+  // Line search: the step size below which the search gives up, in (0, 1].
   double alpha_min = 5 [default = 1e-4, (humanoid_mpc_config.tuning) = { log_scale: true }];
   // Step acceptance, with g the norm of the constraint violation: while g > g_max, a step must lower g by the factor
-  // (1 - gamma_c).
+  // (1 - gamma_c). Positive and at least g_min.
   double g_max = 6 [default = 1e6, (humanoid_mpc_config.tuning) = { reload: RELOAD_HOT log_scale: true }];
   // Step acceptance: while g < g_min before and after the step and the step descends, a step must satisfy the Armijo
-  // condition.
+  // condition. At least 0.
   double g_min = 7 [default = 1e-6, (humanoid_mpc_config.tuning) = { reload: RELOAD_HOT log_scale: true }];
-  // The Armijo condition: c(i+1) < c(i) + armijo_factor * dc/dw(i)' * delta_w, with c the cost and w = [x; u].
+  // The Armijo condition: c(i+1) < c(i) + armijo_factor * dc/dw(i)' * delta_w, with c the cost and w = [x; u]; in [0, 1).
   double armijo_factor = 8 [default = 1e-4, (humanoid_mpc_config.tuning) = { log_scale: true }];
-  // Step acceptance otherwise: c(i+1) < c(i) - gamma_c * g(i), or g(i+1) < (1 - gamma_c) * g(i).
+  // Step acceptance otherwise: c(i+1) < c(i) - gamma_c * g(i), or g(i+1) < (1 - gamma_c) * g(i); in [0, 1).
   double gamma_c = 9 [default = 1e-6, (humanoid_mpc_config.tuning) = { log_scale: true }];
 
   // The policy: the feedback controller of the solution (true), or its feedforward input alone (false).
   bool use_feedback_policy = 10 [default = true];
 
-  // [s] The time step of the discretization of the horizon.
+  // [s] The time step of the discretization of the horizon, positive.
   double dt = 12 [default = 0.01, (humanoid_mpc_config.tuning) = { unit: "s" }];
   // LINT.IfChange(integrator_names)
   // The discretization of the dynamics and of their sensitivities: "EULER", "RK2" or "RK4" (OCS2's
@@ -115,7 +116,9 @@ message SqpSettingsConfig {
     }
   ];
 
-  // The worker threads of the solver, at least 0, and their real-time priority.
+  // The worker threads of the solver, at least 0, and the real-time priority of every solver thread: the SQP solver's
+  // workers and the MPC node's solver thread (mpcNodeSettingsFromConfig()), SCHED_FIFO 1-99, or 0 for the
+  // time-sharing scheduler.
   int32 n_threads = 24 [
     default = 4,
     (humanoid_mpc_config.tuning) = {

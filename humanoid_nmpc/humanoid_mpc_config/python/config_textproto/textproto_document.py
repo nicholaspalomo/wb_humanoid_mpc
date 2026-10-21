@@ -917,6 +917,10 @@ class TextprotoDocument:
 
     Every edit splices the text and parses it again, so the tree always describes the text, and a failed edit leaves
     both as they were.
+
+    Attributes:
+        source: What the document's errors name it.
+        root: The tree of the whole text; an edit replaces it.
     """
 
     def __init__(self, text: str, source: str = "<text>") -> None:
@@ -929,21 +933,21 @@ class TextprotoDocument:
         Raises:
           TextprotoSyntaxError: `text` is not textproto syntax.
         """
-        self._source = source
+        self.source = source
         self._text = ""
         self._tokens: list[Token] = []
         self._token_starts: list[int] = []
-        self._root = BlockNode(None, None, ())
+        self.root = BlockNode(None, None, ())
         self._line_starts = [0]
         self._set_text(text)
 
     def _set_text(self, text: str) -> None:
-        parser = _Parser(text, self._source)
+        parser = _Parser(text, self.source)
         root = parser.document()
         self._text = text
         self._tokens = parser.tokens
         self._token_starts = [token.start for token in parser.tokens]
-        self._root = root
+        self.root = root
         self._line_starts = [0] + [match.end() for match in re.finditer("\n", text)]
 
     def copy(self) -> "TextprotoDocument":
@@ -952,16 +956,6 @@ class TextprotoDocument:
             self
         )  # Every edit replaces the text, the tokens and the tree; none is changed in place.
 
-    @property
-    def source(self) -> str:
-        """What the document's errors name it."""
-        return self._source
-
-    @property
-    def root(self) -> BlockNode:
-        """The tree of the whole text."""
-        return self._root
-
     def text(self) -> str:
         """The text, with every edit made so far."""
         return self._text
@@ -969,7 +963,7 @@ class TextprotoDocument:
     # ---- Reading ----
 
     def _path_error(self, path: str, problem: str) -> PathError:
-        return PathError(f"{self._source}: {path}: {problem}")
+        return PathError(f"{self.source}: {path}: {problem}")
 
     def _select(
         self, block: BlockNode, segment: PathSegment, path: str
@@ -1002,7 +996,7 @@ class TextprotoDocument:
         self, segments: Sequence[PathSegment], path: str
     ) -> tuple[BlockNode, int, _Element | None]:
         """How far `segments` lead: (the deepest block reached, how many segments were found, the last one found)."""
-        block = self._root
+        block = self.root
         element: _Element | None = None
         for count, segment in enumerate(segments):
             if element is not None:
@@ -1040,7 +1034,7 @@ class TextprotoDocument:
         """
         segments = parse_path(path)
         if not segments:
-            return self._root
+            return self.root
         _, found, element = self._walk(segments, path)
         if found < len(segments) or element is None:
             return None
@@ -1088,7 +1082,7 @@ class TextprotoDocument:
 
     def field_names(self, path: str = "") -> list[str]:
         """The names of the fields of the block `path` names, in file order, each once."""
-        block = self.get(path) if path else self._root
+        block = self.get(path) if path else self.root
         if not isinstance(block, BlockNode):
             raise self._path_error(path, "is a value, not a block")
         return list(dict.fromkeys(field.name for field in block.fields))
@@ -1228,7 +1222,7 @@ class TextprotoDocument:
     def _indent_unit(self) -> str:
         """How much deeper the fields of a block are indented than the block, the smallest step the file uses ("  ")."""
         steps: list[str] = []
-        pending = [self._root]
+        pending = [self.root]
         while pending:
             block = pending.pop()
             for field in block.fields:
@@ -1457,7 +1451,7 @@ class TextprotoDocument:
         end_of_line = self._end_of_line(field.end)
         if not self._starts_line(field.start) or end_of_line is None:
             self._replace(
-                field.end, field.end, " " + self._render(name, value, "", inline=True)
+                field.end, field.end, f' {self._render(name, value, "", inline=True)}'
             )
             return
         indent = self._line_indent(field.start)
@@ -1473,7 +1467,7 @@ class TextprotoDocument:
 
     def _insert_at_file_end(self, name: str, value: Value) -> None:
         indent = ""
-        for field in reversed(self._root.fields):
+        for field in reversed(self.root.fields):
             if self._starts_line(field.start):
                 indent = self._line_indent(field.start)
                 break
@@ -1640,5 +1634,11 @@ def parse(text: str, source: str = "<text>") -> TextprotoDocument:
 
 def load(path: str) -> TextprotoDocument:
     """The document of the file at `path`, read as UTF-8 with its line endings kept; its errors name the path."""
-    with open(path, encoding="utf-8", newline="") as file:
-        return TextprotoDocument(file.read(), path)
+    try:
+        with open(path, encoding="utf-8", newline="") as file:
+            text = file.read()
+    except UnicodeDecodeError as error:
+        raise TextprotoSyntaxError(
+            f"{path}:1:1: cannot decode as UTF-8: {error}"
+        ) from error
+    return TextprotoDocument(text, path)

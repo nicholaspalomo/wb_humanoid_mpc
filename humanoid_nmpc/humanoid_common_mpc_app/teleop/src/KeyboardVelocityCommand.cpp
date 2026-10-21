@@ -46,6 +46,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_mpc_config/reference_file.nproto.h"
 
 namespace ocs2::humanoid::teleop {
+namespace {
+
+// The words of a command line that are read: one per entry of the command.
+constexpr size_t kCommandWords = KeyboardCommandLimits::kNumEntries;
+static_assert(KeyboardCommandLimits::kNumEntries == vector4_t::RowsAtCompileTime, "a keyboard command is a vector4_t");
+
+}  // namespace
+
 absl::StatusOr<KeyboardCommandLimits> loadKeyboardCommandLimits(const std::string& referenceFile) {
   std::error_code error;
   if (!std::filesystem::is_regular_file(referenceFile, error)) {
@@ -62,7 +70,7 @@ absl::StatusOr<KeyboardCommandLimits> loadKeyboardCommandLimits(const std::strin
 absl::StatusOr<vector4_t> parseKeyboardCommandLine(absl::string_view line) {
   const std::vector<absl::string_view> words = absl::StrSplit(line, absl::ByAnyChar(" \t\r\n"), absl::SkipEmpty());
   vector4_t command = vector4_t::Zero();
-  for (size_t i = 0; i < words.size() && i < 4; ++i) {
+  for (size_t i = 0; i < words.size() && i < kCommandWords; ++i) {
     double value = 0.0;
     if (!absl::SimpleAtod(words[i], &value) || !std::isfinite(value)) {
       return absl::InvalidArgumentError(absl::StrCat("`", words[i], "` is not a number"));
@@ -75,10 +83,10 @@ absl::StatusOr<vector4_t> parseKeyboardCommandLine(absl::string_view line) {
 humanoid_mpc_msgs::WalkingVelocityCommand keyboardCommandToMessage(const vector4_t& command, const KeyboardCommandLimits& limits) {
   const vector4_t clamped = command.cwiseMin(limits.limits).cwiseMax(-limits.limits);
   humanoid_mpc_msgs::WalkingVelocityCommand message;
-  message.set_linear_velocity_x(clamped(0) / limits.limits(0));
-  message.set_linear_velocity_y(clamped(1) / limits.limits(1));
-  message.set_desired_pelvis_height(limits.defaultBaseHeight + clamped(2));
-  message.set_angular_velocity_z(clamped(3) / limits.limits(3));
+  message.set_linear_velocity_x(clamped(KeyboardCommandLimits::kVelocityXIndex) / limits.limits(KeyboardCommandLimits::kVelocityXIndex));
+  message.set_linear_velocity_y(clamped(KeyboardCommandLimits::kVelocityYIndex) / limits.limits(KeyboardCommandLimits::kVelocityYIndex));
+  message.set_desired_pelvis_height(limits.defaultBaseHeight + clamped(KeyboardCommandLimits::kPelvisHeightChangeIndex));
+  message.set_angular_velocity_z(clamped(KeyboardCommandLimits::kYawRateIndex) / limits.limits(KeyboardCommandLimits::kYawRateIndex));
   return message;
 }
 

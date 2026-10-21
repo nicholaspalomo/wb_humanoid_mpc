@@ -66,7 +66,7 @@ def fix_whitespace(content: str) -> str:
     """`content` without trailing whitespace and ending in exactly one newline (an empty file stays empty)."""
     if not content:
         return content
-    return "\n".join(line.rstrip() for line in content.splitlines()) + "\n"
+    return "".join(f"{line.rstrip()}\n" for line in content.splitlines())
 
 
 def _formatted_files(root: str) -> list[str]:

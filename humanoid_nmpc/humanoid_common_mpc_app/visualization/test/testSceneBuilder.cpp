@@ -74,6 +74,8 @@ using Data = PinocchioInterface::Data;
 constexpr scalar_t kTolerance = 1.0e-9;
 constexpr size_t kNodes = 21;
 constexpr scalar_t kNormalForce = 300.0;
+/** [m] Less than the CoM height above the feet of every robot the tests load. */
+constexpr scalar_t kMinPendulumHeight = 0.3;
 
 vector3_t toVector(const humanoid_mpc_msgs::Vector3& vector) {
   return vector3_t(vector.x(), vector.y(), vector.z());
@@ -473,18 +475,10 @@ TEST_P(SceneBuilderTest, ATaskFileWhoseContactPolygonsDoNotLoadIsRefused) {
   EXPECT_TRUE(absl::StrContains(builder.status().message(), model.taskFile)) << builder.status();
 }
 
-TEST_P(SceneBuilderTest, ThePlanIsTheFramesBaseAndGroundProjectedCom) {
+TEST_P(SceneBuilderTest, ThePlanIsTheFramesBaseAndTheComAtItsHeight) {
   const humanoid_mpc_msgs::VisualizationScene scene = build(allInputs());
   PinocchioInterface reference = robot_->makeReferencePinocchioInterface();
   const Model& model = reference.getModel();
-
-  // The ground is the stance feet's mean height at the observation.
-  forwardKinematics(reference, robot_->robotModel().getGeneralizedCoordinates(observation_.state));
-  scalar_t groundHeight = 0.0;
-  for (size_t contact = 0; contact < kNumContacts; ++contact) {
-    groundHeight +=
-        reference.getData().oMf[model.getFrameId(robot_->modelSettings().contactNames[contact])].translation().z() / kNumContacts;
-  }
 
   const humanoid_mpc_msgs::LineStrips& endEffectors = lineStripsAt(scene, scene::kPlanEndEffectors);
   const humanoid_mpc_msgs::LineStrips& base = lineStripsAt(scene, scene::kPlanBase);
@@ -507,9 +501,16 @@ TEST_P(SceneBuilderTest, ThePlanIsTheFramesBaseAndGroundProjectedCom) {
     // The base is the root link: the MPC model's first link.
     const vector3_t root = reference.getData().oMf[model.getFrameId(builder_->mpcLinkNames().front())].translation();
     EXPECT_TRUE((toVector(base.strips(0).points(point)) - root).norm() < 1.0e-9) << node;
-    vector3_t centerOfMass = pinocchio::centerOfMass(model, reference.getData(), q, /*computeSubtreeComs=*/false);
-    centerOfMass.z() = groundHeight;
+    // The CoM is the whole-body CoM of the node's state, at its own height: not flattened onto the ground the feet
+    // stand on, so that it stands a pendulum height above every contact frame.
+    const vector3_t centerOfMass = pinocchio::centerOfMass(model, reference.getData(), q, /*computeSubtreeComs=*/false);
     EXPECT_TRUE((toVector(com.strips(0).points(point)) - centerOfMass).norm() < 1.0e-9) << node;
+    forwardKinematics(reference, q);
+    for (size_t contact = 0; contact < kNumContacts; ++contact) {
+      const scalar_t footHeight =
+          reference.getData().oMf[model.getFrameId(robot_->modelSettings().contactNames[contact])].translation().z();
+      EXPECT_GT(com.strips(0).points(point).z() - footHeight, kMinPendulumHeight) << node;
+    }
   }
 }
 

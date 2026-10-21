@@ -152,7 +152,6 @@ absl::StatusOr<PlannerSettings> plannerFromConfig(const File::PlannerConfig& fro
 
 absl::StatusOr<SharedParameters> sharedFromConfig(const File::SharedConfig& from) {
   SharedParameters to;
-  to.gravity = from.gravity;
   ASSIGN_OR_RETURN(to.comHeight, comHeightFromConfig(from.com_height));
   to.bigM = from.big_m;
   to.slackPenalty.quadratic = from.slack_penalty.quadratic;

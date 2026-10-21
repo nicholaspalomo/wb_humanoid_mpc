@@ -49,6 +49,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "absl/time/time.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/cost/QuadraticStateCost.h"
@@ -66,7 +67,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_centroidal_mpc/constraint/ZeroVelocityConstraintCppAd.h"
 #include "humanoid_centroidal_mpc/cost/CentroidalMpcEndEffectorFootCost.h"
 #include "humanoid_centroidal_mpc/cost/DcmTerminalCost.h"
-#include "humanoid_centroidal_mpc/cost/ICPCost.h"
 #include "humanoid_centroidal_mpc/mrt/CentroidalMpcParameterUpdater.h"
 #include "humanoid_centroidal_mpc/parameter_update/BasisInputsCostApplier.h"
 #include "humanoid_common_mpc/HumanoidPreComputation.h"
@@ -108,6 +108,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_mpc_config/joint_value.nproto.h"
 #include "humanoid_mpc_config/mpc_parameter_update.nproto.h"
 #include "humanoid_mpc_config/task_file.nproto.h"
+#include "humanoid_nmpc/humanoid_common_mpc/test/support/StatusTestMacros.h"
 #include "support/TypedConfigFiles.h"
 
 /**
@@ -297,6 +298,7 @@ std::unique_ptr<MpcParameterUpdaterModule> makeUpdater(const Built& built,
   options.layout = stateInputLayout(built.interface->modelSettings(), StateInputLayout::Mpc::kCentroidal);
   options.inputDim = built.interface->getEffectiveMpcRobotModel().getInputDim();
   options.referenceManager = referenceManager;
+  options.fileCheckPeriod = absl::ZeroDuration();
   absl::StatusOr<std::vector<std::unique_ptr<HotFieldApplier>>> appliers = centroidalHotFieldAppliers(*built.interface);
   EXPECT_TRUE(appliers.ok()) << appliers.status();
   if (!appliers.ok()) return nullptr;
@@ -494,14 +496,14 @@ TEST_F(MpcParameterUpdaterModuleTest, ARefusedBlockIsReportedByItsFieldAndTheRes
   mpc_config::TaskFile task = shippedTask();
   jointValue(task.state_weights.joint_positions, atlas_.firstJoint()) = std::numeric_limits<double>::quiet_NaN();
   task.multiple_shooting.sqp_iteration = static_cast<int32_t>(runningIterations) + 2;
-  task.icp_cost_weights.icp_error_weight = std::numeric_limits<double>::infinity();
+  task.task_space_foot_cost.swing_velocity_reference_weight = std::numeric_limits<double>::infinity();
 
   absl::ScopedMockLog log(absl::MockLogDefault::kIgnoreUnexpected);
   EXPECT_CALL(log, Log(absl::LogSeverity::kWarning, testing::_,
                        testing::AllOf(testing::HasSubstr("state_weights"), testing::HasSubstr("was not applied"))))
       .Times(1);
   EXPECT_CALL(log, Log(absl::LogSeverity::kWarning, testing::_,
-                       testing::AllOf(testing::HasSubstr("icp_cost_weights"), testing::HasSubstr("was not applied"))))
+                       testing::AllOf(testing::HasSubstr("task_space_foot_cost"), testing::HasSubstr("was not applied"))))
       .Times(1);
   log.StartCapturingLogs();
   reload(*updater, atlas_, task);
@@ -716,7 +718,7 @@ TEST_F(MpcParameterUpdaterModuleTest, TheRunningDcmCostFollowsItsBlockAndALeftOu
   expectOnEveryWorker(model, /*weightX=*/123.0);
 }
 
-TEST_F(MpcParameterUpdaterModuleTest, TheTaskSpaceIcpAndTorqueCostsFollowAReload) {
+TEST_F(MpcParameterUpdaterModuleTest, TheTaskSpaceAndTorqueCostsFollowAReload) {
   std::unique_ptr<MpcParameterUpdaterModule> updater = makeUpdater(atlas_);
   ASSERT_NE(updater, nullptr);
   mpc_config::TaskFile task = shippedTask();
@@ -725,7 +727,7 @@ TEST_F(MpcParameterUpdaterModuleTest, TheTaskSpaceIcpAndTorqueCostsFollowAReload
   task.task_space_foot_cost.active_phases = shippedActiveInStance ? "swing" : "swing_and_stance";
   ASSERT_FALSE(task.task_space_costs.empty()) << "the shipped Atlas tracks its torso";
   task.task_space_costs.front().weights.orientation_z = 12.0;
-  task.icp_cost_weights.icp_error_weight = 13.0;
+  task.task_space_foot_cost.swing_velocity_reference_weight = 13.0;
   ASSERT_FALSE(task.left_leg_torque_cost.joints.empty());
   task.left_leg_torque_cost.joints.front().value = 14.0;
   reload(*updater, atlas_, task);
@@ -738,6 +740,7 @@ TEST_F(MpcParameterUpdaterModuleTest, TheTaskSpaceIcpAndTorqueCostsFollowAReload
       footCost.getWeights(weights);
       EXPECT_NEAR(weights(0), 11.0, 1.0e-9) << footName;
       EXPECT_EQ(footCost.getActiveInStance(), !shippedActiveInStance) << footName;
+      EXPECT_NEAR(footCost.getSwingVelocityReferenceWeight(), 13.0, 1.0e-9) << footName;
     }
     if (hasTerm(*ocp.costPtr, linkCost)) {
       vector12_t weights;
@@ -746,15 +749,74 @@ TEST_F(MpcParameterUpdaterModuleTest, TheTaskSpaceIcpAndTorqueCostsFollowAReload
     } else {
       ADD_FAILURE() << "the problem has no " << linkCost;
     }
-    vector2_t icpWeights;
-    ocp.costPtr->get<ICPCost>("icp_Cost").getWeights(icpWeights);
-    EXPECT_NEAR(icpWeights(0), 13.0, 1.0e-9);
     vector_t torqueWeights;
     ocp.costPtr->get<ExternalTorqueQuadraticCostAD>(absl::StrCat(atlas_.contactNames().front(), "_ExternalTorqueQuadraticCost"))
         .getWeights(torqueWeights);
     ASSERT_GT(torqueWeights.size(), 0);
     EXPECT_NEAR(torqueWeights(0), task.left_leg_torque_cost.scaling * 14.0, 1.0e-9);
   }
+}
+
+/** The left leg's torque cost of `ocp`. */
+ExternalTorqueQuadraticCostAD& leftLegTorqueCost(OptimalControlProblem& ocp, const Built& built) {
+  return ocp.costPtr->get<ExternalTorqueQuadraticCostAD>(absl::StrCat(built.contactNames().front(), "_ExternalTorqueQuadraticCost"));
+}
+
+/** Expects every worker's left-leg torque cost to run `expected`, in the order of its activeJointNames(). */
+void expectLeftLegTorqueWeights(const Built& built, const vector_t& expected, absl::string_view what) {
+  for (OptimalControlProblem& ocp : built.solver().getOcpDefinitions()) {
+    vector_t weights;
+    leftLegTorqueCost(ocp, built).getWeights(weights);
+    ASSERT_EQ(weights.size(), expected.size()) << what << ": the joints are taped into the cost";
+    for (Eigen::Index i = 0; i < weights.size(); ++i) {
+      EXPECT_DOUBLE_EQ(weights(i), expected(i)) << what << ": the weight of joint " << i;
+    }
+  }
+}
+
+TEST_F(MpcParameterUpdaterModuleTest, ALegTorqueReloadIsAppliedByJointNameAndAChangedJointListWaitsForTheNextStart) {
+  std::unique_ptr<MpcParameterUpdaterModule> updater = makeUpdater(atlas_);
+  ASSERT_NE(updater, nullptr);
+  vector_t startUp;
+  leftLegTorqueCost(atlas_.firstProblem(), atlas_).getWeights(startUp);
+  const mpc_config::TaskFile shipped = shippedTask();
+  ASSERT_GT(shipped.left_leg_torque_cost.joints.size(), 1U);
+
+  // The file's order is not the taped one: each value goes to the joint it names.
+  mpc_config::TaskFile reordered = shipped;
+  std::reverse(reordered.left_leg_torque_cost.joints.begin(), reordered.left_leg_torque_cost.joints.end());
+  reload(*updater, atlas_, reordered);
+  expectLeftLegTorqueWeights(atlas_, startUp, "a reordered list");
+
+  // An added or a removed joint would be another taped function: reported, and the running weights kept.
+  mpc_config::TaskFile added = shipped;
+  added.left_leg_torque_cost.joints.push_back(mpc_config::JointValue{.joint = "back_bkz", .value = 3.0});
+  mpc_config::TaskFile removed = shipped;
+  removed.left_leg_torque_cost.joints.pop_back();
+  for (const mpc_config::TaskFile& changed : {added, removed}) {
+    absl::ScopedMockLog log(absl::MockLogDefault::kIgnoreUnexpected);
+    EXPECT_CALL(log, Log(absl::LogSeverity::kWarning, testing::_,
+                         testing::AllOf(testing::HasSubstr("left_leg_torque_cost.joints"), testing::HasSubstr("next start"))))
+        .Times(1);
+    log.StartCapturingLogs();
+    reload(*updater, atlas_, changed);
+    log.StopCapturingLogs();
+    expectLeftLegTorqueWeights(atlas_, startUp, "a changed joint list");
+  }
+}
+
+TEST_F(MpcParameterUpdaterModuleTest, ALegTorqueCostRefusesWeightsOfAnotherSizeAndKeepsItsOwn) {
+  ExternalTorqueQuadraticCostAD& cost = leftLegTorqueCost(atlas_.firstProblem(), atlas_);
+  vector_t running;
+  cost.getWeights(running);
+  const absl::Status refused = cost.setWeights(vector_t::Ones(running.size() + 1));
+  EXPECT_TRUE(absl::IsInvalidArgument(refused)) << refused;
+  vector_t kept;
+  cost.getWeights(kept);
+  EXPECT_EQ(kept, running);
+  EXPECT_TRUE(cost.setWeights(vector_t::Constant(running.size(), /*value=*/4.0)).ok());
+  cost.getWeights(kept);
+  EXPECT_EQ(kept, vector_t::Constant(running.size(), /*value=*/4.0));
 }
 
 TEST_F(MpcParameterUpdaterModuleTest, AnAddedOrRemovedLinkCostIsReportedForTheNextStartAndChangesNoTerm) {
@@ -958,10 +1020,7 @@ TEST_F(MpcParameterUpdaterModuleTest, TheBarriersOfTheJointLimitsTheFootCollisio
   task.contacts.basis_non_negativity_barrier.mu = 0.42;
   reload(*updater, atlas_, task);
   for (OptimalControlProblem& ocp : atlas_.solver().getOcpDefinitions()) {
-    scalar_t mu = 0.0;
-    scalar_t delta = 0.0;
-    ocp.stateSoftConstraintPtr->get<JointLimitsSoftConstraint>("jointLimits").getGains(mu, delta);
-    EXPECT_NEAR(mu, 999.0, 1.0e-12);
+    EXPECT_NEAR(ocp.stateSoftConstraintPtr->get<JointLimitsSoftConstraint>("jointLimits").getGains().mu, 999.0, 1.0e-12);
     EXPECT_EQ(penaltyParameters(ocp.stateSoftConstraintPtr->get<StateSoftConstraint>("FootCollisionSoftConstraint")),
               (vector_t(2) << 0.75, 0.0025).finished());
     for (const std::string& footName : atlas_.contactNames()) {
@@ -1018,6 +1077,36 @@ TEST_F(MpcParameterUpdaterModuleTest, TheFootConstraintGainsReachTheTwistConstra
   }
   EXPECT_EQ(atlas_.interface->modelSettings().footConstraintConfig.constrainYawRateAboutContactNormal, shippedYawRate)
       << "the interface still holds the settings it was built with";
+}
+
+TEST_F(MpcParameterUpdaterModuleTest, AStanceConstraintReloadChangesTheRowsOfTheHardZeroVelocityTermItself) {
+  // OCS2 sizes the stacked equality constraint by each term's getNumConstraints() and fills it with the rows the term
+  // returns, so a term that reported the rows it was built with while its twist returned the reloaded ones left rows
+  // uninitialized (6 to 3) or wrote past the block (3 to 6).
+  std::unique_ptr<MpcParameterUpdaterModule> updater = makeUpdater(atlas_);
+  ASSERT_NE(updater, nullptr);
+  struct StanceConstraintRows {
+    std::string stanceConstraint;
+    size_t rowsPerFoot = 0;
+  };
+  const std::vector<StanceConstraintRows> reloads = {{.stanceConstraint = "position", .rowsPerFoot = kPositionDim},
+                                                     {.stanceConstraint = "position_and_tilt", .rowsPerFoot = kPoseTangentDim}};
+  for (const StanceConstraintRows& expected : reloads) {
+    mpc_config::TaskFile task = shippedTask();
+    task.model_settings.foot_constraint.stance_constraint = expected.stanceConstraint;
+    reload(*updater, atlas_, task);
+    for (OptimalControlProblem& ocp : atlas_.solver().getOcpDefinitions()) {
+      for (const std::string& footName : atlas_.contactNames()) {
+        ZeroVelocityConstraintCppAd& term =
+            ocp.equalityConstraintPtr->get<ZeroVelocityConstraintCppAd>(absl::StrCat(footName, "_zeroVelocity"));
+        EXPECT_EQ(term.getNumConstraints(/*time=*/0.0), expected.rowsPerFoot) << expected.stanceConstraint << ", " << footName;
+        EXPECT_EQ(term.getNumConstraints(/*time=*/0.0), term.getTwistConstraint().getNumConstraints(/*time=*/0.0))
+            << "the term reports the rows its twist returns";
+        const std::unique_ptr<ZeroVelocityConstraintCppAd> copy(term.clone());
+        EXPECT_EQ(copy->getNumConstraints(/*time=*/0.0), expected.rowsPerFoot) << "a worker's clone carries the reloaded rows";
+      }
+    }
+  }
 }
 
 TEST_F(MpcParameterUpdaterModuleTest, TheWeightOfASoftZeroVelocityFollowsAReload) {
@@ -1375,17 +1464,17 @@ TEST_F(MpcParameterUpdaterModuleTest, AContactPlanningReloadAppliesTheModelParam
   modelParameters.zmpHalfWidthX = 0.11;
   modelParameters.zmpHalfWidthY = 0.055;
   modelParameters.torsionalFrictionTorque = 12.0;
-  modelParameters.doubleSupportYawCouple = 34.0;
+  modelParameters.doubleSupportYawCouplePerStepWidth = 34.0;
   modelParameters.footYawOffsetLower = makeFeetArray(static_cast<scalar_t>(-0.4));
   modelParameters.footYawOffsetUpper = makeFeetArray(static_cast<scalar_t>(0.4));
   modelParameters.hipYawJoints.assign(kNumContacts, std::string());
   ContactPlanningConfig config = *unvalidated;
   modelParameters.applyTo(config);
   ASSERT_TRUE(config.validateStatus().ok()) << "with the model parameters applied the very same file is valid";
-  std::shared_ptr<SwingTrajectoryPlanner> swingPlanner =
-      std::make_shared<SwingTrajectoryPlanner>(SwingTrajectoryPlanner::Config{}, kNumContacts);
+  std::unique_ptr<SwingTrajectoryPlanner> swingPlanner =
+      std::make_unique<SwingTrajectoryPlanner>(SwingTrajectoryPlanner::Config{}, kNumContacts);
   absl::StatusOr<std::shared_ptr<ContactPlanningReferenceManager>> manager = ContactPlanningReferenceManager::Create(
-      GaitSchedule::Create(shipped_.reference, atlas_.interface->modelSettings()).value(), swingPlanner,
+      checkedValue(GaitSchedule::Create(shipped_.reference, atlas_.interface->modelSettings())), std::move(swingPlanner),
       atlas_.interface->getPinocchioInterface(), atlas_.interface->getEffectiveMpcRobotModel(), config);
   ASSERT_TRUE(manager.ok()) << manager.status();
   absl::StatusOr<std::shared_ptr<ContactPlannerModule>> module = ContactPlannerModule::Create(*manager, config, modelParameters);
@@ -1561,10 +1650,9 @@ TEST_F(MpcParameterUpdaterModuleTest, ReloadingCommandLimitsChangesTheTargetItPr
     return reference;
   };
   const std::unique_ptr<CentroidalMpcTargetTrajectoriesCalculator> calculator =
-      CentroidalMpcTargetTrajectoriesCalculator::Create(referenceWith(0.10, 0.90), atlas_.interface->getEffectiveMpcRobotModel(),
-                                                        atlas_.interface->getPinocchioInterface(),
-                                                        atlas_.interface->mpcSettings().timeHorizon_)
-          .value();
+      checkedValue(CentroidalMpcTargetTrajectoriesCalculator::Create(
+          referenceWith(0.10, 0.90), atlas_.interface->getEffectiveMpcRobotModel(), atlas_.interface->getPinocchioInterface(),
+          atlas_.interface->mpcSettings().timeHorizon_));
   const vector_t& state = atlas_.interface->getInitialState();
   const vector4_t deepCrouch(0.0, 0.0, -10.0, 0.0);
   const std::function<scalar_t()> commandedHeight = [&]() {
@@ -1603,17 +1691,22 @@ TEST_F(MpcParameterUpdaterModuleTest, TheSharedNodeWiringReloadsTheHeuristicLaye
   SqpMpc mpc(interface->mpcSettings(), interface->sqpSettings(), interface->getOptimalControlProblem(), interface->getInitializer());
   mpc.getSolverPtr()->setReferenceManager(interface->getReferenceManagerPtr());
   std::vector<scalar_t> reloadedRotationVelocities;
+  absl::Time now = absl::FromUnixSeconds(1000);
   absl::StatusOr<std::shared_ptr<MpcParameterUpdaterModule>> wired = makeCentroidalMpcParameterUpdater(
       &mpc, *interface, files->taskFile, files->referenceFile, {[&reloadedRotationVelocities](const ReferenceSettings& settings) {
         reloadedRotationVelocities.push_back(settings.maxRotationVelocity);
         return absl::OkStatus();
-      }});
+      }},
+      /*taskFileReadAt=*/std::nullopt,
+      /*referenceFileReadAt=*/std::nullopt,
+      /*contactPlanningFileReadAt=*/std::nullopt,
+      /*fileCheckPeriod=*/absl::Seconds(1),
+      /*clock=*/[&now]() { return now; });
   ASSERT_TRUE(wired.ok()) << wired.status();
   MpcParameterUpdaterModule& updater = **wired;
   const std::function<void()> runUpdater = [&]() {
-    for (size_t i = 0; i < 101; ++i) {
-      updater.preSolverRun(/*initTime=*/0.0, /*finalTime=*/1.0, interface->getInitialState(), *interface->getReferenceManagerPtr());
-    }
+    now += absl::Seconds(1);
+    updater.preSolverRun(/*initTime=*/0.0, /*finalTime=*/1.0, interface->getInitialState(), *interface->getReferenceManagerPtr());
   };
   const std::function<scalar_t()> pitchGain = [&interface]() {
     return basePoseOffsetAtForwardSpeed(*interface->getLocomotionHeuristicLayerPtr(), /*forwardSpeed=*/1.0).pitch;
@@ -1639,6 +1732,27 @@ TEST_F(MpcParameterUpdaterModuleTest, TheSharedNodeWiringReloadsTheHeuristicLaye
   writeWatched(files->referenceFile, referenceFileText(reference), /*seconds=*/3);
   runUpdater();
   EXPECT_EQ(reloadedRotationVelocities, std::vector<scalar_t>({0.75})) << "the reference file's reloaders were not registered";
+
+  // Verify that taskFileReadAt suppresses reload of an edit that was already on disk at readAt time.
+  CentroidalMpcConfig editedAgain = edited;
+  editedAgain.task.multiple_shooting.sqp_iteration = 15;
+  writeWatched(files->taskFile, taskFileText(editedAgain.task), /*seconds=*/4);
+  const std::optional<std::filesystem::file_time_type> latestMtime = lastWriteTime(files->taskFile);
+  ASSERT_TRUE(latestMtime.has_value());
+
+  absl::StatusOr<std::shared_ptr<MpcParameterUpdaterModule>> baselineUpdater =
+      makeCentroidalMpcParameterUpdater(&mpc, *interface, files->taskFile, files->referenceFile, /*referenceFileReloaders=*/{},
+                                        /*taskFileReadAt=*/latestMtime,
+                                        /*referenceFileReadAt=*/std::nullopt,
+                                        /*contactPlanningFileReadAt=*/std::nullopt,
+                                        /*fileCheckPeriod=*/absl::Seconds(1),
+                                        /*clock=*/[&now]() { return now; });
+  ASSERT_TRUE(baselineUpdater.ok()) << baselineUpdater.status();
+  dynamic_cast<SqpSolver&>(*mpc.getSolverPtr()).getSettings().sqpIteration = 99U;
+  now += absl::Seconds(1);
+  (*baselineUpdater)->preSolverRun(/*initTime=*/0.0, /*finalTime=*/1.0, interface->getInitialState(), *interface->getReferenceManagerPtr());
+  EXPECT_EQ(dynamic_cast<SqpSolver&>(*mpc.getSolverPtr()).getSettings().sqpIteration, 99U)
+      << "updater with taskFileReadAt matching disk reloaded the file";
 }
 
 }  // namespace

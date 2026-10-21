@@ -38,7 +38,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_centroidal_mpc/CentroidalMpcInterface.h"
 #include "humanoid_centroidal_mpc/cost/CentroidalMpcEndEffectorFootCost.h"
 #include "humanoid_centroidal_mpc/cost/DcmTerminalCost.h"
-#include "humanoid_centroidal_mpc/cost/ICPCost.h"
 #include "humanoid_common_mpc/common/CostTermNames.h"
 #include "humanoid_common_mpc/contact/ContactWrenchConeBasisMatrix.h"
 
@@ -58,18 +57,15 @@ TEST(CostTermAndLibraryNames, TheDcmTerminalCostKeepsItsTermAndLibraryNames) {
   EXPECT_EQ(absl::string_view(DcmTerminalCost::kLibraryName), "dcmTerminalCost");
 }
 
-TEST(CostTermAndLibraryNames, TheIcpCostKeepsItsTermAndLibraryNames) {
-  EXPECT_EQ(absl::string_view(kIcpCostTerm), "icp_Cost");
-  EXPECT_EQ(absl::string_view(ICPCost::kLibraryName), "icp_Cost");
-}
-
 TEST(CostTermAndLibraryNames, TheFootCostKeepsItsTermAndLibraryNames) {
   for (const std::string footName : {"foot_l_contact", "foot_r_contact", "left_ankle_roll_link"}) {
     SCOPED_TRACE(footName);
     EXPECT_EQ(taskSpaceKinematicsCostName(footName), absl::StrCat(footName, "_TaskSpaceKinematicsCost"));
-    // The library is "<foot>_TaskSpaceKinematicsCost_yawRefHalfAngle" (CentroidalMpcEndEffectorFootCost.cpp appends it).
+    // The library is "<foot>_TaskSpaceKinematicsCost_tiltAngle" (CentroidalMpcEndEffectorFootCost.cpp appends the
+    // residual's version, which changes with the residual).
     EXPECT_EQ(CentroidalMpcEndEffectorFootCost::libraryName(footName), absl::StrCat(footName, "_TaskSpaceKinematicsCost"));
   }
+  EXPECT_EQ(absl::string_view(CentroidalMpcEndEffectorFootCost::kLibraryVersionSuffix), "_tiltAngle");
 }
 
 TEST(CostTermAndLibraryNames, TheOtherTermsKeepTheNamesTheInterfaceRegistersThemUnder) {

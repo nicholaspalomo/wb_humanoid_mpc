@@ -188,6 +188,12 @@ absl::Status CadenceStretchStage::afterSearch(SearchRun& run) const {
     }
     if (!*solved) continue;
     run.statistics->totalQpIterations += solution.iterations;
+    // The two objectives cover horizons of N dt and N s dt, and they are comparable as they stand: every candidate has
+    // the same N nodes of equal duration, so a running cost summed over them is N times its time average over the
+    // candidate's own horizon - already the per-unit-time score. Weighting the nodes by their duration would instead
+    // integrate over horizons of different lengths and charge the stretched candidate s times the unstretched one for
+    // the same cost rate. Terms whose per-node residual is itself a per-node quantity (step_length's nominal
+    // displacement v dt) scale with the grid by construction, which is what they mean.
     if (objective < bestObjective) {
       bestObjective = objective;
       bestStretch = stretch;

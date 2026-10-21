@@ -52,6 +52,7 @@ filegroup(
 exports_files([
     "deploy_robot.sh",
     "session.sh",
+    "udp_buffers.sh",
 ])
 
 filegroup(
@@ -135,6 +136,7 @@ py_test(
     data = [
         "deploy_robot.sh",
         "in_dev_container.sh",
+        "README.md",
         "netem.sh",
         "robot_entrypoint.sh",
         "session.sh",
@@ -143,6 +145,7 @@ py_test(
         "//:docker-compose.robot.netem.yaml",
         "//:docker-compose.robot.sim.yaml",
         "//:docker-compose.robot.yaml",
+        "//:docker-compose.yaml",
         "//:docker/Dockerfile",
         "//:.devcontainer/README.md",
         "//config/ipc:network.textproto",
@@ -165,4 +168,17 @@ py_test(
         "//robot_models/unitree_r1/unitree_r1_description:launch/sandbox.textproto",
     ],
     deps = [requirement("pyyaml")],
+)
+
+# udp_buffers.sh against a fake sysctl and sudo: a kernel limit is raised only below the network file's request, kept
+# in sysctl.d, never lowered, and never fails a launch.
+py_test(
+    name = "test_udp_buffers",
+    size = "small",
+    srcs = ["test_udp_buffers.py"],
+    data = [
+        "udp_buffers.sh",
+        "//config/ipc:network.textproto",
+        "//config/ipc:two_machine.example.textproto",
+    ],
 )

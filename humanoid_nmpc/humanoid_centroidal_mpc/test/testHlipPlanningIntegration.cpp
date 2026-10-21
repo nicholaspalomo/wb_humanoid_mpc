@@ -39,6 +39,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <utility>
 #include <vector>
 
+#include "absl/base/nullability.h"
 #include "absl/log/scoped_mock_log.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
@@ -727,7 +728,7 @@ TEST_F(HlipPlanningIntegrationTest, ACadenceShorterThanTheSwingTimeScaleIsWarned
  * noticed at the next solver run - and reported once per change, not once per control cycle.
  */
 TEST_F(HlipPlanningIntegrationTest, ASwingTimeScaleRaisedByATaskFileReloadIsWarnedAboutOnce) {
-  const std::shared_ptr<SwingTrajectoryPlanner>& swingPlanner = referenceManager_->getSwingTrajectoryPlanner();
+  SwingTrajectoryPlanner* absl_nonnull const swingPlanner = referenceManager_->getSwingTrajectoryPlanner();
   SwingTrajectoryPlanner::Config swingConfig = swingPlanner->getConfig();
   const scalar_t shortestSwing = referenceManager_->getConfig().shortestPlannedSwingDuration();
   ASSERT_LE(swingConfig.swingTimeScale, shortestSwing + 1.0e-9) << "the shipped swingTimeScale must fit the shipped cadence";
@@ -778,7 +779,8 @@ TEST_F(HlipPlanningIntegrationTest, TheDcmCostAndThePlannerRunOnTheModelsPendulu
   const scalar_t dcmOmega = std::sqrt(cost.getConfig().gravity / height);
   EXPECT_THAT(cost.getConfig().comHeight, ::testing::Optional(::testing::DoubleNear(height, /*max_abs_error=*/1.0e-9)))
       << "a dcm_terminal_cost without com_height must be the model's pendulum";
-  EXPECT_NEAR(cost.getConfig().omega(), dcmOmega, 1.0e-9);
+  EXPECT_NEAR(cost.omega(), dcmOmega, 1.0e-9);
+  EXPECT_THAT(cost.getConfig().omega(), ::testing::Optional(::testing::DoubleNear(dcmOmega, /*max_abs_error=*/1.0e-9)));
   const ContactPlanningConfig config = referenceManager_->getConfig();
   const scalar_t plannerOmega = std::sqrt(config.shared.gravity / height);
   EXPECT_THAT(config.shared.comHeight, ::testing::Optional(::testing::DoubleNear(height, /*max_abs_error=*/1.0e-9)))
@@ -823,7 +825,7 @@ TEST_F(HlipPlanningIntegrationTest, TheDcmCostAndThePlannerRunOnTheModelsPendulu
   const std::unique_ptr<CentroidalMpcInterface> explicitInterface = *std::move(created);
   const DcmTerminalCost& explicitCost = explicitInterface->getOptimalControlProblem().finalCostPtr->get<DcmTerminalCost>("dcmTerminalCost");
   EXPECT_THAT(explicitCost.getConfig().comHeight, ::testing::Optional(::testing::DoubleNear(0.9, /*max_abs_error=*/1.0e-12)));
-  EXPECT_NEAR(explicitCost.getConfig().omega(), std::sqrt(9.81 / 0.9), 1.0e-12);
+  EXPECT_NEAR(explicitCost.omega(), std::sqrt(9.81 / 0.9), 1.0e-12);
   EXPECT_THAT(explicitInterface->getContactPlannerModulePtr()->getConfig().shared.comHeight,
               ::testing::Optional(::testing::DoubleNear(0.95, /*max_abs_error=*/1.0e-12)));
   EXPECT_NEAR(explicitInterface->getContactPlannerModulePtr()->getConfig().omega(), std::sqrt(9.81 / 0.95), 1.0e-12);

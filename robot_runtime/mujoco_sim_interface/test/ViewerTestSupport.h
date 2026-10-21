@@ -106,17 +106,17 @@ class OffscreenTestRenderer {
   /** Draws the simulator's newest snapshot at `width` x `height` and returns it: RGB, rows bottom-up. */
   absl::StatusOr<std::vector<uint8_t>> render(int width, int height);
 
-  MujocoFrameRenderer& frameRenderer() { return frameRenderer_; }
+  MujocoFrameRenderer& frameRenderer() { return *frameRenderer_; }
   const EglContext& context() const { return *context_; }
   /** The private model copy the renderer draws with. */
   const mjModel& model() const { return *model_; }
 
  private:
-  OffscreenTestRenderer(const MujocoSimInterface* absl_nonnull sim, std::unique_ptr<EglContext> context, MjModelPtr model);
+  OffscreenTestRenderer(std::unique_ptr<EglContext> context, MjModelPtr model);
 
   std::unique_ptr<EglContext> context_;
   MjModelPtr model_;
-  MujocoFrameRenderer frameRenderer_;
+  std::unique_ptr<MujocoFrameRenderer> frameRenderer_;  // never null once Create() returned it
 };
 
 }  // namespace robot::mujoco_sim_interface

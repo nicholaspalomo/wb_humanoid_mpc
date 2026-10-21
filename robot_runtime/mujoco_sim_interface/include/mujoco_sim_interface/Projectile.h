@@ -38,6 +38,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 #include "mujoco/mujoco.h"
+#include "ocs2_core/Dimensions.h"
+
+#include "mujoco_sim_interface/MujocoUtils.h"
 
 namespace robot::mujoco_sim_interface {
 
@@ -51,13 +54,18 @@ namespace robot::mujoco_sim_interface {
  * deliberately NOT a ball, so that addProjectileToSpec rejects one that was never looked up.
  */
 struct Projectile {
+  /** The color of a projectile that was never looked up: an opaque red, these components of it. */
+  static constexpr float kDefaultRed = 0.85f;
+  static constexpr float kDefaultGreen = 0.15f;
+  static constexpr float kDefaultBlue = 0.15f;
+
   std::string name;
   double radius = 0.0;           // [m]
   double mass = 0.0;             // [kg] nominal; the GUI's mass slider overrides it per throw
   double restitution = 0.0;      // [-] coefficient of restitution against a rigid surface, in [0, 1)
   double friction = 0.0;         // [-] sliding friction of the ball's surface
   double rollingFriction = 0.0;  // [m] rolling (and torsional) resistance, which is what brings a rolling ball to rest
-  std::array<float, 4> rgba{{0.85f, 0.15f, 0.15f, 1.0f}};
+  std::array<float, kMjRgbaChannels> rgba{{kDefaultRed, kDefaultGreen, kDefaultBlue, 1.0f}};
 };
 
 /** Names `sim_projectile` accepts, in registry order, for the error messages and the task-file comments. */
@@ -73,37 +81,67 @@ const std::vector<std::string>& availableProjectiles();
 absl::StatusOr<Projectile> projectileFromName(absl::string_view name);
 
 /**
- * The contact damping ratio that produces a given coefficient of restitution.
+ * The coefficient of restitution e(zeta) of a contact that is a linear spring-damper of damping ratio `dampRatio` and
+ * can only push: humanoid_nmpc/docs/dodgeball/README.md, "Restitution, and why MuJoCo does not have it".
  *
- * MuJoCo has no restitution parameter. A contact is a spring-damper whose `solref` is (timeconst, dampratio), and a
- * dampratio below 1 is what makes a contact bounce; the two are related by the logarithmic decrement of a damped
- * oscillator,
+ * MuJoCo has no restitution parameter. A contact of `solref = (timeconst, dampratio)` drives the penetration x by
+ * x'' = -omega^2 x - 2 zeta omega x' with omega = 1 / (timeconst dampratio) and zeta = dampratio (solver.md, the
+ * impedance d cancels), and its force is never negative: the ball leaves the contact when the spring-damper force
+ * reaches zero, which is where the rebound speed is largest and before x returns to zero. From the impact speed v0 that
+ * is after omega_d t = pi - 2 arcsin(zeta) of the damped oscillation, at the speed v0 exp(-zeta omega t), so
  *
- *     e = exp(-pi zeta / sqrt(1 - zeta^2))   =>   zeta = -ln(e) / sqrt(pi^2 + ln(e)^2).
+ *     e(zeta) = exp(-2 zeta arccos(zeta) / sqrt(1 - zeta^2))          zeta < 1,
+ *     e(1)    = exp(-2) = 0.135,
+ *     e(zeta) = exp(-2 zeta acosh(zeta) / sqrt(zeta^2 - 1))           zeta > 1,
  *
- * So the task file can name the number an engineer actually knows - a rubber ball bounces back at about 0.8 of the
- * speed it arrived at - and this turns it into the number MuJoCo wants. e = 0.8 gives zeta = 0.0708.
+ * independent of omega and of the impact speed. It is NOT the logarithmic decrement exp(-pi zeta / sqrt(1 - zeta^2)),
+ * which is the speed at which the oscillator crosses x = 0 again, a half period that a one-sided contact never reaches:
+ * that relation gives 0.137 at zeta = 0.535 where e(zeta) is 0.280, and a critically damped contact (zeta = 1) still
+ * bounces at 0.135. e falls monotonically from 1 at zeta = 0 to 0 as zeta grows (about 1 / (4 zeta^2)). NaN for NaN;
+ * a negative ratio is read as 0.
+ */
+double contactRestitutionForDampRatio(double dampRatio);
+
+/**
+ * The damping ratio zeta whose contactRestitutionForDampRatio() is `restitution`: the inverse of e(zeta), by bisection
+ * to round-off, so the task file can name the number an engineer knows (a rubber ball comes back at about 0.8 of the
+ * speed it arrived at; e = 0.8 gives zeta = 0.0744).
+ *
+ * A restitution of 1 is a contact that never loses energy and never settles, and no finite damping makes a one-sided
+ * spring-damper stop dead (e = 0): `restitution` is clamped to [contactRestitutionForDampRatio(kMaxContactDampRatio),
+ * kMaxContactRestitution], so 0 (and anything below 0.0024, NaN included) gives kMaxContactDampRatio, a contact that
+ * returns 0.24% of the impact speed.
  *
  * That relation only holds for the contact the ball ACTUALLY gets, which is why addProjectileToSpec also gives the
- * ball contact priority and a time constant the integrator can resolve; see kProjectileContactTimeConstant.
- *
- * Clamped to a hair below 1 and above 0: a restitution of exactly 1 is a contact that never settles, and one of 0 is
- * the critically damped default, which is what MuJoCo uses when it is given nothing.
+ * ball contact priority and a stiffness the integrator can resolve; see kProjectileContactNaturalFrequency.
  */
 double contactDampRatioForRestitution(double restitution);
 
+/** [-] The most damped contact contactDampRatioForRestitution() returns, for a restitution of 0. */
+inline constexpr double kMaxContactDampRatio = 10.0;
+/** [-] The largest restitution contactDampRatioForRestitution() resolves; a larger one is clamped to it. */
+inline constexpr double kMaxContactRestitution = 0.999;
+
 /**
- * [s] Contact time constant of a projectile, the first element of its solref.
+ * [rad/s] The undamped natural frequency omega of a projectile's contact, the same at every restitution: its solref is
+ * (projectileContactTimeConstant(zeta), zeta), so that only the damping, and not the stiffness, carries the restitution.
  *
- * It has to be long compared with the simulator's step, or the logarithmic-decrement mapping above is not what the
- * integrator produces. A lightly damped contact has a natural frequency of about 1 / (timeconst * dampratio), so at
- * the 0.07 damping ratio of a lively ball a 2 ms time constant rings at ~7000 rad/s - seven radians per 1 ms step, and
- * the discrete contact then ADDS energy (measured: rebounds of 4 to 50 times the arrival speed). At 20 ms it is ~740
- * rad/s, well resolved at both the 0.5 ms default step and 1 ms, and the measured restitution is 0.797 and 0.842
- * against a target of 0.80 on the shipped Atlas and SA01 scenes. Twenty milliseconds is also about the contact time
- * of a foam ball hitting something hard.
+ * A fixed time constant would not do: omega = 1 / (timeconst zeta) grows without bound as the damping vanishes, and a
+ * contact the integrator cannot resolve ADDS energy. A 20 ms time constant rang at 1500 rad/s for e = 0.9 and rebounded
+ * at 1.2 and 4 times the impact speed for e = 0.9 and 0.95 at a 1 ms step. At 300 rad/s a 0.5 ms step takes about forty steps
+ * per period of the oscillation (omega dt = 0.15), the measured restitution is within 0.02 of the configured one
+ * from 0.3 to 0.99, the contact lasts about 10 ms - the contact time of a foam ball - and an 8 m/s throw compresses the
+ * ball by 25 mm, a quarter of its radius.
  */
-inline constexpr double kProjectileContactTimeConstant = 0.02;
+inline constexpr double kProjectileContactNaturalFrequency = 300.0;
+
+/**
+ * [s] The contact time constant of a projectile of contact damping ratio `dampRatio` (> 0), the first element of its
+ * solref: 1 / (dampRatio kProjectileContactNaturalFrequency). MuJoCo raises a time constant below two steps to two
+ * steps (mjDSBL_REFSAFE), which lowers omega of a heavily damped contact and leaves its damping ratio, and so its
+ * restitution, as it was.
+ */
+double projectileContactTimeConstant(double dampRatio);
 
 /**
  * Appends `projectile` to `spec` as a free-floating sphere, parked out of play until thrown.
@@ -192,17 +230,18 @@ bool isProjectileDof(const mjModel* absl_nullable model, int projectileBodyId, i
  * Sets the joint damping of every ROBOT joint - dofs 6 to nv, after the robot's own free joint - to `damping`, and
  * leaves the projectile's six dofs alone.
  *
- * The one place the simulator changes joint damping, so that the skip cannot drift out of step between the start-up
- * default, the zero-torque ragdoll boost and disableTorques(), as it once did: 20 N s/m on a thrown ball's free joint
- * brings it to a 0.2 m/s terminal speed within a few centimeters of where it was thrown from.
+ * `damping` is in N m s/rad on a hinge and N s/m on a slide. The one place the simulator writes the ragdoll damping, so
+ * that the skip cannot drift out of step between start-up and disableTorques(), as it once did: 20 N s/m on a thrown
+ * ball's free joint brings it to a 0.2 m/s terminal speed within a few centimeters of where it was thrown from. (The
+ * scene's own damping, which enableTorques() restores, is copied back whole and leaves the ball's at its own zero.)
  */
 void setRobotJointDamping(mjModel* absl_nullable model, int projectileBodyId, double damping);
 
 /** A throw in world coordinates: where the ball starts, how fast, and how long until it reaches the base. */
 struct ProjectileLaunch {
-  std::array<double, 3> position{{0.0, 0.0, 0.0}};  // [m] world frame
-  std::array<double, 3> velocity{{0.0, 0.0, 0.0}};  // [m/s] world frame
-  double flightTime = 0.0;                          // [s] until it reaches the base it was aimed at
+  std::array<double, ocs2::kPositionDim> position{{0.0, 0.0, 0.0}};  // [m] world frame
+  std::array<double, ocs2::kPositionDim> velocity{{0.0, 0.0, 0.0}};  // [m/s] world frame
+  double flightTime = 0.0;                                           // [s] until it reaches the base it was aimed at
 };
 
 /** [m] How far a spawning ball must be from every other collidable geom, the floor included. */
@@ -235,16 +274,23 @@ absl::StatusOr<ProjectileLaunch> clearProjectileLaunch(const mjModel* absl_nulla
                                                        const ProjectileLaunch& requested,
                                                        double gravity);
 
+/** [m/s] The velocity of a ball thrown at `launchVelocity` (world frame, z up) after `flightTime`: v_launch - g t z. */
+std::array<double, ocs2::kPositionDim> projectileArrivalVelocity(const std::array<double, ocs2::kPositionDim>& launchVelocity,
+                                                                 double flightTime,
+                                                                 double gravity);
+
 /**
- * The momentum a ball carries when it reaches the base: m (v_launch - g t z), with the mass clamped by
- * clampProjectileMass. What the simulator applies to the base when no ball is compiled into the scene. A real ball
- * that bounces off delivers more than this - up to (1 + e) times as much - so the fallback is a lower bound on the
- * push, not an equivalent of it.
+ * [N s] The normal impulse a ball of mass `ballMass` hands to a body it strikes at the relative normal speed
+ * `approachSpeed` (> 0 approaching), where the body has the effective mass `effectiveMass` along the normal, with the
+ * coefficient of restitution `restitution`:
+ *
+ *     J = (1 + e) mu v,    mu = m M / (m + M),
+ *
+ * the impulse of a frictionless impact that conserves momentum and reverses the relative normal velocity at e times
+ * its speed. A rigid wall (M infinite, accepted) takes (1 + e) m v; a ball as heavy as the body, half that. Zero when the
+ * two are not approaching. The masses must be positive; `restitution` is clamped to [0, 1].
  */
-std::array<double, 3> projectileArrivalMomentum(const std::array<double, 3>& launchVelocity,
-                                                double flightTime,
-                                                double mass,
-                                                double gravity);
+double projectileImpactImpulse(double ballMass, double effectiveMass, double restitution, double approachSpeed);
 
 /**
  * Decides when a thrown ball is finished with and should be parked again, so the robot cannot trip over it later and
@@ -254,6 +300,8 @@ std::array<double, 3> projectileArrivalMomentum(const std::array<double, 3>& lau
  * been in play for kLifetime. The second is not a formality. Speed alone is not a reliable signal - a ball that
  * lodges against a moving foot, or rolls on a slope, may never be slow for long - and a ball left in play forever
  * pulls the world's center of mass around and can trip the robot minutes later.
+ *
+ * Not thread-safe: the physics thread owns it.
  */
 class ProjectileRestMonitor {
  public:

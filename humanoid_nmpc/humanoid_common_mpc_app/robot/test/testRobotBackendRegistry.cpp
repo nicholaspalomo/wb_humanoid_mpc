@@ -136,6 +136,8 @@ TEST(MujocoRobotBackend, TheSimulatorConfigurationComesFromTheOptions) {
   RobotBackendOptions options = atlasOptions();
   options.simulator.gantryHold = "kinematic_teleport";
   options.simulator.projectile = "dodgeball";
+  options.simulator.ragdollJointDamping = 12.5;
+  options.simulator.autoResetBaseHeight = 0.3;
   absl::StatusOr<robot::mujoco_sim_interface::MujocoSimConfig> config = MujocoRobotBackend::makeConfig(options);
   ASSERT_TRUE(config.ok()) << config.status();
   EXPECT_EQ(config->scenePath, robot_test::kAtlasScene);
@@ -143,9 +145,13 @@ TEST(MujocoRobotBackend, TheSimulatorConfigurationComesFromTheOptions) {
   EXPECT_DOUBLE_EQ(config->contactForceThreshold, 7.0);
   EXPECT_EQ(config->gantryHold, "kinematic_teleport");
   EXPECT_EQ(config->projectile, "dodgeball");
+  EXPECT_DOUBLE_EQ(config->ragdollJointDamping, 12.5);
+  EXPECT_DOUBLE_EQ(config->autoResetBaseHeight, 0.3);
   EXPECT_TRUE(config->visualizations.empty());
-  ASSERT_NE(config->initStatePtr_, nullptr);
-  EXPECT_DOUBLE_EQ(config->initStatePtr_->getRootPositionInWorldFrame().z(), 0.95);
+  if (!config->initialState.has_value()) {
+    FAIL() << "the task file sets an initial state";
+  }
+  EXPECT_DOUBLE_EQ(config->initialState->getRootPositionInWorldFrame().z(), 0.95);
 
   // Without visualizations named, the viewer's default set.
   options.simulator.visualizations.reset();

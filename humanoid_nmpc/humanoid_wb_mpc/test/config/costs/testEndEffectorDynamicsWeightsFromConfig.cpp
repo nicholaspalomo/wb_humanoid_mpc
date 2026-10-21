@@ -98,6 +98,21 @@ TEST(EndEffectorDynamicsWeightsFromConfigTest, ANonFiniteWeightIsRefusedByItsPat
   EXPECT_TRUE(absl::StrContains(refused.status().message(), "task_space_foot_cost.weights.lin_acceleration_z")) << refused.status();
 }
 
+TEST(EndEffectorDynamicsWeightsFromConfigTest, ANegativeOrNanWeightIsRefusedByItsPath) {
+  // The foot cost weighs each error by the square root of its weight: a negative one is a NaN in the cost.
+  mpc_config::TaskSpaceWeights negative = distinctWeights();
+  negative.orientation_y = -5.0;
+  const absl::StatusOr<EndEffectorDynamicsWeights> refused = endEffectorDynamicsWeightsFromConfig(negative, "task_space_foot_cost.weights");
+  EXPECT_EQ(refused.status().code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_TRUE(absl::StrContains(refused.status().message(), "task_space_foot_cost.weights.orientation_y is -5")) << refused.status();
+  EXPECT_TRUE(absl::StrContains(refused.status().message(), "non-negative")) << refused.status();
+  mpc_config::TaskSpaceWeights nan = distinctWeights();
+  nan.ang_velocity_x = std::numeric_limits<double>::quiet_NaN();
+  const absl::StatusOr<EndEffectorDynamicsWeights> nanRefused = endEffectorDynamicsWeightsFromConfig(nan, "task_space_foot_cost.weights");
+  EXPECT_EQ(nanRefused.status().code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_TRUE(absl::StrContains(nanRefused.status().message(), "task_space_foot_cost.weights.ang_velocity_x")) << nanRefused.status();
+}
+
 /** distinctWeights() with the weights the whole-body foot cost multiplies by a zero error at 0. */
 mpc_config::TaskSpaceWeights distinctLiveWeights() {
   mpc_config::TaskSpaceWeights weights = distinctWeights();

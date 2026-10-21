@@ -32,7 +32,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 
 #include "humanoid_common_mpc_app/robot/RobotProcessSettings.h"
+#include "humanoid_mpc_config/kalman_state_estimator_config.nproto.h"
 #include "humanoid_mpc_config/task_file.nproto.h"
+#include "humanoid_state_estimator/KalmanBaseEstimator.h"
 
 namespace ocs2::humanoid {
 
@@ -46,5 +48,11 @@ namespace ocs2::humanoid {
  *         negative or NaN time, when telemetry_frequency is not positive, or when mpc_link.policy_timeout is not.
  */
 absl::StatusOr<RobotProcessSettings> robotProcessSettingsFromConfig(const mpc_config::TaskFile& task);
+
+/**
+ * The noise model of state_estimator `kalman` that the task file's kalman_state_estimator block gives, field for field;
+ * KalmanBaseEstimator::Create() refuses a standard deviation that is not positive, naming the field.
+ */
+estimation::KalmanBaseEstimator::Config kalmanBaseEstimatorConfigFromConfig(const mpc_config::KalmanStateEstimatorConfig& config);
 
 }  // namespace ocs2::humanoid

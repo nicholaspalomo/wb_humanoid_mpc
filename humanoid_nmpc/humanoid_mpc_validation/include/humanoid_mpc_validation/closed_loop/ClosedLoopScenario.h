@@ -52,10 +52,13 @@ struct CommandSegment {
  * gantry and lets the robot stand for `standingTime`; the metrics are evaluated over the commands only.
  */
 struct ClosedLoopScenario {
+  /** [s] The standing time of a scenario that sets none. */
+  static constexpr double kDefaultStandingTime = 2.0;
+
   std::string name;
   std::string description;
   std::vector<CommandSegment> segments;
-  double standingTime = 2.0;  ///< [s] standing still between the gantry release and the first command
+  double standingTime = kDefaultStandingTime;  ///< [s] standing still between the gantry release and the first command
 };
 
 // LINT.IfChange(scenario_names)
@@ -78,6 +81,16 @@ absl::StatusOr<ClosedLoopScenario> findClosedLoopScenario(absl::string_view name
 
 /** [s] The sum of the segments' durations. */
 double getCommandDuration(const ClosedLoopScenario& scenario);
+
+/**
+ * The entries of a command vector, (forward velocity, lateral velocity, yaw rate): what commandAt() returns, the command
+ * limits of toGuiVelocityCommand() and ControlCycleSample::referenceVelocity. The planar velocity is the first
+ * kCommandPlanarVelocityDim entries.
+ */
+inline constexpr int kCommandForwardVelocityIndex = 0;
+inline constexpr int kCommandLateralVelocityIndex = 1;
+inline constexpr int kCommandYawRateIndex = 2;
+inline constexpr int kCommandPlanarVelocityDim = 2;
 
 /**
  * (forward velocity, lateral velocity, yaw rate) commanded `timeSinceStart` seconds after the first command: the

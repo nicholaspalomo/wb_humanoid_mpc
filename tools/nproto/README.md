@@ -100,7 +100,8 @@ The protos of protobuf itself (descriptor.proto, the well-known types) and `opti
 so.
 
 The generated code is clang-format clean, follows the repository's C++ lint rules (no `auto`, nullability on every
-raw pointer, integer types without `std::`), and compiles with `FIRST_PARTY_COPTS` (`bazel/copts.bzl`) and `-Werror`.
+raw pointer, integer types without `std::`, no magic numbers), and compiles with `FIRST_PARTY_COPTS`
+(`bazel/copts.bzl`) and `-Werror`.
 The conversions drop `-Wpedantic`, under which the Abseil headers they include warn; the struct headers compile with
 it and `-Werror` (`//tools/nproto/test:test_struct_headers`, `:test_generated_code`).
 
@@ -108,7 +109,7 @@ it and `-Werror` (`//tools/nproto/test:test_struct_headers`, `:test_generated_co
 
 | Proto field | Struct member | Default member initializer |
 |---|---|---|
-| `double`, `float` | `double`, `float` | `0.0`, `0.0f` (or the explicit default) |
+| `double`, `float` | `double`, `float` | `0.0`, `0.0f` (an explicit default: `kDefault<Field>`) |
 | `int32`, `sint32`, `sfixed32` | `int32_t` | `0` |
 | `int64`, `sint64`, `sfixed64` | `int64_t` | `0` |
 | `uint32`, `fixed32` | `uint32_t` | `0` |
@@ -135,7 +136,13 @@ Choices behind the table:
 - **Enumerators** are Google-style constants without the enum's prefix: `CONTROLLER_TYPE_LINEAR` is
   `ControllerType::kLinear`, `KIND_SWING_IN_FLIGHT` is `TargetContactPatch::Kind::kSwingInFlight`. The prefix is the
   enum's name in upper snake case and is dropped only when every value has it. The underlying type is `int32_t`,
-  as for protobuf enums. An alias (`allow_alias`) is a second enumerator of the same number.
+  as for protobuf enums. An alias (`allow_alias`) is a second enumerator of the same number. `FromProto()` switches
+  over the number with one `case static_cast<int32_t>(Kind::kSwing):` per number, the enumerator naming it.
+- **Explicit defaults.** A number field with `[default = ...]` (proto2, edition 2023), of any integer or
+  floating-point type, gets the default as a constant of its struct, which is the member's initializer:
+  `static constexpr int32_t kDefaultSqpIteration = 10;` and `int32_t sqp_iteration = kDefaultSqpIteration;`. The
+  repository names its magic numbers (`magic-number`, tools/hooks/magic_number.py), and code can read the default
+  as `SqpSettingsConfig::kDefaultSqpIteration`. A bool, string or enum default stays the initializer itself.
 - **Presence.** A field with explicit presence and no explicit default becomes `std::optional`: proto3 `optional`,
   proto2 `optional` without `[default = ...]`, and edition 2023 fields that are not `IMPLICIT`. A message field without
   `optional` is held by value and keeps no presence: `FromProto()` of an absent submessage gives the default struct,
@@ -237,6 +244,8 @@ y: -0.25
 
 ```cpp
 absl::Status ParseTextprotoInto(absl::string_view text, absl::string_view sourceName, google::protobuf::Message* absl_nonnull message);
+absl::Status CheckProtoMessageHeader(absl::string_view text, absl::string_view sourceName, const google::protobuf::Descriptor& descriptor);
+absl::Status ParseTextprotoFileInto(absl::string_view path, google::protobuf::Message* absl_nonnull message);  // header required
 template <typename Message>
 absl::StatusOr<Message> ParseTextproto(absl::string_view text, absl::string_view sourceName);
 template <typename Message>
@@ -245,12 +254,18 @@ template <typename Struct, typename Message>
 absl::StatusOr<Struct> LoadTextprotoFile(absl::string_view path);  // ParseTextprotoFile, then FromProto
 absl::StatusOr<std::string> ReadTextFile(absl::string_view path);
 std::string WriteTextproto(const google::protobuf::Message& message);  // for tools that write configuration files
+std::string WriteTextprotoFile(const google::protobuf::Message& message);  // the same below its `# proto-message:` line
 ```
 
 - A file whose leading comment block names another message (`# proto-message: pkg.Other`) is refused before it is
   parsed: `config/reference.textproto:2:1: config/reference.textproto is a humanoid_mpc_config.ReferenceFile (its '#
-  proto-message:' header), not a humanoid_mpc_config.TaskFile`. A file without the header parses as the message asked
-  for; `make lint` requires the header of every tracked `.textproto` (`textproto-header`, tools/hooks/textproto_headers.py).
+  proto-message:' header), not a humanoid_mpc_config.TaskFile`. A file without the header is refused too
+  (`ParseTextprotoFile()`, `LoadTextprotoFile()`, `ParseTextprotoFileInto()` and `CheckProtoMessageHeader()`; Python's
+  `load_textproto()` and `check_proto_message_header()`; `WriteTextprotoFile()` and Python's `file_text()` write a
+  file's text with it): `task.textproto:1:1: task.textproto names no schema: ...`,
+  since a file that names no message could be read as any message whose fields it matches. Text from memory (a bus
+  payload, a test's string) parsed with `ParseTextproto()` / `parse_textproto()` needs no header. `make lint` requires
+  the header of every tracked `.textproto` as well (`textproto-header`, tools/hooks/textproto_headers.py).
 - Parsing uses `google::protobuf::TextFormat::Parser` with an error collector. A syntax error, an unknown field or
   extension, an unknown enum value name, a value of the wrong type or out of range, a non-repeated field given twice,
   two alternatives of one oneof, a field number instead of a name, a deprecated field and a missing proto2 required
@@ -320,7 +335,8 @@ task = nproto_textproto.load_textproto("config/mpc/task.textproto", task_file_pb
 nproto_textproto.parse_textproto(text, message, source="the GUI's document")  # raises TextprotoError
 ```
 
-It refuses what the C++ parser refuses, at the same position and, for retired fields and the header, in the same
+It refuses what the C++ parser refuses, at the same position (columns count characters: a tab is one, and so is a
+character of several UTF-8 bytes) and, for retired fields and the header, in the same
 words (`//tools/nproto/test:test_nproto_textproto` runs the inputs of `:test_textproto`): text_format's own wording differs for the other
 problems, and it reports the first problem only. A deprecated field, which text_format accepts, is found by the module
 itself; a field given twice is reported at its name, as in C++.
@@ -351,7 +367,10 @@ names the file and the definition when:
 - a message contains itself;
 - a field refers to a type that has no struct (its definition sets no option, or it is one of protobuf's own types);
 - a name cannot be a C++ name: a field, oneof or message named like a C++ keyword, a nested type and a member of one
-  name, two enum values that give one enumerator, two oneof fields that give one index constant;
+  name, two enum values that give one enumerator, two fields that give one constant (a oneof index constant or a
+  default constant), a constant named like a member or a nested type;
+- a name is too long for the generated code: an enum whose full name, or an enumerator whose `case` label, does not
+  fit a line;
 - `(nproto.optional_message)` is set on a field that is not a singular message, or on a oneof alternative;
 - a `(nproto.retired_field)` names a live field of its message, names one field twice, or lacks a name or a
   replacement.
@@ -390,8 +409,8 @@ bazel test //tools/nproto/... //humanoid_nmpc/humanoid_mpc_msgs:messages_nproto_
 - `:test_nproto_generator`: the generator's output and every error above (the misplaced `optional_message` and the bad
   retired names included), on requests built in the test, and the plugin binary speaking protoc's protocol.
 - `:test_generated_code`: the generated code of the test protos, of `humanoid_mpc_msgs` and of `humanoid_mpc_config`
-  is clang-format clean,
-  the repository's `no-auto` and `pointer-nullability` lint checks find nothing in it (`make lint` never sees
-  `bazel-out`), its output parameters are `absl_nonnull`, and its struct headers include neither protobuf nor Abseil.
+  is clang-format clean, the repository's C++ lint checks (`no-auto`, `pointer-nullability`, `magic-number`, ...)
+  find nothing in it (`make lint` never sees `bazel-out`), its output parameters are `absl_nonnull`, and its struct
+  headers include neither protobuf nor Abseil.
 - `ExpectRoundTrips<Struct, Proto>()` (`:proto_test_values`) is the round-trip check any package can run over its own
   messages, as `//humanoid_nmpc/humanoid_mpc_msgs:messages_nproto_test` does for every message there.

@@ -52,7 +52,8 @@ namespace ocs2::humanoid::config_dump {
  * Lines are `<path> = <value>`: a double as `%a (%.17g)`, so that equal lines are equal bits; an integer and a bool as
  * written; a string quoted and escaped; a vector or matrix one line per element, `<path>[<i>]` or `<path>(<row>,<col>)`,
  * after its size. A matrix too large to read element by element is dumped as its fingerprint: its size, its nonzeros,
- * its sum and a hash of its elements' bits, which a change of one bit of one element changes. Not thread-safe.
+ * its sum and a hash of its elements' bits, which a change of one bit of one nonzero element changes (matrixHash():
+ * the signs of zeros and the payloads of NaNs, which the fingerprint could not show, do not count). Not thread-safe.
  */
 class ValueDump {
  public:
@@ -81,7 +82,10 @@ class ValueDump {
   std::string text_;
 };
 
-/** The 64-bit FNV-1a hash of `matrix`'s size and of the IEEE-754 bits of its elements, row by row. */
+/**
+ * The 64-bit FNV-1a hash of `matrix`'s size and of the IEEE-754 bits of its elements, row by row, with -0.0 hashed as
+ * +0.0 and every NaN as the one quiet NaN: equal values hash equal, and a change of any bit of a nonzero value changes it.
+ */
 uint64_t matrixHash(const Eigen::Ref<const Eigen::MatrixXd>& matrix);
 
 /** `prefix.name`, or `name` for an empty prefix: the paths of nested values. */

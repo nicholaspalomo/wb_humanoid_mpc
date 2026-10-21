@@ -28,8 +28,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
 #include <cmath>
+#include <limits>
 #include <utility>
 
+#include "absl/log/absl_check.h"
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #include "gtest/gtest.h"
 
 #include "humanoid_common_mpc/contact_planning/hlip/HlipModel.h"
@@ -41,12 +45,38 @@ constexpr scalar_t kTol = 1.0e-9;
 
 /** The cadence and height of the paper's experiments (arXiv:2502.15630, Table I). */
 HlipModel makePaperModel() {
-  return HlipModel(0.35, 0.0, 0.62, 9.81);
+  absl::StatusOr<HlipModel> model = HlipModel::Create(0.35, 0.0, 0.62, 9.81);
+  ABSL_CHECK_OK(model.status());
+  return *std::move(model);
 }
 
 /** A cadence with a non-zero double support, which changes every matrix in the step-to-step map. */
 HlipModel makeDoubleSupportModel() {
-  return HlipModel(0.3, 0.1, 0.85, 9.81);
+  absl::StatusOr<HlipModel> model = HlipModel::Create(0.3, 0.1, 0.85, 9.81);
+  ABSL_CHECK_OK(model.status());
+  return *std::move(model);
+}
+
+// Every bound of the model is refused, NaN included, instead of ending the process.
+TEST(HlipModel, createRefusesAnOutOfBoundsCadenceOrPendulum) {
+  const scalar_t nan = std::numeric_limits<scalar_t>::quiet_NaN();
+  EXPECT_TRUE(HlipModel::Create(/*sspDuration=*/0.3, /*dspDuration=*/0.0, /*comHeight=*/0.85, /*gravity=*/9.81).ok());
+  for (const scalar_t ssp : {0.0, -0.1, nan}) {
+    EXPECT_EQ(HlipModel::Create(ssp, /*dspDuration=*/0.0, /*comHeight=*/0.85, /*gravity=*/9.81).status().code(),
+              absl::StatusCode::kInvalidArgument);
+  }
+  for (const scalar_t dsp : {-0.01, nan}) {
+    EXPECT_EQ(HlipModel::Create(/*sspDuration=*/0.3, dsp, /*comHeight=*/0.85, /*gravity=*/9.81).status().code(),
+              absl::StatusCode::kInvalidArgument);
+  }
+  for (const scalar_t height : {0.0, -0.85, nan}) {
+    EXPECT_EQ(HlipModel::Create(/*sspDuration=*/0.3, /*dspDuration=*/0.0, height, /*gravity=*/9.81).status().code(),
+              absl::StatusCode::kInvalidArgument);
+  }
+  for (const scalar_t gravity : {0.0, -9.81, nan}) {
+    EXPECT_EQ(HlipModel::Create(/*sspDuration=*/0.3, /*dspDuration=*/0.0, /*comHeight=*/0.85, gravity).status().code(),
+              absl::StatusCode::kInvalidArgument);
+  }
 }
 
 TEST(HlipModel, naturalFrequencyAndStepDuration) {
@@ -117,17 +147,17 @@ TEST(HlipModel, periodTwoOrbitAlternates) {
   const HlipModel model = makePaperModel();
   const scalar_t leftStep = 0.25;
   const scalar_t rightStep = -0.25;
-  const std::pair<HlipModel::State, HlipModel::State> orbit = model.periodTwoOrbit(leftStep, rightStep);
+  const HlipModel::PeriodTwoOrbit orbit = model.periodTwoOrbit(leftStep, rightStep);
 
-  const HlipModel::State afterLeft = model.applyStepToStep(orbit.first, leftStep);
-  EXPECT_NEAR(afterLeft(0), orbit.second(0), 1.0e-9);
-  EXPECT_NEAR(afterLeft(1), orbit.second(1), 1.0e-9);
-  const HlipModel::State afterRight = model.applyStepToStep(orbit.second, rightStep);
-  EXPECT_NEAR(afterRight(0), orbit.first(0), 1.0e-9);
-  EXPECT_NEAR(afterRight(1), orbit.first(1), 1.0e-9);
+  const HlipModel::State afterLeft = model.applyStepToStep(orbit.beforeFirstStep, leftStep);
+  EXPECT_NEAR(afterLeft(0), orbit.beforeSecondStep(0), 1.0e-9);
+  EXPECT_NEAR(afterLeft(1), orbit.beforeSecondStep(1), 1.0e-9);
+  const HlipModel::State afterRight = model.applyStepToStep(orbit.beforeSecondStep, rightStep);
+  EXPECT_NEAR(afterRight(0), orbit.beforeFirstStep(0), 1.0e-9);
+  EXPECT_NEAR(afterRight(1), orbit.beforeFirstStep(1), 1.0e-9);
 
   // A symmetric lateral orbit stands still on average: the pre-impact positions mirror each other.
-  EXPECT_NEAR(orbit.first(0), -orbit.second(0), 1.0e-9);
+  EXPECT_NEAR(orbit.beforeFirstStep(0), -orbit.beforeSecondStep(0), 1.0e-9);
 }
 
 TEST(HlipModel, deadbeatControllerRecoversInTwoSteps) {

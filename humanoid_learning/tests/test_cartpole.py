@@ -99,7 +99,7 @@ class TestCartpoleBraxTrainingPipeline(unittest.TestCase):
         """Tests rendering policy rollout to animated GIF."""
         gif_path = os.path.join(self.temp_dir, "test_rollout.gif")
         eval_score = train_cartpole.render_policy_rollout(
-            self.env.mj_model, _dummy_inference_fn, gif_path, num_frames=20
+            self.env.mj_model, _dummy_inference_fn, gif_path, num_steps=20
         )
 
         self.assertTrue(os.path.exists(gif_path))
@@ -110,6 +110,83 @@ class TestCartpoleBraxTrainingPipeline(unittest.TestCase):
         with Image.open(gif_path) as img:
             self.assertEqual(img.format, "GIF")
             self.assertGreaterEqual(img.n_frames, 5)
+            # A frame every second 10 ms step: 20 ms per frame plays at real time.
+            self.assertEqual(img.info["duration"], 20)
+        self.assertEqual(train_cartpole.gif_frame_duration_ms(0.01), 20)
+
+    def test_the_rollout_score_is_the_return_training_evaluates(self):
+        """The rollout's score is the sum of the Brax environment's rewards up to its end."""
+        step = jax.jit(self.env.step)
+        for push in (0.0, -0.6):
+
+            def constant_policy(
+                obs: np.ndarray, rng: jax.Array, push: float = push
+            ) -> tuple[jax.Array, dict[str, jax.Array]]:
+                del obs, rng  # Unused.
+                return jnp.full((1,), push), {}
+
+            num_steps = 150
+            score = train_cartpole.rollout_policy(
+                self.env.mj_model, constant_policy, num_steps
+            ).score
+
+            state = self.env.reset(self.rng)
+            state = state.replace(
+                pipeline_state=self.env.pipeline_init(
+                    jnp.array([0.0, 0.35]), jnp.zeros(2)
+                )
+            )
+            expected = 0.0
+            for _ in range(num_steps):
+                state = step(state, jnp.full((1,), push))
+                expected += float(state.reward)
+                if float(state.done) > 0.5:
+                    break
+            # The pole falls, or the cart leaves the rail: the score ends where training's episode does.
+            self.assertTrue(
+                float(state.done) > 0.5, msg=f"push {push}: the episode ends"
+            )
+            self.assertAlmostEqual(
+                score, expected, delta=1e-3 * abs(expected) + 1e-3, msg=f"push {push}"
+            )
+
+    def test_the_pole_swings_freely_and_the_cart_slides_on_its_rail(self):
+        """The hinge's range is in radians (+/-pi, not +/-pi degrees) and the rail does not hold the cart by contact."""
+        np.testing.assert_allclose(
+            self.env.mj_model.jnt_range[1], [-np.pi, np.pi], atol=1e-5
+        )
+        state = self.env.reset(self.rng)
+        state = state.replace(
+            pipeline_state=self.env.pipeline_init(jnp.array([0.0, 0.35]), jnp.zeros(2))
+        )
+        step = jax.jit(self.env.step)
+        for _ in range(20):
+            state = step(state, -jnp.ones((1,)))
+        # Pushed back, the cart slides back and the pole, already tilted forward, tilts further than any degree range.
+        self.assertLess(float(state.pipeline_state.qpos[0]), -0.1)
+        self.assertGreater(float(state.pipeline_state.qpos[1]), 0.36)
+
+    def test_the_evaluation_policy_is_deterministic(self):
+        """The evaluated policy ignores its key: the mean action, not a sample."""
+        ppo_network = ppo_networks.make_ppo_networks(
+            observation_size=self.env.observation_size,
+            action_size=self.env.action_size,
+            policy_hidden_layer_sizes=(32, 32),
+            value_hidden_layer_sizes=(32, 32),
+        )
+        policy_params = ppo_network.policy_network.init(self.rng)
+        make_inference_fn = ppo_networks.make_inference_fn(ppo_network)
+        policy = train_cartpole.evaluation_policy(
+            make_inference_fn, ((), policy_params)
+        )
+        stochastic = make_inference_fn(((), policy_params))
+        obs = jnp.array([0.1, 0.3, 0.95, -0.2, 0.4])
+        first, _ = policy(obs, jax.random.PRNGKey(1))
+        second, _ = policy(obs, jax.random.PRNGKey(2))
+        np.testing.assert_array_equal(first, second)
+        sample_one, _ = stochastic(obs, jax.random.PRNGKey(1))
+        sample_two, _ = stochastic(obs, jax.random.PRNGKey(2))
+        self.assertFalse(np.array_equal(sample_one, sample_two))
 
     def test_plotting_training_curves(self):
         """Tests generating metric curves plot."""

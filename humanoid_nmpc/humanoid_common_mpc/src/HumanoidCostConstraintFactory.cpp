@@ -45,6 +45,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "ocs2_core/constraint/StateInputConstraint.h"
+#include "ocs2_core/penalties/penalties/PenaltyBase.h"
 #include "ocs2_core/penalties/penalties/PieceWisePolynomialBarrierPenalty.h"
 #include "ocs2_core/penalties/penalties/RelaxedBarrierPenalty.h"
 #include "ocs2_core/penalties/penalties/SquaredHingePenalty.h"
@@ -67,7 +68,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact/ContactRectangle.h"
 #include "humanoid_common_mpc/cost/BasePoseShapedQuadraticStateCost.h"
 #include "humanoid_common_mpc/cost/ComAndAcomTrackingCost.h"
-#include "humanoid_common_mpc/cost/EndEffectorKinematicCostHelpers.h"
 #include "humanoid_common_mpc/cost/ExternalTorqueQuadraticCostAD.h"
 #include "humanoid_common_mpc/cost/InputQuadraticCost.h"
 #include "humanoid_common_mpc/cost/StateInputQuadraticCost.h"
@@ -121,7 +121,7 @@ HumanoidCostConstraintFactory::HumanoidCostConstraintFactory(const mpc_config::T
       pinocchioInterfacePtr_(&pinocchioInterface),
       mpcRobotModelPtr_(&mpcRobotModel),
       mpcRobotModelADPtr_(&mpcRobotModelAD),
-      modelSettings_(modelSettings),
+      modelSettingsPtr_(&modelSettings),
       verbose_(verbose),
       scheduleGatedContactConstraints_(scheduleGatedContactConstraints) {
   ABSL_CHECK(taskFilePtr_ != nullptr) << "HumanoidCostConstraintFactory: no task file";
@@ -133,7 +133,8 @@ HumanoidCostConstraintFactory::HumanoidCostConstraintFactory(const mpc_config::T
  * A schedule-gated cone is only ever evaluated on a foot the schedule has declared loaded, where the slack is
  * comfortably positive and a relaxed log barrier is the right object. An always-active cone is also evaluated on a
  * foot in flight, which sits exactly ON the boundary of the homogeneous cone. A relaxed log barrier has value
- * -mu*ln(delta) - mu/2 and derivative -2*mu/delta there - with the shipped center-of-pressure settings, mu = 0.6 and
+ * -mu*ln(delta) + 3*mu/2 (its quadratic extension mu*(-ln(delta) + ((h - 2*delta)/delta)^2/2 - 1/2) at h = 0) and
+ * derivative -2*mu/delta there - with the shipped center-of-pressure settings, mu = 0.6 and
  * delta = 0.03, that is a derivative of -40 per row - so it would pay the solver to leave the origin, i.e. to invent a
  * normal force on a foot in the air. That is precisely the failure that dropping `minNormalForce` and the friction
  * cone's parabolic margin exists to remove, and a log barrier would put it straight back.
@@ -154,9 +155,9 @@ HumanoidCostConstraintFactory::HumanoidCostConstraintFactory(const mpc_config::T
  * gone. Matching the barrier's curvature instead would mean mu/delta^2 = 0.008, an eightyfold softening, and is not
  * what is wanted here.
  */
-std::unique_ptr<PenaltyBase> makeContactConePenalty(const RelaxedBarrierPenalty::Config& barrierConfig, bool scheduleGated) {
-  const vector_t parameters = contactConePenaltyParameters(barrierConfig, scheduleGated);
-  if (scheduleGated) {
+std::unique_ptr<PenaltyBase> makeContactConePenalty(const RelaxedBarrierPenalty::Config& barrierConfig, ContactConeGating gating) {
+  const vector_t parameters = contactConePenaltyParameters(barrierConfig, gating);
+  if (gating == ContactConeGating::kScheduleGated) {
     return std::make_unique<RelaxedBarrierPenalty>(RelaxedBarrierPenalty::Config(parameters(0), parameters(1)));
   }
   LOG(INFO) << "[HumanoidCostConstraintFactory] Un-gated cone: squared hinge with stiffness mu = " << parameters(0)
@@ -165,10 +166,11 @@ std::unique_ptr<PenaltyBase> makeContactConePenalty(const RelaxedBarrierPenalty:
   return std::make_unique<SquaredHingePenalty>(SquaredHingePenalty::Config(parameters(0), parameters(1)));
 }
 
-vector_t contactConePenaltyParameters(const RelaxedBarrierPenalty::Config& barrierConfig, bool scheduleGated) {
+vector_t contactConePenaltyParameters(const RelaxedBarrierPenalty::Config& barrierConfig, ContactConeGating gating) {
   // An un-gated cone's hinge keeps its zero on the cone, which a foot at zero wrench lies on: its delta is the OFFSET of
   // that zero, not the barrier's smoothing width, and is 0 whatever the file's barrier delta says.
-  return (vector_t(2) << barrierConfig.mu, scheduleGated ? barrierConfig.delta : 0.0).finished();
+  return (vector_t(kMuDeltaParameterCount) << barrierConfig.mu, gating == ContactConeGating::kScheduleGated ? barrierConfig.delta : 0.0)
+      .finished();
 }
 
 /******************************************************************************************************/
@@ -295,7 +297,7 @@ absl::StatusOr<std::unique_ptr<StateCost>> HumanoidCostConstraintFactory::buildC
   }
   ASSIGN_OR_RETURN(std::unique_ptr<ComAndAcomTrackingCost> cost,
                    ComAndAcomTrackingCost::Create(std::move(Q_com), std::move(Q_acom), *pinocchioInterfacePtr_, info, mpcRobotModelPtr_,
-                                                  modelSettings_.robotName));
+                                                  modelSettingsPtr_->robotName));
   return std::unique_ptr<StateCost>(std::move(cost));
 }
 
@@ -339,11 +341,12 @@ absl::StatusOr<std::unique_ptr<StateCost>> HumanoidCostConstraintFactory::makeFo
   const mpc_config::TaskFile& taskFile = *taskFilePtr_;
   ASSIGN_OR_RETURN(const FootCollisionConstraint::Config collisionConfig,
                    footCollisionConstraintConfigFromConfig(taskFile.collision_constraint));
+  RETURN_IF_ERROR(checkFootCollisionFramesExist(collisionConfig, pinocchioInterfacePtr_->getModel()));
   ASSIGN_OR_RETURN(const PieceWisePolynomialBarrierPenalty::Config barrierPenaltyConfig,
                    footCollisionBarrierFromConfig(taskFile.collision_constraint));
   std::unique_ptr<PieceWisePolynomialBarrierPenalty> penalty = std::make_unique<PieceWisePolynomialBarrierPenalty>(barrierPenaltyConfig);
   std::unique_ptr<FootCollisionConstraint> footCollisionConstraintPtr = std::make_unique<FootCollisionConstraint>(
-      *referenceManagerPtr_, *pinocchioInterfacePtr_, *mpcRobotModelADPtr_, collisionConfig, "FootCollisionConstraint", modelSettings_);
+      *referenceManagerPtr_, *pinocchioInterfacePtr_, *mpcRobotModelADPtr_, collisionConfig, "FootCollisionConstraint", *modelSettingsPtr_);
   return std::make_unique<StateSoftConstraint>(std::move(footCollisionConstraintPtr), std::move(penalty));
 }
 
@@ -356,8 +359,8 @@ absl::StatusOr<std::unique_ptr<StateCost>> HumanoidCostConstraintFactory::makeJo
               << ", joint_limits.delta = " << barrierPenaltyConfig.delta;
   }
   LOG(INFO) << "Initialized joint limits constraint with zero crossing cost " << barrierPenaltyConfig.getZeroCrossingValue() << ".";
-  std::pair<vector_t, vector_t> jointLimits = readPinocchioJointLimits(*pinocchioInterfacePtr_, mpcRobotModelPtr_->modelSettings);
-  return std::make_unique<JointLimitsSoftConstraint>(jointLimits, barrierPenaltyConfig, *mpcRobotModelPtr_);
+  return std::make_unique<JointLimitsSoftConstraint>(readPinocchioJointLimits(*pinocchioInterfacePtr_, mpcRobotModelPtr_->modelSettings),
+                                                     barrierPenaltyConfig, *mpcRobotModelPtr_);
 }
 
 absl::StatusOr<std::unique_ptr<StateInputCost>> HumanoidCostConstraintFactory::makeContactMomentXYConstraint(
@@ -368,8 +371,9 @@ absl::StatusOr<std::unique_ptr<StateInputCost>> HumanoidCostConstraintFactory::m
                    contactRectangleFromConfig(taskFile.contacts, mpcRobotModelPtr_->modelSettings, static_cast<int>(contactPointIndex)));
   std::unique_ptr<ContactMomentXYConstraintCppAd> contactMomentXYConstraintPtr =
       std::make_unique<ContactMomentXYConstraintCppAd>(*referenceManagerPtr_, footprint, contactPointIndex, *pinocchioInterfacePtr_,
-                                                       *mpcRobotModelADPtr_, name, modelSettings_, scheduleGatedContactConstraints_);
-  std::unique_ptr<PenaltyBase> penalty = makeContactConePenalty(barrierPenaltyConfig, scheduleGatedContactConstraints_);
+                                                       *mpcRobotModelADPtr_, name, *modelSettingsPtr_, scheduleGatedContactConstraints_);
+  std::unique_ptr<PenaltyBase> penalty =
+      makeContactConePenalty(barrierPenaltyConfig, contactConeGatingOf(scheduleGatedContactConstraints_));
   return std::make_unique<StateInputSoftConstraint>(std::move(contactMomentXYConstraintPtr), std::move(penalty));
 }
 
@@ -385,7 +389,8 @@ absl::StatusOr<std::unique_ptr<StateInputCost>> HumanoidCostConstraintFactory::m
   ASSIGN_OR_RETURN(std::unique_ptr<ContactWrenchConeConstraint> contactWrenchConeConstraintPtr,
                    ContactWrenchConeConstraint::Create(*referenceManagerPtr_, footprint, contactPointIndex, *pinocchioInterfacePtr_,
                                                        *mpcRobotModelPtr_, std::move(config), scheduleGatedContactConstraints_));
-  std::unique_ptr<PenaltyBase> penalty = makeContactConePenalty(barrierPenaltyConfig, scheduleGatedContactConstraints_);
+  std::unique_ptr<PenaltyBase> penalty =
+      makeContactConePenalty(barrierPenaltyConfig, contactConeGatingOf(scheduleGatedContactConstraints_));
   return std::make_unique<StateInputSoftConstraint>(std::move(contactWrenchConeConstraintPtr), std::move(penalty));
 }
 
@@ -401,7 +406,8 @@ absl::StatusOr<std::unique_ptr<StateInputCost>> HumanoidCostConstraintFactory::m
   }
   std::unique_ptr<FrictionForceConeConstraint> frictionForceConeConstraintPtr = std::make_unique<FrictionForceConeConstraint>(
       *referenceManagerPtr_, frictionConeConfig, contactPointIndex, *mpcRobotModelPtr_, scheduleGatedContactConstraints_);
-  std::unique_ptr<PenaltyBase> penalty = makeContactConePenalty(barrierPenaltyConfig, scheduleGatedContactConstraints_);
+  std::unique_ptr<PenaltyBase> penalty =
+      makeContactConePenalty(barrierPenaltyConfig, contactConeGatingOf(scheduleGatedContactConstraints_));
   return std::make_unique<StateInputSoftConstraint>(std::move(frictionForceConeConstraintPtr), std::move(penalty));
 }
 
@@ -420,7 +426,7 @@ absl::StatusOr<std::unique_ptr<StateInputCost>> HumanoidCostConstraintFactory::m
                                            left ? "left_leg_torque_cost" : "right_leg_torque_cost"));
   ASSIGN_OR_RETURN(std::unique_ptr<ExternalTorqueQuadraticCostAD> cost,
                    ExternalTorqueQuadraticCostAD::Create(contactPointIndex, config, *referenceManagerPtr_, *pinocchioInterfacePtr_,
-                                                         *mpcRobotModelADPtr_, modelSettings_));
+                                                         *mpcRobotModelADPtr_, *modelSettingsPtr_));
   return cost;
 }
 

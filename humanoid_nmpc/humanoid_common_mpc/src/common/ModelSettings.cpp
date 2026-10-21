@@ -30,6 +30,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
 
+#include <climits>
+#include <cstdint>
 #include <iterator>
 #include <string>
 #include <vector>
@@ -37,11 +39,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
 
+#include "humanoid_common_mpc/common/StateLayout.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/config/ConfigFiles.h"
 #include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
+#include "humanoid_common_mpc/pinocchio_model/pinocchioUtils.h"
 #include "humanoid_mpc_config/task_file.nproto.h"
+#include "nproto/Fnv1a64Constants.h"
 
 namespace ocs2::humanoid {
 
@@ -68,6 +74,10 @@ constexpr ModelSettings::ContactImplicitKey kContactImplicitKeys[] = {
 static_assert(sizeof(ModelSettings::ContactImplicitConfig) == std::size(kContactImplicitKeys) * sizeof(scalar_t),
               "every field of ModelSettings::ContactImplicitConfig needs a key in kContactImplicitKeys");
 
+// The joints of a Pinocchio model before the URDF's own: the universe and the floating base's root joint, which the URDF's
+// first joint follows.
+constexpr int kNonUrdfJointCount = static_cast<int>(kFirstJointAfterFloatingBase);
+
 }  // namespace
 
 absl::Span<const ModelSettings::ContactImplicitKey> ModelSettings::contactImplicitKeys() {
@@ -91,11 +101,57 @@ void ModelSettings::loadFullJointNames(const std::string& urdfFile, bool verbose
   const PinocchioInterface fullPinocchioInterface = createDefaultPinocchioInterface(urdfFile);
   const pinocchio::Model& model = fullPinocchioInterface.getModel();
   if (verbose) LOG(INFO) << "Full URDF joints: ";
-  fullJointNames.reserve(model.njoints - 2);  // Subtract universe and root joint
-  for (pinocchio::JointIndex joint_id = 2; joint_id < static_cast<pinocchio::JointIndex>(model.njoints); ++joint_id) {
+  fullJointNames.reserve(model.njoints - kNonUrdfJointCount);  // Subtract universe and root joint
+  for (pinocchio::JointIndex joint_id = kFirstJointAfterFloatingBase; joint_id < static_cast<pinocchio::JointIndex>(model.njoints);
+       ++joint_id) {
     if (verbose) LOG(INFO) << model.names[joint_id];
     fullJointNames.emplace_back(model.names[joint_id]);
   }
+}
+
+namespace {
+
+/**
+ * FNV-1a 64 over words and length-prefixed strings, so that ("ab", "c") and ("a", "bc") differ: add, then read value().
+ *
+ * Not thread-safe.
+ */
+class LayoutHash {
+ public:
+  void addWord(uint64_t word) {
+    for (int octet = 0; octet < nproto::kFnvWordOctets; ++octet) {
+      hash_ ^= (word >> (CHAR_BIT * octet)) & nproto::kFnvOctetMask;
+      hash_ *= nproto::kFnvPrime;
+    }
+  }
+  void addString(absl::string_view text) {
+    addWord(text.size());
+    for (const char character : text) {
+      hash_ ^= static_cast<uint64_t>(static_cast<unsigned char>(character));
+      hash_ *= nproto::kFnvPrime;
+    }
+  }
+  void addStrings(const std::vector<std::string>& texts) {
+    addWord(texts.size());
+    for (const std::string& text : texts) addString(text);
+  }
+  uint64_t value() const { return hash_; }
+
+ private:
+  uint64_t hash_ = nproto::kFnvOffsetBasis;
+};
+
+}  // namespace
+
+uint64_t modelLayoutFingerprint(const ModelSettings& settings) {
+  LayoutHash hash;
+  hash.addString(kStateLayoutTag);
+  hash.addString(settings.robotName);
+  hash.addStrings(settings.mpcModelJointNames);
+  hash.addStrings(settings.contactNames3DoF);
+  hash.addStrings(settings.contactNames6DoF);
+  // The value an unstamped message carries is never a layout's.
+  return hash.value() == kUnstampedModelFingerprint ? kUnstampedModelFingerprint + 1 : hash.value();
 }
 
 }  // namespace ocs2::humanoid

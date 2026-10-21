@@ -58,6 +58,10 @@ namespace ocs2::humanoid {
  */
 class RobotController {
  public:
+  RobotController() = default;
+  /** An interface: implementations are used through a pointer or reference, never copied or moved. */
+  RobotController(const RobotController&) = delete;
+  RobotController& operator=(const RobotController&) = delete;
   virtual ~RobotController() = default;
 
   // ------------------------------------------------------------------ the realtime thread

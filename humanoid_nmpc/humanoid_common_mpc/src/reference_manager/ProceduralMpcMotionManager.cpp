@@ -48,6 +48,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/synchronization/mutex.h"
+#include "ocs2_core/Dimensions.h"
 
 #include "humanoid_common_mpc/command/BasePlanarMotion.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
@@ -62,6 +63,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_mpc_config/reference_file.nproto.h"
 
 namespace ocs2::humanoid {
+namespace {
+
+/** [s] The warning about a solve without its observation (observe()) is logged at most once per this period. */
+constexpr scalar_t kMissingObservationWarningPeriod = 5.0;
+
+}  // namespace
 
 /******************************************************************************************************/
 /******************************************************************************************************/
@@ -165,13 +172,16 @@ vector4_t ProceduralMpcMotionManager::rateLimitVelocityCommand(
   vector4_t limited = target;
   if (dt <= 0.0) return current;
   if (maxLinearAcceleration > 0.0) {
-    const vector2_t delta = target.head<2>() - current.head<2>();
+    const vector2_t delta = target.head<kHorizontalPositionDim>() - current.head<kHorizontalPositionDim>();
     const scalar_t maxDelta = maxLinearAcceleration * dt;
-    limited.head<2>() = delta.norm() > maxDelta ? vector2_t(current.head<2>() + delta * (maxDelta / delta.norm())) : target.head<2>();
+    limited.head<kHorizontalPositionDim>() = delta.norm() > maxDelta
+                                                 ? vector2_t(current.head<kHorizontalPositionDim>() + delta * (maxDelta / delta.norm()))
+                                                 : target.head<kHorizontalPositionDim>();
   }
   if (maxAngularAcceleration > 0.0) {
     const scalar_t maxDelta = maxAngularAcceleration * dt;
-    limited(3) = current(3) + std::clamp(target(3) - current(3), -maxDelta, maxDelta);
+    constexpr int kYawRateIndex = WalkingVelocityCommand::kAngularVelocityZIndex;
+    limited(kYawRateIndex) = current(kYawRateIndex) + std::clamp(target(kYawRateIndex) - current(kYawRateIndex), -maxDelta, maxDelta);
   }
   return limited;
 }
@@ -251,7 +261,7 @@ bool ProceduralMpcMotionManager::transitionToFasterGait(const vector4_t& velComm
                                                         const BasePlanarMotion* absl_nullable strideMeanMotion,
                                                         const GaitModeStateConfig& cfg) {
   const bool fasterGaitRequested = (std::abs(velCommandVec(0)) > cfg.maxLinVelCmd || std::abs(velCommandVec(1)) > cfg.maxLinVelCmd ||
-                                    std::abs(velCommandVec(3)) > cfg.maxAngVelCmd);
+                                    std::abs(velCommandVec(WalkingVelocityCommand::kAngularVelocityZIndex)) > cfg.maxAngVelCmd);
   const scalar_t linearThreshold = cfg.maxLinVelCmd - cfg.linVelErrorThresh;
   const scalar_t angularThreshold = cfg.maxAngVelCmd - cfg.angVelErrorThresh;
   // Without a measured window the switch reads no motion: it goes only where every motion would pass, i.e. where a
@@ -271,7 +281,7 @@ bool ProceduralMpcMotionManager::transitionToSlowerGait(const vector4_t& velComm
                                                         const BasePlanarMotion* absl_nullable strideMeanMotion,
                                                         const GaitModeStateConfig& cfg) {
   const bool slowerGaitRequested = (std::abs(velCommandVec(0)) < cfg.minLinVelCmd && std::abs(velCommandVec(1)) < cfg.minLinVelCmd &&
-                                    std::abs(velCommandVec(3)) < cfg.minAngVelCmd);
+                                    std::abs(velCommandVec(WalkingVelocityCommand::kAngularVelocityZIndex)) < cfg.minAngVelCmd);
   // Without a measured window no motion is known to be slow enough: no c has |m| < c for every m.
   if (strideMeanMotion == nullptr) return false;
   // The measured motion, its turn included: the command's own yaw rate stood here, which slowerGaitRequested has
@@ -295,8 +305,9 @@ BasePlanarMotion ProceduralMpcMotionManager::instantaneousMotionOf(scalar_t init
   const bool observed = hasObservation_ && observedTime_ == initTime && observedState_.size() == initState.size() &&
                         observedState_ == initState && static_cast<size_t>(observedInput_.size()) == model.getInputDim();
   if (!observed) {
-    LOG_EVERY_N_SEC(WARNING, 5.0) << "[ProceduralMpcMotionManager] No observation of the solve at t = " << initTime
-                                  << " was handed over (observe()): its measured motion starts at rest.";
+    LOG_EVERY_N_SEC(WARNING, kMissingObservationWarningPeriod)
+        << "[ProceduralMpcMotionManager] No observation of the solve at t = " << initTime
+        << " was handed over (observe()): its measured motion starts at rest.";
     return BasePlanarMotion{};
   }
   const vector_t jointVelocities = model.getJointVelocities(initState, observedInput_);
@@ -305,10 +316,11 @@ BasePlanarMotion ProceduralMpcMotionManager::instantaneousMotionOf(scalar_t init
 
 BasePlanarMotion ProceduralMpcMotionManager::updateMeasuredMotion(scalar_t initTime, const vector_t& initState) {
   const MpcRobotModelBase<scalar_t>& model = *mpcRobotModelPtr_;
-  strideMotion_.addSample(initTime, vector2_t(model.getBasePosition(initState).head<2>()), model.getBaseHeading(initState),
+  strideMotion_.addSample(initTime, vector2_t(model.getBasePosition(initState).head<kHorizontalPositionDim>()),
+                          model.getBaseHeading(initState),
                           [this, initTime, &initState]() { return instantaneousMotionOf(initTime, initState); });
   // The gaits that no longer run: every one before the one running now.
-  while (scheduledGaits_.size() >= 2 && scheduledGaits_[1].startTime <= initTime) scheduledGaits_.erase(scheduledGaits_.begin());
+  while (scheduledGaits_.size() > 1 && scheduledGaits_[1].startTime <= initTime) scheduledGaits_.erase(scheduledGaits_.begin());
   measuredMotionWindow_ = strideAt(initTime);
   measuredMotion_ = strideMotion_.mean(measuredMotionWindow_);
   // No seed and no stall in the window (the class comment).
@@ -382,7 +394,7 @@ void ProceduralMpcMotionManager::preSolverRun(scalar_t initTime,
 
     const scalar_t gaitStart = updateGaitSchedule(*gaitSchedulePtr_, gait->second, initTime, finalTime);
     // The schedule runs the new gait from gaitStart on, in place of whatever it had from there.
-    while (scheduledGaits_.size() >= 2 && scheduledGaits_.back().startTime >= gaitStart) scheduledGaits_.pop_back();
+    while (scheduledGaits_.size() > 1 && scheduledGaits_.back().startTime >= gaitStart) scheduledGaits_.pop_back();
     scheduledGaits_.push_back(ScheduledGait{.startTime = gaitStart, .cycleDuration = cycleDurationOf(currentGaitCommand_)});
     lastGaitCommand_ = currentGaitCommand_;
   }

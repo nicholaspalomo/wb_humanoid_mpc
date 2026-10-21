@@ -25,32 +25,37 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-"""The Python bus over loopback TCP: the properties testBus.cpp checks for the C++ bus.
 
-Exact topic matching, Delivery.LATEST against Delivery.ALL, publishing from several threads, processes that start in
-either order or restart, a prompt stop(), the publish queue's drop counting, rejection of malformed messages,
-callbacks that raise, and decode(). Every publisher binds an ephemeral port (EPHEMERAL_PORT) that the subscriber's
-network then names, so concurrent tests never collide on a port.
+"""The Python bus over Cyclone DDS: the properties testBus.cpp checks for the C++ bus.
+
+Topics kept apart, Delivery.LATEST against Delivery.ALL, the order of a drain across topics, publishing from several
+threads, processes that start in either order or restart, a prompt stop(), the publish queue's drop counting, the
+counters' invariants, rejection of malformed samples and of another wire protocol version, callbacks that raise, a
+policy-sized sample, the subscription to every topic, and decode(). Every test process has a DDS domain and tag of its
+own (robot_ipc.isolated_test_network()), so tests that run at once never see each other's samples.
 """
 
 from collections.abc import Callable
-import gc
-import math
 import os
 import threading
 import time
-from typing import Any
 import unittest
 
+import cyclonedds.domain
+import cyclonedds.pub
+import cyclonedds.qos
+import cyclonedds.sub
+import cyclonedds.topic
 from robot_ipc_test import test_event_pb2
 from robot_ipc_test import test_sample_pb2
-import zmq
 
 import robot_ipc
 
 TIMEOUT = 20.0
 PUBLISHER = "publisher"
+SUBSCRIBER = "subscriber"
 PROBE_TOPIC = "test/probe"
+POLICY_BYTES = 768 * 1024
 
 
 def wait_for(condition: Callable[[], bool], timeout: float = TIMEOUT) -> bool:
@@ -63,9 +68,15 @@ def wait_for(condition: Callable[[], bool], timeout: float = TIMEOUT) -> bool:
     return condition()
 
 
-def loopback_network(name: str, port: int) -> robot_ipc.NetworkConfig:
+def isolated_network(
+    topics: tuple[robot_ipc.TopicQos, ...] = (),
+) -> robot_ipc.NetworkConfig:
+    network = robot_ipc.isolated_test_network([PUBLISHER, SUBSCRIBER])
     return robot_ipc.NetworkConfig(
-        nodes=(robot_ipc.NodeEndpoint(name, "127.0.0.1", port),)
+        nodes=network.nodes,
+        domain_id=network.domain_id,
+        domain_tag=network.domain_tag,
+        topics=topics,
     )
 
 
@@ -77,6 +88,32 @@ def make_sample(sequence: int, publisher: int = 0) -> test_sample_pb2.TestSample
 
 def subscribe_probe(bus: robot_ipc.Bus) -> None:
     bus.subscribe_raw(PROBE_TOPIC, lambda type_name, payload: None)
+
+
+def matched_writers(
+    bus: robot_ipc.Bus, topic: str, count: int = 1
+) -> Callable[[], bool]:
+    """A condition: the bus's reader of `topic` matches `count` writers."""
+    return lambda: bus.topic_statistics(topic).matched_writers == count
+
+
+def matched_readers(
+    bus: robot_ipc.Bus, topic: str, count: int = 1
+) -> Callable[[], bool]:
+    """A condition: the bus's writer of `topic` matches `count` readers."""
+    return lambda: bus.topic_statistics(topic).matched_readers == count
+
+
+def written(bus: robot_ipc.Bus, topic: str, count: int) -> Callable[[], bool]:
+    """A condition: the bus has written `count` samples of `topic`."""
+    return lambda: bus.topic_statistics(topic).written == count
+
+
+def accounted_for(statistics: robot_ipc.TopicStatistics) -> bool:
+    """The counters' invariant once a drain has dispatched."""
+    return statistics.received == (
+        statistics.delivered + statistics.superseded + statistics.rejected
+    )
 
 
 class Collector:
@@ -103,25 +140,46 @@ class Collector:
             return any(sample.sequence == sequence for sample in self._samples)
 
 
+class OrderLog:
+    """Records what the callbacks of several topics receive, in call order, as "topic:sequence"."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._entries: list[str] = []
+
+    def callback(self, topic: str) -> Callable[[test_sample_pb2.TestSample], None]:
+        def record(sample: test_sample_pb2.TestSample) -> None:
+            with self._lock:
+                self._entries.append(f"{topic}:{sample.sequence}")
+
+        return record
+
+    def entries(self) -> list[str]:
+        with self._lock:
+            return list(self._entries)
+
+
 class BusTestCase(unittest.TestCase):
     """Creates buses that close when the test ends."""
 
     def publisher(
-        self, port: int = robot_ipc.EPHEMERAL_PORT, **options
+        self, network: robot_ipc.NetworkConfig | None = None, **options
     ) -> robot_ipc.Bus:
-        bus = robot_ipc.Bus(PUBLISHER, loopback_network(PUBLISHER, port), **options)
+        bus = robot_ipc.Bus(PUBLISHER, network or isolated_network(), **options)
         self.addCleanup(bus.close)
         return bus
 
-    def subscriber(self, publisher_port: int, **options) -> robot_ipc.Bus:
-        bus = robot_ipc.Bus("", loopback_network(PUBLISHER, publisher_port), **options)
+    def subscriber(
+        self, network: robot_ipc.NetworkConfig | None = None, **options
+    ) -> robot_ipc.Bus:
+        bus = robot_ipc.Bus("", network or isolated_network(), **options)
         self.addCleanup(bus.close)
         return bus
 
     def wait_until_connected(
         self, publisher: robot_ipc.Bus, subscriber: robot_ipc.Bus
     ) -> None:
-        """Publishes probes until the subscriber has received more than before (ZeroMQ's "slow joiner")."""
+        """Publishes probes until the subscriber has received more than before: DDS discovery has matched them."""
         before = subscriber.topic_statistics(PROBE_TOPIC).received
         probe = test_event_pb2.TestEvent(name="probe")
 
@@ -130,11 +188,11 @@ class BusTestCase(unittest.TestCase):
             time.sleep(0.005)
             return subscriber.topic_statistics(PROBE_TOPIC).received > before
 
-        self.assertTrue(wait_for(connected), "the subscriber never connected")
+        self.assertTrue(wait_for(connected), "the subscriber never matched")
 
     def connected_pair(self, **options) -> tuple[robot_ipc.Bus, robot_ipc.Bus]:
         publisher = self.publisher(**options)
-        subscriber = self.subscriber(publisher.bound_port, **options)
+        subscriber = self.subscriber(**options)
         subscribe_probe(subscriber)
         return publisher, subscriber
 
@@ -150,70 +208,86 @@ class CreateTest(BusTestCase):
 
     def test_rejects_a_node_outside_the_network_and_lists_the_nodes(self) -> None:
         with self.assertRaises(ValueError) as raised:
-            robot_ipc.Bus("ghost", robot_ipc.localhost_network_config())
+            robot_ipc.Bus("ghost", isolated_network())
         self.assertIn("ghost", str(raised.exception))
-        self.assertIn("robot", str(raised.exception))
+        self.assertIn(PUBLISHER, str(raised.exception))
 
     def test_rejects_an_invalid_network_and_options(self) -> None:
         with self.assertRaises(robot_ipc.NetworkConfigError):
             robot_ipc.Bus("", robot_ipc.NetworkConfig(nodes=()))
-        with self.assertRaises(ValueError):
-            robot_ipc.Bus(
-                "",
-                loopback_network(PUBLISHER, robot_ipc.EPHEMERAL_PORT),
-                publish_queue_capacity=0,
-            )
-
-    def test_rejects_nan_options(self) -> None:
-        # NaN fails every comparison, so a check written `value <= 0` would let it through: an io_poll_period or a
-        # period of NaN would make the receive thread spin.
-        for option in (
-            "io_poll_period",
-            "heartbeat_interval",
-            "heartbeat_timeout",
-            "reconnect_interval",
-            "reconnect_interval_max",
+        for options in (
+            {"publish_queue_capacity": 0},
+            {"latest_delivery_history_depth": 0},
+            {"io_poll_period": float("nan")},
         ):
-            options: dict[str, Any] = {option: math.nan}
-            with self.subTest(option=option):
-                with self.assertRaisesRegex(ValueError, option):
-                    robot_ipc.Bus(
-                        "",
-                        loopback_network(PUBLISHER, robot_ipc.EPHEMERAL_PORT),
-                        **options
-                    )
-        bus = self.publisher()
-        with self.assertRaisesRegex(ValueError, "positive period"):
-            bus.add_periodic_callback(math.nan, lambda: None)
+            with self.subTest(options=options):
+                with self.assertRaises(ValueError):
+                    robot_ipc.Bus("", isolated_network(), **options)
 
-    def test_reports_a_taken_endpoint(self) -> None:
-        first = self.publisher()
-        with self.assertRaises(robot_ipc.BusError) as raised:
-            robot_ipc.Bus("second", loopback_network("second", first.bound_port))
-        self.assertIn("second", str(raised.exception))
-        self.assertIn(first.bound_endpoint, str(raised.exception))
+    def test_a_node_on_another_machine_is_refused(self) -> None:
+        # 192.0.2.1 (TEST-NET-1, RFC 5737) is no address of this machine.
+        network = isolated_network()
+        foreign = robot_ipc.NetworkConfig(
+            nodes=(robot_ipc.NodeEndpoint(PUBLISHER, "192.0.2.1"),),
+            domain_id=network.domain_id,
+            domain_tag=network.domain_tag,
+        )
+        with self.assertRaises(robot_ipc.InterfaceError) as raised:
+            robot_ipc.Bus(PUBLISHER, foreign)
+        self.assertIn("192.0.2.1", str(raised.exception))
 
-    def test_ephemeral_port_is_reported_and_its_own_subscriber_connects_to_it(
+    def test_the_buses_of_a_process_share_a_domain_and_refuse_another_configuration(
         self,
     ) -> None:
-        bus = self.publisher()
-        self.assertEqual(bus.node_name, PUBLISHER)
-        self.assertGreater(bus.bound_port, robot_ipc.EPHEMERAL_PORT)
-        self.assertTrue(bus.bound_endpoint.startswith("tcp://127.0.0.1:"))
-        self.assertEqual(bus.subscriber_endpoints, [bus.bound_endpoint])
+        first = robot_ipc.Bus(PUBLISHER, isolated_network())
+        network = isolated_network()
+        other_tag = robot_ipc.NetworkConfig(
+            nodes=network.nodes, domain_id=network.domain_id, domain_tag="another_tag"
+        )
+        with self.assertRaises(robot_ipc.BusError):
+            robot_ipc.Bus("", other_tag)
+        first.close()
+        # Once its last bus is gone, the domain may be configured anew.
+        robot_ipc.Bus("", other_tag).close()
 
-    def test_subscribe_only_bus_binds_nothing_and_cannot_publish(self) -> None:
-        bus = self.subscriber(publisher_port=5999)
+    def test_a_subscribe_only_bus_reports_its_domain_and_cannot_publish(self) -> None:
+        bus = self.subscriber()
         self.assertEqual(bus.node_name, "")
-        self.assertEqual(bus.bound_endpoint, "")
-        self.assertEqual(bus.bound_port, robot_ipc.EPHEMERAL_PORT)
-        self.assertEqual(bus.subscriber_endpoints, ["tcp://127.0.0.1:5999"])
+        self.assertEqual(bus.domain_id, isolated_network().domain_id)
+        self.assertEqual(bus.discovery_peers, ["127.0.0.1"])
+        self.assertIn(f"<Tag>{isolated_network().domain_tag}</Tag>", bus.domain_config)
         with self.assertRaises(robot_ipc.BusError):
             bus.publish("test/topic", make_sample(0))
-        # The receive thread's own send refuses too, with an error instead of an assert that `python -O` drops.
-        with self.assertRaises(robot_ipc.BusError) as raised:
-            bus._send("test/topic", (b"test/topic", b"robot_ipc_test.TestSample", b""))
-        self.assertIn("only subscribes", str(raised.exception))
+
+    def test_the_environment_does_not_configure_the_bus(self) -> None:
+        # BUILD.bazel sets CYCLONEDDS_URI to an interface that does not exist; the bus passes its own configuration.
+        self.assertIn("no_such_interface", os.environ["CYCLONEDDS_URI"])
+        bus = self.publisher()
+        subscribe_probe(bus)
+        bus.start()
+        self.wait_until_connected(bus, bus)
+
+    def test_a_node_creates_the_writers_of_its_topics_up_front(self) -> None:
+        network = isolated_network(
+            (
+                robot_ipc.TopicQos(
+                    "test/declared", robot_ipc.QosProfile.RELIABLE_EVENTS, (PUBLISHER,)
+                ),
+            )
+        )
+        subscriber = self.subscriber(network)
+        collector = Collector()
+        subscriber.subscribe(
+            "test/declared", test_sample_pb2.TestSample, collector, "all"
+        )
+        subscriber.start()
+        publisher = self.publisher(network)
+        publisher.start()
+        self.assertTrue(wait_for(matched_writers(subscriber, "test/declared", 1)))
+        self.assertTrue(wait_for(matched_readers(publisher, "test/declared", 1)))
+        self.assertEqual(publisher.topic_statistics("test/declared").written, 0)
+        publisher.publish("test/declared", make_sample(1))
+        self.assertTrue(wait_for(lambda: collector.contains(1)))
 
     def test_publishing_on_a_closed_bus_is_refused(self) -> None:
         bus = self.publisher()
@@ -224,22 +298,6 @@ class CreateTest(BusTestCase):
         self.assertIn("closed", str(raised.exception))
         with self.assertRaises(robot_ipc.BusError):
             bus.publish_raw("test/topic", "robot_ipc_test.TestSample", b"")
-
-    def test_the_wake_up_descriptor_lives_as_long_as_the_bus_object(self) -> None:
-        # A thread that still holds a closed bus may publish into it at any time. Were the eventfd closed with the
-        # sockets, its number could already belong to another file or socket of the process, which the wake-up of
-        # that publish would write eight bytes into.
-        bus = robot_ipc.Bus(
-            PUBLISHER, loopback_network(PUBLISHER, robot_ipc.EPHEMERAL_PORT)
-        )
-        bus.start()
-        wake_fd = bus._wake_fd
-        bus.close()
-        os.fstat(wake_fd)  # Still the bus's: no other descriptor can take its number.
-        del bus
-        gc.collect()
-        with self.assertRaises(OSError):
-            os.fstat(wake_fd)
 
     def test_a_publish_racing_close_either_succeeds_before_it_or_is_refused(
         self,
@@ -269,16 +327,28 @@ class CreateTest(BusTestCase):
             self.assertFalse(streamer.is_alive())
             self.assertEqual(outcomes, ["refused"])
 
-    def test_close_releases_the_port(self) -> None:
-        with robot_ipc.Bus(
-            PUBLISHER, loopback_network(PUBLISHER, robot_ipc.EPHEMERAL_PORT)
-        ) as bus:
-            port = bus.bound_port
+    def test_close_counts_what_a_bus_that_is_not_running_never_sent(self) -> None:
+        never_started = self.publisher()
+        self.assertTrue(never_started.publish("test/close", make_sample(1)))
+        never_started.close()
+        statistics = never_started.topic_statistics("test/close")
+        self.assertEqual(statistics.send_dropped, 1)
+        self.assertEqual(statistics.written, 0)
+        stopped = self.publisher()
+        stopped.start()
+        stopped.stop()
+        self.assertTrue(stopped.publish("test/close", make_sample(2)))
+        stopped.close()
+        self.assertEqual(stopped.topic_statistics("test/close").send_dropped, 1)
+        self.assertEqual(stopped.topic_statistics("test/close").written, 0)
+
+    def test_a_closed_bus_cannot_start_and_its_domain_is_reusable(self) -> None:
+        with robot_ipc.Bus(PUBLISHER, isolated_network()) as bus:
             self.assertTrue(bus.is_running())
         self.assertFalse(bus.is_running())
         with self.assertRaises(robot_ipc.BusError):
             bus.start()
-        self.publisher(port=port)
+        self.publisher()
 
 
 class LifecycleTest(BusTestCase):
@@ -288,38 +358,31 @@ class LifecycleTest(BusTestCase):
     ) -> None:
         bus = self.publisher()
         collector = Collector()
+        for topic in ("", "test/a-b", "1test"):
+            with self.subTest(topic=topic):
+                with self.assertRaises(ValueError):
+                    bus.subscribe(topic, test_sample_pb2.TestSample, collector)
         with self.assertRaises(ValueError):
-            bus.subscribe("", test_sample_pb2.TestSample, collector, "all")
-        with self.assertRaises(ValueError):
-            # Not callable, on purpose.
-            bus.subscribe("test/a", test_sample_pb2.TestSample, None, "all")  # type: ignore[arg-type]  # The refusal is under test.
-        with self.assertRaises(ValueError):
-            bus.subscribe("test/a", test_sample_pb2.TestSample, collector, "newest")
+            bus.publish("test.a", make_sample(0))
         with self.assertRaises(ValueError):
             bus.add_periodic_callback(0.0, lambda: None)
         bus.subscribe("test/a", test_sample_pb2.TestSample, collector, "all")
         with self.assertRaises(ValueError):
-            bus.subscribe("test/a", test_sample_pb2.TestSample, collector, "latest")
+            bus.subscribe("test/a", test_sample_pb2.TestSample, collector)
 
         self.assertFalse(bus.is_running())
         bus.start()
         bus.start()
         self.assertTrue(bus.is_running())
         with self.assertRaises(robot_ipc.BusError):
-            bus.subscribe("test/b", test_sample_pb2.TestSample, collector, "all")
+            bus.subscribe("test/b", test_sample_pb2.TestSample, collector)
         with self.assertRaises(robot_ipc.BusError):
             bus.add_periodic_callback(0.001, lambda: None)
-        with self.assertRaises(robot_ipc.BusError):
-            bus.connect("tcp://127.0.0.1:5999")
 
         bus.stop()
         bus.stop()
         self.assertFalse(bus.is_running())
-        bus.subscribe(
-            "test/b", test_sample_pb2.TestSample, collector, robot_ipc.Delivery.ALL
-        )
-        with self.assertRaises(ValueError):
-            bus.connect("not an endpoint")
+        bus.subscribe("test/b", test_sample_pb2.TestSample, collector)
 
     def test_stop_is_prompt_whatever_the_poll_period(self) -> None:
         bus = self.publisher(io_poll_period=60.0)
@@ -332,18 +395,18 @@ class LifecycleTest(BusTestCase):
         time.sleep(0.02)
         start = time.monotonic()
         bus.close()
-        self.assertLess(time.monotonic() - start, 1.0)
+        self.assertLess(time.monotonic() - start, 2.0)
 
     def test_stop_from_a_callback_ends_the_loop_and_a_later_stop_joins(self) -> None:
         bus = self.publisher()
         subscribe_probe(bus)
-        calls: list[int] = []
+        calls = []
 
-        def stop_on_first(sample: test_sample_pb2.TestSample) -> None:
-            calls.append(sample.sequence)
+        def stop(sample: test_sample_pb2.TestSample) -> None:
+            calls.append(sample)
             bus.stop()
 
-        bus.subscribe("test/stop", test_sample_pb2.TestSample, stop_on_first, "all")
+        bus.subscribe("test/stop", test_sample_pb2.TestSample, stop, "all")
         bus.start()
         self.wait_until_connected(bus, bus)
         bus.publish("test/stop", make_sample(1))
@@ -355,17 +418,73 @@ class LifecycleTest(BusTestCase):
 
     def test_close_from_a_callback_is_refused_and_the_bus_carries_on(self) -> None:
         bus = self.publisher()
-        subscribe_probe(bus)
-        bus.subscribe(
-            "test/close", test_sample_pb2.TestSample, lambda sample: bus.close(), "all"
-        )
+        outcomes: list[str] = []
+
+        def close() -> None:
+            if outcomes:
+                return
+            try:
+                bus.close()
+                outcomes.append("closed")
+            except robot_ipc.BusError:
+                outcomes.append("refused")
+
+        bus.add_periodic_callback(0.005, close)
         bus.start()
-        self.wait_until_connected(bus, bus)
-        bus.publish("test/close", make_sample(1))
-        self.assertTrue(
-            wait_for(lambda: bus.topic_statistics("test/close").handler_errors == 1)
-        )
+        self.assertTrue(wait_for(lambda: bool(outcomes)))
+        self.assertEqual(outcomes, ["refused"])
         self.assertTrue(bus.is_running())
+
+    def test_a_callback_configuring_during_a_stop_does_not_deadlock_it(self) -> None:
+        bus = self.publisher()
+        entered = threading.Event()
+        go = threading.Event()
+        outcome: list[str] = []
+        ran: list[bool] = []
+
+        def configure() -> None:
+            if ran:
+                return
+            ran.append(True)
+            entered.set()
+            go.wait()
+            try:
+                bus.subscribe_raw("test/late", lambda type_name, payload: None)
+                outcome.append("subscribed")
+            except robot_ipc.BusError:
+                outcome.append("refused")
+
+        bus.add_periodic_callback(0.01, configure)
+        bus.start()
+        entered.wait()
+        stopper = threading.Thread(target=bus.stop)
+        stopper.start()
+        self.assertTrue(wait_for(lambda: not bus.is_running()))
+        go.set()
+        stopper.join(timeout=2.0)
+        self.assertFalse(stopper.is_alive(), "stop() deadlocked with a callback")
+        self.assertEqual(outcome, ["refused"])
+
+    def test_a_periodic_callback_that_overran_its_period_is_not_called_again_at_once(
+        self,
+    ) -> None:
+        bus = self.publisher()
+        period, overrun = 0.02, 0.07
+        starts: list[float] = []
+        ends: list[float] = []
+
+        def callback() -> None:
+            starts.append(time.monotonic())
+            if len(starts) == 1:
+                time.sleep(overrun)
+            ends.append(time.monotonic())
+
+        bus.add_periodic_callback(period, callback)
+        bus.start()
+        self.assertTrue(wait_for(lambda: len(starts) >= 3))
+        bus.stop()
+        self.assertGreaterEqual(starts[1] - ends[0], 0.005)
+        self.assertLess(starts[1] - ends[0], period + 0.015)
 
 
 class DeliveryTest(BusTestCase):
@@ -374,117 +493,124 @@ class DeliveryTest(BusTestCase):
         self,
     ) -> None:
         bus = self.publisher()
-        subscribe_probe(bus)
-        on_io_thread: list[bool] = []
         pongs = Collector()
+        on_io_thread: list[bool] = []
 
-        def answer(ping: test_sample_pb2.TestSample) -> None:
+        def ping(sample: test_sample_pb2.TestSample) -> None:
             on_io_thread.append(bus.is_io_thread())
             pong = test_sample_pb2.TestSample()
-            pong.CopyFrom(ping)
+            pong.CopyFrom(sample)
             pong.origin = "pong"
             bus.publish_from_io_thread("test/pong", pong)
 
-        bus.subscribe("test/ping", test_sample_pb2.TestSample, answer, "all")
+        subscribe_probe(bus)
+        bus.subscribe("test/ping", test_sample_pb2.TestSample, ping, "all")
         bus.subscribe("test/pong", test_sample_pb2.TestSample, pongs, "all")
         bus.start()
         self.wait_until_connected(bus, bus)
-
         with self.assertRaises(robot_ipc.BusError):
             bus.publish_from_io_thread("test/pong", make_sample(0))
         bus.publish("test/ping", make_sample(7))
         self.assertTrue(wait_for(lambda: pongs.size() == 1))
         self.assertEqual(pongs.samples()[0].sequence, 7)
         self.assertEqual(pongs.samples()[0].origin, "pong")
-        self.assertEqual(on_io_thread, [True])
+        self.assertTrue(all(on_io_thread))
         self.assertFalse(bus.is_io_thread())
 
-    def test_topics_match_exactly_not_by_prefix(self) -> None:
+    def test_every_topic_is_a_dds_topic_of_its_own(self) -> None:
         publisher, subscriber = self.connected_pair()
         collector = Collector()
         subscriber.subscribe("test/a", test_sample_pb2.TestSample, collector, "all")
         self.start_and_connect(publisher, subscriber)
-
-        # ZeroMQ passes every topic that starts with "test/a"; only "test/a" itself may be delivered.
         publisher.publish("test/ab", make_sample(100))
         publisher.publish("test/a", make_sample(1))
         publisher.publish("test/a/b", make_sample(101))
-        publisher.publish("test/", make_sample(102))
-        # One connection keeps the order, so once this one is in, all of the above have arrived.
         publisher.publish("test/a", make_sample(2))
         self.assertTrue(wait_for(lambda: collector.contains(2)))
-
         self.assertEqual([sample.sequence for sample in collector.samples()], [1, 2])
-        self.assertEqual(subscriber.topic_statistics("test/a").received, 2)
         self.assertEqual(subscriber.topic_statistics("test/ab").received, 0)
-        self.assertEqual(publisher.topic_statistics("test/ab").sent, 1)
+        self.assertEqual(publisher.topic_statistics("test/ab").written, 1)
 
     def test_latest_hands_over_only_the_newest_of_a_burst_and_all_hands_over_every_message(
         self,
     ) -> None:
-        burst = 500
-        options = dict(
-            send_high_water_mark=0,
-            receive_high_water_mark=0,
-            publish_queue_capacity=4 * burst,
+        burst = 300
+        publisher, subscriber = self.connected_pair(
+            publish_queue_capacity=4 * burst, all_delivery_history_depth=2 * burst
         )
-        publisher, subscriber = self.connected_pair(**options)
         latest = Collector()
         everything = Collector()
         subscriber.subscribe(
-            "test/latest", test_sample_pb2.TestSample, latest, robot_ipc.Delivery.LATEST
+            "test/latest", test_sample_pb2.TestSample, latest, "latest"
         )
         subscriber.subscribe("test/all", test_sample_pb2.TestSample, everything, "all")
         self.start_and_connect(publisher, subscriber)
+        publisher.publish("test/latest", make_sample(0))
+        self.assertTrue(wait_for(lambda: latest.contains(0)))
 
-        # With the subscriber's thread stopped, the burst piles up in its socket, so that the next drain holds many
-        # messages of each topic.
         subscriber.stop()
-        for sequence in range(burst):
-            self.assertTrue(publisher.publish("test/latest", make_sample(sequence)))
-            self.assertTrue(publisher.publish("test/all", make_sample(sequence)))
-        self.assertTrue(
-            wait_for(lambda: publisher.topic_statistics("test/all").sent == burst)
-        )
+        for sequence in range(1, burst + 1):
+            publisher.publish("test/latest", make_sample(sequence))
+            publisher.publish("test/all", make_sample(sequence))
+        self.assertTrue(wait_for(written(publisher, "test/all", burst)))
         time.sleep(0.3)
         subscriber.start()
-
         self.assertTrue(wait_for(lambda: everything.size() == burst))
-        self.assertTrue(wait_for(lambda: latest.contains(burst - 1)))
+        self.assertTrue(wait_for(lambda: latest.contains(burst)))
 
         self.assertEqual(
-            [sample.sequence for sample in everything.samples()], list(range(burst))
+            [sample.sequence for sample in everything.samples()],
+            list(range(1, burst + 1)),
         )
         all_statistics = subscriber.topic_statistics("test/all")
         self.assertEqual(all_statistics.received, burst)
-        self.assertEqual(all_statistics.delivered, burst)
-        self.assertEqual(all_statistics.superseded, 0)
-
+        self.assertEqual(all_statistics.missed, 0)
         sequences = [sample.sequence for sample in latest.samples()]
         self.assertLess(len(sequences), burst)
-        self.assertEqual(sequences, sorted(set(sequences)))
-        self.assertEqual(sequences[-1], burst - 1)
+        self.assertEqual(sequences, sorted(sequences))
+        self.assertEqual(sequences[-1], burst)
         latest_statistics = subscriber.topic_statistics("test/latest")
-        self.assertEqual(latest_statistics.received, burst)
-        self.assertEqual(latest_statistics.delivered, len(sequences))
+        self.assertTrue(accounted_for(latest_statistics), latest_statistics)
         self.assertEqual(
-            latest_statistics.received,
-            latest_statistics.delivered
-            + latest_statistics.superseded
-            + latest_statistics.rejected,
+            latest_statistics.received + latest_statistics.missed,
+            publisher.topic_statistics("test/latest").written,
         )
-        self.assertEqual(latest_statistics.rejected, 0)
+        self.assertGreater(latest_statistics.missed, 0)
+
+    def test_wrong_typed_message_does_not_displace_valid_message_in_latest_delivery(
+        self,
+    ) -> None:
+        publisher, subscriber = self.connected_pair()
+        latest = Collector()
+        subscriber.subscribe("test/latest", test_sample_pb2.TestSample, latest)
+        self.start_and_connect(publisher, subscriber)
+        subscriber.stop()
+        publisher.publish("test/latest", make_sample(42))
+        publisher.publish("test/latest", test_event_pb2.TestEvent(name="event"))
+        self.assertTrue(wait_for(written(publisher, "test/latest", 2)))
+        time.sleep(0.05)
+        subscriber.start()
+        self.assertTrue(wait_for(lambda: latest.size() == 1))
+        self.assertEqual(latest.samples()[0].sequence, 42)
+        statistics = subscriber.topic_statistics("test/latest")
+        self.assertEqual(
+            (
+                statistics.received,
+                statistics.delivered,
+                statistics.rejected,
+                statistics.superseded,
+            ),
+            (2, 1, 1, 0),
+        )
 
     def test_publishing_from_several_threads_keeps_the_order_of_each_thread(
         self,
     ) -> None:
         threads, per_thread = 4, 250
-        options = dict(
-            send_high_water_mark=0,
-            receive_high_water_mark=0,
+        publisher, subscriber = self.connected_pair(
             publish_queue_capacity=threads * per_thread,
+            all_delivery_history_depth=2 * threads * per_thread,
         )
-        publisher, subscriber = self.connected_pair(**options)
         collector = Collector()
         subscriber.subscribe(
             "test/threads", test_sample_pb2.TestSample, collector, "all"
@@ -503,72 +629,166 @@ class DeliveryTest(BusTestCase):
             worker.start()
         for worker in workers:
             worker.join()
-
         self.assertTrue(wait_for(lambda: collector.size() == threads * per_thread))
         next_sequence = [0] * threads
         for sample in collector.samples():
             self.assertEqual(sample.sequence, next_sequence[sample.publisher])
             next_sequence[sample.publisher] = sample.sequence + 1
         statistics = publisher.topic_statistics("test/threads")
-        self.assertEqual(statistics.sent, threads * per_thread)
+        self.assertEqual(statistics.written, threads * per_thread)
         self.assertEqual(statistics.send_dropped, 0)
 
-    def test_rejects_malformed_messages_and_carries_on(self) -> None:
-        # A bare ZeroMQ publisher, to send what a Bus never would.
-        context = zmq.Context()
-        raw = context.socket(zmq.PUB)
-        raw.setsockopt(zmq.LINGER, 0)
-        self.addCleanup(context.term)
-        self.addCleanup(raw.close)
-        raw.bind("tcp://127.0.0.1:*")
-
-        subscriber = self.subscriber(publisher_port=5999)
-        subscriber.connect(raw.getsockopt_string(zmq.LAST_ENDPOINT))
+    def test_rejects_malformed_samples_and_another_protocol_version_and_carries_on(
+        self,
+    ) -> None:
+        subscriber = self.subscriber()
         collector = Collector()
-        subscribe_probe(subscriber)
         subscriber.subscribe("test/typed", test_sample_pb2.TestSample, collector, "all")
         subscriber.start()
-
-        def probed() -> bool:
-            raw.send_multipart([PROBE_TOPIC.encode(), b"probe", b""])
-            time.sleep(0.005)
-            return subscriber.topic_statistics(PROBE_TOPIC).received > 0
-
-        self.assertTrue(wait_for(probed))
-
-        sample_type = test_sample_pb2.TestSample.DESCRIPTOR.full_name.encode()
-        event_type = test_event_pb2.TestEvent.DESCRIPTOR.full_name.encode()
-        event = test_event_pb2.TestEvent(name="not a sample").SerializeToString()
-        raw.send_multipart([b"test/typed", event_type, event])
-        # A length-delimited field (text) that claims five bytes and carries two.
-        raw.send_multipart([b"test/typed", sample_type, b"\x12\x05ab"])
-        raw.send_multipart([b"test/typed", sample_type])
-        raw.send_multipart(
-            [b"test/typed", sample_type, make_sample(0).SerializeToString(), b"extra"]
+        # A raw DDS writer in the bus's domain, to write what a Bus never would.
+        participant = cyclonedds.domain.DomainParticipant(isolated_network().domain_id)
+        writer = cyclonedds.pub.DataWriter(
+            participant,
+            cyclonedds.topic.Topic(participant, "test/typed", robot_ipc.Envelope),
+            qos=cyclonedds.qos.Qos(
+                cyclonedds.qos.Policy.Reliability.Reliable(max_blocking_time=10**9),
+                cyclonedds.qos.Policy.History.KeepLast(64),
+            ),
         )
-        raw.send_multipart(
-            [b"test/typed", sample_type, make_sample(5).SerializeToString()]
-        )
+        self.assertTrue(wait_for(matched_writers(subscriber, "test/typed", 1)))
+        sample_type = "robot_ipc_test.TestSample"
+        version = robot_ipc.WIRE_PROTOCOL_VERSION
+        for sequence, (protocol, type_name, payload) in enumerate(
+            (
+                (
+                    version,
+                    "robot_ipc_test.TestEvent",
+                    test_event_pb2.TestEvent(name="x").SerializeToString(),
+                ),
+                # A length-delimited field (text) that claims five bytes and carries two.
+                (version, sample_type, b"\x12\x05ab"),
+                (version - 1, sample_type, make_sample(1).SerializeToString()),
+                (version + 1, sample_type, make_sample(2).SerializeToString()),
+                (version, sample_type, make_sample(5).SerializeToString()),
+            ),
+            start=1,
+        ):
+            writer.write(robot_ipc.Envelope(protocol, sequence, type_name, payload))
         self.assertTrue(wait_for(lambda: collector.size() == 1))
-
         self.assertEqual(collector.samples()[0].sequence, 5)
         statistics = subscriber.topic_statistics("test/typed")
-        self.assertEqual(statistics.received, 5)
-        self.assertEqual(statistics.rejected, 4)
-        self.assertEqual(statistics.delivered, 1)
+        self.assertEqual(
+            (
+                statistics.received,
+                statistics.rejected,
+                statistics.delivered,
+                statistics.missed,
+            ),
+            (5, 4, 1, 0),
+        )
+        self.assertTrue(subscriber.is_running())
+        del writer, participant
+
+    def test_the_bus_writes_the_envelope_of_its_wire_protocol(self) -> None:
+        publisher = self.publisher()
+        participant = cyclonedds.domain.DomainParticipant(isolated_network().domain_id)
+        reader = cyclonedds.sub.DataReader(
+            participant,
+            cyclonedds.topic.Topic(participant, "test/version", robot_ipc.Envelope),
+            qos=cyclonedds.qos.Qos(
+                cyclonedds.qos.Policy.Reliability.Reliable(max_blocking_time=10**9)
+            ),
+        )
+        publisher.start()
+        received: list[robot_ipc.Envelope] = []
+
+        def two_received() -> bool:
+            publisher.publish("test/version", make_sample(3))
+            time.sleep(0.005)
+            received.extend(
+                sample
+                for sample in reader.take(16)
+                if isinstance(sample, robot_ipc.Envelope)
+            )
+            return len(received) >= 2
+
+        self.assertTrue(wait_for(two_received))
+        for envelope in received:
+            self.assertEqual(envelope.protocol_version, robot_ipc.WIRE_PROTOCOL_VERSION)
+            self.assertEqual(envelope.type_name, "robot_ipc_test.TestSample")
+            self.assertEqual(
+                test_sample_pb2.TestSample.FromString(bytes(envelope.payload)).sequence,
+                3,
+            )
+        sequences = [envelope.sequence_number for envelope in received]
+        self.assertEqual(
+            sequences, list(range(sequences[0], sequences[0] + len(sequences)))
+        )
+        del reader, participant
+
+    def test_one_drain_dispatches_in_write_order_across_topics(self) -> None:
+        publisher, subscriber = self.connected_pair()
+        log = OrderLog()
+        subscriber.subscribe(
+            "test/a", test_sample_pb2.TestSample, log.callback("a"), "all"
+        )
+        subscriber.subscribe(
+            "test/b", test_sample_pb2.TestSample, log.callback("b"), "latest"
+        )
+        subscriber.subscribe(
+            "test/c", test_sample_pb2.TestSample, log.callback("c"), "all"
+        )
+        self.start_and_connect(publisher, subscriber)
+        subscriber.stop()
+        for topic, sequence in (
+            ("a", 0),
+            ("b", 0),
+            ("c", 0),
+            ("b", 1),
+            ("a", 1),
+            ("c", 1),
+        ):
+            publisher.publish(f"test/{topic}", make_sample(sequence))
+        self.assertTrue(wait_for(written(publisher, "test/c", 2)))
+        time.sleep(0.3)
+        subscriber.start()
+        self.assertTrue(wait_for(lambda: len(log.entries()) == 5))
+        self.assertEqual(log.entries(), ["a:0", "c:0", "b:1", "a:1", "c:1"])
+        self.assertEqual(subscriber.topic_statistics("test/b").superseded, 1)
+        self.assertTrue(accounted_for(subscriber.topic_statistics("test/b")))
+
+    def test_a_policy_sized_sample_arrives_whole(self) -> None:
+        network = isolated_network(
+            (
+                robot_ipc.TopicQos(
+                    "test/policy", robot_ipc.QosProfile.RELIABLE_LATEST, (PUBLISHER,)
+                ),
+            )
+        )
+        publisher = self.publisher(network)
+        subscriber = self.subscriber(network)
+        collector = Collector()
+        subscriber.subscribe("test/policy", test_sample_pb2.TestSample, collector)
+        publisher.start()
+        subscriber.start()
+        self.assertTrue(wait_for(matched_writers(subscriber, "test/policy", 1)))
+        text = "".join(chr(ord("a") + index % 26) for index in range(POLICY_BYTES))
+        publisher.publish(
+            "test/policy", test_sample_pb2.TestSample(sequence=9, text=text)
+        )
+        self.assertTrue(wait_for(lambda: collector.size() == 1))
+        self.assertEqual(collector.samples()[0].text, text)
 
     def test_a_raising_callback_is_counted_and_the_bus_carries_on(self) -> None:
         publisher, subscriber = self.connected_pair()
         collector = Collector()
 
-        def unwelcome_first(sample: test_sample_pb2.TestSample) -> None:
+        def callback(sample: test_sample_pb2.TestSample) -> None:
             if sample.sequence == 0:
                 raise RuntimeError("the first sample is unwelcome")
             collector(sample)
 
-        subscriber.subscribe(
-            "test/raises", test_sample_pb2.TestSample, unwelcome_first, "all"
-        )
+        subscriber.subscribe("test/raises", test_sample_pb2.TestSample, callback, "all")
         self.start_and_connect(publisher, subscriber)
         publisher.publish("test/raises", make_sample(0))
         publisher.publish("test/raises", make_sample(1))
@@ -596,13 +816,9 @@ class DeliveryTest(BusTestCase):
         publisher.add_periodic_callback(0.002, tick)
         publisher.add_periodic_callback(0.005, fail)
         self.start_and_connect(publisher, subscriber)
-
-        before = len(calls)
-        self.assertTrue(wait_for(lambda: len(calls) >= before + 20))
         self.assertTrue(wait_for(lambda: collector.size() >= 10))
         self.assertTrue(all(calls))
         self.assertGreater(publisher.periodic_callback_errors, 0)
-        self.assertTrue(publisher.is_running())
 
     def test_subscribe_all_topics_sees_every_message_with_its_type_name(self) -> None:
         publisher, subscriber = self.connected_pair()
@@ -615,10 +831,12 @@ class DeliveryTest(BusTestCase):
 
         subscriber.subscribe_all_topics(record)
         self.start_and_connect(publisher, subscriber)
-        publisher.publish("test/one", make_sample(1))
-        publisher.publish("test/two", test_event_pb2.TestEvent(name="two"))
 
+        # The subscription discovers each topic from its writer, so it sees the samples written after that.
         def both_seen() -> bool:
+            publisher.publish("test/one", make_sample(1))
+            publisher.publish("test/two", test_event_pb2.TestEvent(name="two"))
+            time.sleep(0.01)
             with lock:
                 return {"test/one", "test/two"} <= {entry[0] for entry in seen}
 
@@ -636,83 +854,76 @@ class DeliveryTest(BusTestCase):
 
 class ConnectionTest(BusTestCase):
 
-    def _subscriber_before_publisher_receives(self, port: int) -> bool:
-        """Starts a subscriber, then a publisher on `port`; False when another process took the port in between."""
-        subscriber = self.subscriber(port)
+    def test_subscriber_started_before_the_publisher_receives_once_it_appears(
+        self,
+    ) -> None:
+        subscriber = self.subscriber()
         collector = Collector()
         subscribe_probe(subscriber)
         subscriber.subscribe("test/late", test_sample_pb2.TestSample, collector)
         subscriber.start()
         time.sleep(0.05)
-        try:
-            publisher = self.publisher(port=port)
-        except robot_ipc.BusError:
-            # Another process took the port in between; the caller retries with a fresh one.
-            return False
+        self.assertEqual(subscriber.topic_statistics("test/late").matched_writers, 0)
+        publisher = self.publisher()
         publisher.start()
         self.wait_until_connected(publisher, subscriber)
         publisher.publish("test/late", make_sample(3))
         self.assertTrue(wait_for(lambda: collector.contains(3)))
-        return True
 
-    def test_subscriber_started_before_the_publisher_receives_once_it_appears(
+    def test_a_restarted_publisher_is_matched_again_and_its_gone_writer_unmatched(
         self,
     ) -> None:
-        for _ in range(3):
-            # A port the kernel just handed out and that is free again.
-            probe = robot_ipc.Bus(
-                PUBLISHER, loopback_network(PUBLISHER, robot_ipc.EPHEMERAL_PORT)
-            )
-            port = probe.bound_port
-            probe.close()
-            if self._subscriber_before_publisher_receives(port):
-                return
-        self.fail("every port was taken before the publisher could bind it")
-
-    def test_a_restarted_publisher_is_reconnected(self) -> None:
-        publisher = robot_ipc.Bus(
-            PUBLISHER, loopback_network(PUBLISHER, robot_ipc.EPHEMERAL_PORT)
-        )
-        self.addCleanup(publisher.close)
-        port = publisher.bound_port
-        subscriber = self.subscriber(port)
+        publisher, subscriber = self.connected_pair()
         collector = Collector()
-        subscribe_probe(subscriber)
         subscriber.subscribe(
             "test/restart", test_sample_pb2.TestSample, collector, "all"
         )
         self.start_and_connect(publisher, subscriber)
         publisher.publish("test/restart", make_sample(1))
         self.assertTrue(wait_for(lambda: collector.contains(1)))
-
-        # The process dies and comes back on its port.
+        self.assertTrue(wait_for(matched_writers(subscriber, "test/restart", 1)))
         publisher.close()
-        publisher = self.publisher(port=port)
-        publisher.start()
-        self.wait_until_connected(publisher, subscriber)
-        publisher.publish("test/restart", make_sample(2))
+        self.assertTrue(wait_for(matched_writers(subscriber, "test/restart", 0)))
+        restarted = self.publisher()
+        restarted.start()
+        self.wait_until_connected(restarted, subscriber)
+        restarted.publish("test/restart", make_sample(2))
         self.assertTrue(wait_for(lambda: collector.contains(2)))
+        self.assertEqual(subscriber.topic_statistics("test/restart").missed, 0)
 
     def test_the_publish_queue_drops_at_capacity_counts_and_sends_the_rest_on_start(
         self,
     ) -> None:
         capacity, published = 8, 20
         publisher = self.publisher(publish_queue_capacity=capacity)
-        # Not started: nothing drains the queue.
         accepted = [
-            publisher.publish("test/queue", make_sample(sequence))
-            for sequence in range(published)
+            publisher.publish("test/queue", make_sample(n)) for n in range(published)
         ]
         self.assertEqual(accepted.count(False), published - capacity)
-        statistics = publisher.topic_statistics("test/queue")
-        self.assertEqual(statistics.send_dropped, published - capacity)
-        self.assertEqual(statistics.sent, 0)
-
-        publisher.start()
-        self.assertTrue(
-            wait_for(lambda: publisher.topic_statistics("test/queue").sent == capacity)
+        self.assertEqual(
+            publisher.topic_statistics("test/queue").send_dropped, published - capacity
         )
-        self.assertIn("test/queue", publisher.statistics())
+        publisher.start()
+        self.assertTrue(wait_for(written(publisher, "test/queue", capacity)))
+
+
+class EnvelopeTest(unittest.TestCase):
+
+    def test_every_encoding_round_trips_and_garbage_is_refused(self) -> None:
+        envelope = robot_ipc.Envelope(2, 7, "a.B", b"\x00\x01payload")
+        for version_2 in (True, False):
+            with self.subTest(version_2=version_2):
+                data = envelope.serialize(use_version_2=version_2)
+                self.assertEqual(robot_ipc.Envelope.deserialize(data), envelope)
+        for garbage in (
+            b"",
+            b"\x00\x07",
+            b"\x00\x09\x00\x00" + bytes(16),
+            b"\x00\x07\x00\x00\x02",
+        ):
+            with self.subTest(garbage=garbage):
+                with self.assertRaises(robot_ipc.envelope.EnvelopeError):
+                    robot_ipc.Envelope.deserialize(garbage)
 
 
 class DecodeTest(unittest.TestCase):

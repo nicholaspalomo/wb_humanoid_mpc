@@ -29,17 +29,28 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/constraint/GroundPenetrationConstraint.h"
 
-#include "absl/log/check.h"
+#include <memory>
+
+#include "absl/memory/memory.h"
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
 
 namespace ocs2::humanoid {
+
+absl::StatusOr<std::unique_ptr<GroundPenetrationConstraint>> GroundPenetrationConstraint::Create(
+    const FootprintCornerHeights& cornerHeights, scalar_t terrainHeight) {
+  if (cornerHeights.numCorners() == 0) {
+    return absl::InvalidArgumentError("[GroundPenetrationConstraint] needs at least one point of the foot to keep above the ground");
+  }
+  // The constructor is private, so std::make_unique cannot call it (ToTW #134).
+  return absl::WrapUnique(new GroundPenetrationConstraint(cornerHeights, terrainHeight));
+}
 
 GroundPenetrationConstraint::GroundPenetrationConstraint(const FootprintCornerHeights& cornerHeights, scalar_t terrainHeight)
     : StateConstraint(ConstraintOrder::Linear),
       cornerHeightsPtr_(cornerHeights.clone()),
       numPoints_(cornerHeights.numCorners()),
-      terrainHeight_(terrainHeight) {
-  CHECK_GT(numPoints_, 0U) << "[GroundPenetrationConstraint] needs at least one point of the foot to keep above the ground";
-}
+      terrainHeight_(terrainHeight) {}
 
 GroundPenetrationConstraint::GroundPenetrationConstraint(const GroundPenetrationConstraint& rhs)
     : StateConstraint(rhs),

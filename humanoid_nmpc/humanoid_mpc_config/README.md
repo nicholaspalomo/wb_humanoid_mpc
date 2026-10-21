@@ -40,10 +40,10 @@ Every `.proto` file holds one message, named after the file. The task file's blo
 | `input_weights` | `InputWeights` | the input weights: each contact's wrench, then the joint velocities (centroidal) or accelerations (whole body) |
 | `com_weights`, `acom_weights` | `ComWeights`, `AcomWeights` | the center-of-mass and angular-center-of-mass tracking of `com_and_acom_tracking_cost` |
 | `left_leg_torque_cost`, `right_leg_torque_cost`, `joint_torque_weights` | `JointWeights` | joint torque costs: the legs' (centroidal), every joint's (whole body) |
-| `task_space_foot_cost`, `task_space_costs` | `TaskSpaceCostConfig` with `TaskSpaceWeights` | the swing-foot cost and the named link costs; the whole-body foot cost refuses a non-zero `pos_x`, `pos_y` or `pos_z`, weights of a position error it does not have |
+| `task_space_foot_cost`, `task_space_costs` | `TaskSpaceCostConfig` with `TaskSpaceWeights` | the swing-foot cost and the named link costs; the whole-body foot cost refuses a non-zero `pos_x`, `pos_y` or `pos_z`, weights of a position error it does not have. The `orientation_*` weights are per rad² in both: the link costs' rotation vector and the foot costs' tilt angle (and planned yaw error) |
 | `contacts` | `ContactsConfig` | the contact geometry, the wrench cone, the basis-vector inputs, the friction cone |
 | `joint_limits`, `collision_constraint`, `mimic_joints` | `JointLimitsConfig`, `CollisionConstraintConfig`, `MimicJointsConfig` | soft and hard constraints |
-| `dcm_terminal_cost`, `icp_cost_weights` | `DcmTerminalCostConfig`, `IcpCostWeights` | the centroidal MPC's capture-point costs |
+| `dcm_terminal_cost` | `DcmTerminalCostConfig` | the centroidal MPC's capture-point cost |
 | `swing_trajectory_config` | `SwingTrajectoryConfig` | the swing-foot trajectories |
 | `locomotion_heuristics` | `LocomotionHeuristicsConfig` | the reference-shaping heuristics (humanoid_nmpc/docs/locomotion_heuristics/README.md) |
 | `nominal_foothold`, `contact_implicit` | `NominalFootholdConfig`, `ContactImplicitConfig` | the nominal foothold reference; the contact-implicit terms |
@@ -79,6 +79,13 @@ The task file's scalars and lists set the formulation (`costs`, `soft_constraint
   default, derived from the robot model as a `com_height` left out is, or required by the formulation that reads it)
   has no default and is a `std::optional`, never a sentinel value such as 0; so is a message field
   marked `[(nproto.optional_message) = true]`. Strings carry `[default = ""]` unless absence means something.
+- **Ranges.** A field's comment states its range, and its conversion refuses a value outside it (NaN included) with an
+  InvalidArgument that names the field, at start-up and on a reload alike, so that a refused reload keeps the running
+  value: a time step, a tolerance, a rate, a horizon, a radius, a barrier's `mu` and `delta` positive; the factors of
+  the line search in (0, 1); a weight, a weight's `scaling` and `terminal_cost_scaling` at least 0 (a negative one makes
+  the quadratic cost and its Gauss-Newton Hessian indefinite). A block whose numbers are all at least 0 carries
+  `minimum: 0` in its tuning options, which every number below it inherits and the GUI enforces (typed, dragged and set
+  values); the checks in C++ do not rely on it.
 - **An absent list is empty.** A repeated field has no presence: a file that leaves out `telemetry_sinks`,
   `sim_visualizations` or a term list has none, so the shipped files write every list out.
 - **Weights and states by name**, never by index: `{x y z}` blocks, the base orientation as Euler `{yaw pitch roll}`
@@ -134,8 +141,10 @@ formulation's) and that differs from the file the MPC started with, as taking ef
 robot process's `RELOAD_START_UP` fields are logged apart, as read at the robot's next start from its own copy, and the
 GUI's fields and the other formulation's are not reported. An entry added to, removed from or renamed in
 `task_space_costs`, or a changed `link_name`, is such a field: a reload applies the weights of the link costs the
-running problem carries and names the others. A field the schema marks for one formulation only (`formulations`,
-[GUI metadata](#gui-metadata)) is not applied by the other one, which never read it.
+running problem carries and names the others. The joints of `left_leg_torque_cost` and `right_leg_torque_cost` are
+taped into their CppAD library the same way: a reload maps the weights by joint name onto the running joints, and an
+added, removed or renamed joint takes effect at the next start. A field the schema marks for one formulation only
+(`formulations`, [GUI metadata](#gui-metadata)) is not applied by the other one, which never read it.
 
 **One solve late.** `terrain_height` and `swing_trajectory_config` reach the reference manager, whose references of a
 solve are built before the updater runs (`SolverBase::preRun`). An update of either takes effect at the solve after the
@@ -147,30 +156,31 @@ same update and from its own copy of the task file.
 ## Version skew
 
 A GUI and a robot or an MPC node built from different versions of these schemas cannot exchange the payloads: a
-receiver refuses, logs and counts every `MpcParameterUpdate`, `JointPdGainsFile` and `DodgeballThrow` that carries a
-field its schema does not know (`nproto::UnknownFieldPaths()`), and every `MpcParameterUpdate` whose
-`schema_fingerprint` is not its own (`nproto::SchemaFingerprint()`, which the GUI stamps with
+receiver refuses, logs and counts every `MpcParameterUpdate`, `JointPdGainsUpdate` and `DodgeballThrow` that carries a
+field its schema does not know (`nproto::UnknownFieldPaths()`), and every `MpcParameterUpdate` and `JointPdGainsUpdate`
+whose `schema_fingerprint` is not its own (`nproto::SchemaFingerprint()`, which the GUI stamps with
 `nproto_schema.schema_fingerprint()`): nothing of it is applied
 (`humanoid_common_mpc/config/OperatorPayloadChecks.h`). A payload under the same type name used to be applied in
 part, the fields one side lacked silently dropped or defaulted. An `MpcParameterUpdate` whose task file names another
-robot (`model_settings.robot_name`) is refused the same way, and so is one whose `config_path` - the task file's path
-from `robot_models/` on - is not the configuration the receiver runs: the centroidal and the whole-body G1 share the
-robot name `g1`, and the path keeps a GUI opened on one from retuning the other. The GUI's Save sends the robot its copy
-of the files it reads as a `humanoid_mpc_msgs.ConfigFileSave` (`operator/config_save`), carrying the file's kind, robot
-name, `config_path`, the schema fingerprint of the file's message and the exact saved text; the robot refuses one of
-another robot, configuration or schema, or one its strict parser refuses, and keeps its copy. Rebuild both sides from
-one commit.
+robot (`model_settings.robot_name`) is refused the same way, and so is an `MpcParameterUpdate` or `JointPdGainsUpdate`
+whose `config_path` - the file's path from `robot_models/` on - is not the configuration the receiver runs: the
+centroidal and the whole-body G1 share the robot name `g1` and the same joints, and the path keeps a GUI opened on one
+from retuning the other. The GUI's Save sends the robot its copy of the files it reads as a `humanoid_mpc_msgs.ConfigFileSave`
+(`operator/config_save`), carrying the file's kind, robot name, `config_path`, the schema fingerprint of the file's message
+and the exact saved text; the robot refuses one of another robot, configuration or schema, or one its strict parser
+refuses, and keeps its copy. Rebuild both sides from one commit.
 
 ## Adding a hyperparameter
 
 1. Add the field to its block's message, with the next free number (update `// Next ID` and `reserved N to max;`),
-   its unit in a comment and in `unit`, and `[default = X]` equal to the domain struct's default (or no default where
-   absence has its own meaning, [Conventions](#conventions)).
+   its unit and its range in a comment and in `unit` (and `minimum`), and `[default = X]` equal to the domain struct's
+   default (or no default where absence has its own meaning, [Conventions](#conventions)).
 2. Give it its tuning options where the block's do not fit: `reload` (`RELOAD_HOT` only where the running stack applies
    it), a slider range or `log_scale`, `registry` for a name, `formulations` for a field one MPC formulation reads,
    `active_when` for one that applies only under a setting of another field, or `exclude_reason` for one that gets no
    control.
-3. Read it in the block's conversion (`*FromConfig.cpp`) into the domain struct, and, for a `RELOAD_HOT` field, in what
+3. Read it in the block's conversion (`*FromConfig.cpp`) into the domain struct, refusing a value out of its range
+   (`humanoid_common_mpc/config/ConfigValueChecks.h`), and, for a `RELOAD_HOT` field, in what
    the running stack reapplies: the applier of each formulation that reads it (`staticFields()` of a `HotFieldApplier`
    in `centroidalHotFieldAppliers()` or `wholeBodyHotFieldAppliers()`), or the robot's controller-side settings.
 4. Write it in the shipped files where a robot needs a value other than the default.
@@ -204,8 +214,8 @@ and its order on it). The tuning GUI renders every numeric, bool and registry-st
 them, so a new hyperparameter needs a schema field and its conversion, and no GUI code.
 <!-- LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_config/config_options.proto:config_options) -->
 
-- **Inheritance.** A block's options apply to every field below it unless the field sets its own; `registry` is each
-  field's own, and the `active_when` conditions of the blocks above a field add up. A shared message (`Xyz`,
+- **Inheritance.** A block's options apply to every field below it unless the field sets its own; `registry` and
+  `base_controller_label` are each field's own, and the `active_when` conditions of the blocks above a field add up. A shared message (`Xyz`,
   `JointValue`) is annotated where it is used.
 - **Labels are field names.** A control is labeled by the dotted path of its field names, each list element by its key
   (`joint_positions[back_bkz]`), with its unit and what the options add ("restart", "not applicable: ..."). There is
@@ -214,6 +224,9 @@ them, so a new hyperparameter needs a schema field and its conversion, and no GU
   `config_registries.textproto` lists. `bazel run //tools/config_registries:print_config_registries` writes it from
   the linked registries, and `//tools/config_registries:config_registries_test` fails when it and the registries
   differ (tools/config_registries/README.md).
+- **Base Controller drop-downs.** A choice whose options name a `base_controller_label` (`contact_estimator`: "Contact
+  estimator") is also a drop-down on the GUI's Base Controller tab, with that label, built from the schema and showing
+  the value the MPC Parameters tab holds, the default included; no field is special-cased in the GUI.
 - **Consumers.** `consumer` says who reads a field when it is not the MPC (`robot`, `gui`); the consumption test (T4)
   exempts a field the C++ stack does not read only with what reads it.
 - **Formulations.** `formulations` names the MPC formulations that read a field (`"centroidal"`, `"whole_body"`; empty:

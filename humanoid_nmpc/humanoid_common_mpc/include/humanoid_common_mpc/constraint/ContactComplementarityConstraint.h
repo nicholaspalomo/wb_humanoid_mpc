@@ -32,8 +32,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <memory>
 
 #include "absl/base/nullability.h"
+#include "absl/status/statusor.h"
 #include "ocs2_core/constraint/StateInputConstraint.h"
 
+#include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/contact/ContactInputJacobian.h"
@@ -104,12 +106,19 @@ namespace ocs2::humanoid {
  * same thing at every point of the horizon and is comparable with the slip term's weight. It is NOT comparable with the
  * task-space weights it competes against, whose residuals are in meters: in cost, `pos_z` at the swing apex charges
  * 0.5 * pos_z * heightReference^2, a factor heightReference^2 below what its raw number suggests (README section 4).
+ *
+ * Not thread-safe: the CppAD model of the corner heights keeps evaluation buffers, so even the const methods of one
+ * object must not run concurrently. The solver gives each worker thread its own clone().
  */
 class ContactComplementarityConstraint final : public StateInputConstraint {
  public:
   /**
+   * Builds the term, or returns InvalidArgument when a reference or the gap smoothing is not positive (NaN included).
+   * validateContactImplicitConfig() is the check of the same task-file values for the caller to run first; the force
+   * reference is not a task-file key at all but the robot's weight, robotMass * g, taken from the URDF.
+   *
    * @param [in] cornerHeights : the points of this foot whose lowest height is the gap. Pass the same object given to
-   *        this foot's GroundPenetrationConstraint.
+   *        this foot's GroundPenetrationConstraint. It is cloned, not retained.
    * @param [in] mpcRobotModel : the robot model, for the input block that carries this contact's force.
    * @param [in] contactPointIndex : the contact this term belongs to.
    * @param [in] terrainHeight : [m] height of the ground under the foot.
@@ -117,13 +126,14 @@ class ContactComplementarityConstraint final : public StateInputConstraint {
    * @param [in] heightReference : [m] the height the residual is measured in, normally the swing apex.
    * @param [in] gapSmoothing : [m] the length scale over which the corners' minimum is smoothed.
    */
-  ContactComplementarityConstraint(const FootprintCornerHeights& cornerHeights,
-                                   const MpcRobotModelBase<scalar_t>& mpcRobotModel,
-                                   size_t contactPointIndex,
-                                   scalar_t terrainHeight = 0.0,
-                                   scalar_t forceReference = 1.0,
-                                   scalar_t heightReference = 1.0,
-                                   scalar_t gapSmoothing = 1.0e-3);
+  static absl::StatusOr<std::unique_ptr<ContactComplementarityConstraint>> Create(
+      const FootprintCornerHeights& cornerHeights,
+      const MpcRobotModelBase<scalar_t>& mpcRobotModel,
+      size_t contactPointIndex,
+      scalar_t terrainHeight = 0.0,
+      scalar_t forceReference = 1.0,
+      scalar_t heightReference = 1.0,
+      scalar_t gapSmoothing = ModelSettings::ContactImplicitConfig::kDefaultGapSmoothing);
 
   ~ContactComplementarityConstraint() override = default;
   ContactComplementarityConstraint& operator=(const ContactComplementarityConstraint&) = delete;
@@ -151,6 +161,13 @@ class ContactComplementarityConstraint final : public StateInputConstraint {
   scalar_t getGap(const vector_t& state) const;
 
  private:
+  ContactComplementarityConstraint(const FootprintCornerHeights& cornerHeights,
+                                   const MpcRobotModelBase<scalar_t>& mpcRobotModel,
+                                   size_t contactPointIndex,
+                                   scalar_t terrainHeight,
+                                   scalar_t forceReference,
+                                   scalar_t heightReference,
+                                   scalar_t gapSmoothing);
   ContactComplementarityConstraint(const ContactComplementarityConstraint& rhs);
 
   std::unique_ptr<FootprintCornerHeights> cornerHeightsPtr_;

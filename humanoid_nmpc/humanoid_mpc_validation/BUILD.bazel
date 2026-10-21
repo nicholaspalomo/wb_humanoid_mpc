@@ -78,6 +78,25 @@ cc_library(
     ],
 )
 
+# A solve's SQP step for the metrics and the equivalence suites' convergence tests: the line search's verdicts and
+# constraint violation from the solver's iteration record, and the largest residual of the hard swing-foot
+# normal-velocity rows over the solution's nodes.
+cc_library(
+    name = "sqp_step_diagnostics",
+    srcs = ["src/closed_loop/SqpStepDiagnostics.cpp"],
+    hdrs = ["include/humanoid_mpc_validation/closed_loop/SqpStepDiagnostics.h"],
+    copts = FIRST_PARTY_COPTS,
+    includes = ["include"],
+    deps = [
+        ":closed_loop_metrics",
+        "//humanoid_nmpc/humanoid_common_mpc:humanoid_common_mpc_types",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_oc",
+        "//lib/ocs2:ocs2_sqp",
+        "@abseil-cpp//absl/types:span",
+    ],
+)
+
 # The robot at the solves of a closed-loop run, as a golden file: the input of the solve benchmark.
 cc_library(
     name = "recorded_robot_states",
@@ -87,6 +106,8 @@ cc_library(
     includes = ["include"],
     deps = [
         ":validation_io",
+        "//humanoid_nmpc/humanoid_common_mpc:humanoid_common_mpc_types",
+        "//lib/ocs2:ocs2_dimensions",
         "//robot_runtime/robot_model",
         "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/container:flat_hash_set",
@@ -126,6 +147,27 @@ cc_library(
     ],
 )
 
+# The robot process's state estimator, built by name from the task file as RobotProcess::Create() builds it, for the
+# lockstep closed loop's control cycle.
+cc_library(
+    name = "lockstep_state_estimator",
+    srcs = ["src/closed_loop/LockstepStateEstimator.cpp"],
+    hdrs = ["include/humanoid_mpc_validation/closed_loop/LockstepStateEstimator.h"],
+    copts = FIRST_PARTY_COPTS,
+    includes = ["include"],
+    deps = [
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc_app/robot:robot_process",
+        "//humanoid_state_estimation/humanoid_state_estimator:state_estimator",
+        "//robot_runtime/robot_model",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
+    ],
+)
+
 # The lockstep closed loop: the headless MuJoCo simulator, each formulation's MPC as its MPC node builds it and its MRT
 # joint controller as its robot binary builds it, and the MPC link's solver iterations called synchronously.
 cc_library(
@@ -153,7 +195,9 @@ cc_library(
         ":closed_loop_metrics",
         ":driver_settings",
         ":lockstep_solve_schedule",
+        ":lockstep_state_estimator",
         ":recorded_robot_states",
+        ":sqp_step_diagnostics",
         ":validation_io",
         "//humanoid_nmpc/humanoid_centroidal_mpc",
         "//humanoid_nmpc/humanoid_common_mpc",
@@ -177,10 +221,12 @@ cc_library(
         "//robot_runtime/robot_model",
         "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/log",
+        "@abseil-cpp//absl/log:check",
         "@abseil-cpp//absl/memory",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
         "@abseil-cpp//absl/time",
         "@abseil-cpp//absl/types:span",
         "@eigen",
@@ -309,6 +355,24 @@ cc_test(
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
+        "@eigen",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The SQP step of a solve: the normal-velocity terms found by name, their largest residual over the nodes where they
+# are active, and the line search's verdicts.
+cc_test(
+    name = "test_sqp_step_diagnostics",
+    size = "small",
+    srcs = ["test/testSqpStepDiagnostics.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":closed_loop_metrics",
+        ":sqp_step_diagnostics",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_oc",
+        "//lib/ocs2:ocs2_sqp",
         "@eigen",
         "@googletest//:gtest_main",
     ],
@@ -443,6 +507,33 @@ cc_test(
         "@abseil-cpp//absl/status:statusor",
         "@eigen",
         "@googletest//:gtest_main",
+    ],
+)
+
+# The lockstep closed loop's state estimator is the robot process's: built by name with its context, ground_truth handing
+# on the measured state itself.
+cc_test(
+    name = "test_lockstep_state_estimator",
+    size = "small",
+    srcs = ["test/testLockstepStateEstimator.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = [
+        "//robot_models/unitree_g1/g1_centroidal_mpc",
+        "//robot_models/unitree_g1/g1_description",
+    ],
+    deps = [
+        ":lockstep_state_estimator",
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc_app/robot:robot_process",
+        "//humanoid_state_estimation/humanoid_state_estimator:state_estimator",
+        "//robot_runtime/robot_model",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
+        "@googletest//:gtest_main",
+        "@pinocchio",
     ],
 )
 
@@ -643,6 +734,7 @@ cc_binary(
 
 _COMPARE_CLOSED_LOOP_DEPS = [
     ":closed_loop_metrics",
+    "//humanoid_nmpc/humanoid_common_mpc_app/node:exit_codes",
     "@abseil-cpp//absl/base:nullability",
     "@abseil-cpp//absl/flags:flag",
     "@abseil-cpp//absl/flags:parse",

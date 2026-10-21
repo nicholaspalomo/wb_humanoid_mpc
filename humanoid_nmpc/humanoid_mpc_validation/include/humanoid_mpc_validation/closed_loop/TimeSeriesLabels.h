@@ -54,5 +54,22 @@ inline constexpr char kReferenceVelocity[] = "reference_velocity_heading_xy_yaw_
  * keeps only the largest.
  */
 inline constexpr char kSolveRotationGap[] = "solve_initial_state_rotation_gap";
+/**
+ * One row per solve of the commands that recorded an SQP step (SolveSample::sqpStep), with rows of its own: the
+ * observation time of the solve [s], the step size, the codes (SqpStepKind: 0 unknown, 1 constraint, 2 dual, 3 cost,
+ * 4 zero) of the rule that accepted the step and of the one that judged the full step, the full step's constraint
+ * violation and the constraint violation after the step (kSolveSqpStepColumns columns). A Gauss-Newton SQP cycling from
+ * one solve to the next shows as runs of full steps whose violation grows, each ended by a full step refused above
+ * g_max (code 1) and a reduced step.
+ */
+inline constexpr char kSolveSqpStep[] = "solve_sqp_step";
+inline constexpr int kSolveSqpStepColumns = 6;
+/**
+ * One row per solve of the commands with an active hard swing-foot normal-velocity row, with rows of its own: the
+ * observation time [s] and the largest residual of those rows over the new solution's nodes, [m/s] on the centroidal
+ * MPCs and [m/s^2] on the whole-body MPC (SqpStepSample::swingNormalVelocityResidual) (kSolveSwingResidualColumns columns).
+ */
+inline constexpr char kSolveSwingNormalVelocityResidual[] = "solve_swing_normal_velocity_residual";
+inline constexpr int kSolveSwingResidualColumns = 2;
 
 }  // namespace ocs2::humanoid::validation::time_series

@@ -23,11 +23,11 @@ services:
     # LINT.ThenChange(//docker-compose.yaml:network_mode, //.devcontainer/README.md:ports)
     ports:
       # LINT.IfChange(bus_ports)
-      # The ZeroMQ bus: every node binds its PUB socket at its port in the network file (config/ipc/network.textproto),
-      # so processes on the host or on another machine can join the bus of the processes running here. The range holds
-      # every node: robot 5600, mpc 5610, operator 5620, teleop 5621, config_push 5622.
-      - "5600-5629:5600-5629/tcp"
-      # LINT.ThenChange(//.devcontainer/README.md:bus_ports, //config/ipc/network.textproto:localhost_nodes)
+      # The DDS bus of domain 0 (config/ipc/network.textproto): UDP 7400 + 250 * domain_id + 10..49, a discovery and a
+      # data port for each of 20 processes. DDS tells its peers the container's own address, which the host cannot
+      # reach through this bridge, so a process outside the container does not join the bus (.devcontainer/README.md).
+      - "7410-7449:7410-7449/udp"
+      # LINT.ThenChange(//.devcontainer/README.md:bus_ports, //config/ipc/network.textproto:dds_ports)
       # LINT.IfChange(rerun_ports)
       # Rerun: the bridge's gRPC server, which a viewer on the host connects to, and its web viewer
       # (--rerun_sink serve_web).
@@ -44,6 +44,6 @@ services:
       # only. Publishing reaches the container's own interface, not its loopback, so that process binds it with
       # --web_viewer_address=0.0.0.0; its Host checks stay on (.devcontainer/README.md, "MuJoCo Web Viewer").
       - "127.0.0.1:6090:6090/tcp"
-      # LINT.ThenChange(//.devcontainer/devcontainer.json:web_viewer_port, //.devcontainer/README.md:web_viewer_port, //humanoid_nmpc/humanoid_common_mpc_app/robot/src/RobotAppFlags.cpp:web_viewer_port)
+      # LINT.ThenChange(//.devcontainer/devcontainer.json:web_viewer_port, //.devcontainer/README.md:web_viewer_port, //robot_runtime/web_viewer/include/web_viewer/WebViewerServerOptions.h:web_viewer_port)
       # Jupyter Notebook Dashboard port
       - "8888:8888"

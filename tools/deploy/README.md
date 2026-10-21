@@ -77,6 +77,13 @@ for it yet:
 - The bundle must be built for the robot's architecture: in a dev container on an arm64 machine (natively, e.g. on the
   robot computer itself or an arm64 build machine, or under QEMU with `docker buildx`, which is very slow for this
   code base).
+<!-- LINT.IfChange(dev_platform) -->
+- `docker-compose.yaml` builds an amd64 dev container whatever the machine, unless told otherwise: set
+  `DOCKER_PLATFORM=linux/arm64` for `docker compose`, in the host's environment or as a line of the repository's `.env`
+  (the Dev Containers `initializeCommand`, `tools/resource_limits/set_container_memory_limit.sh`, rewrites only its own
+  `WB_CONTAINER_MEMORY_LIMIT` line and keeps the others), then `docker compose up -d --build --force-recreate` or
+  **Dev Containers: Rebuild Container**.
+<!-- LINT.ThenChange(//docker-compose.yaml:dev_platform) -->
 - Then `make deploy-robot ROBOT=... HOST=... DEV_CONTAINER=<the arm64 dev container>`. The image is built for the
   architecture the robot's Docker reports (`ssh <host> docker version`), or `PLATFORM=linux/arm64`; the script refuses a
   bundle whose robot binary is not of that architecture (its ELF header), and a `PLATFORM=` the robot does not run.
@@ -189,7 +196,21 @@ on the host's network, as `docker-compose.yaml` creates it. `in_dev_container.sh
 for the network, and each says so.
 
 The robot computer needs Docker with the compose plugin (v2) and, for `SERVICE=`, systemd and sudo. Nothing else: no
-checkout, no Bazel.
+checkout, no Bazel, and no DDS installation: Cyclone DDS (`@cyclonedds//:ddsc`) is linked statically into the robot
+binaries, so `collect_runtime_libraries.sh` finds no `libddsc` to copy, and the network file is the bus's whole DDS
+configuration (`robot_ipc/DomainConfig.h`; `CYCLONEDDS_URI` is not read).
+
+The bus is UDP: both machines must accept it on the DDS ports of the network file's domain (domain 0: 7410-7449,
+`config/ipc/two_machine.example.textproto`). A network file that asks for an 8 MiB socket receive buffer (the example's
+`transport { socket_receive_buffer_bytes: 8388608 }`, a few policies) gets it only up to the kernel's limit, which is
+not namespaced and so is the host's, not the container's. The Makefile raises it: every launch target and
+`deploy-robot` first run `tools/deploy/udp_buffers.sh`, which reads the network file's `socket_receive_buffer_bytes`
+(and `socket_send_buffer_bytes`), raises `net.core.rmem_max` (`wmem_max`) on that machine with `sudo sysctl -w` only
+when it is below the request - on the laptop for `launch-<robot>-sim|dummy-sim|mpc`, on `HOST` over ssh for
+`deploy-robot` and `launch-<robot>-robot` - and keeps it in `/etc/sysctl.d/60-wb-humanoid-<key>.conf`, so sudo asks
+once per machine. `make udp-buffers [NETWORK=] [HOST=]` does it on its own. From inside a container it cannot (the
+limit is the host's) and says what to run on the host. It never fails a target: Cyclone DDS takes a smaller buffer
+when the kernel caps it, and the bus works, with more retransmissions of large policies.
 
 ## Running it
 
@@ -197,8 +218,9 @@ checkout, no Bazel.
   `docker compose up --detach` in the deployment directory once Docker and the network are up; Docker's restart policy
   brings the process back if it exits.
 - By hand: `make launch-<robot>-robot HOST=<host>` runs `docker compose up` in the deployment directory over ssh (or here
-  for `localhost`), in the foreground with its log; Ctrl-C stops it. On the robot itself: `cd ~/wb-humanoid-robot &&
-  docker compose up`.
+  for `localhost`), in the foreground with its log; Ctrl-C stops it. Like the unit, it refuses a robot other than the
+  deployed one (the `ROBOT` of the deployment's `.env`), and the robot it runs is that `.env`'s alone: a `ROBOT` of the
+  caller's environment does not override it. On the robot itself: `cd ~/wb-humanoid-robot && docker compose up`.
 - Logs: `docker compose --project-directory ~/wb-humanoid-robot logs -f robot`. The entry point's first line says what
   the realtime loop may take there (`realtime priority limit 99, locked memory limit unlimited, cpus 0-19`), and the
   robot process logs every realtime setting it was refused.
@@ -227,7 +249,7 @@ by default, and outlive the container, a restart and a redeploy:
 | `<file>.rejected` | a stored copy the robot did not start with where the bundle's started, replaced by the bundle's |
 | `mpc/contact_planning.textproto` | the bundle's contact planner's file, copied at every start; no save writes it |
 | `.booting` | a start that is not confirmed yet (below); one left there makes the next start fall back to the bundle, unless the machine booted in between |
-<!-- LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_app/robot/src/RobotConfigDirectory.cpp:config_store_layout) -->
+<!-- LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_app/robot/src/RobotConfigDirectory.cpp:config_store_layout, //humanoid_nmpc/humanoid_common_mpc_app/robot/include/humanoid_common_mpc_app/robot/StoredConfigFileKinds.h:stored_config_backup_suffix) -->
 
 The image's bundle - built from the checkout the deploy ran in - is the seed. At every start the robot process copies a
 missing file from it and applies the seed policy (`CONFIG_SEED=`, `WB_ROBOT_CONFIG_SEED`):
@@ -265,9 +287,13 @@ A start is confirmed once its realtime loop has run 10 s.
 `NETEM="delay 3ms 1ms loss 0.5%"` (any `tc-netem` parameters) on `make launch-<robot>-sim` or `make deploy-robot` adds
 `docker-compose.robot.netem.yaml` (`NET_ADMIN`) and makes the entry point run `netem.sh apply <NETEM_INTERFACE>` before
 the robot process and `netem.sh clear` after it. `netem.sh` replaces the interface's root qdisc with a prio qdisc whose
-fourth band is netem and filters only TCP packets (IPv4 and IPv6, matched on the IP protocol and the ports) from or to
-the bus's ports (5600-5631) into it; everything else is untouched. With host networking the interface is the host's: on `lo` (the default, for simulation) every bus
-connection on the machine is shaped in both directions; on a network interface only what the robot sends. A container
+fourth band is netem and filters only UDP packets (IPv4 and IPv6, matched on the IP protocol and the ports) from or to
+the bus's DDS ports (7168-7679, holding 7410-7449 of domain 0 and the ports of domain 1) into it, discovery and data
+alike; everything else is untouched. A lost packet costs one DDS fragment: `reliable_latest` and `reliable_events`
+topics send it again, `latest` topics wait for their next sample. With host networking the interface is the host's: on
+`lo` (the default, for simulation) every bus packet on the machine is shaped in both directions; on a network interface
+only what the robot sends. For a rehearsal without `tc`, a network file's `transport { simulated_send_loss_per_mille: N }`
+drops N of every 1000 packets each process sends (Cyclone DDS's Internal/Test/XmitLossiness). A container
 killed before it could clear it leaves the qdisc; `make kill-sims` removes it, or `tc qdisc del dev lo root`. Off by
 default.
 
@@ -326,6 +352,14 @@ locks its memory (`mlockall`), the web viewer's threads and Mesa's included: mea
 one client pulling frames, the robot process holds 915 MB resident and 28 threads (315 MB and 7 threads with `none`),
 well inside the 4 GB cap. When the laptop side ends, the robot container stops;
 `make kill-sims` (`session.sh stop`) ends what a session left.
+
+`VIEWS=` (`session.sh --views`) names where the windows go, for `sim` and `laptop` sessions alike
+(`.devcontainer/README.md`, "Views"): `browser` (the default) and `vnc` start the VNC desktop in the dev container
+(`.devcontainer/start_vnc.sh`) and put `DISPLAY` on its `:99`, where the operator GUI shows through noVNC; `display`
+checks, before anything is built, that an X server answers on `DISPLAY` where the GUI runs (`xset q` in the dev
+container) and stops with a hint otherwise. The Makefile turns the view into the MuJoCo viewer (`--viewer`, when
+`VIEWS=` is named) and the Rerun sink (`--set rerun_sink=`). Right before the laptop side starts, the session prints one
+banner with the URL of every view. A `session.sh` run without `--views` keeps `DISPLAY` as it is, unchecked.
 
 The robot side needs the host's Docker: run the target on the host (Linux, host networking), or in a dev container
 that can reach Docker (`session.sh` then mounts the checkout by its host path, from the dev container's mounts, or

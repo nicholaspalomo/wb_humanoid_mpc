@@ -45,7 +45,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_core/penalties/penalties/PenaltyBase.h"
 #include "ocs2_core/penalties/penalties/RelaxedBarrierPenalty.h"
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
-#include "ocs2_robotic_tools/end_effector/EndEffectorKinematics.h"
 
 #include "humanoid_common_mpc/common/BasisInputsCostTransform.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
@@ -59,6 +58,19 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
+/** Whether a contact cone switches itself off while the mode schedule calls its foot a swing foot. */
+enum class ContactConeGating {
+  /** Off for a foot the schedule calls a swing foot: wrapped in a relaxed log barrier. */
+  kScheduleGated,
+  /** Active whatever the schedule says (the contact-implicit formulation): wrapped in a squared hinge. */
+  kUngated,
+};
+
+/** kScheduleGated when `scheduleGated`, kUngated otherwise: the gating of a cone that reports isScheduleGated(). */
+inline ContactConeGating contactConeGatingOf(bool scheduleGated) {
+  return scheduleGated ? ContactConeGating::kScheduleGated : ContactConeGating::kUngated;
+}
+
 /**
  * The (mu, delta) of the penalty a contact cone - contact_wrench_cone, friction_force_cone, contact_moment_xy - is
  * wrapped in: the task file's barrier parameters for a schedule-gated cone, and (mu, 0) for an un-gated one, whose
@@ -67,13 +79,13 @@ namespace ocs2::humanoid {
  * hinge's delta: writing the barrier's delta into the hinge would move its zero into the cone and reinstate the force
  * floor that un-gating removes.
  */
-vector_t contactConePenaltyParameters(const RelaxedBarrierPenalty::Config& barrierConfig, bool scheduleGated);
+vector_t contactConePenaltyParameters(const RelaxedBarrierPenalty::Config& barrierConfig, ContactConeGating gating);
 
 /**
  * The penalty a contact cone is wrapped in: a RelaxedBarrierPenalty for a schedule-gated cone, a SquaredHingePenalty
  * with delta 0 for an un-gated one, parameterized by contactConePenaltyParameters(). The definition explains why.
  */
-std::unique_ptr<PenaltyBase> makeContactConePenalty(const RelaxedBarrierPenalty::Config& barrierConfig, bool scheduleGated);
+std::unique_ptr<PenaltyBase> makeContactConePenalty(const RelaxedBarrierPenalty::Config& barrierConfig, ContactConeGating gating);
 
 /**
  * Builds the costs and constraints of the humanoid MPC formulations from the task file.
@@ -211,7 +223,7 @@ class HumanoidCostConstraintFactory {
   const PinocchioInterface* absl_nonnull pinocchioInterfacePtr_;
   const MpcRobotModelBase<scalar_t>* absl_nonnull mpcRobotModelPtr_;
   const MpcRobotModelBase<ad_scalar_t>* absl_nonnull mpcRobotModelADPtr_;
-  const ModelSettings& modelSettings_;
+  const ModelSettings* absl_nonnull modelSettingsPtr_;
   const bool verbose_;
   /**
    * Whether the contact cones this factory builds may switch themselves off while the mode schedule calls a foot a

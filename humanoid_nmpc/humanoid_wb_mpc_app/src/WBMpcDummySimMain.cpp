@@ -44,8 +44,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "ocs2_mpc/SystemObservation.h"
 
+#include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_common_mpc_app/node/DummySimLoop.h"
+#include "humanoid_common_mpc_app/node/ExitCodes.h"
 #include "humanoid_common_mpc_app/node/MpcAppFlags.h"
 #include "humanoid_common_mpc_app/node/MpcFiles.h"
 #include "humanoid_common_mpc_app/node/MpcNodeRuntime.h"
@@ -59,6 +61,13 @@ ABSL_FLAG(std::string, ipc_node, "robot", "The bus node this process publishes a
 // clang-format off
 // LINT.ThenChange(//humanoid_nmpc/humanoid_wb_mpc_app/README.md:dummy_sim_flags, //humanoid_nmpc/humanoid_centroidal_mpc_app/src/CentroidalMpcDummySimMain.cpp:dummy_sim_flags)
 // clang-format on
+
+namespace {
+
+// [Hz] The step rate of the whole-body plant (the centroidal one at 100 Hz).
+constexpr ocs2::scalar_t kSimulationFrequency = 80.0;
+
+}  // namespace
 
 /*
  * humanoid_wb_mpc_dummy_sim: the robot played by the whole-body MPC's own model, rolled out under the policies
@@ -82,7 +91,7 @@ int main(int argc, char* absl_nonnull* absl_nonnull argv) {
                                     ocs2::humanoid::node::validateFileFlag("--urdf_file", files.urdfFile)}) {
     if (!valid.ok()) {
       LOG(ERROR) << valid.message();
-      return 2;
+      return ocs2::humanoid::node::kUsageErrorExitCode;
     }
   }
 
@@ -99,16 +108,15 @@ int main(int argc, char* absl_nonnull* absl_nonnull argv) {
       ocs2::humanoid::node::createNodeBus(absl::GetFlag(FLAGS_network_config), absl::GetFlag(FLAGS_ipc_node));
   if (!bus.ok()) {
     LOG(ERROR) << "The bus: " << bus.status();
-    return 2;
+    return ocs2::humanoid::node::kUsageErrorExitCode;
   }
   ocs2::humanoid::node::DummySimLoop::Config config;
-  // The whole-body plant steps at 80 Hz (the centroidal one at 100 Hz).
-  config.simulationFrequency = 80.0;
+  config.simulationFrequency = kSimulationFrequency;
   config.mpcDesiredFrequency = (*interface)->mpcSettings().mpcDesiredFrequency_;
-  config.link.dimensions = {
-      .stateDim = model.getStateDim(), .inputDim = model.getInputDim(), .numModes = ocs2::humanoid::node::kNumHumanoidModes};
+  config.link.dimensions = {.stateDim = model.getStateDim(), .inputDim = model.getInputDim(), .numModes = ocs2::humanoid::kNumModeNumbers};
   // The MPC's state manifold, on which the link decodes the node's manifold-linear policies and interpolates their states.
   config.link.stateManifold = (*interface)->getStateManifold();
+  config.link.modelFingerprint = ocs2::humanoid::modelLayoutFingerprint((*interface)->modelSettings());
   absl::StatusOr<std::unique_ptr<ocs2::humanoid::node::DummySimLoop>> loop =
       ocs2::humanoid::node::DummySimLoop::Create(*std::move(bus), (*interface)->getRollout(), config);
   if (!loop.ok()) {

@@ -53,6 +53,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
 #include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
 #include "humanoid_mpc_config/task_file.nproto.h"
+#include "humanoid_nmpc/humanoid_common_mpc/test/support/StatusTestMacros.h"
 #include "humanoid_wb_mpc/common/WBAccelMpcRobotModel.h"
 #include "humanoid_wb_mpc/mrt/WBMpcMrtJointController.h"
 #include "humanoid_wb_mpc/mrt/WBMpcResetTarget.h"
@@ -74,18 +75,15 @@ class G1Model {
  public:
   G1Model()
       // A file missing from the runfiles throws here, naming the data dependency to add (robot::resolveResourcePath).
-      : task_(loadTaskFile(robot::resolveResourcePath("robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.textproto").value()).value()),
-        urdfFile_(robot::resolveResourcePath("robot_models/unitree_g1/g1_description/urdf/g1_29dof.urdf").value()),
-        modelSettings_(ModelSettings::Create(task_, urdfFile_, "wb_mpc_", /*verbose=*/false).value()),
-        pinocchioInterface_(loadCustomPinocchioInterface(task_, urdfFile_, modelSettings_).value()),
+      : task_(checkedValue(
+            loadTaskFile(checkedValue(robot::resolveResourcePath("robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.textproto"))))),
+        urdfFile_(checkedValue(robot::resolveResourcePath("robot_models/unitree_g1/g1_description/urdf/g1_29dof.urdf"))),
+        modelSettings_(checkedValue(ModelSettings::Create(task_, urdfFile_, "wb_mpc_", /*verbose=*/false))),
+        pinocchioInterface_(checkedValue(loadCustomPinocchioInterface(task_, urdfFile_, modelSettings_))),
         model_(modelSettings_),
-        description_(robot::model::RobotDescription::Create(urdfFile_).value()),
-        initialState_(model_
-                          .stateFromTuning(stateValuesFromConfig(task_.initial_state,
-                                                                 stateInputLayout(modelSettings_, StateInputLayout::Mpc::kWholeBody),
-                                                                 "initial_state")
-                                               .value())
-                          .value()) {}
+        description_(checkedValue(robot::model::RobotDescription::Create(urdfFile_))),
+        initialState_(checkedValue(model_.stateFromTuning(checkedValue(stateValuesFromConfig(
+            task_.initial_state, stateInputLayout(modelSettings_, StateInputLayout::Mpc::kWholeBody), "initial_state"))))) {}
 
   const ModelSettings& modelSettings() const { return modelSettings_; }
   const PinocchioInterface& pinocchioInterface() const { return pinocchioInterface_; }
@@ -200,8 +198,9 @@ TEST(WBMpcResetTarget, IsWhatTheControllerHandsItsMpcLink) {
     captured = resetTarget;
     return std::make_unique<InProcessMpcLink>(mpc, std::move(resetTarget), InProcessMpcLink::Config());
   };
-  const absl::StatusOr<std::unique_ptr<WBMpcMrtJointController>> controller =
-      WBMpcMrtJointController::Create(g1.description(), g1.modelSettings(), factory, g1.pinocchioInterface());
+  const absl::StatusOr<std::unique_ptr<WBMpcMrtJointController>> controller = WBMpcMrtJointController::Create(
+      g1.description(), g1.modelSettings(), factory, g1.pinocchioInterface(),
+      checkedValue(robot::resolveResourcePath("robot_models/unitree_g1/g1_wb_mpc/config/controller/joint_pd_gains.textproto")));
   ASSERT_TRUE(controller.ok()) << controller.status();
   ASSERT_TRUE(captured);
   for (const scalar_t time : {0.0, 1.25, 7.5}) {
@@ -227,9 +226,10 @@ TEST(WBMpcResetTarget, IsWhatTheInProcessLinkResetsTheMpcTo) {
   SystemObservation startObservation;
   {
     // The default constructor's link: InProcessMpcLink, which resets the MPC fully from the start observation.
-    absl::StatusOr<std::unique_ptr<WBMpcMrtJointController>> created =
-        WBMpcMrtJointController::Create(g1.description(), g1.modelSettings(), mpc, /*solverObservationObserver=*/nullptr,
-                                        g1.pinocchioInterface(), /*mpcDesiredFrequency=*/100.0);
+    absl::StatusOr<std::unique_ptr<WBMpcMrtJointController>> created = WBMpcMrtJointController::Create(
+        g1.description(), g1.modelSettings(), mpc, /*solverObservationObserver=*/nullptr, g1.pinocchioInterface(),
+        /*mpcDesiredFrequency=*/100.0,
+        checkedValue(robot::resolveResourcePath("robot_models/unitree_g1/g1_wb_mpc/config/controller/joint_pd_gains.textproto")));
     ASSERT_TRUE(created.ok()) << created.status();
     WBMpcMrtJointController& controller = **created;
     controller.startMpcThread(robotState);

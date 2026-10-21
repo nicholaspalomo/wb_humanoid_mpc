@@ -13,11 +13,11 @@
 # G1's at 140 N*m, so those gains carry over unchanged; its ankles are much weaker at 24 N*m, so the ankle gains are
 # halved with them.
 #
-# torque_limit is NOT optional on this robot, and it is not only documentation. CentroidalMpcMrtJointController
-# clamps the commanded joint torque against it, and a joint missing from this file - or a file missing the key - falls
-# back to a hard-coded 500 N*m. On SA01 that would let the controller command twenty times what the 24 N*m ankle can
-# deliver, and the MuJoCo clamp against the model's actuatorfrcrange would then silently absorb the difference, so
-# the controller would be tracking a torque the robot never applied. The values here are the URDF effort limits, and
+# torque_limit is not only documentation. The MRT joint controller clamps the commanded feedforward torque of every
+# joint against it, in every mode; a joint this file does not name gets default_gains' limit, and default_gains must
+# set it (the controller refuses a file without it, where it used to fall back to a hard-coded 500 N*m - twenty times
+# what the 24 N*m ankle can deliver, which the MuJoCo clamp against the model's actuatorfrcrange would then have
+# absorbed silently, so the controller would have tracked a torque the robot never applied). The values here are the URDF effort limits, and
 # they match the actuatorfrcrange of zq_sa01.xml joint for joint.
 #
 # Kd rule of thumb: Kd ~ 0.06-0.08 * Kp for near-critical damping, the same ratio the other robots use.

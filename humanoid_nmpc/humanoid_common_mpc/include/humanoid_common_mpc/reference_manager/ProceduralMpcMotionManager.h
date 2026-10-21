@@ -103,7 +103,9 @@ namespace ocs2::humanoid {
  *
  * Added to the MPC as a SolverSynchronizedModule, whose preSolverRun() runs on the solver thread, as observe() does. The
  * velocity command is set from the command thread under a lock, and the command limits are atomics, so the setters are
- * thread-safe.
+ * thread-safe. It is held by std::shared_ptr because OCS2's SolverBase::addSynchronizedModule() takes one; the node, its
+ * command watchdog and the command-limit reloader share that pointer rather than observe it, since the solver decides
+ * how long the module lives.
  */
 class ProceduralMpcMotionManager : public SolverSynchronizedModule {
  public:
@@ -317,9 +319,13 @@ class ProceduralMpcMotionManager : public SolverSynchronizedModule {
                                              absl::string_view gaitFile);
 
  protected:
+  // The gaits the velocity command selects, slowest first, with their command limits and error thresholds in the order
+  // of GaitModeStateConfig's fields. A table of tuned values rather than a constexpr array, which GaitModeStateConfig's
+  // std::string rules out, and tools/locomotion_heuristics/test_derive_parameters.py reads its rows out of this initializer.
+  // NOLINTBEGIN(magic-number): the tuned thresholds of the gait table, one row per gait (the comment above).
   // clang-format off
   const std::vector<GaitModeStateConfig> gaitModeStates_ {
-    { "stance",       -0.1,  0.1, -0.1,  0.1,  10.0,   10.0 }, // Large threshold allows switching aw3ay from stance purely command based.
+    { "stance",       -0.1,  0.1, -0.1,  0.1,  10.0,   10.0 }, // Large threshold allows switching away from stance purely command based.
     { "slow_walk",     0.05,  0.3,  0.05,  0.2,    0.05,  0.05},
     { "walk",          0.25,  0.5, 0.15,  0.35,    0.05,  0.05},
     { "slower_trot",   0.45, 0.7, 0.3,  0.55,      0.1,  0.1},
@@ -327,6 +333,7 @@ class ProceduralMpcMotionManager : public SolverSynchronizedModule {
     { "trot",          0.8,  1.3,  0.65,  10.0,    0.2,  0.2},
     { "run",           1.2,  10.0,  0.65,  10.0,   0.2,  0.2}
   };  // clang-format on
+  // NOLINTEND(magic-number)
 
   size_t currentGaitMode_ = 0;
 
@@ -340,11 +347,11 @@ class ProceduralMpcMotionManager : public SolverSynchronizedModule {
 
   std::map<std::string, ModeSequenceTemplate> gaitMap_;
 
-  // For velocity control mode
-  std::atomic<scalar_t> maxDisplacementVelocityX_{0.6};
-  std::atomic<scalar_t> maxDisplacementVelocityY_{0.3};
-  std::atomic<scalar_t> maxDeltaPelvisHeight_{0.3};
-  std::atomic<scalar_t> maxRotationVelocity_{0.6};
+  // For velocity control mode. The values before Create()'s applyCommandLimits() replaces them.
+  std::atomic<scalar_t> maxDisplacementVelocityX_{kInitialMaxDisplacementVelocityX};
+  std::atomic<scalar_t> maxDisplacementVelocityY_{kInitialMaxDisplacementVelocityY};
+  std::atomic<scalar_t> maxDeltaPelvisHeight_{kInitialMaxDeltaPelvisHeight};
+  std::atomic<scalar_t> maxRotationVelocity_{kInitialMaxRotationVelocity};
 
   // The operator's command filtered on the solver time; off unless reference.textproto sets a break frequency.
   BreakFrequencyAlphaFilter velocityCommandFilter_{vector4_t::Zero()};

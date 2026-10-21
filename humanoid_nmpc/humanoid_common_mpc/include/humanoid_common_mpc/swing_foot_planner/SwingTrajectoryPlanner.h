@@ -53,24 +53,33 @@ namespace ocs2::humanoid {
 class SwingTrajectoryPlanner {
  public:
   struct Config {
+    /** The defaults of the fields below, by field. */
+    static constexpr scalar_t kDefaultSwingHeight = 0.1;      // [m]
+    static constexpr scalar_t kDefaultSwingTimeScale = 0.15;  // [s]
+    static constexpr scalar_t kDefaultImpactProximityFactorMidPointValue = 0.1;
+    static constexpr scalar_t kDefaultSwingPitchRiseFraction = 0.25;
+    static constexpr scalar_t kDefaultSwingPitchFallFraction = 0.15;
+
     scalar_t liftOffVelocity = 0.0;
     scalar_t touchDownVelocity = 0.0;
-    scalar_t swingHeight = 0.1;
-    scalar_t swingTimeScale = 0.15;  // swing phases shorter than this time will be scaled down in height and velocity
+    scalar_t swingHeight = kDefaultSwingHeight;        // [m] apex above the higher of the lift-off and touch-down heights
+    scalar_t swingTimeScale = kDefaultSwingTimeScale;  // swing phases shorter than this time will be scaled down in height and velocity
     scalar_t touchDownHeightOffset = 0.0;
 
-    scalar_t impactProximityFactorLiftOffVelocity = 0;    // should lesser or equal 0
-    scalar_t impactProximityFactorTouchDownVelocity = 0;  // should be greater or equal to 0
-    scalar_t impactProximityFactorMidPointValue = 0.1;    // should be between 0 and 1
+    scalar_t impactProximityFactorLiftOffVelocity = 0;                                         // should lesser or equal 0
+    scalar_t impactProximityFactorTouchDownVelocity = 0;                                       // should be greater or equal to 0
+    scalar_t impactProximityFactorMidPointValue = kDefaultImpactProximityFactorMidPointValue;  // should be between 0 and 1
 
     // Toe-up pitch of the swing foot. The foot height reference is tracked at the center of the sole, so the toe, half a
     // foot length ahead of it, reaches the ground before the reference does whenever the foot droops toe-down. Pitching
     // the reference toe-up through the swing lifts the toe by (half foot length) * sin(angle) at no cost in sole
     // clearance. The pitch ramps up over the first swingPitchRiseFraction of the swing, is held, and is back to flat at
     // touch-down so that the contact is made with the whole sole, as the contact model assumes.
-    scalar_t swingPitchAngle = 0.0;          // [rad] peak toe-up pitch; 0 (the default) reproduces the flat-foot reference
-    scalar_t swingPitchRiseFraction = 0.25;  // fraction of the swing spent ramping from flat up to swingPitchAngle
-    scalar_t swingPitchFallFraction = 0.15;  // fraction of the swing spent ramping back down to flat before touch-down
+    scalar_t swingPitchAngle = 0.0;  // [rad] peak toe-up pitch; 0 (the default) reproduces the flat-foot reference
+    // The fraction of the swing spent ramping from flat up to swingPitchAngle.
+    scalar_t swingPitchRiseFraction = kDefaultSwingPitchRiseFraction;
+    // The fraction of the swing spent ramping back down to flat before touch-down.
+    scalar_t swingPitchFallFraction = kDefaultSwingPitchFallFraction;
   };
 
   /**
@@ -88,6 +97,13 @@ class SwingTrajectoryPlanner {
   };
 
   SwingTrajectoryPlanner(Config config, size_t numFeet);
+
+  // Copyable, not assignable: the number of feet is fixed at construction.
+  SwingTrajectoryPlanner(const SwingTrajectoryPlanner&) = default;
+  SwingTrajectoryPlanner& operator=(const SwingTrajectoryPlanner&) = delete;
+  SwingTrajectoryPlanner(SwingTrajectoryPlanner&&) = default;
+  SwingTrajectoryPlanner& operator=(SwingTrajectoryPlanner&&) = delete;
+  ~SwingTrajectoryPlanner() = default;
 
   void update(const ModeSchedule& modeSchedule, scalar_t terrainHeight);
 
@@ -128,13 +144,26 @@ class SwingTrajectoryPlanner {
   feet_array_t<std::vector<bool>> extractContactFlags(const std::vector<size_t>& phaseIDsStock) const;
 
   /**
-   * Finds the take-off and touch-down times indices for a specific leg.
-   *
-   * @param index
-   * @param contactFlagStock
-   * @return {The take-off time index for swing legs, touch-down time index for swing legs}
+   * The event-time indices that bound one swing phase: eventTimes[startTimeIndex] is its take-off and
+   * eventTimes[finalTimeIndex] its touch-down. Both are 0 for a stance phase; startTimeIndex is -1 for a swing that
+   * began before the schedule and finalTimeIndex the last phase for one that ends after it (checkThatIndicesAreValid()).
    */
-  static std::pair<int, int> findIndex(size_t index, const std::vector<bool>& contactFlagStock);
+  struct SwingEventIndices {
+    int startTimeIndex = 0;
+    int finalTimeIndex = 0;
+  };
+
+  /** The SwingEventIndices of every phase of one foot, by phase. */
+  struct FootSwingEventIndices {
+    std::vector<int> startTimeIndices;
+    std::vector<int> finalTimeIndices;
+  };
+
+  /**
+   * Finds the take-off and touch-down time indices of phase `index` of a foot whose contact status per phase is
+   * `contactFlagStock`.
+   */
+  static SwingEventIndices findIndex(size_t index, const std::vector<bool>& contactFlagStock);
 
   /**
    * based on the input phaseIDsStock finds the start subsystem and final subsystem of the swing
@@ -146,9 +175,9 @@ class SwingTrajectoryPlanner {
    * @param [in] footIndex: Foot index
    * @param [in] phaseIDsStock: The sequence of the motion phase IDs.
    * @param [in] contactFlagStock: The sequence of the contact status for the requested leg.
-   * @return { startTimeIndexStock, finalTimeIndexStock}
+   * @return the take-off and touch-down time indices of every phase.
    */
-  static std::pair<std::vector<int>, std::vector<int>> updateFootSchedule(const std::vector<bool>& contactFlagStock);
+  static FootSwingEventIndices updateFootSchedule(const std::vector<bool>& contactFlagStock);
 
   /**
    * Check if event time indices are valid
@@ -176,6 +205,18 @@ class SwingTrajectoryPlanner {
     scalar_t descentStartHeight = 0.0;
     scalar_t descentVelocity = 0.0;
   };
+
+  /** The height and impact-proximity references of one swing. */
+  struct SwingSplines {
+    SplineCpg height;
+    SplineCpg impactProximity;
+  };
+
+  /**
+   * Builds the references of the swing `window` (its planned lift-off and touch-down times and short-swing scaling) from
+   * the lift-off height to the touch-down height, through an apex swingHeight (scaled) above the higher of the two.
+   */
+  SwingSplines makeSwingSplines(const SwingWindow& window, scalar_t liftOffHeight, scalar_t touchDownHeight) const;
 
   /** True while the foot is searching for the ground past its planned touch-down at `time`. */
   static bool isSearching(const SwingWindow& window, scalar_t time) {

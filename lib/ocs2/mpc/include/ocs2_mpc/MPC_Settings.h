@@ -41,6 +41,9 @@ namespace mpc {
  * This structure holds all setting parameters for the MPC class.
  */
 struct Settings {
+  /** [Hz] The default of mrtDesiredFrequency_. */
+  static constexpr scalar_t kDefaultMrtDesiredFrequency = 100.0;
+
   /** MPC time horizon length in seconds. */
   scalar_t timeHorizon_ = 1.0;
   /**
@@ -67,7 +70,7 @@ struct Settings {
    * MRT loop frequency in Hz: the tracking controller's frequency, the control rate of the robot
    * process. This should always be set to a positive number.
    */
-  scalar_t mrtDesiredFrequency_ = 100.0;
+  scalar_t mrtDesiredFrequency_ = kDefaultMrtDesiredFrequency;
 };
 
 }  // namespace mpc

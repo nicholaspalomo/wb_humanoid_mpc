@@ -16,7 +16,9 @@ message VisualizationScene {
 
   reserved 6 to max;
 
-  // Robot clock [s] of the observation drawn.
+  // Robot clock [s] of the scene's measured robot: the robot/state sample's time when the scene is drawn from a recent
+  // sample, else the observation's. The bridge's robot_time timeline; a step back of more than a second is read as a
+  // restarted robot clock (a new run).
   double time = 1;
   repeated RobotModelInstance robots = 2;
   repeated Arrows arrows = 3;

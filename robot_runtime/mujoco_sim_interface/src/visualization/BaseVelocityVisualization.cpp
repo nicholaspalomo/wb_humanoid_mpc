@@ -34,18 +34,48 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <functional>
 
 #include "absl/base/nullability.h"
+#include "ocs2_core/Dimensions.h"
 
 #include "mujoco_sim_interface/MujocoSimInterface.h"
 #include "mujoco_sim_interface/MujocoUtils.h"
 
 namespace robot::mujoco_sim_interface {
 
+using ::ocs2::kPositionDim;
+using ::ocs2::kXAxisIndex;
+using ::ocs2::kYAxisIndex;
+using ::ocs2::kZAxisIndex;
+
+namespace {
+// The base is body kBaseBodyId, on a free joint whose qpos holds its position (3), then its quaternion (4).
+constexpr int kMinBodies = 2;  // the world and the base
+constexpr int kBaseBodyId = 1;
+
+// The yaw rate in a body's row of mjData::cvel, a motion vector (angular velocity, then linear velocity) about the
+// subtree center of mass in world-aligned axes: the angular velocity about the world's z axis.
+constexpr int kCvelAngularVelocityZIndex = kZAxisIndex;
+
+constexpr double kArrowWidth = 0.02;            // [m]
+constexpr double kMinDrawnSpeed = 1.0e-3;       // [m/s] a slower horizontal velocity draws no arrow
+constexpr double kMinDrawnYawRate = 1.0e-3;     // [rad/s] a slower yaw rate draws no arrow
+constexpr double kYawArrowLengthPerRate = 0.2;  // [m / (rad/s)]
+// [m] The offset of the yaw arrows along x and y from the center of mass: + for the measured rate, - for the commanded.
+constexpr double kYawArrowOffset = 0.05;
+}  // namespace
+
 void BaseVelocityVisualization::addSceneGeoms(const VisualizationFrame& frame) {
   if (frame.sim == nullptr || frame.model == nullptr || frame.state == nullptr || frame.scene == nullptr) return;
-  const mjModel* absl_nonnull model = frame.model;
-  const mjData* absl_nullable data = frame.state->data;
-  mjvScene& scene = *frame.scene;
-  if (data == nullptr || model->nq < 7 || model->nbody < 2) return;
+  if (frame.state->data == nullptr) return;
+  const BaseVelocityCommand command{
+      .velocityX = frame.sim->getTargetVelocityX(), .velocityY = frame.sim->getTargetVelocityY(), .yawRate = frame.sim->getTargetYawRate()};
+  addArrows(frame.model, frame.state->data, command, *frame.scene);
+}
+
+void BaseVelocityVisualization::addArrows(const mjModel* absl_nonnull model,
+                                          const mjData* absl_nonnull data,
+                                          const BaseVelocityCommand& command,
+                                          mjvScene& scene) {
+  if (model->nq < kMjFreeJointQposSize || model->nbody < kMinBodies) return;
 
   // Center of mass of the robot: its root's subtree, NOT body 0's. The world's subtree also holds the thrown ball,
   // which would drag the arrows away from the robot - by meters, for a 5 kg ball parked out of play.
@@ -53,79 +83,70 @@ void BaseVelocityVisualization::addSceneGeoms(const VisualizationFrame& frame) {
   if (!robot.valid) return;
   const double* absl_nonnull com = robot.com;
 
-  // Base orientation: the base is body 1 on a free joint whose quaternion starts at qpos[3]
-  const mjtNum* absl_nonnull quat = &data->qpos[3];
-  mjtNum mat[9];
-  mju_quat2Mat(mat, quat);
+  // The heading of the base, whose free joint's quaternion starts at qpos[3]: the twist of its attitude about the world
+  // vertical (design D9), the frame of the commanded velocity. The command is a velocity along the ground in that
+  // frame, so it is turned by the heading only and stays horizontal however the base tilts.
+  const VerticalTwist twist = verticalTwistOf(data->qpos[kMjFreeJointQuaternionWIndex], data->qpos[kMjFreeJointQuaternionZIndex]);
+  const double cosHeading = twist.w * twist.w - twist.z * twist.z;
+  const double sinHeading = 2.0 * twist.w * twist.z;
 
-  // Commanded velocities (base frame)
-  const double target_vx = frame.sim->getTargetVelocityX();
-  const double target_vy = frame.sim->getTargetVelocityY();
-  const double target_yaw = frame.sim->getTargetYawRate();
+  // The measured velocity is the robot's center-of-mass velocity, already in the world frame (mj_objectVelocity with
+  // flg_local = 0): it is drawn as it is, horizontally. Only the command, in the base frame, is rotated.
+  const mjtNum v_cur_world[kPositionDim] = {robot.comVelocity[kXAxisIndex], robot.comVelocity[kYAxisIndex], 0.0};
+  // The yaw rate of the base, about the world's z axis.
+  const double current_yaw = data->cvel[kMjSpatialVectorSize * kBaseBodyId + kCvelAngularVelocityZIndex];
 
-  // Measured velocities: cvel of body 1 is [angular(3), linear(3)] in the local frame
-  const mjtNum* absl_nonnull cvel_base = &data->cvel[6 * 1];
-  const double current_vx = cvel_base[3];
-  const double current_vy = cvel_base[4];
-  const double current_yaw = cvel_base[2];
-
-  // Rotate the linear velocities to the world frame for rendering
-  const mjtNum v_cur_base[3] = {current_vx, current_vy, 0.0};
-  mjtNum v_cur_world[3];
-  mju_mulMatVec(v_cur_world, mat, v_cur_base, /*nr=*/3, /*nc=*/3);
-
-  const mjtNum v_tgt_base[3] = {target_vx, target_vy, 0.0};
-  mjtNum v_tgt_world[3];
-  mju_mulMatVec(v_tgt_world, mat, v_tgt_base, /*nr=*/3, /*nc=*/3);
+  const mjtNum v_tgt_world[kPositionDim] = {cosHeading * command.velocityX - sinHeading * command.velocityY,
+                                            sinHeading * command.velocityX + cosHeading * command.velocityY, 0.0};
 
   const std::function<void(const mjtNum* absl_nonnull, const float* absl_nonnull, double)> draw_arrow =
-      [&](const mjtNum* absl_nonnull dir_world, const float rgba[absl_nonnull 4], double scale_factor) {
+      [&](const mjtNum* absl_nonnull dir_world, const float rgba[absl_nonnull kMjRgbaChannels], double scale_factor) {
         if (scene.ngeom >= scene.maxgeom) return;
-        const double mag = std::sqrt(dir_world[0] * dir_world[0] + dir_world[1] * dir_world[1]);
-        if (mag < 1.0e-3) return;
+        const double mag =
+            std::sqrt(dir_world[0] * dir_world[0] + dir_world[1] * dir_world[1] + dir_world[kZAxisIndex] * dir_world[kZAxisIndex]);
+        if (mag < kMinDrawnSpeed) return;
 
         mjvGeom* absl_nonnull arrow = &scene.geoms[scene.ngeom++];
         std::memset(arrow, 0, sizeof(mjvGeom));
         const double length = mag * scale_factor;
-        const mjtNum from[3] = {com[0], com[1], com[2]};
-        const mjtNum to[3] = {com[0] + length * (dir_world[0] / mag), com[1] + length * (dir_world[1] / mag),
-                              com[2] + length * (dir_world[2] / mag)};
-        mjv_connector(arrow, mjGEOM_ARROW, /*width=*/0.02, from, to);
-        for (int i = 0; i < 4; ++i) arrow->rgba[i] = rgba[i];
+        const mjtNum from[kPositionDim] = {com[kXAxisIndex], com[kYAxisIndex], com[kZAxisIndex]};
+        const mjtNum to[kPositionDim] = {com[0] + length * (dir_world[0] / mag), com[1] + length * (dir_world[1] / mag),
+                                         com[kZAxisIndex] + length * (dir_world[kZAxisIndex] / mag)};
+        mjv_connector(arrow, mjGEOM_ARROW, kArrowWidth, from, to);
+        for (int i = 0; i < kMjRgbaChannels; ++i) arrow->rgba[i] = rgba[i];
         arrow->category = mjCAT_DECOR;
         arrow->emission = 1.0f;
       };
 
-  const float red[4] = {1.0f, 0.0f, 0.0f, 1.0f};
+  const float red[kMjRgbaChannels] = {1.0f, 0.0f, 0.0f, 1.0f};
   draw_arrow(v_cur_world, red, /*scale_factor=*/1.0);
-  const float green[4] = {0.0f, 1.0f, 0.0f, 1.0f};
+  const float green[kMjRgbaChannels] = {0.0f, 1.0f, 0.0f, 1.0f};
   draw_arrow(v_tgt_world, green, /*scale_factor=*/1.0);
 
-  // The yaw rate is drawn along the base's z axis, up for a positive rate, offset so the two arrows do not overlap.
-  const mjtNum yaw_axis_base[3] = {0.0, 0.0, 1.0};
-  mjtNum yaw_axis_world[3];
-  mju_mulMatVec(yaw_axis_world, mat, yaw_axis_base, /*nr=*/3, /*nc=*/3);
+  // The yaw rates are rates about the world's vertical, the measured one and the commanded heading rate alike, so they
+  // are drawn along the world's z axis, up for a positive rate, offset so the two arrows do not overlap.
+  const mjtNum yaw_axis_world[kPositionDim] = {0.0, 0.0, 1.0};
 
   const std::function<void(double, const float* absl_nonnull, double)> draw_yaw_arrow =
-      [&](double yaw_rate, const float rgba[absl_nonnull 4], double offset) {
-        if (scene.ngeom >= scene.maxgeom || std::abs(yaw_rate) < 1.0e-3) return;
+      [&](double yaw_rate, const float rgba[absl_nonnull kMjRgbaChannels], double offset) {
+        if (scene.ngeom >= scene.maxgeom || std::abs(yaw_rate) < kMinDrawnYawRate) return;
         mjvGeom* absl_nonnull arrow = &scene.geoms[scene.ngeom++];
         std::memset(arrow, 0, sizeof(mjvGeom));
-        const double length = std::abs(yaw_rate) * 0.2;
+        const double length = std::abs(yaw_rate) * kYawArrowLengthPerRate;
         const double sign = (yaw_rate > 0) ? 1.0 : -1.0;
-        const mjtNum from[3] = {com[0] + offset, com[1] + offset, com[2]};
-        const mjtNum to[3] = {from[0] + sign * length * yaw_axis_world[0], from[1] + sign * length * yaw_axis_world[1],
-                              from[2] + sign * length * yaw_axis_world[2]};
-        mjv_connector(arrow, mjGEOM_ARROW, /*width=*/0.02, from, to);
-        for (int i = 0; i < 4; ++i) arrow->rgba[i] = rgba[i];
+        const mjtNum from[kPositionDim] = {com[kXAxisIndex] + offset, com[kYAxisIndex] + offset, com[kZAxisIndex]};
+        const mjtNum to[kPositionDim] = {from[0] + sign * length * yaw_axis_world[0], from[1] + sign * length * yaw_axis_world[1],
+                                         from[kZAxisIndex] + sign * length * yaw_axis_world[kZAxisIndex]};
+        mjv_connector(arrow, mjGEOM_ARROW, kArrowWidth, from, to);
+        for (int i = 0; i < kMjRgbaChannels; ++i) arrow->rgba[i] = rgba[i];
         arrow->category = mjCAT_DECOR;
         arrow->emission = 1.0f;
       };
 
-  const float blue[4] = {0.0f, 0.0f, 1.0f, 1.0f};
-  draw_yaw_arrow(current_yaw, blue, /*offset=*/0.05);
-  const float yellow[4] = {1.0f, 1.0f, 0.0f, 1.0f};
-  draw_yaw_arrow(target_yaw, yellow, /*offset=*/-0.05);
+  const float blue[kMjRgbaChannels] = {0.0f, 0.0f, 1.0f, 1.0f};
+  draw_yaw_arrow(current_yaw, blue, /*offset=*/kYawArrowOffset);
+  const float yellow[kMjRgbaChannels] = {1.0f, 1.0f, 0.0f, 1.0f};
+  draw_yaw_arrow(command.yawRate, yellow, /*offset=*/-kYawArrowOffset);
 }
 
 }  // namespace robot::mujoco_sim_interface

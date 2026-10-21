@@ -31,6 +31,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <array>
 #include <cmath>
 #include <cstddef>
+#include <cstdlib>
 #include <cstring>
 #include <limits>
 #include <memory>
@@ -734,6 +735,28 @@ TEST(TuningGaussNewtonTest, ValidateQuadraticWeightsNamesWhatIsWrong) {
   matrix_t notFinite = matrix_t::Identity(3, 3);
   notFinite(0, 0) = -std::numeric_limits<scalar_t>::infinity();
   EXPECT_TRUE(absl::StrContains(validateQuadraticWeights(notFinite, /*dimension=*/3, "Q").message(), "not a finite number"));
+}
+
+TEST(TuningGaussNewtonTest, ValidateQuadraticWeightsRefusesAnIndefiniteMatrix) {
+  // A negative diagonal entry.
+  matrix_t negative = matrix_t::Identity(3, 3);
+  negative(1, 1) = -1.0;
+  EXPECT_TRUE(absl::StrContains(validateQuadraticWeights(negative, /*dimension=*/3, "Q").message(), "not positive semidefinite"));
+  // A non-negative diagonal with an off-diagonal coupling that makes it indefinite: [[1, 2], [2, 1]] has eigenvalue -1.
+  matrix_t coupled(2, 2);
+  coupled << 1.0, 2.0, 2.0, 1.0;
+  EXPECT_FALSE(validateQuadraticWeights(coupled, /*dimension=*/2, "R").ok());
+  // A random M' D M with D >= 0, singular included, is accepted (the basis-space R).
+  std::srand(/*seed=*/7);
+  for (int trial = 0; trial < 20; ++trial) {
+    const matrix_t basis = matrix_t::Random(6, 4);
+    vector_t diagonal = vector_t::Random(6).cwiseAbs();
+    diagonal(trial % 6) = 0.0;
+    const matrix_t projected = basis.transpose() * diagonal.asDiagonal() * basis;
+    EXPECT_TRUE(validateQuadraticWeights(projected, /*dimension=*/4, "R").ok()) << projected;
+  }
+  // Zero weighs nothing and is accepted.
+  EXPECT_TRUE(validateQuadraticWeights(matrix_t::Zero(3, 3), /*dimension=*/3, "Q").ok());
 }
 
 }  // namespace

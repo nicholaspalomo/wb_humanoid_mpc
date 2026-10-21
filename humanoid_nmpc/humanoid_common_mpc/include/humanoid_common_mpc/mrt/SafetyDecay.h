@@ -45,6 +45,9 @@ namespace ocs2::humanoid::safety_decay {
  * feedforward, i.e. true zero torque; at the shipped tau that takes about 4 * tau.
  */
 
+/// [s] The time constant tau of the MRT joint controllers until a task file sets one (setSafetyDecayTimeConstant()).
+inline constexpr scalar_t kDefaultTimeConstant = 0.5;
+
 /// [s] Guards against a division by zero in alpha(t) when a task file sets the time constant to zero.
 inline constexpr scalar_t kMinTimeConstant = 1.0e-3;
 
@@ -60,6 +63,17 @@ inline scalar_t factor(scalar_t elapsedSinceEntry, scalar_t timeConstant) {
   const scalar_t elapsed = std::max(0.0, elapsedSinceEntry);
   const scalar_t alpha = std::exp(-elapsed / std::max(kMinTimeConstant, timeConstant));
   return alpha < kCutoff ? 0.0 : alpha;
+}
+
+/**
+ * The factor of a decay that has already reached `previous`: min(previous, factor(elapsed, tau)), so that alpha never
+ * rises again within one stay in SAFETY. factor() alone is monotone in the elapsed time only while the clock and the
+ * time constant stay as they were: a clock that steps back by less than the controllers' rewind tolerance (which they
+ * do not compensate), or a time constant made longer while the mode runs, would raise it - after the cutoff from zero
+ * torque back to a stiff hold. A controller starts each stay at 1 and keeps the value this returns.
+ */
+inline scalar_t latchedFactor(scalar_t previous, scalar_t elapsedSinceEntry, scalar_t timeConstant) {
+  return std::min(previous, factor(elapsedSinceEntry, timeConstant));
 }
 
 }  // namespace ocs2::humanoid::safety_decay

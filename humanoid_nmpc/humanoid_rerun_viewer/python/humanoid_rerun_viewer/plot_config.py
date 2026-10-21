@@ -67,8 +67,10 @@ class PlotConfig:
     Attributes:
         signals: The topics, signals, entity paths, wildcards, or contract tab/panel titles to plot.
         custom_tab_title: The title of the tab that groups custom or unmatched signals (default: "Signals").
-        robot_instances: The robot model instances to draw in the 3D scene (e.g. "measured", "terminal_state").
-        draw_terminal_state: Whether to draw the end-of-trajectory robot visualization (None: default).
+        robot_instances: The robot model instances to draw in the 3D scene (e.g. "measured", "terminal_state",
+            "terminal_target"); empty: every instance the scene carries.
+        draw_terminal_state: Whether to draw the end-of-trajectory robots: False draws only "measured", whatever
+            robot_instances says; True or None leaves the choice to robot_instances.
         mujoco_viewer: The robot process's MuJoCo viewer by registry name, a preference list (empty: the robot
             process's built-in default, which proto/plot_config.proto names).
     """

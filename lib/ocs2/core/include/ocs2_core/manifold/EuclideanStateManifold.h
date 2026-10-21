@@ -56,6 +56,7 @@ class EuclideanStateManifold final : public StateManifold {
   void interpolateInto(const vector_t& x0, const vector_t& x1, scalar_t alpha, vector_t& x) const override;
   void project(vector_t& x) const override;
   scalar_t getMaximumRotationAngle(const vector_t& dx) const override;
+  bool hasRepresentableRotations(const vector_t& x) const override;
   void pullBackStateColumns(const vector_t& x, matrix_t& J) const override;
   void pullBackStateRows(const vector_t& x, matrix_t& M) const override;
   void pullBackGradient(const vector_t& x, vector_t& g) const override;

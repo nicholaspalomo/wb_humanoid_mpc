@@ -43,6 +43,9 @@ namespace ocs2::humanoid {
  * g(xee, vee) = Ax * xee + Av * vee + b
  * - For defining constraint of type g(xee), set Av to matrix_t(0, 0)
  * - For defining constraint of type g(vee), set Ax to matrix_t(0, 0)
+ *
+ * Not thread-safe: its end-effector kinematics evaluate on the Pinocchio data of one worker's PreComputation, so the
+ * solver gives each worker thread its own clone().
  */
 class EndEffectorKinematicsLinearVelConstraint final : public StateInputConstraint {
  public:

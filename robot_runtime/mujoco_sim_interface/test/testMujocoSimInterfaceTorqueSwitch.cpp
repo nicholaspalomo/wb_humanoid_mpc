@@ -43,6 +43,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "mujoco/mujoco.h"
 
 #include "mujoco_sim_interface/MujocoSimInterface.h"
+#include "mujoco_sim_interface/MujocoUtils.h"
 #include "mujoco_sim_interface/viewer/ViewerNames.h"
 #include "robot_model/RobotJointAction.h"
 
@@ -184,6 +185,38 @@ TEST(SimTorqueSwitch, TheDampingFollowsTheSwitchOnThePhysicsThreadOnly) {
   EXPECT_EQ(dofDamping(*sim), active) << "disableTorques() wrote the model outside a step";
   sim->simulationStep();
   EXPECT_EQ(dofDamping(*sim), ragdoll) << "the ragdoll damping is back at the next step";
+}
+
+// The torques on: every dof has the damping the scene declares, which the simulator used to overwrite with 10 N m s/rad on
+// every joint at start-up and never give back. The torques off: the configured ragdoll damping on the robot's joints
+// only, the root's six dofs keeping the scene's.
+TEST(SimTorqueSwitch, TheActiveDampingIsTheScenesOwnAndTheRagdollDampingTheConfiguredOne) {
+  constexpr int kErrorSize = 1000;
+  char error[kErrorSize] = "";
+  const MjModelPtr scene(mj_loadXML(kAtlasScene, /*vfs=*/nullptr, error, kErrorSize));
+  ASSERT_NE(scene, nullptr) << error;
+  const std::vector<double> sceneDamping(scene->dof_damping, scene->dof_damping + scene->nv);
+
+  MujocoSimConfig config;
+  config.scenePath = kAtlasScene;
+  config.viewer.names = {kNoViewerName};
+  config.ragdollJointDamping = 7.5;
+  absl::StatusOr<std::unique_ptr<MujocoSimInterface>> created = MujocoSimInterface::Create(config, kAtlasUrdf);
+  ASSERT_TRUE(created.ok()) << created.status();
+  MujocoSimInterface& sim = **created;
+  ASSERT_EQ(sim.getModel()->nv, scene->nv);
+
+  for (int cycle = 0; cycle < 2; ++cycle) {
+    sim.simulationStep();  // zero-torque mode, as the simulator starts and as disableTorques() leaves it
+    const std::vector<double> ragdoll = dofDamping(sim);
+    for (int dof = 0; dof < scene->nv; ++dof) {
+      EXPECT_EQ(ragdoll[dof], dof < kMjFreeJointDofs ? sceneDamping[dof] : 7.5) << "cycle " << cycle << ", dof " << dof;
+    }
+    sim.enableTorques();
+    sim.simulationStep();
+    EXPECT_EQ(dofDamping(sim), sceneDamping) << "cycle " << cycle << ": the scene's own damping while the torques are on";
+    sim.disableTorques();
+  }
 }
 
 /** The hinge robot on kUnnamedActuatorScene, with one contact point on the unnamed arm body. */

@@ -82,7 +82,7 @@ class Marker(NamedTuple):
     @property
     def text(self) -> str:
         """The marker as written, without its reason."""
-        categories = "" if self.bare else "(" + ", ".join(self.categories) + ")"
+        categories = "" if self.bare else f'({", ".join(self.categories)})'
         return f"NOLINT{self.variant}{categories}"
 
 

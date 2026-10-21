@@ -36,11 +36,18 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 #include "absl/base/no_destructor.h"
+#include "ocs2_core/Dimensions.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_core/automatic_differentiation/Types.h"
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
+
 namespace ocs2 {
 
+// The fixed-size vectors and matrices, named for their size: each holds several quantities of that size (a vector4_t is
+// a quaternion's coefficients, a walking command or a homogeneous point; a vector6_t a twist or a wrench), so the size
+// is the name's, not one quantity's.
+// NOLINTBEGIN(magic-number): each alias is named for its size, which no quantity's dimension names.
 template <typename SCALAR_T>
 using VECTOR_T = Eigen::Matrix<SCALAR_T, -1, 1>;
 template <typename SCALAR_T>
@@ -61,6 +68,7 @@ template <typename SCALAR_T>
 using MATRIX4_T = Eigen::Matrix<SCALAR_T, 4, 4>;
 template <typename SCALAR_T>
 using MATRIX6_T = Eigen::Matrix<SCALAR_T, 6, 6>;
+// NOLINTEND(magic-number)
 template <typename SCALAR_T>
 using QUATERNION_T = Eigen::Quaternion<SCALAR_T>;
 
@@ -90,9 +98,7 @@ using ad_quaternion_t = QUATERNION_T<ad_scalar_t>;
 */
 /******************************************************************************************************/
 
-inline constexpr size_t kNumContacts = 2;
-inline constexpr size_t kContactLeftIndex = 0;
-inline constexpr size_t kContactRightIndex = 1;
+// The number of contacts and their indices: humanoid_common_mpc/common/BipedFeet.h.
 
 template <typename T>
 using feet_array_t = std::array<T, kNumContacts>;
@@ -107,13 +113,14 @@ feet_array_t<T> makeFeetArray(const T& value) {
 
 using contact_flag_t = feet_array_t<bool>;  // describes which feet are in contacts [left_contact, right_contact]
 
-inline constexpr size_t kContactWrenchDim = 6;
+// The contact wrench and its entries (ocs2_core/Dimensions.h): the force, then the torque.
+inline constexpr size_t kContactWrenchDim = kWrenchDim;
 
-inline constexpr size_t kWrenchForceXIndex = 0;
-inline constexpr size_t kWrenchForceYIndex = 1;
-inline constexpr size_t kWrenchForceZIndex = 2;
-inline constexpr size_t kWrenchTorqueXIndex = 3;
-inline constexpr size_t kWrenchTorqueYIndex = 4;
+inline constexpr size_t kWrenchForceXIndex = kXAxisIndex;
+inline constexpr size_t kWrenchForceYIndex = kYAxisIndex;
+inline constexpr size_t kWrenchForceZIndex = kZAxisIndex;
+inline constexpr size_t kWrenchTorqueXIndex = kForceDim + kXAxisIndex;
+inline constexpr size_t kWrenchTorqueYIndex = kForceDim + kYAxisIndex;
 
 namespace humanoid {
 
@@ -126,13 +133,20 @@ namespace humanoid {
 */
 /******************************************************************************************************/
 
-inline constexpr size_t kBasePosZIndex = 2;
+inline constexpr size_t kBasePosZIndex = kZAxisIndex;
+
+/** The position limits of the MPC joints, in the order of ModelSettings::mpcModelJointNames: [rad] or [m] per joint. */
+struct JointPositionLimits {
+  vector_t lower;
+  vector_t upper;
+};
 
 inline constexpr size_t kBaseRotYawIndex = 0;
 inline constexpr size_t kBaseRotPitchIndex = 1;
 inline constexpr size_t kBaseRotRollIndex = 2;
 
-inline constexpr size_t kBaseTranslationDim = 3;
+inline constexpr size_t kBaseTranslationDim = kPositionDim;
+// The ZYX Euler angles (yaw, pitch, roll) of the display, at the indices above.
 inline constexpr size_t kBaseRotationDim = 3;
 
 /**
@@ -141,8 +155,8 @@ inline constexpr size_t kBaseRotationDim = 3;
  * the world linear velocity and the body angular velocity (humanoid_nmpc/docs/quaternion_base_orientation/README.md,
  * section 2.2). A buffer of q is sized with the first, one of v (velocities, generalized forces) with the second.
  */
-inline constexpr size_t kBaseConfigurationDim = 7;
-inline constexpr size_t kBaseVelocityDim = 6;
+inline constexpr size_t kBaseConfigurationDim = kPoseCoefficients;
+inline constexpr size_t kBaseVelocityDim = kPoseTangentDim;
 /** The first joint entry of q and of v. */
 inline constexpr size_t kJointConfigurationOffset = kBaseConfigurationDim;
 inline constexpr size_t kJointVelocityOffset = kBaseVelocityDim;

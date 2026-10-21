@@ -171,7 +171,7 @@ def skip_reason(environment: Mapping[str, str], repository_root: str) -> str | N
         return _OPTED_OUT
     if environment.get("CI", "") not in ("", "0", "false"):
         return "CI is set"
-    if not repository_root.startswith(_DEV_CONTAINER_MOUNT + "/"):
+    if not repository_root.startswith(f"{_DEV_CONTAINER_MOUNT}/"):
         return f"the checkout is not below {_DEV_CONTAINER_MOUNT}"
     return None
 
@@ -389,7 +389,7 @@ def write_database(entries: Iterable[Mapping[str, Any]], path: str) -> bool:
     Raises:
       OSError: The file could not be written. The old one is unchanged, and no temporary file is left behind.
     """
-    content = (json.dumps(list(entries), indent=1) + "\n").encode("utf-8")
+    content = (f"{json.dumps(list(entries), indent=1)}\n").encode("utf-8")
     with contextlib.suppress(OSError):
         with open(path, "rb") as f:
             if f.read() == content:

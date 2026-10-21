@@ -54,18 +54,34 @@ one, $\boldsymbol{\xi}_{\text{aCOM}}(\mathbf{q}_R \otimes \boldsymbol{\xi}) = \m
 every attitude. Its angular velocity, in its own frame, is
 $$\boldsymbol{\omega}_{\text{aCOM}} = \mathbf{R}(\Delta\boldsymbol{\theta})^\top \boldsymbol{\omega}_b + \mathbf{J}_r(\Delta\boldsymbol{\theta})\,\frac{\partial \Delta \boldsymbol{\theta}}{\partial \mathbf{q}_j}\,\dot{\mathbf{q}}_j$$
 
-with $\mathbf{J}_r$ the right Jacobian of $SO(3)$; to first order in $|\Delta\boldsymbol{\theta}|$ it is the paper's
-$\boldsymbol{\omega}_b + \mathbf{J}_{\Delta\theta}\dot{\mathbf{q}}_j$. The design is section 2.8.3 of
-`humanoid_nmpc/docs/quaternion_base_orientation/README.md`.
+with $\mathbf{J}_r$ the right Jacobian of $SO(3)$. Carried into the base's axes by $\mathbf{R}(\Delta\boldsymbol{\theta})$,
+with $\mathbf{R}(\Delta\boldsymbol{\theta})\mathbf{J}_r(\Delta\boldsymbol{\theta}) = \mathbf{J}_l(\Delta\boldsymbol{\theta})$ the left
+Jacobian, it is
+$$\mathbf{R}(\Delta\boldsymbol{\theta})\,\boldsymbol{\omega}_{\text{aCOM}} = \boldsymbol{\omega}_b + \mathbf{J}_l(\Delta\boldsymbol{\theta})\,\mathbf{J}_{\Delta\theta}(\mathbf{q}_j)\,\dot{\mathbf{q}}_j,$$
+
+to be compared with the locked angular velocity in the same axes, $\boldsymbol{\omega}_b + \bar{\mathbf{A}}_{\omega,j}\dot{\mathbf{q}}_j$.
+Only to first order in $|\Delta\boldsymbol{\theta}|$, where $\mathbf{J}_l = \mathbf{I}$, is this the paper's
+$\boldsymbol{\omega}_b + \mathbf{J}_{\Delta\theta}\dot{\mathbf{q}}_j$; the trained offsets average 20 to 35 degrees and reach
+80, where $\|\mathbf{J}_l - \mathbf{I}\|_2$ is 0.17 to 0.30 (and 0.66 at 80 degrees), so the network is fitted to the
+composed map. The design is
+section 2.8.3 of `humanoid_nmpc/docs/quaternion_base_orientation/README.md`.
 
 #### Optimization Objective (Frobenius Loss on Jacobians)
 
-The equivariance decomposition reduces the full optimization to matching only the joint block (exactly in the paper's
-additive form, to first order in $|\Delta\boldsymbol{\theta}|$ in the composed one, where the network is used unchanged):
-$$\min_{\Delta \boldsymbol{\theta}} \mathbb{E}_{\mathbf{q} \sim \mathcal{D}} \left\| \frac{\partial \Delta \boldsymbol{\theta}}{\partial \mathbf{q}_j}(\mathbf{q}_j) - \bar{\mathbf{A}}_{\omega, j}(\mathbf{q}) \right\|_F^2$$
+The equivariance decomposition makes the base term exact, which reduces the full optimization to matching only the
+joint block of the composed attitude's rate, exactly and at every offset:
+$$\min_{\Delta \boldsymbol{\theta}} \mathbb{E}_{\mathbf{q} \sim \mathcal{D}} \left\| \mathbf{J}_l\big(\Delta\boldsymbol{\theta}(\mathbf{q}_j)\big)\,\frac{\partial \Delta \boldsymbol{\theta}}{\partial \mathbf{q}_j}(\mathbf{q}_j) - \bar{\mathbf{A}}_{\omega, j}(\mathbf{q}) \right\|_F^2$$
 
-The training loss used in practice includes a regularization term to keep the offset centered near zero:
-$$\mathcal{L}_{\text{total}} = \underbrace{\mathbb{E}_{\mathbf{q}} \left\| \mathbf{J}_{\Delta\theta}(\mathbf{q}_j) - \bar{\mathbf{A}}_{\omega, j}(\mathbf{q}) \right\|_F^2}_{\mathcal{L}_{\text{frob}}} + \lambda_{\text{reg}} \underbrace{\mathbb{E}_{\mathbf{q}} \left\| \Delta\boldsymbol{\theta}(\mathbf{q}_j) \right\|^2}_{\mathcal{L}_{\text{reg}}}$$
+(the paper's additive rule drops the $\mathbf{J}_l$). The training loss used in practice (`train_acom.create_train_step`,
+the map itself `SirenACOM.acom_joint_rate_jacobian`) includes a regularization term to keep the offset centered near
+zero, which also fixes the one freedom the objective leaves - a constant rotation composed on the right of
+$\operatorname{Exp}(\Delta\boldsymbol{\theta})$, which does not change its angular velocity:
+$$\mathcal{L}_{\text{total}} = \underbrace{\mathbb{E}_{\mathbf{q}} \left\| \mathbf{J}_l(\Delta\boldsymbol{\theta})\,\mathbf{J}_{\Delta\theta}(\mathbf{q}_j) - \bar{\mathbf{A}}_{\omega, j}(\mathbf{q}) \right\|_F^2}_{\mathcal{L}_{\text{frob}}} + \lambda_{\text{reg}} \underbrace{\mathbb{E}_{\mathbf{q}} \left\| \Delta\boldsymbol{\theta}(\mathbf{q}_j) \right\|^2}_{\mathcal{L}_{\text{reg}}}$$
+
+TensorBoard logs the error of $\mathbf{J}_{\Delta\theta}$ alone next to it (`diagnostics/val_jacobian_alone_frobenius`), and
+the mean and worst relative error $\|\mathbf{J}_l\mathbf{J}_{\Delta\theta} - \bar{\mathbf{A}}_{\omega,j}\|_F /
+\|\bar{\mathbf{A}}_{\omega,j}\|_F$ the C++ acceptance test grades (`loss/val_relative_error_mean`, `_worst`); the exported
+header records both of the exported epoch.
 
 ---
 
@@ -409,10 +425,10 @@ that robot's centroidal `task.textproto` at training time (strictly parsed into 
 rather than repeated in the script.
 
 The defaults - `--num_samples 20000 --hidden_dim 64 --epochs 150` - are a standard run, **not** a record of how each
-shipped header was made. The Atlas header came from `--num_samples 80000 --epochs 300` (section 6.3); the recipe of the G1
-and SA01 headers was not recorded. Every header exported since records its own: `train_main.py` writes the robot, its
-`robot_name` and fixed joints, the sampling box, the dataset size, epochs, width, layer count, seeds and the exported
-epoch into the header's banner. The architecture defaults (`--hidden_dim 64`, two sine layers) *are* those of every
+shipped header was made. All three shipped headers came from `--num_samples 80000 --epochs 300 --install_header`
+(section 6.3), and each records its recipe: `train_main.py` writes the robot, its `robot_name` and fixed joints, the
+sampling box, the objective, the dataset size, epochs, width, layer count, seeds, the exported epoch and its validation
+errors into the header's banner. The architecture defaults (`--hidden_dim 64`, two sine layers) *are* those of every
 shipped header; they used to be 5000 / 16 / 30, which meant following this section verbatim installed a network about
 twice as inaccurate as the one it replaced.
 
@@ -441,7 +457,9 @@ tensorboard --logdir /tmp/acom_atlas/tb_logs
 | Dashboard Category | Metric Tag | Description |
 | :--- | :--- | :--- |
 | **Loss Curves** | `loss/train_total`, `loss/val_total` | Total objective $\mathcal{L}_{\text{total}} = \mathcal{L}_{\text{frob}} + \lambda_{\text{reg}} \|\Delta\boldsymbol{\theta}\|^2$ |
-| | `loss/train_frobenius`, `loss/val_frobenius` | Frobenius error $\|\mathbf{J}_{\Delta\theta}(\mathbf{q}_j) - \bar{\mathbf{A}}_{\omega, j}(\mathbf{q})\|_F^2$ |
+| | `loss/train_frobenius`, `loss/val_frobenius` | Frobenius error $\|\mathbf{J}_l(\Delta\boldsymbol{\theta})\mathbf{J}_{\Delta\theta}(\mathbf{q}_j) - \bar{\mathbf{A}}_{\omega, j}(\mathbf{q})\|_F^2$ |
+| | `loss/val_relative_error_mean`, `loss/val_relative_error_worst` | $\|\mathbf{J}_l\mathbf{J}_{\Delta\theta} - \bar{\mathbf{A}}_{\omega, j}\|_F / \|\bar{\mathbf{A}}_{\omega, j}\|_F$ over the validation set, the number `testAcomAngularVelocityConsistency` grades |
+| | `diagnostics/val_jacobian_alone_frobenius` | $\|\mathbf{J}_{\Delta\theta} - \bar{\mathbf{A}}_{\omega, j}\|_F^2$, not optimized: how far the network is from the additive rule's objective |
 | | `loss/train_regularization`, `loss/val_regularization` | Offset centering penalty $\lambda_{\text{reg}} \|\Delta\boldsymbol{\theta}(\mathbf{q}_j)\|^2$ |
 | | `loss/val_rmse_rad_per_rad` | RMSE per Jacobian entry: $\sqrt{\mathcal{L}_{\text{frob}} / (3 \cdot n_j)}$ |
 | **Per-Axis Error** | `error_axes/roll_x_frob_loss`, `error_axes/pitch_y_frob_loss`, `error_axes/yaw_z_frob_loss` | Per-axis Frobenius fitting error, rows of the network's output (rotation about the base's x, y, z) |
@@ -452,7 +470,7 @@ tensorboard --logdir /tmp/acom_atlas/tb_logs
 | | `stats/max_acom_offset_deg` | Max $\|\Delta\boldsymbol{\theta}\|$ in degrees |
 | **Performance** | `perf/epoch_time_ms`, `perf/throughput_samples_per_sec` | Wall time per epoch and training throughput |
 | **Histograms** | `weights/`, `gradients/`, `activations/` | Weight, gradient, and offset distributions |
-| **Diagnostics** | `diagnostics/jacobian_heatmap` | 3-panel heatmap: target $\bar{\mathbf{A}}$, predicted $\mathbf{J}_{\Delta\theta}$, error |
+| **Diagnostics** | `diagnostics/jacobian_heatmap` | 3-panel heatmap: target $\bar{\mathbf{A}}$, predicted $\mathbf{J}_l(\Delta\boldsymbol{\theta})\mathbf{J}_{\Delta\theta}$, error |
 
 ### 6.3 Running Tests
 
@@ -500,65 +518,68 @@ $$\boldsymbol{\omega}_{\text{aCOM}} \;\approx\; \boldsymbol{\omega}_{\text{locke
 in angular velocities, in world axes, through the aCOM attitude and the tangent Jacobian the MPC cost assembles, at a
 tilted base driven through its root joint's body velocity. Via the equivariant decomposition, whose base term is exact
 by construction (a test of its own), it reduces to the joint block $\mathbf{J}_l(\Delta\boldsymbol{\theta})\mathbf{J}_{\Delta\theta}
-\approx \bar{\mathbf{A}}_{\omega,j}$ - the Frobenius objective of section 1.2 to first order in $|\Delta\boldsymbol{\theta}|$,
+\approx \bar{\mathbf{A}}_{\omega,j}$ - exactly the Frobenius objective of section 1.2, which the test also grades directly,
 recomputed with Pinocchio's `ccrba` on the reduced MPC model, over configurations drawn uniformly from the URDF
 joint-limit box.
-That is the box `dataset_generator.py` samples now. The shipped headers were trained on that box trimmed by 10 % of
-each joint's range at both ends - a margin since removed because it left G1's nominal knee angle outside the training
-set - so the numbers below include the trimmed margins, where the error is larger (Atlas: about 0.17 mean inside the
-trimmed box against 0.22 over the whole of it).
+That is the box `dataset_generator.py` samples and the shipped headers were trained on.
 
 The same file checks, per robot, that the joint names recorded in the header equal the MPC model's joint for joint, that
 `AngularCenterOfMass::Create` refuses a permuted joint list, and that the acceptance bound is tight enough to fail the
 same network fed its joints in the wrong order.
 
 **Measured on the shipped headers** (mean / worst over 200 configurations; the bounds each header must stay under are
-in `kAcomRobotCases`):
+in `kAcomRobotCases`). All three were trained with the composed objective of section 1.2 by `train_main
+--install_header` on 80 000 samples over 300 epochs (the recipe is in each header's banner):
 
 <!-- LINT.IfChange(acom_acceptance_numbers) -->
-| robot | status | relative Frobenius error $\|\mathbf{J}_{\Delta\theta}-\bar{\mathbf{A}}_{\omega,j}\|_F / \|\bar{\mathbf{A}}_{\omega,j}\|_F$ | relative rate error $\|\boldsymbol{\omega}_{\text{aCOM}}-\boldsymbol{\omega}_{\text{locked}}\| / (\|\bar{\mathbf{A}}_{\omega,j}\|_F\|\dot{\mathbf{q}}_j\|)$ | constant-Jacobian baseline |
+| robot | status | relative Frobenius error $\|\mathbf{J}_l(\Delta\boldsymbol{\theta})\mathbf{J}_{\Delta\theta}-\bar{\mathbf{A}}_{\omega,j}\|_F / \|\bar{\mathbf{A}}_{\omega,j}\|_F$ | relative rate error $\|\boldsymbol{\omega}_{\text{aCOM}}-\boldsymbol{\omega}_{\text{locked}}\| / (\|\bar{\mathbf{A}}_{\omega,j}\|_F\|\dot{\mathbf{q}}_j\|)$ | constant-Jacobian baseline |
 |---|---|---|---|---|
-| `atlas` | validated | 0.219 / 0.375 | 0.039 / 0.137 | 0.378 |
-| `g1` | **NOT VALIDATED** | 0.402 / 1.33 | 0.076 / 0.246 | 0.929 |
-| `engineai_sa01` | **NOT VALIDATED** | 0.508 / 1.62 | 0.121 / 0.632 | 0.649 |
+| `atlas` | validated | 0.158 / 0.363 | 0.031 / 0.130 | 0.378 |
+| `g1` | **NOT VALIDATED** | 0.342 / 1.14 | 0.059 / 0.225 | 0.929 |
+| `engineai_sa01` | **NOT VALIDATED** | 0.445 / 1.70 | 0.105 / 0.642 | 0.649 |
 <!-- LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/test/testAcomAngularVelocityConsistency.cpp:acom_acceptance_robots) -->
 
-Atlas's bounds (0.30 / 0.50 and 0.08 / 0.25) sit well above its measurement on purpose, where a meaningful regression
-lives. G1 and SA01 do not come close to them: on average their Jacobian is 40 % and 51 % off the target, and at their
+Atlas's bounds (0.22 / 0.45 and 0.05 / 0.20) sit about 40 % above its measurement on purpose, where a meaningful
+regression lives - below the constant-Jacobian baseline and far below the same network fed its joints in the wrong order
+(1.37). G1 and SA01 do not come close to them: on average their rate map is 34 % and 44 % off the target, and at their
 worst configurations both networks are further from the target than no network at all (a relative error above 1).
-Retraining SA01 with the default recipe reproduces its numbers, so this is a limit of the recipe or the hypothesis class
-rather than a bad export. Their bounds in the test are their own measurements plus about 20 %: they pin "no worse than
-what ships" and catch a mis-exported, transposed or wrong-robot header, but they do **not** mean the network is good
-enough to use. Validating either robot means retraining until it meets Atlas's bounds, then marking it validated in
-`kAcomRobotCases`.
+Training on four times the default data and twice its epochs left them there, so this is a limit of the recipe or the
+hypothesis class rather than a bad export. Their bounds in the test are their own measurements plus about 20 %: they
+pin "no worse than what ships" and catch a mis-exported, transposed or wrong-robot header, but they do **not** mean the
+network is good enough to use. Validating either robot means retraining until it meets Atlas's bounds, then marking it
+validated in `kAcomRobotCases`.
 
 Two remarks on reading those numbers. First, the residual has a **floor**: the connection has non-zero curvature, so no
 exact integrable whole-body orientation exists at all - that is the premise of the paper, and these are acceptance
 bounds on fit quality, not tolerances on an identity. Second, the test reports two baselines that need no training:
 $\Delta\theta \equiv 0$ (the base orientation used as the whole-body orientation) scores exactly 1.0, and the best
 **constant** Jacobian $\mathbb{E}[\bar{\mathbf{A}}_{\omega,j}]$ - a single matrix, no network - scores the last column.
-Atlas's trained SIREN at 0.219 against 0.378 therefore captures about 42 % of the configuration-dependent variation that
+Atlas's trained SIREN at 0.158 against 0.378 therefore captures about 58 % of the configuration-dependent variation that
 a constant matrix misses. That is a real improvement and the test asserts it for every robot, but it is also the number
 to beat when retraining.
 
-**How much headroom is left in data and optimization on Atlas: very little.** The Atlas header comes from 80 000
-samples over 300 epochs, four times the data and twice the epochs of the default recipe. That moved the mean relative
-Frobenius error from 0.224 to 0.219 - about 2 %, against a 1.8 % spread across training seeds. The validation loss did
-improve consistently (0.04493 to 0.04372), so the run is not noise, but the conclusion is that this error is not
-sample-limited or optimizer-limited. What remains is the curvature obstruction itself - no exact integrable whole-body
-orientation exists - plus the choice of hypothesis class and, most likely, the **sampling distribution**: training draws
-each joint i.i.d. and uniform over its range, where mean $\|\Delta\theta\|$ is about 19°, while the Atlas nominal stance
-sits at 2.17°. Nearly every training sample is a posture the robot never adopts. Concentrating the distribution around
-the operating region, or mixing uniform samples with a nominal-centered ball, is the lever with real headroom left; it
-trades tail accuracy for operating-point accuracy, so it is a deliberate design choice rather than a free win.
+**Where the remaining headroom is.** The previous headers were fitted to $\mathbf{J}_{\Delta\theta} \approx
+\bar{\mathbf{A}}_{\omega,j}$, without the $\mathbf{J}_l(\Delta\boldsymbol{\theta})$ the composition puts in front of it.
+On the MuJoCo target, the composed map of those networks was 0.195 (Atlas), 0.390 (G1) and 0.483 (SA01) off on average;
+the retrained ones are 0.159, 0.330 and 0.432. In a controlled comparison - the same Atlas data, architecture, schedule
+and seed, 10 000 samples over 40 epochs, only the objective changed - the composed objective took the graded error from
+0.193 to 0.167 while the error of $\mathbf{J}_{\Delta\theta}$ alone rose from 0.223 to 0.241, as it should: that is no
+longer the quantity the runtime uses. Before that change, quadrupling the
+Atlas data and doubling the epochs had moved the error by about 2 %, the size of the spread across training seeds, so
+the error is not sample-limited or optimizer-limited. What remains is the curvature obstruction itself - no exact
+integrable whole-body orientation exists - plus the choice of hypothesis class and, most likely, the **sampling
+distribution**: training draws each joint i.i.d. and uniform over its range, where mean $\|\Delta\theta\|$ is about 23°
+on Atlas, while the Atlas nominal stance sits at a few degrees. Nearly every training sample is a posture the robot never
+adopts. Concentrating the distribution around the operating region, or mixing uniform samples with a nominal-centered
+ball, is the lever with real headroom left; it trades tail accuracy for operating-point accuracy, so it is a deliberate
+design choice rather than a free win.
 
-The rate error is that of the composed attitude, whose joint term carries the factor
-$\mathbf{J}_l(\Delta\boldsymbol{\theta})$ the Frobenius objective leaves out; measured with the paper's additive rule, the
-same samples gave 0.042 / 0.138 (Atlas), 0.072 / 0.238 (G1) and 0.127 / 0.647 (SA01). The rate error is much smaller than the Frobenius error because contracting a matrix error with a velocity averages over
-its directions. Note that it is measured against $\|\bar{\mathbf{A}}_{\omega,j}\|_F\|\dot{\mathbf{q}}_j\|$ rather
-than against $\|\boldsymbol{\omega}_{\text{locked}}\|$: the latter passes arbitrarily close to zero for velocity
-directions near the connection's null space, so that ratio is unbounded for a fixed, perfectly good network and the test
-would fail on the random seed rather than on the weights.
+The rate error is that of the composed attitude, contracted with random joint velocities at a tilted base. It is much
+smaller than the Frobenius error because contracting a matrix error with a velocity averages over its directions. Note
+that it is measured against $\|\bar{\mathbf{A}}_{\omega,j}\|_F\|\dot{\mathbf{q}}_j\|$ rather than against
+$\|\boldsymbol{\omega}_{\text{locked}}\|$: the latter passes arbitrarily close to zero for velocity directions near the
+connection's null space, so that ratio is unbounded for a fixed, perfectly good network and the test would fail on the
+random seed rather than on the weights.
 
 ### 6.4 C++ Real-Time Integration
 

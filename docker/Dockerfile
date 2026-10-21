@@ -1,6 +1,6 @@
 # The dev image: Ubuntu 24.04 with the toolchain, the system libraries the Bazel build wraps (bazel/system_libs.bzl),
 # Pinocchio from robotpkg, and a VNC desktop for the MuJoCo viewer and the operator GUI. There is no ROS: the processes
-# talk over ZeroMQ + Protocol Buffers, which Bazel builds from the BCR, and draw with Rerun
+# talk over Cyclone DDS + Protocol Buffers, which Bazel builds from the BCR, and draw with Rerun
 # (humanoid_nmpc/docs/distributed_runtime).
 
 # LINT.IfChange(ubuntu_release)
@@ -101,7 +101,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # older copy built from source into /usr/local used to sit on the compiler's default include path, where a target that
 # included an Abseil header with angle brackets or without its Bazel dependency silently compiled against it here and
 # failed in CI's clean container (tools/hooks/include_style.py, tools/hooks/test_include_style.py). The same holds for
-# Protocol Buffers, ZeroMQ and googletest, which Bazel builds from the BCR: none of their development packages is
+# Protocol Buffers, Cyclone DDS and googletest, which Bazel builds from the BCR: none of their development packages is
 # installed, so their headers exist only where Bazel puts them.
 COPY dependencies.txt /tmp/dependencies.txt
 
@@ -148,7 +148,8 @@ USER ${USER_ID}
 # The robot images (tools/deploy/README.md)
 # ==============================================================================
 # robot-runtime is what the robot's realtime computer runs: the robot bundle (//tools/deploy:robot_bundle, the robot
-# binaries with their runfiles, the robot models and the entry scripts), the shared libraries it links, tc for NETEM,
+# binaries with their runfiles, the robot models and the entry scripts), the shared libraries it links (Cyclone DDS is
+# not one: @cyclonedds//:ddsc is linked statically into the binaries, as protobuf and Abseil are), tc for NETEM,
 # and nothing to build or view with: no compiler, no Bazel, no Python, no VNC, no Mesa. robot-sim is robot-runtime plus
 # the GL of the MuJoCo viewer, for simulation on the laptop, which runs the robot's image
 # (humanoid_nmpc/docs/distributed_runtime/README.md, "Deployment"). tools/deploy/deploy_robot.sh builds them, with the

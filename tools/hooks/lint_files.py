@@ -237,7 +237,7 @@ def staged_files(repository: str) -> list[str]:
 
 def staged_source(repository: str, path: str) -> str:
     """The STAGED content of `path` - the index, not the working tree - which is what a commit records."""
-    return _git(repository, "show", ":" + path)
+    return _git(repository, "show", f":{path}")
 
 
 _IMPORTS_ATTRIBUTE = re.compile(r"\bimports\s*=\s*\[([^\]]*)\]")
@@ -327,6 +327,6 @@ def bazel_package(path: str, root: str) -> str:
         if os.path.isfile(
             os.path.join(root, directory, "BUILD.bazel")
         ) or os.path.isfile(os.path.join(root, directory, "BUILD")):
-            return "//" + directory
+            return f"//{directory}"
         directory = os.path.dirname(directory)
     return "//"

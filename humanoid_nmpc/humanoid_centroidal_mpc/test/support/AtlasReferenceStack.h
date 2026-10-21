@@ -43,10 +43,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_centroidal_mpc/command/CentroidalMpcTargetTrajectoriesCalculator.h"
 #include "humanoid_centroidal_mpc/common/CentroidalMpcRobotModel.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
+#include "humanoid_common_mpc/config/ConfigFiles.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlannerModule.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningReferenceManager.h"
 #include "humanoid_common_mpc/reference_manager/ProceduralMpcMotionManager.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
+#include "humanoid_mpc_config/contact_planning_file.nproto.h"
 
 namespace ocs2::humanoid {
 
@@ -71,6 +73,12 @@ class AtlasReferenceStack {
    * the node limit and not the speed of the machine ends every search and two stacks plan alike.
    */
   explicit AtlasReferenceStack(ScheduleSource scheduleSource = ScheduleSource::kGaitSchedule, absl::string_view plannerType = "");
+
+  /**
+   * The stack as above under the contact planner, started from `contactPlanningFile` in place of the shipped contact
+   * planner's file (read at construction, not retained): a fresh start on an edited file, for the reload tests.
+   */
+  AtlasReferenceStack(const mpc_config::ContactPlanningFile& contactPlanningFile, absl::string_view plannerType);
 
   /** The typed DRC Atlas files the stack is built from: its task, reference and contact planner's file. */
   const CentroidalMpcConfig& config() const { return config_; }
@@ -106,6 +114,8 @@ class AtlasReferenceStack {
   const std::string& referenceFile() const { return referenceFile_; }
   const std::string& urdfFile() const { return urdfFile_; }
   const std::string& gaitFile() const { return gaitFile_; }
+  /** The DRC Atlas joint PD gains file beside the task file (config/controller/joint_pd_gains.textproto). */
+  std::string pdGainsFile() const { return jointPdGainsFileBeside(taskFile_); }
 
  private:
   std::string taskFile_;
@@ -127,6 +137,11 @@ class AtlasReferenceStack {
   std::unique_ptr<CentroidalMpcTargetTrajectoriesCalculator> targetCalculator_;
   std::shared_ptr<ProceduralMpcMotionManager> motionManager_;
   std::unique_ptr<mpc_test::ScriptedMpc> mpc_;
+
+  /** Builds the stack; `contactPlanningFile` (null: the shipped one) replaces the contact planner's file. */
+  void build(ScheduleSource scheduleSource,
+             absl::string_view plannerType,
+             const mpc_config::ContactPlanningFile* absl_nullable contactPlanningFile);
 };
 
 }  // namespace ocs2::humanoid

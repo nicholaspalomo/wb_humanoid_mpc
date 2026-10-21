@@ -40,7 +40,7 @@ before each solve: an update on `operator/mpc_parameters` is checked and counted
 `RELOAD_START_UP` fields that differ are logged as taking effect at the next start, and the robot process applies the
 contact estimator and the contact wrench gate of the same update. The updater also reloads the task file and the
 reference file when they are saved. The solver thread runs on the MPC cores of `ThreadAffinity.h`, `SCHED_FIFO` at
-`--realtime_priority` when it is positive. The node runs the visualization publisher
+the task file's `multiple_shooting.thread_priority` when it is positive. The node runs the visualization publisher
 ([`humanoid_common_mpc_app/visualization`](../humanoid_common_mpc_app/visualization/README.md)): `viz/scene` and
 `viz/telemetry` for the Rerun bridge, from every policy it publishes and every `robot/state` sample, on a thread of its
 own under `SCHED_IDLE`, so that a solver thread that wakes on its core takes the core at once.
@@ -49,8 +49,10 @@ own under `SCHED_IDLE`, so that a solver thread that wakes on its core takes the
 file's `mpc.mpc_desired_frequency` (`node::DummySimLoop`), and publishes `robot/mpc_observation` as the bus node `robot`.
 
 <!-- LINT.IfChange(node_flags) -->
-The node's own flags: `--ipc_node` (default `mpc`), `--realtime_priority` (SCHED_FIFO priority of the solver thread,
-0 = off).
+The node's own flag: `--ipc_node` (default `mpc`). The task file holds the rest: `multiple_shooting.thread_priority`
+is the SCHED_FIFO priority of every solver thread, the node's and the SQP solver's workers alike (0 keeps them on the
+time-sharing scheduler), and `interface.walking_command_timeout` the seconds a walking command stays in force without a
+newer one, after which the robot is commanded to stop at its pelvis height (positive; 0.5 by default).
 <!-- LINT.ThenChange(//humanoid_nmpc/humanoid_wb_mpc_app/src/WBMpcNodeMain.cpp:node_flags) -->
 
 <!-- LINT.IfChange(dummy_sim_flags) -->

@@ -52,7 +52,7 @@ from remote_control.tk_app import slider_row
 
 # A parameter of the task file the tests drag, and one of the contact-planning file.
 STATE_SCALING = "state_weights.scaling"
-PLANNER_DT = mpc_params_tab.CONTACT_PLANNING_BLOCK + ".planner.dt"
+PLANNER_DT = f"{mpc_params_tab.CONTACT_PLANNING_BLOCK}.planner.dt"
 
 
 @operator_test_support.requires_display
@@ -187,6 +187,26 @@ class TestMpcParamsTopicPublishing(unittest.TestCase):
         self.assertEqual(self._published().task.state_weights.scaling, saved)
         self.assertEqual(self._published().contact_planning.planner.dt, 0.05)
 
+    def test_an_edit_made_by_hand_reaches_the_publish_and_its_row(self):
+        tab = self._tab()
+        shown = self._row(tab, STATE_SCALING).get_value()
+        # An editor's save after the tab loaded the file, then the operator tunes another file's row.
+        task = nproto_textproto.load_textproto(self.task_file, task_file_pb2.TaskFile)
+        task.state_weights.scaling = shown + 7.0
+        with open(self.task_file, "w", encoding="utf-8") as handle:
+            handle.write(nproto_textproto.file_text(task))
+        self._row(tab, PLANNER_DT).set_value(0.05)
+        self._flush(tab)
+        published = self._published()
+        self.assertEqual(published.task.state_weights.scaling, shown + 7.0)
+        self.assertEqual(published.contact_planning.planner.dt, 0.05)
+        row = self._row(tab, STATE_SCALING)
+        self.assertEqual(row.get_value(), shown + 7.0)
+        self.assertFalse(row.is_modified())
+        # A Save keeps the edit, and the row shows what the file holds.
+        self.assertTrue(tab.save())
+        self.assertEqual(self._row(tab, STATE_SCALING).get_value(), shown + 7.0)
+
     def test_reset_all_returns_to_the_files_and_publishes_them(self):
         tab = self._tab()
         row = self._row(tab, STATE_SCALING)
@@ -237,14 +257,21 @@ class TestMpcParamsTopicPublishing(unittest.TestCase):
         notified: list[str | None] = []
 
         def record() -> None:
-            notified.append(tab.selected_contact_estimator())
+            notified.append(tab.base_controller_value("contact_estimator"))
 
-        tab.on_contact_estimator_changed = record
-        self.assertTrue(tab.has_contact_estimator_selection())
-        self.assertEqual(tab.selected_contact_estimator(), "cheater_sim")
-        self.assertIn("always_in_contact", tab.contact_estimator_names())
-        tab.set_contact_estimator("always_in_contact")
-        self.assertEqual(tab.selected_contact_estimator(), "always_in_contact")
+        tab.on_base_controller_fields_changed = record
+        self.assertIn(
+            "contact_estimator", [spec.path for spec in tab.base_controller_fields()]
+        )
+        self.assertTrue(tab.can_set_base_controller_fields())
+        self.assertEqual(tab.base_controller_value("contact_estimator"), "cheater_sim")
+        self.assertIn(
+            "always_in_contact", tab.base_controller_choices("contact_estimator")
+        )
+        tab.set_base_controller_value("contact_estimator", "always_in_contact")
+        self.assertEqual(
+            tab.base_controller_value("contact_estimator"), "always_in_contact"
+        )
         self.assertIn("always_in_contact", notified)
         self._flush(tab)
         self.assertEqual(self._published().task.contact_estimator, "always_in_contact")
@@ -253,14 +280,17 @@ class TestMpcParamsTopicPublishing(unittest.TestCase):
         self.assertIn(
             'contact_estimator: "always_in_contact"', self._read(self.task_file)
         )
-        tab.set_contact_estimator("cheater_sim")
+        tab.set_base_controller_value("contact_estimator", "cheater_sim")
         tab.reset_all_defaults()
-        self.assertEqual(tab.selected_contact_estimator(), "always_in_contact")
+        self.assertEqual(
+            tab.base_controller_value("contact_estimator"), "always_in_contact"
+        )
 
     def test_the_contact_estimator_selection_is_ignored_without_online_tuning(self):
         tab = self._tab(enable_online_tuning=False)
-        tab.set_contact_estimator("always_in_contact")
-        self.assertEqual(tab.selected_contact_estimator(), "cheater_sim")
+        self.assertFalse(tab.can_set_base_controller_fields())
+        tab.set_base_controller_value("contact_estimator", "always_in_contact")
+        self.assertEqual(tab.base_controller_value("contact_estimator"), "cheater_sim")
         self.assertEqual(self.publisher.publish_count, 0)
 
     def test_a_file_that_does_not_parse_is_reported_and_shows_nothing(self):

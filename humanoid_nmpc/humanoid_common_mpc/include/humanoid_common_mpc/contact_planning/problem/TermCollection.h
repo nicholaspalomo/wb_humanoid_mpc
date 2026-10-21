@@ -51,6 +51,13 @@ namespace ocs2::humanoid {
 template <typename T>
 class TermCollection {
  public:
+  TermCollection() = default;
+  TermCollection(TermCollection&&) = default;
+  TermCollection& operator=(TermCollection&&) = default;
+  TermCollection(const TermCollection&) = delete;
+  TermCollection& operator=(const TermCollection&) = delete;
+  ~TermCollection() = default;
+
   using TermPtr = std::unique_ptr<T>;
 
   bool empty() const { return terms_.empty(); }

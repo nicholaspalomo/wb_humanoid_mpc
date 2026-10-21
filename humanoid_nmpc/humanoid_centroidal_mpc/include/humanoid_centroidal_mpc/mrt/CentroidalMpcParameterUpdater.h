@@ -29,13 +29,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <filesystem>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
 #include "absl/base/nullability.h"
 #include "absl/status/statusor.h"
+#include "absl/time/time.h"
 #include "ocs2_mpc/MPC_BASE.h"
 
 #include "humanoid_centroidal_mpc/CentroidalMpcInterface.h"
@@ -93,6 +96,11 @@ absl::StatusOr<std::shared_ptr<MpcParameterUpdaterModule>> makeCentroidalMpcPara
     const CentroidalMpcInterface& interface,
     const std::string& taskFile,
     const std::string& referenceFile,
-    std::vector<ReferenceFileReloader> referenceFileReloaders);
+    std::vector<ReferenceFileReloader> referenceFileReloaders,
+    std::optional<std::filesystem::file_time_type> taskFileReadAt = std::nullopt,
+    std::optional<std::filesystem::file_time_type> referenceFileReadAt = std::nullopt,
+    std::optional<std::filesystem::file_time_type> contactPlanningFileReadAt = std::nullopt,
+    absl::Duration fileCheckPeriod = absl::Seconds(1),
+    std::function<absl::Time()> clock = nullptr);
 
 }  // namespace ocs2::humanoid

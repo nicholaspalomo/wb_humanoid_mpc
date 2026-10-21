@@ -40,8 +40,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid::node {
 
 /**
- * One foot's TargetContactPatch: where the contact planner wants its contact frame on the ground. The patch is valid
- * only when the pose is and every value of it is finite, as the MuJoCo viewer's patches were.
+ * One foot's TargetContactPatch: where the contact planner wants its contact frame on the ground. The patch carries a
+ * pose only when `pose` is valid and every value of it is finite (no pose: the viewer draws nothing for the foot), and
+ * always its kind. Replaces whatever `patch` held.
  */
 void targetContactPatchToProto(const TargetContactPose& pose, humanoid_mpc_msgs::TargetContactPatch* absl_nonnull patch);
 

@@ -55,6 +55,7 @@ from tools.hooks import include_style
 from tools.hooks import inclusive_language
 from tools.hooks import license_header
 from tools.hooks import lint_files
+from tools.hooks import magic_number
 from tools.hooks import no_auto
 from tools.hooks import nolint
 from tools.hooks import pointer_nullability
@@ -134,6 +135,7 @@ _MODULE_CHECKS: list[Check] = (
     + no_auto.CHECKS
     + cpp_google_style.CHECKS
     + cpp_totw.CHECKS
+    + magic_number.CHECKS
     + todo_format.CHECKS
     + inclusive_language.CHECKS
     + license_header.CHECKS

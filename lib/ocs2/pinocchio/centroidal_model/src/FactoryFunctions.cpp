@@ -34,6 +34,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <pinocchio/algorithm/center-of-mass.hpp>
 #include <pinocchio/algorithm/centroidal.hpp>
 
+#include "ocs2_core/Dimensions.h"
+
 namespace ocs2 {
 namespace centroidal_model {
 
@@ -48,7 +50,7 @@ CentroidalModelInfo createCentroidalModelInfo(const PinocchioInterface& interfac
 
   // The root joint is Composite(Translation, Spherical), the position and the unit quaternion (x, y, z, w) of the base:
   // 7 configuration and 6 velocity entries of the base, the joints after them.
-  if (model.nv != nominalJointAngles.size() + 6 || model.nq != model.nv + 1) {
+  if (model.nv != nominalJointAngles.size() + kBaseVelocityDim || model.nq != model.nv + 1) {
     throw std::runtime_error("[CentroidalModelInfo] the model has nq = " + std::to_string(model.nq) + " and nv = " + std::to_string(model.nv) +
                              ", but a Composite(Translation, Spherical) root joint with nominalJointAngles.size() = " +
                              std::to_string(nominalJointAngles.size()) + " joints has nq = nv + 1 and nv = joints + 6");
@@ -60,10 +62,10 @@ CentroidalModelInfo createCentroidalModelInfo(const PinocchioInterface& interfac
   info.numSixDofContacts = sixDofContactNames.size();
   info.configurationDim = model.nq;
   info.velocityDim = model.nv;
-  info.actuatedDofNum = info.velocityDim - 6;
-  info.stateDim = info.configurationDim + 6;
-  info.stateTangentDim = info.velocityDim + 6;
-  info.inputDim = info.actuatedDofNum + 3 * info.numThreeDofContacts + 6 * info.numSixDofContacts;
+  info.actuatedDofNum = info.velocityDim - kBaseVelocityDim;
+  info.stateDim = info.configurationDim + kCentroidalMomentumDim;
+  info.stateTangentDim = info.velocityDim + kCentroidalMomentumDim;
+  info.inputDim = info.actuatedDofNum + kForceDim * info.numThreeDofContacts + kWrenchDim * info.numSixDofContacts;
   info.robotMass = pinocchio::computeTotalMass(model);
 
   for (const auto& name : threeDofContactNames) {
@@ -76,14 +78,14 @@ CentroidalModelInfo createCentroidalModelInfo(const PinocchioInterface& interfac
 
   // make sure the nominal base frame is aligned with the world frame: the base at the origin, the identity quaternion
   info.qPinocchioNominal.resize(model.nq);
-  info.qPinocchioNominal << vector_t::Zero(3), 0.0, 0.0, 0.0, 1.0, nominalJointAngles;
+  info.qPinocchioNominal << vector_t::Zero(kPositionDim), 0.0, 0.0, 0.0, 1.0, nominalJointAngles;
   info.centroidalInertiaNominal.setZero();
   info.comToBasePositionNominal.setZero();
   if (info.centroidalModelType == CentroidalModelType::SingleRigidBodyDynamics) {
     const vector_t vPinocchioNominal = vector_t::Zero(info.velocityDim);
     pinocchio::ccrba(model, data, info.qPinocchioNominal, vPinocchioNominal);
     info.centroidalInertiaNominal = data.Ig.inertia().matrix();
-    info.comToBasePositionNominal = info.qPinocchioNominal.template head<3>() - data.com[0];
+    info.comToBasePositionNominal = info.qPinocchioNominal.template head<kPositionDim>() - data.com[0];
   }
 
   return info;

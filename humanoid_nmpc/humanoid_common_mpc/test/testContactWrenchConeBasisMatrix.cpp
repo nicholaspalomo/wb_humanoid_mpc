@@ -140,9 +140,9 @@ const std::vector<GeometryCase>& geometryCases() {
       {4, 0.5, 0.05, -0.125, 0.09, -0.035, 0.035, vector3_t::Zero()},  // EngineAI SA01: asymmetric footprint
       {8, 0.7, 0.05, -0.10, 0.10, -0.05, 0.05, vector3_t::Zero()},
       {3, 0.9, 0.10, -0.10, 0.10, -0.05, 0.05, vector3_t::Zero()},
-      {6, 0.6, 0.08, -0.05, 0.20, -0.03, 0.09, vector3_t::Zero()},             // off-center footprint
-      {6, 0.6, 0.08, -0.05, 0.20, -0.03, 0.09, vector3_t(0.04, 0.02, 0.0)},    // explicit patch offset
-      {5, 0.3, 0.02, -0.08, 0.08, -0.04, 0.04, vector3_t(-0.08, -0.04, 0.0)},  // offset on the footprint edge
+      {6, 0.6, 0.08, -0.05, 0.20, -0.03, 0.09, vector3_t::Zero()},           // off-center footprint
+      {6, 0.6, 0.08, -0.05, 0.20, -0.03, 0.09, vector3_t(0.04, 0.02, 0.0)},  // explicit patch offset
+      {5, 0.3, 0.02, -0.08, 0.08, -0.04, 0.04, vector3_t(-0.08, 0.0, 0.0)},  // offset on the footprint edge
   });
   return *kCases;
 }
@@ -204,45 +204,45 @@ bool satisfiesFrictionRows(const ContactWrenchConeRows& rows, size_t numFacets, 
 }
 
 /**
- * Samples wrenches of the cone the rows define: a tangential force inside the friction polygon (rejection sampling on
- * the friction rows themselves), a center of pressure on the footprint and a torsion inside its interval, at a random
- * normal force. A third of the samples are pushed onto vertices and faces, where an inner approximation is weakest.
+ * Samples wrenches of the cone the rows define: candidates from a box that contains its Fz = 1 slice (a tangential
+ * ratio up to mu, a center of pressure on the footprint and a yaw moment up to mu (X + Y) about the footprint center),
+ * scaled by a random normal force and kept when they satisfy the rows. A third of the samples are then pushed along a
+ * random direction onto the boundary of the rows, where an inner approximation is weakest.
  */
 std::vector<vector6_t> sampleConeWrenches(const ContactWrenchConeConstraint::Config& config,
                                           const ContactRectangle& rectangle,
                                           size_t numSamples,
                                           uint32_t seed) {
   const ContactWrenchConeRows rows = buildLocalWrenchConeRows(config, rectangle);
-  const std::vector<vector2_t> polygon = frictionPolygonVertices(rows, config.numBasisVectors);
   const PolygonBounds& bounds = rectangle.getBounds();
-  const vector3_t patchPoint = contactPatchReferencePoint(config, rectangle);
-  const scalar_t radius = config.frictionCoefficient / std::cos(M_PI / static_cast<scalar_t>(config.numBasisVectors));
+  const vector2_t center(0.5 * (bounds.x_min + bounds.x_max), 0.5 * (bounds.y_min + bounds.y_max));
+  const scalar_t torsionBound = config.frictionCoefficient * 0.5 * (bounds.x_max - bounds.x_min + bounds.y_max - bounds.y_min);
 
   std::mt19937 gen(seed);
   std::uniform_real_distribution<scalar_t> unit(0.0, 1.0);
-  std::uniform_real_distribution<scalar_t> tangential(-radius, radius);
+  std::normal_distribution<scalar_t> gaussian(0.0, 1.0);
   std::uniform_real_distribution<scalar_t> normalForce(1.0, 1000.0);
-  std::uniform_int_distribution<size_t> pick(0, 1000000);
 
   std::vector<vector6_t> wrenches;
   wrenches.reserve(numSamples);
   while (wrenches.size() < numSamples) {
-    const bool onBoundary = pick(gen) % 3 == 0;
-    vector2_t ratio;
-    if (onBoundary) {
-      ratio = polygon[pick(gen) % polygon.size()];
-    } else {
-      do {
-        ratio = vector2_t(tangential(gen), tangential(gen));
-      } while (!satisfiesFrictionRows(rows, config.numBasisVectors, ratio));
+    const vector2_t ratio(config.frictionCoefficient * (2.0 * unit(gen) - 1.0), config.frictionCoefficient * (2.0 * unit(gen) - 1.0));
+    const vector2_t cop(bounds.x_min + unit(gen) * (bounds.x_max - bounds.x_min), bounds.y_min + unit(gen) * (bounds.y_max - bounds.y_min));
+    const scalar_t torsion = torsionBound * (2.0 * unit(gen) - 1.0);
+    vector6_t wrench = physicalWrench(ratio, cop, torsion, normalForce(gen), vector3_t(center.x(), center.y(), 0.0));
+    if (rows.evaluateCone(wrench).minCoeff() < 0.0) continue;
+    if (wrenches.size() % 3 == 0) {
+      vector6_t direction;
+      for (Eigen::Index i = 0; i < 6; ++i) direction(i) = gaussian(gen);
+      const vector_t values = rows.evaluateCone(wrench);
+      const vector_t slopes = rows.evaluateCone(direction);
+      scalar_t alpha = std::numeric_limits<scalar_t>::infinity();
+      for (Eigen::Index row = 0; row < values.size(); ++row) {
+        if (slopes(row) < 0.0) alpha = std::min(alpha, values(row) / -slopes(row));
+      }
+      if (std::isfinite(alpha)) wrench += alpha * direction;
     }
-    vector2_t cop(bounds.x_min + unit(gen) * (bounds.x_max - bounds.x_min), bounds.y_min + unit(gen) * (bounds.y_max - bounds.y_min));
-    scalar_t torsion = (2.0 * unit(gen) - 1.0) * config.torsionalFrictionCoefficient;
-    if (onBoundary) {
-      cop = vector2_t(pick(gen) % 2 == 0 ? bounds.x_min : bounds.x_max, pick(gen) % 2 == 0 ? bounds.y_min : bounds.y_max);
-      torsion = (pick(gen) % 2 == 0 ? 1.0 : -1.0) * config.torsionalFrictionCoefficient;
-    }
-    wrenches.push_back(physicalWrench(ratio, cop, torsion, normalForce(gen), patchPoint));
+    wrenches.push_back(wrench);
   }
   return wrenches;
 }
@@ -292,7 +292,7 @@ TEST(ContactWrenchConeBasisRegistryTest, ListsBothGeneratorSetsAndResolvesEach) 
 }
 
 TEST(ContactWrenchConeBasisRegistryTest, TheShippedDefaultIsStillTheConservativeSet) {
-  // The exact set changes the closed loop (a larger admissible wrench set and 8N instead of N + 7 inputs per foot), so
+  // The exact set changes the closed loop (a larger admissible wrench set and 4N instead of N + 7 inputs per foot), so
   // it stays opt-in until it has been validated; Create() without a name keeps the shipped set.
   EXPECT_EQ(kDefaultBasisGeneratorSet, kConservativeInnerApproximationGeneratorSet);
   const absl::StatusOr<ContactWrenchConeBasisMatrix> named =
@@ -404,7 +404,9 @@ TEST(ContactWrenchConeConfigValidationTest, EveryOutOfRangeValueIsRefusedNamingI
  */
 TEST(ContactWrenchConeBasisValidationDeathTest, TheConeRowsRefuseTooFewFrictionFacetsNamingTheKey) {
   // Positive control: three facets build.
-  EXPECT_EQ(buildLocalWrenchConeRows(makeTestConeConfig(3), makeTestContactRectangle()).numRows(), 3u + 7u);
+  const ContactWrenchConeRows threeFacets = buildLocalWrenchConeRows(makeTestConeConfig(3), makeTestContactRectangle());
+  EXPECT_EQ(threeFacets.numFrictionRows, 3u);
+  EXPECT_GT(threeFacets.numTorsionRows(), 0u);
   EXPECT_DEATH(buildLocalWrenchConeRows(makeTestConeConfig(2), makeTestContactRectangle()),
                "contacts\\.contact_wrench_cone_soft_constraint\\.num_basis_vectors");
 }
@@ -416,12 +418,22 @@ TEST(ContactWrenchConeBasisValidationTest, PatchPointOffTheFootprintIsRejectedOn
   config.patchOffset = vector3_t(0.5, 0.0, 0.0);
   expectInvalidArgumentNaming(config, makeTestContactRectangle(), std::string(kConservativeInnerApproximationGeneratorSet),
                               "contacts.contact_rectangle.");
-  // The exact set applies every generator at a footprint corner and only measures the torsion about the patch point,
-  // so the cone the rows define is still well formed and still reproduced.
+  // The exact set applies every generator at a footprint corner and does not read the patch point, so the cone the rows
+  // define is still well formed and still reproduced.
   const ContactWrenchConeBasisMatrix exact = createOrDie(config, makeTestContactRectangle(), std::string(kExactWrenchConeGeneratorSet));
   for (const vector6_t& wrench : sampleConeWrenches(config, makeTestContactRectangle(), /*numSamples=*/200, /*seed=*/5)) {
     EXPECT_TRUE(isRepresentable(exact.getBasisMatrix(), wrench)) << wrench.transpose();
   }
+}
+
+TEST(ContactWrenchConeBasisValidationTest, PatchPointOnAFootprintCornerIsRejectedForTheConservativeSet) {
+  // A normal force on a corner carries no torsion, so the conservative set's torsion rays would collapse onto its normal
+  // ray and the set would not span the yaw moment.
+  ContactWrenchConeConstraint::Config config = makeTestConeConfig();
+  config.patchOffset = vector3_t(-0.10, -0.05, 0.0);
+  expectInvalidArgumentNaming(config, makeTestContactRectangle(), std::string(kConservativeInnerApproximationGeneratorSet),
+                              "contacts.contact_rectangle.");
+  EXPECT_TRUE(ContactWrenchConeBasisMatrix::Create(config, makeTestContactRectangle(), kExactWrenchConeGeneratorSet).ok());
 }
 
 // ==================== Soundness: every generator inside the cone, for every set ====================
@@ -472,7 +484,7 @@ TEST(ContactWrenchConeBasisSoundnessTest, DimensionsOfEachSet) {
     EXPECT_EQ(conservative.numBasis(), numDirections + 7);
     const ContactWrenchConeBasisMatrix exact =
         createOrDie(makeTestConeConfig(numDirections), makeTestContactRectangle(), std::string(kExactWrenchConeGeneratorSet));
-    EXPECT_EQ(exact.numBasis(), 8 * numDirections);
+    EXPECT_EQ(exact.numBasis(), 4 * numDirections);
     for (const ContactWrenchConeBasisMatrix* absl_nonnull basis : {&conservative, &exact}) {
       EXPECT_EQ(basis->getBasisMatrix().rows(), 6);
       EXPECT_EQ(static_cast<size_t>(basis->getBasisMatrix().cols()), basis->numBasis());
@@ -503,34 +515,33 @@ TEST(ContactWrenchConeExactSetTest, EveryWrenchOfTheConeIsANonNegativeCombinatio
   }
 }
 
-TEST(ContactWrenchConeExactSetTest, ColumnsAreExactlyTheVerticesOfTheCone) {
-  // The Fz = 1 slice of the cone is (friction polygon) x (footprint) x (torsion interval) up to an affine map, so its
-  // vertices are the products of the three polytopes' vertices. Build those independently - polygon vertices as
-  // intersections of adjacent facet lines of the rows, the wrench from cross products - and match them to the columns.
+TEST(ContactWrenchConeExactSetTest, ColumnsAreTheCornerForcesAlongThePyramidEdges) {
+  // The cone is defined as the wrenches of point forces at the footprint corners inside their friction pyramids, so its
+  // extreme rays are the pyramid edges at the corners. Build those independently - polygon vertices as intersections of
+  // adjacent facet lines of the rows, the wrench from cross products - and match them to the columns.
   for (const GeometryCase& c : geometryCases()) {
     const ContactWrenchConeConstraint::Config config = configFor(c);
     const ContactRectangle rectangle = makeRectangle(c.xMin, c.xMax, c.yMin, c.yMax);
     const ContactWrenchConeBasisMatrix exact = createOrDie(config, rectangle, std::string(kExactWrenchConeGeneratorSet));
     const ContactWrenchConeRows rows = buildLocalWrenchConeRows(config, rectangle);
-    const vector3_t patchPoint = contactPatchReferencePoint(config, rectangle);
     const PolygonBounds& bounds = rectangle.getBounds();
 
     std::vector<bool> matched(exact.numBasis(), false);
     for (const vector2_t& frictionVertex : frictionPolygonVertices(rows, config.numBasisVectors)) {
+      EXPECT_NEAR(frictionVertex.norm(), config.frictionCoefficient, 1.0e-12) << describe(c) << ": the pyramid is inscribed";
       for (const vector2_t& corner : {vector2_t(bounds.x_max, bounds.y_max), vector2_t(bounds.x_max, bounds.y_min),
                                       vector2_t(bounds.x_min, bounds.y_max), vector2_t(bounds.x_min, bounds.y_min)}) {
-        for (const scalar_t sign : {1.0, -1.0}) {
-          const vector6_t vertex =
-              physicalWrench(frictionVertex, corner, sign * config.torsionalFrictionCoefficient, /*normalForce=*/1.0, patchPoint);
-          bool found = false;
-          for (size_t j = 0; j < exact.numBasis(); ++j) {
-            if (!matched[j] && (vector6_t(exact.getBasisMatrix().col(static_cast<Eigen::Index>(j))) - vertex).norm() < 1.0e-12) {
-              matched[j] = found = true;
-              break;
-            }
+        // No free torsion: the torsion about the corner itself is zero.
+        const vector6_t vertex =
+            physicalWrench(frictionVertex, corner, /*torsionRatio=*/0.0, /*normalForce=*/1.0, vector3_t(corner.x(), corner.y(), 0.0));
+        bool found = false;
+        for (size_t j = 0; j < exact.numBasis(); ++j) {
+          if (!matched[j] && (vector6_t(exact.getBasisMatrix().col(static_cast<Eigen::Index>(j))) - vertex).norm() < 1.0e-12) {
+            matched[j] = found = true;
+            break;
           }
-          EXPECT_TRUE(found) << describe(c) << ": cone vertex " << vertex.transpose() << " is not a column";
         }
+        EXPECT_TRUE(found) << describe(c) << ": cone vertex " << vertex.transpose() << " is not a column";
       }
     }
     // NOLINTNEXTLINE(argument-comment): std::count's value parameter is a reserved name in libstdc++ (__value)
@@ -539,7 +550,7 @@ TEST(ContactWrenchConeExactSetTest, ColumnsAreExactlyTheVerticesOfTheCone) {
 }
 
 TEST(ContactWrenchConeExactSetTest, NoColumnIsRedundant) {
-  // Every column is an extreme ray: none is a non-negative combination of the others, so 8N is the minimum.
+  // Every column is an extreme ray: none is a non-negative combination of the others, so 4N is the minimum.
   const ContactWrenchConeBasisMatrix exact =
       createOrDie(makeAtlasConeConfig(), makeAtlasContactRectangle(), std::string(kExactWrenchConeGeneratorSet));
   const matrix_t& B = exact.getBasisMatrix();
@@ -569,9 +580,9 @@ TEST(ContactWrenchConeConservativeSetTest, IsContainedInTheExactSet) {
 
 TEST(ContactWrenchConeConservativeSetTest, CannotCombineFrictionWithAnOffCenterCopOrTorsion) {
   // The audit's counterexamples on the shipped Atlas cone: a braking / push-off wrench with Fx = 0.25 Fz and the center
-  // of pressure at 0.8 x_max, half the friction limit with 0.9 of the torsional limit, and a toe-side center of
-  // pressure with half the torsional limit. Wrench mode admits all three with margin, the exact set reproduces all
-  // three, and the conservative set provably reproduces none.
+  // of pressure at 0.8 x_max, Fx = 0.25 Fz with a yaw moment of 0.045 Fz about the center, and a toe-side center of
+  // pressure with a yaw moment of 0.025 Fz. Wrench mode admits all three, the exact set reproduces all three, and the
+  // conservative set provably reproduces none.
   const ContactWrenchConeConstraint::Config config = makeAtlasConeConfig();
   const ContactRectangle rectangle = makeAtlasContactRectangle();
   const ContactWrenchConeRows rows = buildLocalWrenchConeRows(config, rectangle);
@@ -582,10 +593,8 @@ TEST(ContactWrenchConeConservativeSetTest, CannotCombineFrictionWithAnOffCenterC
 
   const std::vector<vector6_t> counterexamples = {
       physicalWrench(vector2_t(0.25, 0.0), vector2_t(0.8 * 0.12, 0.0), /*torsionRatio=*/0.0, /*normalForce=*/400.0, patchPoint),
-      physicalWrench(vector2_t(0.25, 0.0), vector2_t(0.0, 0.0), 0.9 * config.torsionalFrictionCoefficient, /*normalForce=*/400.0,
-                     patchPoint),
-      physicalWrench(vector2_t(0.0, 0.0), vector2_t(0.8 * 0.12, 0.0), 0.5 * config.torsionalFrictionCoefficient, /*normalForce=*/400.0,
-                     patchPoint),
+      physicalWrench(vector2_t(0.25, 0.0), vector2_t(0.0, 0.0), /*torsionRatio=*/0.045, /*normalForce=*/400.0, patchPoint),
+      physicalWrench(vector2_t(0.0, 0.0), vector2_t(0.8 * 0.12, 0.0), /*torsionRatio=*/0.025, /*normalForce=*/400.0, patchPoint),
   };
   for (const vector6_t& wrench : counterexamples) {
     EXPECT_GT(worstConeRow(rows, wrench), 0.0) << wrench.transpose() << " should be strictly inside the wrench-mode cone";
@@ -659,9 +668,15 @@ TEST(ContactWrenchConeConservativeSetTest, LayoutMatchesTheDocumentation) {
     EXPECT_TRUE(ray.head<2>().isZero(kTol));
     EXPECT_TRUE(vector2_t(-ray(4), ray(3)).isApprox(corners[c], 1.0e-12)) << "CoP ray " << c;
   }
-  // Columns N+5, N+6: the torsional limit of either sign, tau_z = +/- mu_torsion * Fz (not its reciprocal).
-  EXPECT_NEAR(B(/*row=*/5, static_cast<Eigen::Index>(N + 5)), config.torsionalFrictionCoefficient, kTol);
-  EXPECT_NEAR(B(/*row=*/5, static_cast<Eigen::Index>(N + 6)), -config.torsionalFrictionCoefficient, kTol);
+  // Columns N+5, N+6: the torsion limits of a normal force at the (centered) patch point, Caron's +/- mu cos(pi/4) (X + Y)
+  // for this four-facet pyramid, each tight on a torsion row.
+  const scalar_t torsionLimit = config.frictionCoefficient * std::cos(M_PI / 4.0) * (0.10 + 0.05);
+  EXPECT_NEAR(B(/*row=*/5, static_cast<Eigen::Index>(N + 5)), torsionLimit, 1.0e-10);
+  EXPECT_NEAR(B(/*row=*/5, static_cast<Eigen::Index>(N + 6)), -torsionLimit, 1.0e-10);
+  for (const size_t column : {N + 5, N + 6}) {
+    EXPECT_NEAR(rows.evaluateCone(vector6_t(B.col(static_cast<Eigen::Index>(column)))).minCoeff(), 0.0, 1.0e-10)
+        << "torsion ray " << column;
+  }
 }
 
 // ==================== Pseudoinverse and null-space projector ====================
@@ -784,17 +799,18 @@ TEST(BasisInputsLibraryKeyTest, IsDeterministicAndSeparatesEveryParameterization
   const std::string key = basisInputsLibraryKey(reference);
   EXPECT_TRUE(std::regex_match(key, std::regex("basis11_[0-9a-f]{16}"))) << key;
   EXPECT_TRUE(std::regex_match(basisInputsLibraryKey(basesFor(makeTestConeConfig(), makeTestContactRectangle(), exact)),
-                               std::regex("basis32_[0-9a-f]{16}")));
+                               std::regex("basis16_[0-9a-f]{16}")));
   EXPECT_NE(key, std::string(kWrenchInputsLibraryKey));
 
   ContactWrenchConeConstraint::Config otherFriction = makeTestConeConfig();
   otherFriction.frictionCoefficient = 0.6;
+  // The torsional coefficient is the contact planner's, not the cone's: the corner friction sets the torsion limits.
   ContactWrenchConeConstraint::Config otherTorsion = makeTestConeConfig();
   otherTorsion.torsionalFrictionCoefficient = 0.04;
+  EXPECT_EQ(basisInputsLibraryKey(basesFor(otherTorsion, makeTestContactRectangle(), conservative)), key);
   const std::vector<feet_array_t<matrix_t>> others = {
       basesFor(makeTestConeConfig(), makeTestContactRectangle(), exact),
       basesFor(otherFriction, makeTestContactRectangle(), conservative),
-      basesFor(otherTorsion, makeTestContactRectangle(), conservative),
       basesFor(makeTestConeConfig(8), makeTestContactRectangle(), conservative),
       basesFor(makeTestConeConfig(), makeRectangle(-0.10, 0.12, -0.05, 0.05), conservative),
   };

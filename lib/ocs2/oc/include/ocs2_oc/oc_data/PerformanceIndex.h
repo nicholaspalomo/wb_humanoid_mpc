@@ -40,6 +40,9 @@ namespace ocs2 {
  * Defines the performance indices for a rollout
  */
 struct PerformanceIndex {
+  /** The default precision of isApprox(). */
+  static constexpr scalar_t kDefaultApproxPrecision = 1e-8;
+
   /** The merit function of a rollout. */
   scalar_t merit = 0.0;
 
@@ -91,7 +94,7 @@ struct PerformanceIndex {
   PerformanceIndex& operator*=(const scalar_t c);
 
   /** Returns true if *this is approximately equal to other, within the precision determined by prec. */
-  bool isApprox(const PerformanceIndex& other, const scalar_t prec = 1e-8) const;
+  bool isApprox(const PerformanceIndex& other, const scalar_t prec = kDefaultApproxPrecision) const;
 };
 
 /** Add performance indices. */

@@ -41,6 +41,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
 #include "absl/strings/string_view.h"
+#include "absl/time/time.h"
 #include "ocs2_core/integration/Integrator.h"
 #include "ocs2_core/integration/SensitivityIntegrator.h"
 #include "ocs2_mpc/MPC_Settings.h"
@@ -48,6 +49,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_sqp/SqpSettings.h"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
+#include "humanoid_common_mpc/config/ConfigValueChecks.h"
 #include "humanoid_mpc_config/mpc_settings_config.nproto.h"
 #include "humanoid_mpc_config/rollout_settings_config.nproto.h"
 #include "humanoid_mpc_config/sqp_settings_config.nproto.h"
@@ -95,12 +97,41 @@ absl::StatusOr<IntegratorType> rolloutIntegratorNamed(absl::string_view name) {
                     [](std::string* absl_nonnull out, IntegratorType type) { absl::StrAppend(out, integrator_type::toString(type)); })));
 }
 
+// The highest SCHED_FIFO priority on Linux; 0 keeps a thread on the time-sharing scheduler.
+constexpr int32_t kMaxRealtimePriority = 99;
+
 /** `value` as a count; InvalidArgument naming `field` when it is negative. */
 absl::StatusOr<size_t> countOf(absl::string_view field, int32_t value) {
   if (value < 0) {
     return absl::InvalidArgumentError(absl::StrCat(field, ": ", value, " is negative; a count is 0 or more"));
   }
   return static_cast<size_t>(value);
+}
+
+/**
+ * OK when the real-valued fields of a multiple_shooting block are in the ranges the SQP solver terminates with: dt > 0
+ * (a non-positive step never reaches the end of the horizon, TimeDiscretization.cpp), 0 < alpha_decay < 1 and
+ * 0 < alpha_min <= 1 (otherwise the line search never shrinks the step below alpha_min, SqpSolver.cpp), positive
+ * tolerances, 0 <= g_min <= g_max with g_max > 0, and armijo_factor and gamma_c in [0, 1) (the filter line search's
+ * sufficient-decrease factors). NaN fails every check.
+ */
+absl::Status checkSqpRanges(const mpc_config::SqpSettingsConfig& config) {
+  RETURN_IF_ERROR(requirePositive("multiple_shooting.dt", config.dt));
+  RETURN_IF_ERROR(requireInOpenInterval("multiple_shooting.alpha_decay", config.alpha_decay, /*low=*/0.0, /*high=*/1.0));
+  RETURN_IF_ERROR(requireInLeftOpenInterval("multiple_shooting.alpha_min", config.alpha_min, /*low=*/0.0, /*high=*/1.0));
+  RETURN_IF_ERROR(requirePositive("multiple_shooting.delta_tol", config.delta_tol));
+  RETURN_IF_ERROR(requirePositive("multiple_shooting.cost_tol", config.cost_tol));
+  RETURN_IF_ERROR(requirePositive("multiple_shooting.g_max", config.g_max));
+  RETURN_IF_ERROR(requireNonNegative("multiple_shooting.g_min", config.g_min));
+  RETURN_IF_ERROR(requireOrdered("multiple_shooting.g_min", config.g_min, "multiple_shooting.g_max", config.g_max));
+  RETURN_IF_ERROR(requireInHalfOpenInterval("multiple_shooting.armijo_factor", config.armijo_factor, /*low=*/0.0, /*high=*/1.0));
+  RETURN_IF_ERROR(requireInHalfOpenInterval("multiple_shooting.gamma_c", config.gamma_c, /*low=*/0.0, /*high=*/1.0));
+  if (config.thread_priority < 0 || config.thread_priority > kMaxRealtimePriority) {
+    return absl::InvalidArgumentError(absl::StrCat("multiple_shooting.thread_priority: ", config.thread_priority, " is not in 0-",
+                                                   kMaxRealtimePriority,
+                                                   " (SCHED_FIFO's priorities, or 0 for the time-sharing scheduler)"));
+  }
+  return absl::OkStatus();
 }
 
 }  // namespace
@@ -118,6 +149,7 @@ std::vector<std::string> rolloutIntegratorNames() {
 }
 
 absl::StatusOr<sqp::Settings> toSqpSettings(const mpc_config::SqpSettingsConfig& config) {
+  RETURN_IF_ERROR(checkSqpRanges(config));
   sqp::Settings settings;
   ASSIGN_OR_RETURN(settings.sqpIteration, countOf("multiple_shooting.sqp_iteration", config.sqp_iteration));
   settings.deltaTol = config.delta_tol;
@@ -144,6 +176,9 @@ absl::StatusOr<sqp::Settings> toSqpSettings(const mpc_config::SqpSettingsConfig&
 }
 
 absl::StatusOr<rollout::Settings> toRolloutSettings(const mpc_config::RolloutSettingsConfig& config) {
+  RETURN_IF_ERROR(requirePositive("rollout.abs_tol_ode", config.abs_tol_ode));
+  RETURN_IF_ERROR(requirePositive("rollout.rel_tol_ode", config.rel_tol_ode));
+  RETURN_IF_ERROR(requirePositive("rollout.time_step", config.time_step));
   rollout::Settings settings;
   settings.absTolODE = config.abs_tol_ode;
   settings.relTolODE = config.rel_tol_ode;
@@ -155,13 +190,23 @@ absl::StatusOr<rollout::Settings> toRolloutSettings(const mpc_config::RolloutSet
   return settings;
 }
 
-mpc::Settings toMpcSettings(const mpc_config::MpcSettingsConfig& config) {
+absl::StatusOr<mpc::Settings> toMpcSettings(const mpc_config::MpcSettingsConfig& config) {
+  RETURN_IF_ERROR(requirePositive("mpc.time_horizon", config.time_horizon));
+  RETURN_IF_ERROR(requirePositive("mpc.mrt_desired_frequency", config.mrt_desired_frequency));
   mpc::Settings settings;
   settings.timeHorizon_ = config.time_horizon;
-  settings.solutionTimeWindow_ = config.solution_time_window;
+  // Absent: OCS2's negative sentinel, the whole horizon (mpc::Settings::solutionTimeWindow_).
+  if (config.solution_time_window.has_value()) {
+    RETURN_IF_ERROR(requirePositive("mpc.solution_time_window", *config.solution_time_window));
+    settings.solutionTimeWindow_ = *config.solution_time_window;
+  }
   settings.debugPrint_ = config.debug_print;
   settings.coldStart_ = config.cold_start;
-  settings.mpcDesiredFrequency_ = config.mpc_desired_frequency;
+  // Absent: OCS2's negative sentinel, one solve per new observation as fast as they come (mpc::Settings::mpcDesiredFrequency_).
+  if (config.mpc_desired_frequency.has_value()) {
+    RETURN_IF_ERROR(requirePositive("mpc.mpc_desired_frequency", *config.mpc_desired_frequency));
+    settings.mpcDesiredFrequency_ = *config.mpc_desired_frequency;
+  }
   settings.mrtDesiredFrequency_ = config.mrt_desired_frequency;
   return settings;
 }
@@ -170,9 +215,18 @@ absl::StatusOr<SolverSettings> solverSettingsFromConfig(const mpc_config::TaskFi
   SolverSettings settings;
   ASSIGN_OR_RETURN(settings.sqpSettings, toSqpSettings(task.multiple_shooting));
   ASSIGN_OR_RETURN(settings.rolloutSettings, toRolloutSettings(task.rollout));
-  settings.mpcSettings = toMpcSettings(task.mpc);
+  ASSIGN_OR_RETURN(settings.mpcSettings, toMpcSettings(task.mpc));
   settings.verbose = task.interface.verbose;
   return settings;
+}
+
+absl::StatusOr<MpcNodeSettings> mpcNodeSettingsFromConfig(const mpc_config::TaskFile& task) {
+  RETURN_IF_ERROR(checkSqpRanges(task.multiple_shooting));
+  // A timeout of 0 would keep a stale walking command forever: a publisher that is killed, or a link that is lost, would
+  // leave the robot walking.
+  RETURN_IF_ERROR(requirePositive("interface.walking_command_timeout", task.interface.walking_command_timeout));
+  return MpcNodeSettings{.solverThreadPriority = task.multiple_shooting.thread_priority,
+                         .walkingCommandTimeout = absl::Seconds(task.interface.walking_command_timeout)};
 }
 
 }  // namespace ocs2::humanoid

@@ -1,5 +1,6 @@
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
 load("@rules_cc//cc:cc_test.bzl", "cc_test")
+load("@rules_python//python:defs.bzl", "py_test")
 load("//bazel:copts.bzl", "FIRST_PARTY_COPTS")
 
 # mujoco_sim_interface - MuJoCo simulation interface library
@@ -25,6 +26,8 @@ cc_library(
     copts = FIRST_PARTY_COPTS,
     deps = [
         "//robot_runtime/web_viewer:viewer_thread_priority",
+        # The server's defaults, which WebViewerOptions takes, without the server's HTTP and JPEG libraries.
+        "//robot_runtime/web_viewer:web_viewer_server_options",
         "@abseil-cpp//absl/container:flat_hash_set",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
@@ -85,6 +88,8 @@ cc_library(
         ":egl_headers",
         ":viewer_settings",
         "//lib/mujoco_vendor",
+        "//lib/ocs2:ocs2_dimensions",
+        "//lib/ocs2:ocs2_physical_constants",
         "//robot_runtime/web_viewer",
         "//robot_runtime/robot_core",
         "//robot_runtime/robot_model",
@@ -121,6 +126,8 @@ cc_test(
         ":mujoco_sim_interface",
         "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
         "@googletest//:gtest_main",
     ],
 )
@@ -234,6 +241,52 @@ cc_test(
     deps = [
         ":mujoco_sim_interface",
         "@abseil-cpp//absl/base:nullability",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The base velocity arrows of the viewer: the measured velocity, already in world axes, is not rotated by the base again.
+cc_test(
+    name = "test_base_velocity_visualization",
+    size = "small",
+    srcs = ["test/testBaseVelocityVisualization.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":mujoco_sim_interface",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings:string_view",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The hotkey tables of the READMEs against the visualizations the shipped task files list.
+py_test(
+    name = "test_viewer_hotkey_docs",
+    size = "small",
+    srcs = ["test/test_viewer_hotkey_docs.py"],
+    data = [
+        "//:.devcontainer/README.md",
+        "//:README.md",
+        "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+        "//robot_models/engineai_sa01/engineai_sa01_centroidal_mpc",
+        "//robot_models/unitree_g1/g1_centroidal_mpc",
+        "//robot_models/unitree_g1/g1_wb_mpc",
+        "//robot_models/unitree_r1/unitree_r1_centroidal_mpc",
+    ],
+    main = "test/test_viewer_hotkey_docs.py",
+)
+
+# The contact force arrows of the viewer: the force on the body resting on its support, whichever geom of the pair is first.
+cc_test(
+    name = "test_contact_force_visualization",
+    size = "small",
+    srcs = ["test/testContactForceVisualization.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":mujoco_sim_interface",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/strings:string_view",
         "@googletest//:gtest_main",
     ],
 )
@@ -419,7 +472,9 @@ WEB_VIEWER_TEST_DEPS = [
     ":web_viewer_test_client",
     "//robot_runtime/web_viewer",
     "//robot_runtime/web_viewer:jpeg_decoder",
+    "@abseil-cpp//absl/base:log_severity",
     "@abseil-cpp//absl/base:nullability",
+    "@abseil-cpp//absl/log:scoped_mock_log",
     "@abseil-cpp//absl/status",
     "@abseil-cpp//absl/status:status_matchers",
     "@abseil-cpp//absl/status:statusor",
@@ -532,6 +587,24 @@ cc_test(
     deps = [
         ":mujoco_sim_interface",
         "@abseil-cpp//absl/time",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The free joint's state in the robot state's frames, the scene's joints and actuators at their own addresses, and the
+# dodgeball's impact without a ball: each against MuJoCo's own integration of it.
+cc_test(
+    name = "test_mujoco_sim_interface_state",
+    size = "small",
+    srcs = ["test/testMujocoSimInterfaceState.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":mujoco_sim_interface",
+        ":viewer_settings",
+        "//robot_runtime/robot_model",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status:statusor",
+        "@eigen",
         "@googletest//:gtest_main",
     ],
 )

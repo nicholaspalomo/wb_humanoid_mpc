@@ -102,6 +102,15 @@ class StateInputCostGaussNewtonAd : public StateInputCost {
                                          const ad_vector_t& parameters) = 0;
 
  private:
+  /**
+   * The function the library tapes, costVectorFunction() of this object at x = (time, state, input) and p. It refers to
+   * this object, so a copy hands the copy of the library a function of its own (the copy constructor) and never tapes
+   * the object it was copied from, which may be destroyed first.
+   */
+  CppAdInterface::ad_parameterized_function_t tapedFunction();
+
+  size_t stateDim_ = 0;
+  size_t inputDim_ = 0;
   std::unique_ptr<CppAdInterface> adInterfacePtr_;
 };
 

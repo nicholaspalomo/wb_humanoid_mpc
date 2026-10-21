@@ -34,10 +34,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <utility>
 
 #include "absl/strings/str_cat.h"
+#include "ocs2_core/Dimensions.h"
+
+#include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
 
 namespace ocs2::humanoid {
 
-static_assert(kNumContacts == 2, "the separation rows are written for a biped");
+static_assert(kNumContacts == kBipedFootCount, "the separation rows are written for a biped");
 
 std::string FootSeparationConstraint::describe() const {
   return absl::StrCat("|e_x . (p_L - p_R)| <= ", params_.maxStepLength, " m, ", params_.minStepWidth,
@@ -50,19 +53,19 @@ void FootSeparationConstraint::configure(const ContactPlanningConfig& config) {
 }
 
 void FootSeparationConstraint::addRows(const ContactPlanningContext& ctx, int node, RowBuilder& rows) const {
-  const std::array<vector2_t, 2>& axes = ctx.axesAt(node);
-  for (int axis = 0; axis < 2; ++axis) {
+  const std::array<vector2_t, kHorizontalPositionDim>& axes = ctx.axesAt(node);
+  for (int axis = 0; axis < kHorizontalPositionDim; ++axis) {
     Coefficients xc;
-    for (int w = 0; w < 2; ++w) {
+    for (int w = 0; w < kHorizontalPositionDim; ++w) {
       xc.emplace_back(idx_.foot[0][w], axes[static_cast<size_t>(axis)](w));
       xc.emplace_back(idx_.foot[1][w], -axes[static_cast<size_t>(axis)](w));
     }
     const vector2_t dNominal =
         ctx.hasHeading() ? vector2_t(ctx.nominal->feet[static_cast<size_t>(node)][0] - ctx.nominal->feet[static_cast<size_t>(node)][1])
                          : vector2_t(vector2_t::Zero());
-    const std::pair<scalar_t, scalar_t> frameTerm = ctx.frameTerm(node, axis, dNominal);
-    const scalar_t g = frameTerm.first;
-    const scalar_t offset = frameTerm.second;
+    const ContactPlanningContext::HeadingFrameTerm frameTerm = ctx.frameTerm(node, axis, dNominal);
+    const scalar_t g = frameTerm.gain;
+    const scalar_t offset = frameTerm.offset;
     if (ctx.hasHeading()) xc.emplace_back(idx_.heading, g);
     if (axis == 0) {
       rows.addSoft(xc, /*uCoefficients=*/{}, -params_.maxStepLength - offset, params_.maxStepLength - offset, penalty_);

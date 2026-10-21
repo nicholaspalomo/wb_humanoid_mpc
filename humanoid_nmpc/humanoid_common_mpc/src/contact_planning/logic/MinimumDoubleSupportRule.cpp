@@ -35,11 +35,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/strings/str_cat.h"
 
+#include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
 #include "humanoid_common_mpc/contact_planning/logic/ContactLogicHelpers.h"
 
 namespace ocs2::humanoid {
 
-static_assert(kNumContacts == 2, "the double support rule is written for a biped");
+static_assert(kNumContacts == kBipedFootCount, "the double support rule is written for a biped");
 
 std::string MinimumDoubleSupportRule::describe() const {
   return absl::StrCat("after a touch-down the other foot stays down >= ", minDoubleSupportDuration_, " s (the touch-down node included)");

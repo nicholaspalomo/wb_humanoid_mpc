@@ -33,9 +33,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
-#include <functional>
 #include <optional>
 
+#include "absl/functional/function_ref.h"
 #include "absl/status/status.h"
 
 #include "humanoid_common_mpc/common/Types.h"
@@ -79,14 +79,20 @@ class MpcResetSupervisor {
  public:
   struct Config {
     // LINT.IfChange(reset_supervisor_defaults)
+    /// The defaults of the fields below, by field.
+    static constexpr int kDefaultMaxConsecutiveFailures = 3;
+    static constexpr scalar_t kDefaultInitialRetryInterval = 0.1;  // [s]
+    static constexpr scalar_t kDefaultMaxRetryInterval = 2.0;      // [s]
     /// Consecutive failed solves after which the MPC is declared unhealthy.
-    size_t maxConsecutiveFailures = 3;
+    size_t maxConsecutiveFailures = kDefaultMaxConsecutiveFailures;
     /// [s] Wait before the first attempt once unhealthy; doubled after every further failure, up to maxRetryInterval.
-    scalar_t initialRetryInterval = 0.1;
-    scalar_t maxRetryInterval = 2.0;
+    scalar_t initialRetryInterval = kDefaultInitialRetryInterval;
+    scalar_t maxRetryInterval = kDefaultMaxRetryInterval;
     // LINT.ThenChange(//humanoid_nmpc/docs/mpc_reset/README.md:controller_reset_events)
+    /// [s] The default of clockRewindTolerance.
+    static constexpr scalar_t kDefaultClockRewindTolerance = 1.0e-6;
     /// [s] A time earlier than the previous one by more than this is a rewind of the clock.
-    scalar_t clockRewindTolerance = 1.0e-6;
+    scalar_t clockRewindTolerance = kDefaultClockRewindTolerance;
   };
 
   MpcResetSupervisor() : MpcResetSupervisor(Config()) {}
@@ -171,7 +177,7 @@ class MpcResetSupervisor {
    * caused the wait (resetRequestedSinceLastFailure(): an operator re-entering WB_MPC should not wait out the back-off)
    * or when `stop()` becomes true: both are polled, so that requestReset() needs no lock to wake it.
    */
-  void waitBeforeRetry(std::chrono::duration<scalar_t> duration, const std::function<bool()>& stop) const;
+  void waitBeforeRetry(std::chrono::duration<scalar_t> duration, absl::FunctionRef<bool()> stop) const;
 
   /**
    * Whether a reset has been requested since the last failed solve (onSolveResult()) requested its own: what ends a
@@ -211,6 +217,9 @@ class MpcResetSupervisor {
   void setRemotePolicyExpired(bool expired) { remotePolicyExpired_.store(expired); }
 
  private:
+  /** The factor the back-off interval grows by with every failure past maxConsecutiveFailures. */
+  static constexpr scalar_t kRetryIntervalGrowthFactor = 2.0;
+
   const Config config_;
 
   // A full request increments fullResetsRequested_ before resetsRequested_, so a ticket that sees the second sees the first.

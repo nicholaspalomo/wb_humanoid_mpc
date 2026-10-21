@@ -28,6 +28,22 @@ py_test(
     ],
 )
 
+# The heading-frame tracking, observation, seeded reset and time steps of the base environment.
+py_test(
+    name = "test_base_env",
+    size = "medium",
+    srcs = ["test_base_env.py"],
+    deps = [
+        "//humanoid_learning/envs",
+        requirement("brax"),
+        requirement("jax"),
+        requirement("jaxlib"),
+        requirement("mujoco"),
+        requirement("mujoco-mjx"),
+        requirement("numpy"),
+    ],
+)
+
 # The actor-critic network, the behavioral cloning warmstart and the ONNX export of its policy.
 py_test(
     name = "test_actor_critic",

@@ -33,6 +33,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <string>
 #include <utility>
 #include <vector>
@@ -49,6 +50,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/common/CostTermNames.h"
 #include "humanoid_common_mpc/parameter_update/OcpTermUpdates.h"
+#include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 #include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
 #include "humanoid_nmpc/humanoid_wb_mpc/test/live_tuning/WholeBodyLiveTuningFixture.h"
 #include "humanoid_wb_mpc/WBMpcPreComputation.h"
@@ -204,6 +206,30 @@ void appendPlannerConfig(const SwingTrajectoryPlanner& planner, std::vector<scal
                                          config.swingPitchAngle, config.swingPitchRiseFraction, config.swingPitchFallFraction});
 }
 
+/**
+ * Appends the state reference the running costs read at each of `points` (SwitchedModelReferenceManager::getDesiredState())
+ * with `target`'s knots moving forward along their heading. The procedural arm swing is proportional to the commanded
+ * forward speed, which the stack's standing target does not command, so the arm_swing tuning acts on the problem only
+ * under such a target; evaluated on the standing one it would change nothing, rightly.
+ */
+void appendWalkingStateReference(const WBMpcInterface& interface,
+                                 const TargetTrajectories& target,
+                                 const std::vector<EvaluationPoint>& points,
+                                 std::vector<scalar_t>& fingerprint) {
+  constexpr scalar_t kForwardSpeed = 0.5;  // [m/s]
+  const WBAccelMpcRobotModel<scalar_t>& model = interface.getMpcRobotModel();
+  TargetTrajectories walking = target;
+  for (vector_t& knot : walking.stateTrajectory) {
+    const scalar_t heading = model.getBaseHeading(knot);
+    model.setBaseComLinearVelocity(knot, vector3_t(kForwardSpeed * std::cos(heading), kForwardSpeed * std::sin(heading), 0.0));
+  }
+  const SwitchedModelReferenceManager& referenceManager = *interface.getSwitchedModelReferenceManagerPtr();
+  for (const EvaluationPoint& point : points) {
+    const vector_t reference = referenceManager.getDesiredState(walking, point.state, point.time);
+    fingerprint.insert(fingerprint.end(), reference.data(), reference.data() + reference.size());
+  }
+}
+
 }  // namespace
 
 std::vector<scalar_t> runningProblemEffects(WholeBodySolverStack& stack) {
@@ -233,6 +259,7 @@ std::vector<scalar_t> runningProblemEffects(WholeBodySolverStack& stack) {
     appendEqualityConstraints(*problem.equalityConstraintPtr, point, preComputation, fingerprint);
     appendSwingFootCoefficients(preComputation, fingerprint);
   }
+  appendWalkingStateReference(interface, target, points, fingerprint);
   appendPenalties(problem, /*time=*/0.0, fingerprint);
   appendSolverSettings(solver, fingerprint);
   return fingerprint;

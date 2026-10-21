@@ -17,6 +17,11 @@ message TaskSpaceWeights {
   double pos_x = 1 [default = 0.0];
   double pos_y = 2 [default = 0.0];
   double pos_z = 3 [default = 0.0];
+  // The orientation errors are angles, so these three weights are per rad^2 of rotation about the world x, y and z axes:
+  // the rotation vector Log(q_ref (x) q^-1) of the named link costs (computeTaskSpaceErrors()), and for
+  // task_space_foot_cost the foot's tilt from the ground as a rotation vector (tiltAngleToPlane()), whose z entry the
+  // centroidal foot cost replaces with the wrapped error of a planned foot yaw. Both were half-angle residuals
+  // sin(theta / 2) before; a weight w there is w / 4 here at small angles, which is how the shipped weights were rescaled.
   double orientation_x = 4 [default = 0.0];
   double orientation_y = 5 [default = 0.0];
   double orientation_z = 6 [default = 0.0];

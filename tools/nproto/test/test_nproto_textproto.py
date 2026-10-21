@@ -34,6 +34,7 @@ problems is text_format's, so only their position is compared.
 
 import importlib
 import os
+import tempfile
 import unittest
 
 from google.protobuf import descriptor_pb2
@@ -104,6 +105,19 @@ class TextprotoTest(ParserTestCase):
             oneofs_pb2.Oneofs(),
             "message.textproto",
             "message.textproto:2:3: ",
+        )
+        # Columns count characters, as the C++ parser's do: a tab is one, and so is a character of several bytes.
+        self.assert_invalid(
+            "\tbogus: 1\n",
+            scalars_pb2.Scalars(),
+            "tab.textproto",
+            "tab.textproto:1:2: ",
+        )
+        self.assert_invalid(
+            'string_value: "\u00c4" bogus: 1\n',
+            scalars_pb2.Scalars(),
+            "utf8.textproto",
+            "utf8.textproto:1:19: ",
         )
 
     def test_a_value_of_the_wrong_type_is_an_error_with_its_line_and_column(self):
@@ -304,6 +318,76 @@ class HeaderTest(ParserTestCase):
                 nproto_textproto.header_message(file.read()), (2, "nproto_test.Scalars")
             )
         self.assertTrue(os.path.isfile(SCALARS_FILE))
+
+
+class FileHeaderTest(unittest.TestCase):
+    def test_a_file_that_names_no_message_is_refused(self):
+        with tempfile.NamedTemporaryFile(
+            "w", suffix=".textproto", delete=False, encoding="utf-8"
+        ) as handle:
+            handle.write("# A comment.\nint32_value: 1\n")
+            path = handle.name
+        self.addCleanup(os.remove, path)
+        with self.assertRaises(nproto_textproto.TextprotoError) as caught:
+            nproto_textproto.load_textproto(path, scalars_pb2.Scalars)
+        # The C++ parser's words (tools/nproto/test/testTextproto.cpp, AFileThatNamesNoMessageIsRefused).
+        self.assertEqual(
+            str(caught.exception),
+            f"{path}:1:1: {path} names no schema: a configuration file opens with "
+            "'# proto-message: nproto_test.Scalars' in its leading comment block",
+        )
+
+    def test_a_written_file_names_its_schema_and_loads_back(self):
+        scalars = scalars_pb2.Scalars(int32_value=7, string_value="seven")
+        text = nproto_textproto.file_text(scalars)
+        self.assertTrue(text.startswith("# proto-message: nproto_test.Scalars\n"), text)
+        with tempfile.NamedTemporaryFile(
+            "w", suffix=".textproto", delete=False, encoding="utf-8"
+        ) as handle:
+            handle.write(text)
+            path = handle.name
+        self.addCleanup(os.remove, path)
+        self.assertEqual(
+            nproto_textproto.load_textproto(path, scalars_pb2.Scalars), scalars
+        )
+        with self.assertRaises(nproto_textproto.TextprotoError):
+            nproto_textproto.load_textproto(path, oneofs_pb2.Oneofs)
+
+    def test_the_header_is_looked_for_in_the_leading_comment_block_only(self):
+        check = nproto_textproto.check_proto_message_header
+        with self.assertRaises(nproto_textproto.TextprotoError):
+            check("int32_value: 1\n", scalars_pb2.Scalars(), "text")
+        with self.assertRaises(nproto_textproto.TextprotoError):
+            check(
+                "int32_value: 1\n# proto-message: nproto_test.Scalars\n",
+                scalars_pb2.Scalars(),
+                "text",
+            )
+        check(
+            "\n# A comment.\n  # proto-message: nproto_test.Scalars\nint32_value: 1\n",
+            scalars_pb2.Scalars(),
+            "text",
+        )
+        # Text from memory needs no header.
+        nproto_textproto.parse_textproto(
+            "int32_value: 1\n", scalars_pb2.Scalars(), "inline"
+        )
+
+
+class ReadTextprotoFileTest(unittest.TestCase):
+    def test_non_utf8_file_raises_textproto_error_with_position_and_description(self):
+        with tempfile.NamedTemporaryFile(delete=False) as handle:
+            handle.write(b"double_value: 1.0\n\xff\xfe")
+            path = handle.name
+        self.addCleanup(os.remove, path)
+
+        with self.assertRaises(nproto_textproto.TextprotoError) as error:
+            nproto_textproto.read_textproto_file(path)
+        self.assertIn(f"{path}:1:1: cannot decode as UTF-8:", str(error.exception))
+
+        with self.assertRaises(nproto_textproto.TextprotoError) as error:
+            nproto_textproto.load_textproto(path, scalars_pb2.Scalars)
+        self.assertIn(f"{path}:1:1: cannot decode as UTF-8:", str(error.exception))
 
 
 if __name__ == "__main__":

@@ -192,9 +192,10 @@ def run(args: argparse.Namespace, stop: threading.Event | None = None) -> str:
             subscribe(bus, writer)
             bus.start()
             _LOGGER.info(
-                "recording %s from %s into %s",
+                "recording %s from DDS domain %d (peers %s) into %s",
                 topics.ROBOT_MPC_OBSERVATION,
-                ", ".join(bus.subscriber_endpoints),
+                bus.domain_id,
+                ", ".join(bus.discovery_peers),
                 path,
             )
             deadline = time.monotonic() + args.duration if args.duration > 0.0 else None

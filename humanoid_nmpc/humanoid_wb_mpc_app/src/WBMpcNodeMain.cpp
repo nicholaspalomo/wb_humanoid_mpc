@@ -44,23 +44,22 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 
 #include "humanoid_common_mpc/common/ThreadAffinity.h"
+#include "humanoid_common_mpc/config/ConfigFiles.h"
+#include "humanoid_common_mpc/config/solver/SolverSettingsFromConfig.h"
+#include "humanoid_common_mpc_app/node/ExitCodes.h"
 #include "humanoid_common_mpc_app/node/MpcAppFlags.h"
 #include "humanoid_common_mpc_app/node/MpcFiles.h"
 #include "humanoid_common_mpc_app/node/MpcNodeRuntime.h"
 #include "humanoid_common_mpc_app/node/NodeBus.h"
 #include "humanoid_common_mpc_app/node/ShutdownSignal.h"
+#include "humanoid_mpc_config/task_file.nproto.h"
 #include "humanoid_wb_mpc_app/WBMpcNode.h"
 #include "robot_ipc/Bus.h"
 
-// The default of --realtime_priority: the solver thread stays on the time-sharing scheduler.
-constexpr int kTimeSharingScheduler = 0;
-
 // LINT.IfChange(node_flags)
 ABSL_FLAG(std::string, ipc_node, "mpc", "The bus node this process publishes as (a node of the network file).");
-ABSL_FLAG(int,
-          realtime_priority,
-          kTimeSharingScheduler,
-          "SCHED_FIFO priority of the MPC solver thread, 1-99; 0 keeps it on the time-sharing scheduler.");
+// The solver threads' priority and the walking command timeout are the task file's (multiple_shooting.thread_priority,
+// interface.walking_command_timeout; mpcNodeSettingsFromConfig()).
 // clang-format off
 // LINT.ThenChange(//humanoid_nmpc/humanoid_wb_mpc_app/README.md:node_flags, //humanoid_nmpc/humanoid_centroidal_mpc_app/src/CentroidalMpcNodeMain.cpp:node_flags)
 // clang-format on
@@ -73,7 +72,7 @@ int main(int argc, char* absl_nonnull* absl_nonnull argv) {
   absl::SetProgramUsageMessage(
       "The whole-body MPC node: solves the robot's observations (robot/mpc_observation) and publishes the policies "
       "(mpc/policy, mpc/status) on the bus.\n  humanoid_wb_mpc_node --robot_name=g1 --task_file=... "
-      "--reference_file=... --urdf_file=... --gait_file=... [--network_config=...] [--ipc_node=mpc] [--realtime_priority=0]");
+      "--reference_file=... --urdf_file=... --gait_file=... [--network_config=...] [--ipc_node=mpc]");
   absl::ParseCommandLine(argc, argv);
   // Without InitializeLog() Abseil warns once and writes everything to stderr anyway; with it the default stderr
   // threshold is ERROR, so the INFO records have to be asked for.
@@ -85,7 +84,7 @@ int main(int argc, char* absl_nonnull* absl_nonnull argv) {
   const ocs2::humanoid::node::MpcFiles files = ocs2::humanoid::node::mpcFilesFromFlags();
   if (const absl::Status valid = ocs2::humanoid::node::validateMpcFiles(files); !valid.ok()) {
     LOG(ERROR) << valid.message();
-    return 2;
+    return ocs2::humanoid::node::kUsageErrorExitCode;
   }
   const std::string robotName = absl::GetFlag(FLAGS_robot_name);
   LOG(INFO) << "[humanoid_wb_mpc_node] " << (robotName.empty() ? std::string("robot") : robotName) << ": task file " << files.taskFile;
@@ -99,11 +98,23 @@ int main(int argc, char* absl_nonnull* absl_nonnull argv) {
       ocs2::humanoid::node::createNodeBus(absl::GetFlag(FLAGS_network_config), absl::GetFlag(FLAGS_ipc_node));
   if (!bus.ok()) {
     LOG(ERROR) << "The bus: " << bus.status();
-    return 2;
+    return ocs2::humanoid::node::kUsageErrorExitCode;
   }
 
   ocs2::humanoid::WBMpcNode::Options options;
-  options.solverThread = ocs2::humanoid::node::defaultSolverThreadConfig(absl::GetFlag(FLAGS_realtime_priority));
+  // One priority for every solver thread, and the walking command timeout, from the task file.
+  const absl::StatusOr<ocs2::humanoid::mpc_config::TaskFile> task = ocs2::humanoid::loadTaskFile(files.taskFile);
+  if (!task.ok()) {
+    LOG(ERROR) << "The task file: " << task.status();
+    return ocs2::humanoid::node::kUsageErrorExitCode;
+  }
+  const absl::StatusOr<ocs2::humanoid::MpcNodeSettings> settings = ocs2::humanoid::mpcNodeSettingsFromConfig(*task);
+  if (!settings.ok()) {
+    LOG(ERROR) << files.taskFile << ": " << settings.status();
+    return ocs2::humanoid::node::kUsageErrorExitCode;
+  }
+  options.solverThread = ocs2::humanoid::node::defaultSolverThreadConfig(settings->solverThreadPriority);
+  options.walkingCommandTimeout = settings->walkingCommandTimeout;
   // The node also publishes viz/scene and viz/telemetry for the Rerun bridge (humanoid_common_mpc_app/visualization), from
   // a thread of its own under SCHED_IDLE, on the MPC cores it inherits from this thread: a solver thread that wakes
   // there takes the core at once.

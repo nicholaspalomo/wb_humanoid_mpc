@@ -35,7 +35,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-/** `contact_switch`: a price per lift-off / touch-down event of the decided nodes. */
+/**
+ * `contact_switch`: a price per lift-off / touch-down event of the decided nodes.
+ *
+ * Not thread-safe, like every ContactPlanningTerm: the planner that owns it configures and evaluates it from one thread at a time.
+ */
 class ContactSwitchCost final : public AssignmentCost {
  public:
   std::string describe() const override;

@@ -43,6 +43,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/config/swing/SwingTrajectoryFromConfig.h"
 #include "humanoid_common_mpc/parameter_update/ContactImplicitApplier.h"
 #include "humanoid_common_mpc/parameter_update/OcpTermUpdates.h"
+#include "humanoid_common_mpc/reference_manager/ArmSwing.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 #include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
 
@@ -51,9 +52,10 @@ namespace ocs2::humanoid {
 namespace {
 
 // LINT.IfChange(reference_manager_fields)
-constexpr std::array<absl::string_view, 2> kFields = {
+constexpr std::array<absl::string_view, 3> kFields = {
     "terrain_height",
     "swing_trajectory_config",
+    "arm_swing",
 };
 // LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_config/task_file.proto)
 
@@ -82,9 +84,12 @@ void ReferenceManagerApplier::apply(HotUpdateTarget& target) {
   if (referenceManager == nullptr) return;
   if (const std::optional<SwingTrajectoryPlanner::Config> swingTrajectory = convertedOrReported(
           swingTrajectorySettingsFromConfig(target.task().swing_trajectory_config), target.source(), "swing_trajectory_config")) {
-    if (const std::shared_ptr<SwingTrajectoryPlanner>& swingPlanner = referenceManager->getSwingTrajectoryPlanner()) {
-      swingPlanner->setConfig(*swingTrajectory);
-    }
+    referenceManager->getSwingTrajectoryPlanner()->setConfig(*swingTrajectory);
+  }
+  // The arm swing's generator and tuning; the joint directions derived from the model at start-up stay.
+  if (const std::optional<ArmSwingSettings> armSwing =
+          convertedOrReported(armSwingSettingsFromConfig(target.task().arm_swing), target.source(), "arm_swing")) {
+    referenceManager->setArmSwingSettings(*armSwing);
   }
 }
 

@@ -49,6 +49,8 @@ namespace ocs2::humanoid::validation {
  * manager, the contact planner module (contact_schedule_source: "contact_planner") and the parameter updater as synchronized
  * modules. And CentroidalMpcMrtJointController as its robot binary builds it (CentroidalMpcRobotMain.cpp), with the task
  * file's controller settings, behind MrtRobotController with the binary's CycleInputOrder.
+ *
+ * Not thread-safe: one thread drives a run.
  */
 class CentroidalClosedLoopDriver final : public ClosedLoopDriver {
  public:

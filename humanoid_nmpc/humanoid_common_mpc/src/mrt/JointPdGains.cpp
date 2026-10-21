@@ -29,19 +29,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/mrt/JointPdGains.h"
 
-#include <cmath>
 #include <filesystem>
-#include <limits>
 #include <optional>
 #include <string>
 #include <system_error>
 #include <utility>
 #include <vector>
 
-#include "absl/container/flat_hash_map.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/config/ConfigFiles.h"
@@ -49,51 +47,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_mpc_config/joint_pd_gains_file.nproto.h"
 
 namespace ocs2::humanoid {
-
-namespace {
-
-/** The torque limit of `gains` [N*m]: +infinity for a controller that commands none. */
-scalar_t torqueLimitOf(const JointPdGainsDefaults& gains) {
-  return gains.torqueLimit.value_or(std::numeric_limits<scalar_t>::infinity());
-}
-
-/** The gains of every joint for the named gains `named` over `defaults` (see jointPdGainsFromConfig()). */
-JointPdGains resolveJointPdGains(const JointPdGainsDefaults& defaults,
-                                 const absl::flat_hash_map<std::string, JointPdGainsDefaults>& named,
-                                 const std::vector<std::string>& mpcJointNames,
-                                 const std::vector<std::string>& otherJointNames) {
-  JointPdGains gains;
-  gains.defaults = defaults;
-  gains.mpcJointKp.resize(mpcJointNames.size());
-  gains.mpcJointKd.resize(mpcJointNames.size());
-  gains.mpcJointTorqueLimit.resize(mpcJointNames.size());
-  gains.otherJointKp.resize(otherJointNames.size());
-  gains.otherJointKd.resize(otherJointNames.size());
-  gains.otherJointTorqueLimit.resize(otherJointNames.size());
-
-  for (size_t i = 0; i < mpcJointNames.size(); ++i) {
-    const absl::flat_hash_map<std::string, JointPdGainsDefaults>::const_iterator it = named.find(mpcJointNames[i]);
-    const JointPdGainsDefaults& joint = it != named.end() ? it->second : defaults;
-    gains.mpcJointKp[i] = joint.kp;
-    gains.mpcJointKd[i] = joint.kd;
-    gains.mpcJointTorqueLimit[i] = torqueLimitOf(joint);
-  }
-  for (size_t i = 0; i < otherJointNames.size(); ++i) {
-    const absl::flat_hash_map<std::string, JointPdGainsDefaults>::const_iterator it = named.find(otherJointNames[i]);
-    if (it != named.end()) {
-      gains.otherJointKp[i] = it->second.kp;
-      gains.otherJointKd[i] = it->second.kd;
-      gains.otherJointTorqueLimit[i] = torqueLimitOf(it->second);
-    } else {
-      gains.otherJointKp[i] = defaults.kp * kOtherJointDefaultGainScale;
-      gains.otherJointKd[i] = defaults.kd * kOtherJointDefaultGainScale;
-      gains.otherJointTorqueLimit[i] = torqueLimitOf(defaults);
-    }
-  }
-  return gains;
-}
-
-}  // namespace
 
 bool JointPdGains::hasDimensions(size_t numMpcJoints, size_t numOtherJoints) const {
   const Eigen::Index mpc = static_cast<Eigen::Index>(numMpcJoints);
@@ -105,33 +58,64 @@ bool JointPdGains::hasDimensions(size_t numMpcJoints, size_t numOtherJoints) con
 JointPdGains defaultJointPdGains(const JointPdGainsDefaults& defaults,
                                  const std::vector<std::string>& mpcJointNames,
                                  const std::vector<std::string>& otherJointNames) {
-  return resolveJointPdGains(defaults, /*named=*/{}, mpcJointNames, otherJointNames);
+  JointPdGains gains;
+  gains.defaults = defaults;
+  gains.mpcJointKp = vector_t::Constant(static_cast<Eigen::Index>(mpcJointNames.size()), defaults.kp);
+  gains.mpcJointKd = vector_t::Constant(static_cast<Eigen::Index>(mpcJointNames.size()), defaults.kd);
+  gains.mpcJointTorqueLimit = vector_t::Constant(static_cast<Eigen::Index>(mpcJointNames.size()), defaults.torqueLimit);
+  gains.otherJointKp = vector_t::Constant(static_cast<Eigen::Index>(otherJointNames.size()), defaults.kp * kOtherJointDefaultGainScale);
+  gains.otherJointKd = vector_t::Constant(static_cast<Eigen::Index>(otherJointNames.size()), defaults.kd * kOtherJointDefaultGainScale);
+  gains.otherJointTorqueLimit = vector_t::Constant(static_cast<Eigen::Index>(otherJointNames.size()), defaults.torqueLimit);
+  gains.gravityCompDampingFraction = mpc_config::JointPdGainsFile::kDefaultGravityCompDampingFraction;
+  gains.maxPolicyJointError = mpc_config::JointPdGainsFile::kDefaultMaxPolicyJointError;
+  gains.divergedPolicyJointTargetBound = mpc_config::JointPdGainsFile::kDefaultDivergedPolicyJointTargetBound;
+  return gains;
 }
 
-absl::StatusOr<std::optional<JointPdGains>> loadJointPdGains(const std::string& file,
-                                                             const JointPdGainsDefaults& defaults,
+absl::StatusOr<std::optional<JointPdGains>> loadJointPdGains(absl::string_view file,
                                                              const std::vector<std::string>& mpcJointNames,
                                                              const std::vector<std::string>& otherJointNames) {
   std::error_code error;
-  if (file.empty() || !std::filesystem::exists(file, error)) {
+  if (file.empty() || !std::filesystem::exists(std::filesystem::path(file), error)) {
     return std::nullopt;
   }
   // The parser's errors name the file, the line and the column already.
   ASSIGN_OR_RETURN(const mpc_config::JointPdGainsFile typed, loadJointPdGainsFile(file));
-  absl::StatusOr<JointPdGains> gains = jointPdGainsFromConfig(typed, defaults, mpcJointNames, otherJointNames);
+  absl::StatusOr<JointPdGains> gains = jointPdGainsFromConfig(typed, mpcJointNames, otherJointNames);
   if (!gains.ok()) {
     return absl::InvalidArgumentError(absl::StrCat(file, ": ", gains.status().message()));
   }
   return std::optional<JointPdGains>(*std::move(gains));
 }
 
-std::filesystem::file_time_type jointPdGainsFileWriteTime(const std::string& file) {
+absl::StatusOr<JointPdGains> loadRequiredJointPdGains(absl::string_view file,
+                                                      const std::vector<std::string>& mpcJointNames,
+                                                      const std::vector<std::string>& otherJointNames,
+                                                      absl::string_view controller) {
+  if (file.empty()) {
+    return absl::InvalidArgumentError(
+        absl::StrCat("[", controller, "] no joint PD gains file was given: the controller has no gains of its own and does not start."));
+  }
+  absl::StatusOr<std::optional<JointPdGains>> loaded = loadJointPdGains(file, mpcJointNames, otherJointNames);
+  if (!loaded.ok()) {
+    return absl::Status(loaded.status().code(),
+                        absl::StrCat("[", controller, "] The joint PD gains file ", file,
+                                     " was refused, so the controller does not start: ", loaded.status().message()));
+  }
+  if (!loaded->has_value()) {
+    return absl::NotFoundError(absl::StrCat("[", controller, "] the joint PD gains file ", file,
+                                            " does not exist: the controller has no gains of its own and does not start."));
+  }
+  return **std::move(loaded);
+}
+
+std::filesystem::file_time_type jointPdGainsFileWriteTime(absl::string_view file) {
   // The std::error_code overloads, which do not throw (AGENTS.md, <filesystem>).
   std::error_code error;
-  if (file.empty() || !std::filesystem::exists(file, error)) {
+  if (file.empty() || !std::filesystem::exists(std::filesystem::path(file), error)) {
     return std::filesystem::file_time_type();
   }
-  return std::filesystem::last_write_time(file, error);
+  return std::filesystem::last_write_time(std::filesystem::path(file), error);
 }
 
 }  // namespace ocs2::humanoid

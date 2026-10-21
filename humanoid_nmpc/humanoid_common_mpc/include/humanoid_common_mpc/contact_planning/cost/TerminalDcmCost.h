@@ -41,6 +41,8 @@ namespace ocs2::humanoid {
  * of motion, r = 0 (come to rest) or, with trackCommandedVelocity, r = v_cmd / omega (keep walking). It is written on
  * the last running node, whose ZMP is a variable, as w e^{2 omega dt} ||xi_{N-1} - zmp_{N-1} - e^{-omega dt} r||^2,
  * which is the same function because xi_N - zmp_{N-1} = e^{omega dt} (xi_{N-1} - zmp_{N-1}).
+ *
+ * Not thread-safe, like every ContactPlanningTerm: the planner that owns it configures and evaluates it from one thread at a time.
  */
 class TerminalDcmCost final : public LipWeightedCost {
  public:

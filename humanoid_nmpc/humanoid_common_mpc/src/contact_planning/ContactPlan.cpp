@@ -36,6 +36,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
+#include "ocs2_core/PhysicalConstants.h"
 
 #include "humanoid_common_mpc/contact_planning/ContactScheduleAdaptation.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
@@ -45,13 +46,13 @@ namespace ocs2::humanoid {
 namespace {
 // [s] a continuous-time phase shorter than this is not a phase of the mode schedule (it has no duration to execute).
 constexpr scalar_t kMinModeDuration = 1.0e-6;
-// [s] how close to an event a time must be to count as at or after it.
-constexpr scalar_t kEventTimeTolerance = 1.0e-9;
+// [s] how far after the last event of a merged schedule its closing STANCE begins at the earliest.
+constexpr scalar_t kClosingStanceDelay = 1.0e-3;
 }  // namespace
 
 std::string ContactPlan::describe() const {
   std::string out = absl::StrFormat("plan t=%.3f%s J=%.3f relaxations=%d solve=%.3fms%s%s%s", startTime, valid ? " valid" : " INVALID",
-                                    objective, numBranchAndBoundNodes, solveTime * 1.0e3, optimal ? " optimal" : "",
+                                    objective, numBranchAndBoundNodes, solveTime * kMillisecondsPerSecond, optimal ? " optimal" : "",
                                     nodeLimitHit ? " NODE-LIMIT" : "", timeLimitHit ? " TIME-LIMIT" : "");
   // A step the reach clip had to cut is no longer the deadbeat step, so it is worth seeing in the log.
   if (numClippedSteps > 0) absl::StrAppend(&out, " CLIPPED-STEPS=", numClippedSteps);
@@ -100,7 +101,7 @@ std::string ContactPlan::describe() const {
 
 int ContactPlan::intervalIndex(scalar_t time) const {
   if (contacts.empty()) return 0;
-  const int k = static_cast<int>(std::floor((time - startTime) / dt + 1.0e-9));
+  const int k = static_cast<int>(std::floor((time - startTime) / dt + ContactPlanningConfig::kNodeRoundingTolerance));
   return std::clamp(k, 0, numIntervals() - 1);
 }
 
@@ -157,11 +158,24 @@ std::optional<scalar_t> ContactPlan::footYawBeforeTime(size_t contactIndex, scal
   return footYaws[clamped][contactIndex];
 }
 
+namespace {
+// The plan's own reduced model at `time`, clamped to the plan; empty when the plan records no pendulum or its
+// per-interval data is inconsistent (lipReferenceState's checks).
+std::optional<LipState> planReducedModelState(const ContactPlan& plan, scalar_t time) {
+  if (!(plan.omega > 0.0)) return std::nullopt;
+  return lipReferenceState(plan, plan.omega, std::clamp(time, plan.startTime, plan.endTime()));
+}
+}  // namespace
+
 std::optional<vector2_t> ContactPlan::comPositionAtTime(scalar_t time) const {
+  const std::optional<LipState> state = planReducedModelState(*this, time);
+  if (state.has_value()) return state->com;
   return interpolateNodes(comPosition, startTime, dt, valid ? time : startTime);
 }
 
 std::optional<vector2_t> ContactPlan::comVelocityAtTime(scalar_t time) const {
+  const std::optional<LipState> state = planReducedModelState(*this, time);
+  if (state.has_value()) return state->comVelocity;
   return interpolateNodes(comVelocity, startTime, dt, valid ? time : startTime);
 }
 
@@ -244,7 +258,7 @@ ModeSchedule mergeModeSchedules(
   }
 
   // Part 2: the plan from commitTime on.
-  const size_t planModeAtCommit = plan.modeAtTime(commitTime + 1.0e-9);
+  const size_t planModeAtCommit = plan.modeAtTime(commitTime + kEventTimeTolerance);
   if (planModeAtCommit != modeSequence.back()) {
     eventTimes.push_back(commitTime);
     modeSequence.push_back(planModeAtCommit);
@@ -267,7 +281,7 @@ ModeSchedule mergeModeSchedules(
     modeSequence.insert(modeSequence.begin(), ModeNumber::kStance);
   }
   if (modeSequence.back() != ModeNumber::kStance) {
-    const scalar_t lastTime = eventTimes.empty() ? upperBoundTime : std::max(upperBoundTime, eventTimes.back() + 1.0e-3);
+    const scalar_t lastTime = eventTimes.empty() ? upperBoundTime : std::max(upperBoundTime, eventTimes.back() + kClosingStanceDelay);
     eventTimes.push_back(lastTime);
     modeSequence.push_back(ModeNumber::kStance);
   }

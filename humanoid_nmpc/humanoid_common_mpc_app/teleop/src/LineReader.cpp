@@ -38,10 +38,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <utility>
 
 namespace ocs2::humanoid::teleop {
+namespace {
+
+/** [bytes] The most one read() takes from the file descriptor. */
+constexpr size_t kReadChunkSize = 256;
+
+}  // namespace
 
 LineReader::LineReader(int fileDescriptor, absl::Duration pollPeriod) : fileDescriptor_(fileDescriptor), pollPeriod_(pollPeriod) {}
 
-std::optional<std::string> LineReader::readLine(const std::function<bool()>& shouldStop) {
+std::optional<std::string> LineReader::readLine(absl::FunctionRef<bool()> shouldStop) {
   while (true) {
     const size_t lineBreak = buffer_.find('\n');
     if (lineBreak != std::string::npos) {
@@ -66,7 +72,7 @@ std::optional<std::string> LineReader::readLine(const std::function<bool()>& sho
       return std::nullopt;
     }
     if (ready == 0) continue;
-    char chunk[256];
+    char chunk[kReadChunkSize];
     const ssize_t count = ::read(fileDescriptor_, chunk, sizeof(chunk));
     if (count < 0) {
       if (errno == EINTR || errno == EAGAIN) continue;

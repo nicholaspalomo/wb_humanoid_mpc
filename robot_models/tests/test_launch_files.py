@@ -138,6 +138,36 @@ def flags_of(program: str) -> set[str]:
     return _flag_cache[program]
 
 
+def first_party_flags_of(program: str) -> set[str]:
+    """The flags an Abseil binary defines in the repository's own sources.
+
+    They are read from the "Flags from <file>" groups of its `--helpfull`; the groups of external/ libraries
+    (Abseil's own --flagfile, ...) are left out.
+
+    Args:
+        program: The binary, an Abseil one; it is started with `--helpfull` in the runfiles.
+
+    Returns:
+        The names of the flags, without the leading `--`.
+    """
+    result = subprocess.run(
+        [program, "--helpfull"],
+        capture_output=True,
+        text=True,
+        timeout=120,
+        cwd=RUNFILES,
+        check=False,  # The flags are read from the help text, whatever the exit status.
+    )
+    flags: set[str] = set()
+    first_party = False
+    for line in (result.stdout + result.stderr).splitlines():
+        if group := re.match(r"\s*Flags from (\S+):$", line):
+            first_party = not group.group(1).startswith("external/")
+        elif first_party and (flag := re.match(r"\s{4}--([A-Za-z0-9_]+)", line)):
+            flags.add(flag.group(1))
+    return flags
+
+
 class LaunchFilesTest(unittest.TestCase):
     def test_every_robot_has_its_launch_files(self) -> None:
         for path in launch_paths():
@@ -292,6 +322,84 @@ class LaunchFilesTest(unittest.TestCase):
                     )
                 self.assertEqual(names, ["web"])
                 self.assertLessEqual(set(names), set(VIEWER_NAMES))
+
+    def test_the_distributed_readme_lists_the_flags_each_binary_defines(self) -> None:
+        # humanoid_nmpc/docs/distributed_runtime/README.md, "Configuration": the flags every binary takes and those the
+        # robot binaries add, against the flags each binary defines in the repository's sources.
+        path = os.path.join(
+            RUNFILES, "humanoid_nmpc/docs/distributed_runtime/README.md"
+        )
+        with open(path, encoding="utf-8") as stream:
+            block = re.search(
+                r"LINT\.IfChange\(command_line_flags\) -->\n(.*?)<!-- LINT\.ThenChange",
+                stream.read(),
+                re.S,
+            )
+        assert block is not None
+
+        def listed(lead: str) -> set[str]:
+            words = r"\s+".join(lead.split())  # The README wraps its lines anywhere.
+            match = re.search(rf"{words} `([^`]*)`", block.group(1), re.S)
+            assert match is not None, lead
+            return {flag.removeprefix("--") for flag in match.group(1).split()}
+
+        # The MPC nodes take only the common flags (their solver priority and walking command timeout are task file
+        # fields); the README says so in words, which the exact comparison below holds it to.
+        self.assertRegex(
+            block.group(1), r"the\s+MPC\s+nodes\s+have\s+no\s+flag\s+of\s+their\s+own"
+        )
+
+        common = listed("every binary takes")
+        binaries: dict[str, set[str]] = {
+            "mpc": set(),
+            "dummy_sim": set(),
+            "robot": set(),
+        }
+        for _, package, _ in ROBOT_CONFIGURATIONS:
+            for name in MPC_LAUNCH_FILES:
+                for process in load(os.path.join(package, "launch", name)).processes:
+                    if process.name in binaries:
+                        binaries[process.name].add(process.command[0])
+        for role, extra in (
+            ("mpc", set()),
+            ("dummy_sim", set()),
+            ("robot", listed("the robot binaries add")),
+        ):
+            self.assertTrue(binaries[role], role)
+            for program in sorted(binaries[role]):
+                with self.subTest(binary=os.path.basename(program)):
+                    # Exactly: a flag the README lists that the binary lacks, or one the binary defines that the
+                    # README leaves out, both fail.
+                    self.assertEqual(first_party_flags_of(program), common | extra)
+
+    def test_the_gui_hands_the_walking_command_over_by_a_variable(self) -> None:
+        # A teleoperation publisher next to the GUI needs --set gui_walking_commands=off; the default publishes, as the
+        # GUI did before the variable existed.
+        for path in launch_paths():
+            launch = load(path)
+            guis = [
+                process
+                for process in launch.processes
+                if os.path.basename(process.command[0])
+                == "base_velocity_controller_gui"
+            ]
+            with self.subTest(path=path):
+                for process in guis:
+                    self.assertIn("--walking_commands=publish", process.command)
+                if guis:
+                    self.assertEqual(
+                        launch.variables["gui_walking_commands"], "publish"
+                    )
+                    overridden = launch_file.load_launch_file(
+                        os.path.join(RUNFILES, path),
+                        overrides={"bin_dir": RUNFILES, "gui_walking_commands": "off"},
+                        builtins={"repo_root": RUNFILES},
+                    )
+                    for process in overridden.processes:
+                        if os.path.basename(process.command[0]) == (
+                            "base_velocity_controller_gui"
+                        ):
+                            self.assertIn("--walking_commands=off", process.command)
 
     def test_the_mpc_and_the_robot_are_never_in_one_launch_file(self) -> None:
         # Simulation runs the hardware topology: no launch file starts the robot process next to the MPC.

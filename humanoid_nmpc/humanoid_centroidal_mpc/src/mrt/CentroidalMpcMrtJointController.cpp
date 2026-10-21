@@ -53,6 +53,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/synchronization/mutex.h"
 #include "ocs2_centroidal_model/AccessHelperFunctions.h"
 #include "ocs2_centroidal_model/ModelHelperFunctions.h"
+#include "ocs2_core/Dimensions.h"
+#include "ocs2_core/manifold/UnitQuaternionMath.h"
 
 #include "humanoid_centroidal_mpc/mrt/CentroidalMpcResetTarget.h"
 #include "humanoid_common_mpc/common/StateManifoldFactory.h"
@@ -62,20 +64,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/mrt/ControlMode.h"
 #include "humanoid_common_mpc/mrt/InProcessMpcLink.h"
 #include "humanoid_common_mpc/mrt/JointActionAccess.h"
+#include "humanoid_common_mpc/mrt/JointActionBlend.h"
 #include "humanoid_common_mpc/mrt/LoggingControllerEventSink.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
 #include "humanoid_common_mpc/reference_manager/ProceduralMpcMotionManager.h"
 #include "robot_model/RobotStateContactEstimator.h"
 
-// Pinocchio algorithm headers (must come after pinocchio/fwd.hpp)
-#include "pinocchio/algorithm/rnea.hpp"
-
 namespace ocs2::humanoid {
 
 namespace {
-
-/** The modes a policy may carry: the contact flags of the two feet, FLY to STANCE (MotionPhaseDefinition.h). */
-constexpr size_t kNumPolicyModes = static_cast<size_t>(ModeNumber::kStance) + 1;
 
 /** The class name the events carry. */
 constexpr char kControllerName[] = "CentroidalMpcMrtJointController";
@@ -115,9 +112,15 @@ absl::StatusOr<std::unique_ptr<CentroidalMpcMrtJointController>> CentroidalMpcMr
   // The manifold of the state the controller writes and the policy acts on, which the evaluator retains. The basis-input
   // decorator keeps the wrapped model's state, so the manifold is the same for both.
   ASSIGN_OR_RETURN(std::shared_ptr<const StateManifold> stateManifold, stateManifoldOf(mpcRobotModel));
-  std::unique_ptr<CentroidalMpcMrtJointController> controller = absl::WrapUnique(
-      new CentroidalMpcMrtJointController(robotDescription, modelSettings, mpcRobotModel, mpcLinkFactory, std::move(pinocchioInterface),
-                                          pdGainsFile, effectiveMpcRobotModel, std::move(initialPdGains), std::move(stateManifold)));
+  // The rigid-body dynamics of the control cycle, on a FreeFlyer twin of the model, at the sole frames it then reads
+  // unchecked.
+  RETURN_IF_ERROR(checkContactFramesExist(pinocchioInterface.getModel(), modelSettings.contactNames));
+  ASSIGN_OR_RETURN(std::unique_ptr<RealtimeRigidBodyDynamics> rigidBodyDynamics,
+                   RealtimeRigidBodyDynamics::Create(pinocchioInterface.getModel(),
+                                                     getContactFrameIndexArray<scalar_t>(pinocchioInterface, mpcRobotModel)));
+  std::unique_ptr<CentroidalMpcMrtJointController> controller = absl::WrapUnique(new CentroidalMpcMrtJointController(
+      robotDescription, modelSettings, mpcRobotModel, mpcLinkFactory, std::move(pinocchioInterface), pdGainsFile, effectiveMpcRobotModel,
+      std::move(initialPdGains), std::move(stateManifold), std::move(rigidBodyDynamics)));
   RETURN_IF_ERROR(controller->checkConstruction());
   return controller;
 }
@@ -130,7 +133,8 @@ CentroidalMpcMrtJointController::CentroidalMpcMrtJointController(const ::robot::
                                                                  const std::string& pdGainsFile,
                                                                  const MpcRobotModelBase<scalar_t>* absl_nullable effectiveMpcRobotModel,
                                                                  InitialPdGains initialPdGains,
-                                                                 std::shared_ptr<const StateManifold> stateManifold)
+                                                                 std::shared_ptr<const StateManifold> stateManifold,
+                                                                 std::unique_ptr<RealtimeRigidBodyDynamics> rigidBodyDynamics)
     : mpcLink_(mpcLinkFactory([this](const SystemObservation& observation) { return currentObservationToResetTrajectory(observation); })),
       contactEstimator_(std::make_shared<::robot::model::RobotStateContactEstimator>()),
       contactEstimateIntake_(kControllerName),
@@ -143,10 +147,12 @@ CentroidalMpcMrtJointController::CentroidalMpcMrtJointController(const ::robot::
       stateManifold_(std::move(stateManifold)),
       policyEvaluator_(
           ipc::ModelDimensions{
-              .stateDim = effectiveModelPtr_->getStateDim(), .inputDim = effectiveModelPtr_->getInputDim(), .numModes = kNumPolicyModes},
+              .stateDim = effectiveModelPtr_->getStateDim(), .inputDim = effectiveModelPtr_->getInputDim(), .numModes = kNumModeNumbers},
           stateManifold_.get()),
       mpcPolicyState_(vector_t::Zero(effectiveModelPtr_->getStateDim())),
       mpcPolicyInput_(vector_t::Zero(effectiveModelPtr_->getInputDim())),
+      rigidBodyDynamics_(std::move(rigidBodyDynamics)),
+      robotWeight_(computeRobotWeight(pinocchioInterface_)),
       pdGainsFile_(pdGainsFile),
       robotJointNames_(robotDescription.getJointNames()),
       mpcModelJointNames_(modelSettings.mpcModelJointNames),
@@ -173,8 +179,10 @@ CentroidalMpcMrtJointController::CentroidalMpcMrtJointController(const ::robot::
   estimatedContactFlags_.assign(kNumContacts, true);
   gravityCoordinates_ = vector_t::Zero(mpcRobotModelPtr_->getConfigurationDim());
   gravityJointPositions_ = vector_t::Zero(mpcJointIndices_.size());
-  zeroGeneralizedVelocity_ = vector_t::Zero(mpcRobotModelPtr_->getVelocityDim());
-  gravityTorques_ = vector_t::Zero(effectiveModelPtr_->getJointDim());
+  plannedCoordinates_ = vector_t::Zero(mpcRobotModelPtr_->getConfigurationDim());
+  policyJointPositions_ = vector_t::Zero(effectiveModelPtr_->getJointDim());
+  policyJointVelocities_ = vector_t::Zero(effectiveModelPtr_->getJointDim());
+  zeroJointAccelerations_ = vector_t::Zero(effectiveModelPtr_->getJointDim());
   safetyHoldMpcJointPositions_ = vector_t::Zero(mpcJointIndices_.size());
   safetyHoldOtherJointPositions_ = vector_t::Zero(otherJointIndices_.size());
   nominalJointPositions_.reserve(robotDescription.getNumJoints());
@@ -183,14 +191,6 @@ CentroidalMpcMrtJointController::CentroidalMpcMrtJointController(const ::robot::
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-
-JointPdGainsDefaults CentroidalMpcMrtJointController::pdGainsDefaults() {
-  JointPdGainsDefaults defaults;
-  defaults.kp = 250.0;
-  defaults.kd = 15.0;
-  defaults.torqueLimit = 500.0;
-  return defaults;
-}
 
 absl::Status CentroidalMpcMrtJointController::checkConstruction() const {
   if (mpcLink_ == nullptr) {
@@ -206,18 +206,10 @@ absl::StatusOr<CentroidalMpcMrtJointController::InitialPdGains> CentroidalMpcMrt
   InitialPdGains initial;
   // The write time first, then the gains: a save that lands between the two is reloaded by the next poll.
   initial.writeTime = jointPdGainsFileWriteTime(pdGainsFile);
-  initial.gains = defaultJointPdGains(pdGainsDefaults(), mpcJointNames, fixedJointNames);
-  absl::StatusOr<std::optional<JointPdGains>> loaded = loadJointPdGains(pdGainsFile, pdGainsDefaults(), mpcJointNames, fixedJointNames);
-  if (!loaded.ok()) {
-    // At start-up there are no gains in use to keep. Starting on the hard-coded defaults instead would give every
-    // joint 500 N*m, also the joints whose actuators deliver a fraction of that, so the controller does not start.
-    return absl::InvalidArgumentError(absl::StrCat("[CentroidalMpcMrtJointController] The joint PD gains file ", pdGainsFile,
-                                                   " was refused, so the controller does not start: ", loaded.status().message()));
-  }
-  if (loaded->has_value()) {
-    initial.gains = **std::move(loaded);
-    LOG(INFO) << "[CentroidalMpcMrtJointController] Loaded joint PD gains from " << pdGainsFile;
-  }
+  // At start-up there are no gains in use to keep, and the controller has none of its own: no file, a missing one or
+  // one it refuses, and it does not start.
+  ASSIGN_OR_RETURN(initial.gains, loadRequiredJointPdGains(pdGainsFile, mpcJointNames, fixedJointNames, kControllerName));
+  LOG(INFO) << "[CentroidalMpcMrtJointController] Loaded joint PD gains from " << pdGainsFile;
 
   // Diagnostic: print actual gain values after loading
   LOG(INFO) << "[PD_GAINS_DEBUG] default_kp=" << initial.gains.defaults.kp << " default_kd=" << initial.gains.defaults.kd;
@@ -246,11 +238,16 @@ absl::Status CentroidalMpcMrtJointController::postPdGains(const absl::StatusOr<J
 }
 
 absl::Status CentroidalMpcMrtJointController::setPdGains(const mpc_config::JointPdGainsFile& gains) {
-  // Its place in line before anything else: gains handed in after these win, however fast they are resolved.
-  const uint64_t ticket = pdGainsMailbox_.takeTicket();
+  uint64_t ticket = 0;
+  {
+    // Its place in line and its arrival before anything else: gains handed in after these win, however fast they are
+    // resolved, and a gains file written before them does not undo them (pollPdGainsFile()).
+    absl::MutexLock lock(&pdGainsFileMutex_);
+    ticket = pdGainsMailbox_.takeTicket();
+    liveGainsArrival_ = std::filesystem::file_time_type::clock::now();
+  }
   LOG(INFO) << "[CentroidalMpcMrtJointController] setPdGains received gains for " << gains.joint_gains.size() << " named joints";
-  RETURN_IF_ERROR(
-      postPdGains(jointPdGainsFromConfig(gains, pdGainsDefaults(), mpcModelJointNames_, fixedJointNames_), "setPdGains", ticket));
+  RETURN_IF_ERROR(postPdGains(jointPdGainsFromConfig(gains, mpcModelJointNames_, fixedJointNames_), "setPdGains", ticket));
   LOG(INFO) << "[CentroidalMpcMrtJointController] PD gains from setPdGains are applied at the next control cycle.";
   return absl::OkStatus();
 }
@@ -264,9 +261,13 @@ void CentroidalMpcMrtJointController::pollPdGainsFile() {
   LOG(INFO) << "[CentroidalMpcMrtJointController] PD gains file changed (old=" << pdGainsLastWriteTime_.time_since_epoch().count()
             << " new=" << last_write.time_since_epoch().count() << "). Reloading...";
   pdGainsLastWriteTime_ = last_write;
+  if (liveGainsArrival_.has_value() && last_write < *liveGainsArrival_) {
+    LOG(INFO) << "[CentroidalMpcMrtJointController] " << pdGainsFile_
+              << " was written before the newest gains of setPdGains(), which supersede it; it was not applied.";
+    return;
+  }
   const uint64_t ticket = pdGainsMailbox_.takeTicket();
-  absl::StatusOr<std::optional<JointPdGains>> loaded =
-      loadJointPdGains(pdGainsFile_, pdGainsDefaults(), mpcModelJointNames_, fixedJointNames_);
+  absl::StatusOr<std::optional<JointPdGains>> loaded = loadJointPdGains(pdGainsFile_, mpcModelJointNames_, fixedJointNames_);
   // A refused file is logged by postPdGains() and leaves the gains in use.
   if (!loaded.ok()) {
     postPdGains(loaded.status(), pdGainsFile_, ticket).IgnoreError();
@@ -315,10 +316,15 @@ void CentroidalMpcMrtJointController::updateMpcState(vector_t& mpcState, const :
                                                               robotState.getRootAngularVelocityInLocalFrame(), mpcJointVelocities_,
                                                               vPinocchio_);
 
-  updateCentroidalDynamics(pinocchioInterface_, info, qPinocchio_);
-  const Eigen::Matrix<scalar_t, 6, Eigen::Dynamic>& A = getCentroidalMomentumMatrix(pinocchioInterface_);
-
-  centroidal_model::getNormalizedMomentum(mpcState, info).noalias() = A * vPinocchio_ / info.robotMass;
+  // h = A(q) v / m, A of updateCentroidalDynamics() for the model type, without its allocations: the whole robot's
+  // momentum (ccrba() on the twin) or the single rigid body's, whose joint block is zero.
+  if (info.centroidalModelType == CentroidalModelType::SingleRigidBodyDynamics) {
+    centroidal_model::getNormalizedMomentum(mpcState, info).noalias() =
+        getSingleRigidBodyBaseMomentumMatrix(info, qPinocchio_) * vPinocchio_.head<centroidal_model::kBaseVelocityDim>() / info.robotMass;
+  } else {
+    centroidal_model::getNormalizedMomentum(mpcState, info) =
+        rigidBodyDynamics_->centroidalMomentum(qPinocchio_, vPinocchio_) / info.robotMass;
+  }
   centroidal_model::getGeneralizedCoordinates(mpcState, info) = qPinocchio_;
 }
 
@@ -371,7 +377,7 @@ void CentroidalMpcMrtJointController::postEvent(ControllerEventCode code, scalar
 
 void CentroidalMpcMrtJointController::setContactEstimator(std::shared_ptr<::robot::model::ContactEstimator> contactEstimator) {
   contactEstimator_ = contactEstimator ? std::move(contactEstimator) : std::make_shared<::robot::model::RobotStateContactEstimator>();
-  const std::string name = contactEstimator_->getName();
+  const absl::string_view name = contactEstimator_->getName();
   contactEstimateIntake_.resetEstimator(name);
   postEvent(ControllerEventCode::kContactEstimatorChanged, /*value0=*/0.0, /*value1=*/0.0, name);
 }
@@ -434,6 +440,7 @@ void CentroidalMpcMrtJointController::computeJointControlAction(scalar_t /*time*
   // Active MPC control path. The policy in use counts as post-reset once it was solved after the last reset the solver
   // thread served and no reset is outstanding: the two checks together are race-free (MpcResetSupervisor).
   mpcLink_->updatePolicy();
+  reportPolicyUpdateLockContention();
   const bool postResetPolicyActive = mpcLink_->isActivePolicyCurrent() && !mpcLink_->hasOutstandingReset();
   policyActivated_.store(postResetPolicyActive);
 
@@ -468,18 +475,20 @@ void CentroidalMpcMrtJointController::computeJointControlAction(scalar_t /*time*
     // Compute actual sim dt from elapsed simulation time (respects RTF)
     scalar_t simDt = currentMpcObservation_.time - previousObservationTime_;
     // Clamp to sane range: avoid zero/negative (first call, time resets) and excessive lookahead
-    simDt = std::clamp(simDt, 0.001, 0.02);
+    simDt = std::clamp(simDt, kMinPolicyLookahead, kMaxPolicyLookahead);
 
-    // Evaluate policy with feedback if activated in config: what MRT_BASE::evaluatePolicy() computes, without its heap
-    // allocations. A policy the evaluator refuses is not left to MRT_BASE::evaluatePolicy(), which allocates, logs and
-    // aborts on a malformed policy: the robot is held as for a solver that keeps failing - the entry's hold on the cycle
-    // that handed over to the policy, the JOINT_PD action otherwise - until a policy the evaluator takes is in use.
-    const scalar_t evaluationTime = currentMpcObservation_.time + simDt;
-    const ipc::RealtimePolicyEvaluator::Outcome outcome = policyEvaluator_.evaluate(
-        mpcLink_->getPolicy(), evaluationTime, currentMpcObservation_.state, mpcPolicyState, mpcPolicyInput, mpcPolicyMode);
-    if (outcome != ipc::RealtimePolicyEvaluator::Outcome::kEvaluated) {
+    // The policy, without MRT_BASE::evaluatePolicy()'s heap allocations: the plan, the joint targets and the
+    // feedforward one lookahead ahead (simDt, about the control period the command is in force), the feedback where
+    // the measurement is (LookaheadPolicyEvaluator). A policy the evaluator refuses is not left to
+    // MRT_BASE::evaluatePolicy(), which allocates, logs and aborts on a malformed policy: the robot is held as for a
+    // solver that keeps failing - the entry's hold on the cycle that handed over to the policy, the JOINT_PD action
+    // otherwise - until a policy the evaluator takes is in use.
+    const LookaheadPolicyEvaluator::Outcome outcome =
+        policyEvaluator_.evaluate(mpcLink_->getPolicy(), currentMpcObservation_.time, simDt, currentMpcObservation_.state, mpcPolicyState,
+                                  mpcPolicyInput, mpcPolicyMode);
+    if (outcome != LookaheadPolicyEvaluator::Outcome::kEvaluated) {
       if (!refusedPolicyReported_) {
-        const PolicyRefusal refusal = outcome == ipc::RealtimePolicyEvaluator::Outcome::kUnsupportedController
+        const PolicyRefusal refusal = outcome == LookaheadPolicyEvaluator::Outcome::kUnsupportedController
                                           ? PolicyRefusal::kUnsupportedController
                                           : PolicyRefusal::kMismatchedPolicy;
         postEvent(ControllerEventCode::kPolicyRefused, static_cast<scalar_t>(refusal));
@@ -495,15 +504,26 @@ void CentroidalMpcMrtJointController::computeJointControlAction(scalar_t /*time*
     refusedPolicyReported_ = false;
     latestPolicyInput_ = mpcPolicyInput;
 
-    // TODO(npalomo): check the inverse dynamics below; something seems wrong with it.
-    vector_t mpc_q_j_des = effectiveModelPtr_->getJointAngles(mpcPolicyState);
-    vector_t mpc_qd_j_des = effectiveModelPtr_->getJointVelocities(mpcPolicyState, mpcPolicyInput);
-    vector_t q_j = effectiveModelPtr_->getJointAngles(currentMpcObservation_.state);
-    vector_t qd_j = effectiveModelPtr_->getJointVelocities(currentMpcObservation_.state, currentMpcObservation_.input);
+    // The feedforward below is the floating-base inverse dynamics at the MEASURED state with zero joint acceleration
+    // (the centroidal input has joint velocities, not accelerations) and the planned contact wrenches as gated by the
+    // measured contact: tau_j = M_jb a_b + nle_j - (J^T W)_j with a_b the base acceleration those wrenches produce
+    // (RealtimeRigidBodyDynamics::freeBaseJointTorques(), computeJointTorques() without its allocations, pinned against
+    // Pinocchio's RNEA by testRealtimeRigidBodyDynamics).
+    //
+    // The planned joint angles and velocities (getJointAngles(), getJointVelocities(): the state's and the input's
+    // joint blocks), into workspaces, and the measured joint angles, the observation's.
+    const Eigen::Index jointDim = static_cast<Eigen::Index>(effectiveModelPtr_->getJointDim());
+    const Eigen::Index jointStart = static_cast<Eigen::Index>(effectiveModelPtr_->getJointStartindex());
+    const Eigen::Index jointVelocitiesStart = static_cast<Eigen::Index>(effectiveModelPtr_->getJointVelocitiesStartindex());
+    vector_t& mpc_q_j_des = policyJointPositions_;
+    vector_t& mpc_qd_j_des = policyJointVelocities_;
+    mpc_q_j_des = mpcPolicyState.segment(jointStart, jointDim);
+    mpc_qd_j_des = mpcPolicyInput.segment(jointVelocitiesStart, jointDim);
+    const Eigen::Ref<const vector_t> q_j = currentMpcObservation_.state.segment(jointStart, jointDim);
 
     // Sanity check: detect divergence in MPC policy state to prevent violent actuator thrashing
     scalar_t maxJointError = (mpc_q_j_des - q_j).cwiseAbs().maxCoeff();
-    bool policyDiverged = !mpcPolicyState.allFinite() || !mpcPolicyInput.allFinite() || maxJointError > 0.5;
+    bool policyDiverged = !mpcPolicyState.allFinite() || !mpcPolicyInput.allFinite() || maxJointError > pdGains_.maxPolicyJointError;
     if (policyDiverged) {
       // One reset per policy solved after the last one, and at most one per kDivergenceResetInterval. This used to
       // request a reset at every cycle: the policy in use stays the diverged one until a post-reset policy replaces it,
@@ -519,33 +539,36 @@ void CentroidalMpcMrtJointController::computeJointControlAction(scalar_t /*time*
         lastDivergenceResetTime_ = time;
       }
       for (int k = 0; k < mpc_q_j_des.size(); ++k) {
-        mpc_q_j_des[k] = std::clamp(mpc_q_j_des[k], q_j[k] - 0.2, q_j[k] + 0.2);
+        mpc_q_j_des[k] =
+            std::clamp(mpc_q_j_des[k], q_j[k] - pdGains_.divergedPolicyJointTargetBound, q_j[k] + pdGains_.divergedPolicyJointTargetBound);
       }
       mpc_qd_j_des.setZero();
     }
 
-    // Feedforward joint acceleration is set to zero so feedforward torques act as pure
+    // Feedforward joint acceleration is set to zero (zeroJointAccelerations_) so feedforward torques act as pure
     // dynamic cancellation (gravity, Coriolis, and contact forces) and do not fight actuator PD loops.
-    vector_t qdd_j_des = vector_t::Zero(effectiveModelPtr_->getJointDim());
 
-    // computeJointTorques projects the wrenches with LOCAL_WORLD_ALIGNED Jacobians, so it needs WORLD-frame wrenches.
-    // With basis-vector inputs the input-only accessor returns the LOCAL contact-frame wrench B*lambda; the state-aware
+    // The inverse dynamics projects the wrenches with LOCAL_WORLD_ALIGNED Jacobians, so it needs WORLD-frame wrenches.
+    // With basis-vector inputs the input-only accessor returns the LOCAL contact-frame wrench B*lambda; the world-frame
     // accessor rotates it with the contact frame orientation of the planned state, which is the orientation the OCP
     // dynamics used when it chose lambda. A non-finite policy state (divergence) would poison the rotation, so fall
-    // back to the measured state in that case.
+    // back to the measured state in that case. The contact frames' orientations are read off the twin's kinematics at that state's
+    // generalized coordinates (getGeneralizedCoordinates(): its quaternion safely normalized), which the measured state's are.
     const vector_t& wrenchFrameState = mpcPolicyState.allFinite() ? mpcPolicyState : currentMpcObservation_.state;
+    fillPlannedCoordinates(wrenchFrameState);
+    const feet_array_t<matrix3_t>& contactFrameRotations = rigidBodyDynamics_->contactFrameRotations(plannedCoordinates_);
     // The policy carries a wrench wherever its own schedule expects contact. Whether a foot can actually transmit it is
     // decided by the measured contact state of this cycle, not by the plan: the wrench of a foot that is not touching is
     // dropped, and after touch-down it is debounced and ramped in as configured (ContactWrenchGate).
-    const std::array<vector6_t, 2> footWrenches =
-        contactWrenchGate_.apply({effectiveModelPtr_->getContactWrenchInWorldFrame(wrenchFrameState, mpcPolicyInput, /*contactIndex=*/0),
-                                  effectiveModelPtr_->getContactWrenchInWorldFrame(wrenchFrameState, mpcPolicyInput, /*contactIndex=*/1)});
+    const feet_array_t<vector6_t> footWrenches = contactWrenchGate_.apply(
+        {effectiveModelPtr_->getContactWrenchInWorldFrameGivenRotation(mpcPolicyInput, contactFrameRotations[0], /*contactIndex=*/0),
+         effectiveModelPtr_->getContactWrenchInWorldFrameGivenRotation(mpcPolicyInput, contactFrameRotations[1], /*contactIndex=*/1)});
 
-    // Evaluate inverse dynamics using measured robot state for physical consistency
-    vector_t q = effectiveModelPtr_->getGeneralizedCoordinates(currentMpcObservation_.state);
-    vector_t qd = effectiveModelPtr_->getGeneralizedVelocities(currentMpcObservation_.state, currentMpcObservation_.input);
-
-    vector_t mpcJointTorques = computeJointTorques<scalar_t>(q, qd, qdd_j_des, footWrenches, pinocchioInterface_);
+    // Evaluate inverse dynamics using measured robot state for physical consistency: the measurement's q and v, of which
+    // the observation is made (getGeneralizedCoordinates() and getGeneralizedVelocities() of the observation give them
+    // back, the latter through the centroidal momentum).
+    const vector_t& mpcJointTorques =
+        rigidBodyDynamics_->freeBaseJointTorques(qPinocchio_, vPinocchio_, zeroJointAccelerations_, footWrenches);
 
     // Gravity-comp fallback: use pure gravity compensation instead of full ID torques (`wb_mpc_feedforward:
     // "gravity_compensation"` in the task file), to isolate ID issues.
@@ -559,7 +582,7 @@ void CentroidalMpcMrtJointController::computeJointControlAction(scalar_t /*time*
       action.qd_des = mpc_qd_j_des[i];
       action.kp = pdGains_.mpcJointKp[i];
       action.kd = pdGains_.mpcJointKd[i];
-      action.feed_forward_effort = std::clamp(feedforwardTorques[i], -pdGains_.mpcJointTorqueLimit[i], pdGains_.mpcJointTorqueLimit[i]);
+      action.feed_forward_effort = clampedMpcJointFeedforward(i, feedforwardTorques[i]);
     }
     // The torques this decomposes into (the PD and the feedforward of every joint, the planned and measured base) are
     // in the telemetry (robot/state), which the Rerun bridge plots: the control thread logs none of it.
@@ -570,21 +593,21 @@ void CentroidalMpcMrtJointController::computeJointControlAction(scalar_t /*time*
       postEvent(ControllerEventCode::kNoPolicyWeightCompensation);
       noPolicyReported_ = true;
     }
-    //   Apply weight compensated input around current state
-    vector_t qdd_j_des = vector_t::Zero(effectiveModelPtr_->getJointDim());
-    // State-aware overload: the vertical world-frame force is expressed in the input parameterization of the effective
-    // model (rotated into the local contact frame for basis-vector inputs), and read back in the world frame below.
-    // The weight is carried by the feet measured in contact; with none (the robot hangs on the gantry) no contact force
-    // is compensated and the feedforward is the gravity and Coriolis term of the free legs, the base being held
-    // (computeBaseHeldJointTorques; computeJointTorques would let the base fall freely).
-    mpcPolicyInput = weightCompensatingInput(pinocchioInterface_, measuredContactFlags_, *effectiveModelPtr_, currentMpcObservation_.state);
-    std::array<vector6_t, 2> footWrenches{
-        effectiveModelPtr_->getContactWrenchInWorldFrame(currentMpcObservation_.state, mpcPolicyInput, /*contactIndex=*/0),
-        effectiveModelPtr_->getContactWrenchInWorldFrame(currentMpcObservation_.state, mpcPolicyInput, /*contactIndex=*/1)};
-    vector_t weightCompensatingTorques = computeBaseHeldJointTorques<scalar_t>(
-        effectiveModelPtr_->getGeneralizedCoordinates(currentMpcObservation_.state),
-        effectiveModelPtr_->getGeneralizedVelocities(currentMpcObservation_.state, currentMpcObservation_.input), qdd_j_des, footWrenches,
-        pinocchioInterface_);
+    // Apply the weight-compensating wrenches around the current state: the weight shared evenly by the feet measured in
+    // contact, as vertical world-frame forces (weightCompensatingInput(), whose wrenches these are, and which the
+    // basis-vector input reproduces up to its non-negative least-squares fit). With none (the robot hangs on the gantry)
+    // no contact force is compensated and the feedforward is the gravity and Coriolis term of the free legs, the base
+    // being held (heldBaseJointTorques(); the free-base inverse dynamics would let the base fall freely).
+    const size_t numStanceLegs = numberOfLegsInContacts(measuredContactFlags_);
+    feet_array_t<vector6_t> footWrenches;
+    for (size_t i = 0; i < kNumContacts; ++i) {
+      footWrenches[i].setZero();
+      if (numStanceLegs > 0 && measuredContactFlags_[i]) {
+        footWrenches[i](kZAxisIndex) = robotWeight_ / static_cast<scalar_t>(numStanceLegs);
+      }
+    }
+    const vector_t& weightCompensatingTorques =
+        rigidBodyDynamics_->heldBaseJointTorques(qPinocchio_, vPinocchio_, zeroJointAccelerations_, footWrenches);
 
     for (size_t i = 0; i < mpcJointIndices_.size(); ++i) {
       const size_t index = mpcJointIndices_[i];
@@ -594,8 +617,7 @@ void CentroidalMpcMrtJointController::computeJointControlAction(scalar_t /*time*
       action.qd_des = 0.0;
       action.kp = pdGains_.mpcJointKp[i];
       action.kd = pdGains_.mpcJointKd[i];
-      action.feed_forward_effort =
-          std::clamp(weightCompensatingTorques[i], -pdGains_.mpcJointTorqueLimit[i], pdGains_.mpcJointTorqueLimit[i]);
+      action.feed_forward_effort = clampedMpcJointFeedforward(i, weightCompensatingTorques[i]);
     }
   }
 
@@ -629,15 +651,16 @@ void CentroidalMpcMrtJointController::setControlMode(absl::string_view mode) {
     // Arm the decay. The clock origin and the posture to hold are captured on the first control cycle in the mode,
     // where the observation time and a RobotState are in hand. A pending hand-over into WB_MPC is abandoned: SAFETY
     // must not be held off waiting for a solver.
-    safetyDecayStartTime_.store(-1.0);
+    safetyDecayCaptured_.store(false);
     safetyDecayComplete_.store(false);
     awaitingPostResetPolicy_.store(false);
     entryBlendStartTime_.store(-1.0);
   }
   noPolicyReported_ = false;
   if (control_mode::isPassive(controlMode_) && control_mode::isMpc(newMode)) {
-    // The MPC starts again from the robot as it is now; the action of the mode we come from is held until a policy
-    // solved after that is in use. A passive mode without a posture hold (ZERO_TORQUE) is held like JOINT_PD.
+    // The MPC starts again from the robot as it is now; a passive action is held until a policy solved after that is in
+    // use. JOINT_PD and GRAVITY_COMP are held as they are; ZERO_TORQUE (no posture hold) and SAFETY (a hold that decays
+    // to zero torque) are held like JOINT_PD.
     requestMpcResetAndHold(controlMode_ == control_mode::kGravityComp);
   }
   controlMode_.assign(mode.data(), mode.size());
@@ -658,8 +681,8 @@ void CentroidalMpcMrtJointController::armHold(bool holdGravityComp) {
 void CentroidalMpcMrtJointController::handleClockRewind(scalar_t rewind) {
   postEvent(ControllerEventCode::kClockRewind, rewind, currentMpcObservation_.time);
   // SAFETY keeps the time it has already decayed for: restarting its clock would put the gains back to full authority.
-  const scalar_t safetyStart = safetyDecayStartTime_.load();
-  if (safetyStart >= 0.0) safetyDecayStartTime_.store(safetyStart - rewind);
+  // A rewind past the entry shifts the start time below zero, which is a valid start time on the new clock.
+  if (safetyDecayCaptured_.load()) safetyDecayStartTime_.store(safetyDecayStartTime_.load() - rewind);
   lastDivergenceResetTime_ = -1.0;
   previousObservationTime_ = currentMpcObservation_.time;
   // MpcResetSupervisor::observeTime() has requested the reset; the hold is all that is left to arm.
@@ -677,7 +700,7 @@ void CentroidalMpcMrtJointController::fillJointPdAction(const ::robot::model::Ro
     action.qd_des = 0.0;
     action.kp = pdGains_.mpcJointKp[i];
     action.kd = pdGains_.mpcJointKd[i];
-    action.feed_forward_effort = gravTorques[i];
+    action.feed_forward_effort = clampedMpcJointFeedforward(i, gravTorques[i]);
   }
 
   for (size_t i = 0; i < otherJointIndices_.size(); ++i) {
@@ -712,8 +735,8 @@ void CentroidalMpcMrtJointController::fillGravityCompAction(const ::robot::model
     action.q_des = robotState.getJointPosition(index);
     action.qd_des = 0.0;
     action.kp = 0.0;
-    action.kd = pdGains_.mpcJointKd[i] * 0.2;  // Soft damping to prevent free-fall oscillation
-    action.feed_forward_effort = std::clamp(gravTorques[i], -pdGains_.mpcJointTorqueLimit[i], pdGains_.mpcJointTorqueLimit[i]);
+    action.kd = pdGains_.mpcJointKd[i] * pdGains_.gravityCompDampingFraction;
+    action.feed_forward_effort = clampedMpcJointFeedforward(i, gravTorques[i]);
   }
 
   for (size_t i = 0; i < otherJointIndices_.size(); ++i) {
@@ -729,7 +752,7 @@ void CentroidalMpcMrtJointController::fillGravityCompAction(const ::robot::model
 
 void CentroidalMpcMrtJointController::fillZeroTorqueAction(const ::robot::model::RobotState& robotState,
                                                            ::robot::model::RobotJointAction& robotJointAction) {
-  const std::array<const std::vector<size_t>* absl_nonnull, 2> jointGroups{&mpcJointIndices_, &otherJointIndices_};
+  const std::array<const std::vector<size_t>* absl_nonnull, kNumMrtJointGroups> jointGroups{&mpcJointIndices_, &otherJointIndices_};
   for (const std::vector<size_t>* absl_nonnull indices : jointGroups) {
     for (size_t index : *indices) {
       robot::model::JointAction& action = jointActionUnchecked(robotJointAction, index);
@@ -743,9 +766,21 @@ void CentroidalMpcMrtJointController::fillZeroTorqueAction(const ::robot::model:
 }
 
 scalar_t CentroidalMpcMrtJointController::currentSafetyDecayFactor(scalar_t time) const {
-  const scalar_t startTime = safetyDecayStartTime_.load();
-  if (startTime < 0.0) return 1.0;
-  return safetyDecayFactor(time - startTime, safetyDecayTimeConstant_);
+  if (!safetyDecayCaptured_.load()) return 1.0;
+  return safety_decay::latchedFactor(safetyDecayLatchedFactor_, time - safetyDecayStartTime_.load(), safetyDecayTimeConstant_);
+}
+
+scalar_t CentroidalMpcMrtJointController::clampedMpcJointFeedforward(size_t mpcJoint, scalar_t torque) const {
+  return std::clamp(torque, -pdGains_.mpcJointTorqueLimit[mpcJoint], pdGains_.mpcJointTorqueLimit[mpcJoint]);
+}
+
+void CentroidalMpcMrtJointController::reportPolicyUpdateLockContention() {
+  // Once per run of failed try-locks: the count rises by one per cycle while the run lasts.
+  const MRT_BASE& mrt = mpcLink_->mrt();
+  if (mrt.getConsecutiveFailedPolicyUpdateLocks() == MRT_BASE::kPolicyUpdateLockContentionThreshold + 1) {
+    postEvent(ControllerEventCode::kPolicyUpdateLockContended, static_cast<scalar_t>(mrt.getConsecutiveFailedPolicyUpdateLocks()),
+              static_cast<scalar_t>(mrt.getFailedPolicyUpdateLocks()));
+  }
 }
 
 void CentroidalMpcMrtJointController::fillSafetyAction(const ::robot::model::RobotState& robotState,
@@ -755,7 +790,7 @@ void CentroidalMpcMrtJointController::fillSafetyAction(const ::robot::model::Rob
   //
   // The posture held is the MEASURED one at entry, not the nominal: SAFETY is entered when something has already gone
   // wrong, and commanding a return to the nominal stance at full gain would be a lunge, not a safe stop.
-  if (safetyDecayStartTime_.load() < 0.0) {
+  if (!safetyDecayCaptured_.load()) {
     // Sized by the constructor: no allocation.
     for (size_t i = 0; i < mpcJointIndices_.size(); ++i) {
       safetyHoldMpcJointPositions_[i] = robotState.getJointPosition(mpcJointIndices_[i]);
@@ -764,10 +799,14 @@ void CentroidalMpcMrtJointController::fillSafetyAction(const ::robot::model::Rob
       safetyHoldOtherJointPositions_[i] = robotState.getJointPosition(otherJointIndices_[i]);
     }
     safetyDecayStartTime_.store(currentMpcObservation_.time);
+    safetyDecayLatchedFactor_ = 1.0;
+    safetyDecayCaptured_.store(true);
     postEvent(ControllerEventCode::kSafetyEntered, safetyDecayTimeConstant_);
   }
 
+  // Latched: alpha never rises within this stay in SAFETY (safety_decay::latchedFactor()).
   const scalar_t alpha = currentSafetyDecayFactor(currentMpcObservation_.time);
+  safetyDecayLatchedFactor_ = alpha;
   if (alpha == 0.0 && !safetyDecayComplete_.exchange(true)) {
     postEvent(ControllerEventCode::kSafetyDecayComplete);
   }
@@ -811,9 +850,11 @@ void CentroidalMpcMrtJointController::applyEntryBlend(const ::robot::model::Robo
     entryBlendStartTime_.store(-1.0);
     return;
   }
-  // Every field of the action is blended, so the total torque kp (q_des - q) + kd (qd_des - qd) + ff moves linearly
-  // from the held action to the MPC action; blending the feedforward alone would leave the PD term to jump. The held
-  // action goes into a workspace of the robot's size: a copy of equal sizes, no allocation.
+  // The total torque kp (q_des - q) + kd (qd_des - qd) + ff moves linearly from the held action to the MPC action at
+  // every measured q and qd (blendJointActionLinearInTorque(): the gains blend linearly, the targets as gain-weighted
+  // means). Blending every field on its own, as this did, is not linear in the torque - kp q_des is the product of
+  // two blended fields - and blending the feedforward alone would leave the PD term to jump. The held action goes into
+  // a workspace of the robot's size: a copy of equal sizes, no allocation.
   holdAction_ = robotJointAction;
   fillEntryHoldAction(robotState, holdAction_);
   const scalar_t a = std::max(alpha, 0.0);
@@ -822,13 +863,7 @@ void CentroidalMpcMrtJointController::applyEntryBlend(const ::robot::model::Robo
 }
 
 void CentroidalMpcMrtJointController::blendJointAction(size_t index, scalar_t a, ::robot::model::RobotJointAction& robotJointAction) const {
-  robot::model::JointAction& action = jointActionUnchecked(robotJointAction, index);
-  const robot::model::JointAction& hold = jointActionUnchecked(holdAction_, index);
-  action.q_des = (1.0 - a) * hold.q_des + a * action.q_des;
-  action.qd_des = (1.0 - a) * hold.qd_des + a * action.qd_des;
-  action.kp = (1.0 - a) * hold.kp + a * action.kp;
-  action.kd = (1.0 - a) * hold.kd + a * action.kd;
-  action.feed_forward_effort = (1.0 - a) * hold.feed_forward_effort + a * action.feed_forward_effort;
+  blendJointActionLinearInTorque(jointActionUnchecked(holdAction_, index), a, jointActionUnchecked(robotJointAction, index));
 }
 
 /******************************************************************************************************/
@@ -843,8 +878,8 @@ TargetTrajectories CentroidalMpcMrtJointController::currentObservationToResetTra
     const vector_t& targetState = resetTargetTrajectories.stateTrajectory.front();
     const vector_t& targetInput = resetTargetTrajectories.inputTrajectory.front();
     const vector3_t basePosition = effectiveModelPtr_->getBasePosition(targetState);
-    LOG(INFO) << "[CentroidalMPC] Resetting MPC target trajectory. Base pos: " << basePosition.transpose() << " Base z: " << basePosition(2)
-              << " Input forces (world): "
+    LOG(INFO) << "[CentroidalMPC] Resetting MPC target trajectory. Base pos: " << basePosition.transpose()
+              << " Base z: " << basePosition(kZAxisIndex) << " Input forces (world): "
               << effectiveModelPtr_->getContactForceInWorldFrame(targetState, targetInput, /*contactIndex=*/0).transpose() << " / "
               << effectiveModelPtr_->getContactForceInWorldFrame(targetState, targetInput, /*contactIndex=*/1).transpose();
   }
@@ -854,23 +889,27 @@ TargetTrajectories CentroidalMpcMrtJointController::currentObservationToResetTra
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-const vector_t& CentroidalMpcMrtJointController::computeGravityCompensation(const ::robot::model::RobotState& robotState) {
-  const PinocchioInterface::Model& model = pinocchioInterface_.getModel();
-  PinocchioInterface::Data& data = pinocchioInterface_.getData();
+void CentroidalMpcMrtJointController::fillPlannedCoordinates(const vector_t& state) {
+  const Eigen::Index configurationDim = static_cast<Eigen::Index>(mpcRobotModelPtr_->getConfigurationDim());
+  const Eigen::Index baseStart = static_cast<Eigen::Index>(effectiveModelPtr_->getBaseStartindex());
+  const Eigen::Index orientationStart = static_cast<Eigen::Index>(effectiveModelPtr_->getBaseOrientationStartIndex());
+  plannedCoordinates_ = state.segment(baseStart, configurationDim);
+  plannedCoordinates_.segment<kQuaternionCoefficients>(orientationStart - baseStart) =
+      quaternionSafeNormalize<scalar_t>(quaternion_coeffs_t<scalar_t>(state.segment<kQuaternionCoefficients>(orientationStart)));
+}
 
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+const vector_t& CentroidalMpcMrtJointController::computeGravityCompensation(const ::robot::model::RobotState& robotState) {
   // Pinocchio's configuration q of the measurement, in the workspaces (sized by the constructor).
   const quaternion_t orientation = robotState.getRootRotationLocalToWorldFrame();
   robotState.getJointPositions(mpcJointIndices_, gravityJointPositions_);
   mpcRobotModelPtr_->fillGeneralizedCoordinatesFromMeasurement(robotState.getRootPositionInWorldFrame(), orientation.coeffs(),
                                                                gravityJointPositions_, gravityCoordinates_);
 
-  // Compute gravity torques: nonLinearEffects with zero velocity gives pure gravity terms
-  pinocchio::nonLinearEffects(model, data, gravityCoordinates_, zeroGeneralizedVelocity_);
-
-  // data.nle now contains gravity torques for all generalized coordinates.
-  // Return only the joint portion (skip the 6 floating-base DOFs).
-  gravityTorques_ = data.nle.tail(effectiveModelPtr_->getJointDim());
-  return gravityTorques_;
+  // The joint rows of g(q), nle(q, 0) of the model, without its allocations on the composite root.
+  return rigidBodyDynamics_->gravityTorques(gravityCoordinates_);
 }
 
 /******************************************************************************************************/

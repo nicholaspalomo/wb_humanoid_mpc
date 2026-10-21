@@ -37,9 +37,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 #include "Eigen/Geometry"
+#include "ocs2_core/Dimensions.h"
 
 #include "humanoid_common_mpc/orientation/BaseOrientation.h"
 #include "humanoid_mpc_validation/closed_loop/ClosedLoopMetricsSchema.h"
+#include "humanoid_mpc_validation/closed_loop/ClosedLoopScenario.h"
 
 namespace ocs2::humanoid::validation {
 namespace {
@@ -54,9 +56,14 @@ std::optional<double> rmsOf(double squaredSum, size_t count) {
   return std::sqrt(squaredSum / static_cast<double>(count));
 }
 
+/** [%] The percentiles of summarizeSample(), and the whole sample. */
+constexpr double kMedianPercent = 50.0;
+constexpr double kTailPercent = 99.0;
+constexpr double kWholePercent = 100.0;
+
 /** The nearest-rank percentile `percent` of sorted `values`. */
 double percentile(const std::vector<double>& sorted, double percent) {
-  const size_t rank = static_cast<size_t>(std::ceil(percent / 100.0 * static_cast<double>(sorted.size())));
+  const size_t rank = static_cast<size_t>(std::ceil(percent / kWholePercent * static_cast<double>(sorted.size())));
   return sorted[std::min(sorted.size() - 1, rank == 0 ? 0 : rank - 1)];
 }
 
@@ -67,7 +74,7 @@ double wrapAngle(double angle) {
   return wrapped <= -M_PI ? wrapped + 2.0 * M_PI : wrapped;
 }
 
-JsonValue summarizeTimes(std::vector<double> values) {
+JsonValue summarizeSample(std::vector<double> values) {
   JsonValue summary = JsonValue::object();
   if (values.empty()) {
     summary.set("mean", JsonValue());
@@ -80,8 +87,8 @@ JsonValue summarizeTimes(std::vector<double> values) {
   double sum = 0.0;
   for (const double value : values) sum += value;
   summary.set("mean", JsonValue::number(sum / static_cast<double>(values.size())));
-  summary.set("p50", JsonValue::number(percentile(values, /*percent=*/50.0)));
-  summary.set("p99", JsonValue::number(percentile(values, /*percent=*/99.0)));
+  summary.set("p50", JsonValue::number(percentile(values, kMedianPercent)));
+  summary.set("p99", JsonValue::number(percentile(values, kTailPercent)));
   summary.set("max", JsonValue::number(values.back()));
   return summary;
 }
@@ -93,7 +100,9 @@ void ClosedLoopMetrics::addControlCycle(const ControlCycleSample& sample) {
 
   const double height = sample.basePosition.z();
   heightSum_ += height;
-  heightSquaredSum_ += height * height;
+  const double deviationFromPreviousMean = height - heightRunningMean_;
+  heightRunningMean_ += deviationFromPreviousMean / static_cast<double>(numCycles_);
+  heightSquaredDeviationSum_ += deviationFromPreviousMean * (height - heightRunningMean_);
   const double heightError = height - sample.referenceBaseHeight;
   heightErrorSquaredSum_ += heightError * heightError;
 
@@ -109,11 +118,11 @@ void ClosedLoopMetrics::addControlCycle(const ControlCycleSample& sample) {
   const Eigen::Vector3d& velocity = sample.baseLinearVelocityWorld;
   const Eigen::Vector2d headingVelocity(cosHeading * velocity.x() + sinHeading * velocity.y(),
                                         -sinHeading * velocity.x() + cosHeading * velocity.y());
-  velocityErrorSquaredSum_ += (headingVelocity - sample.referenceVelocity.head<2>()).squaredNorm();
+  velocityErrorSquaredSum_ += (headingVelocity - sample.referenceVelocity.head<kCommandPlanarVelocityDim>()).squaredNorm();
   Eigen::Quaterniond rotation;
   rotation.coeffs() = sample.baseQuaternion;
   const double yawRate = (rotation.normalized().toRotationMatrix() * sample.baseAngularVelocityLocal).z();
-  const double yawRateError = yawRate - sample.referenceVelocity(2);
+  const double yawRateError = yawRate - sample.referenceVelocity(kCommandYawRateIndex);
   yawRateErrorSquaredSum_ += yawRateError * yawRateError;
 
   // Heading unwrapped from the first sample on.
@@ -126,8 +135,8 @@ void ClosedLoopMetrics::addControlCycle(const ControlCycleSample& sample) {
   lastHeading_ = heading;
 
   // Stance-foot slip: the horizontal drift of a contact point from where it touched down, while it stays in contact.
-  for (size_t contact = 0; contact < 2; ++contact) {
-    const Eigen::Vector2d position = sample.contactPositions[contact].head<2>();
+  for (size_t contact = 0; contact < kNumContacts; ++contact) {
+    const Eigen::Vector2d position = sample.contactPositions[contact].head<kHorizontalPositionDim>();
     StancePhase& phase = stance_[contact];
     if (sample.contactFlags[contact]) {
       if (!phase.active) {
@@ -164,17 +173,78 @@ void ClosedLoopMetrics::addSolve(const SolveSample& sample) {
   linesearchMs_.push_back(sample.linesearchMs);
   computeControllerMs_.push_back(sample.computeControllerMs);
   if (!sample.succeeded) ++failedSolves_;
-  if (sample.initialStateRotationGap.has_value() && (!maxRotationGap_.has_value() || *sample.initialStateRotationGap > *maxRotationGap_)) {
-    maxRotationGap_ = sample.initialStateRotationGap;
-    maxRotationGapTime_ = sample.time;
+  if (sample.sqpStep.has_value()) {
+    addSqpStep(*sample.sqpStep);
+  } else {
+    // A solve without a step (a failed one) ends a run of growing violations.
+    lastConstraintViolation_.reset();
+    violationGrowthRun_ = 0;
   }
-  if (sample.initialStateGapNorm.has_value() && (!maxGapNorm_.has_value() || *sample.initialStateGapNorm > *maxGapNorm_)) {
-    maxGapNorm_ = sample.initialStateGapNorm;
+  if (sample.initialStateRotationGap.has_value()) {
+    if (!maxRotationGap_.has_value()) {
+      maxRotationGap_ = sample.initialStateRotationGap;
+      maxRotationGapTime_ = sample.time;
+    } else if (std::isnan(*sample.initialStateRotationGap)) {
+      maxRotationGap_ = sample.initialStateRotationGap;
+      maxRotationGapTime_ = sample.time;
+    } else if (!std::isnan(*maxRotationGap_) && *sample.initialStateRotationGap > *maxRotationGap_) {
+      maxRotationGap_ = sample.initialStateRotationGap;
+      maxRotationGapTime_ = sample.time;
+    }
   }
-  if (sample.quaternionNormDeviation.has_value() &&
-      (!maxQuaternionNormDeviation_.has_value() || *sample.quaternionNormDeviation > *maxQuaternionNormDeviation_)) {
-    maxQuaternionNormDeviation_ = sample.quaternionNormDeviation;
+  if (sample.initialStateGapNorm.has_value()) {
+    if (!maxGapNorm_.has_value()) {
+      maxGapNorm_ = sample.initialStateGapNorm;
+    } else if (std::isnan(*sample.initialStateGapNorm)) {
+      maxGapNorm_ = sample.initialStateGapNorm;
+    } else if (!std::isnan(*maxGapNorm_) && *sample.initialStateGapNorm > *maxGapNorm_) {
+      maxGapNorm_ = sample.initialStateGapNorm;
+    }
   }
+  if (sample.quaternionNormDeviation.has_value()) {
+    if (!std::isfinite(*sample.quaternionNormDeviation)) {
+      ++nonFiniteQuaternionSolves_;
+    }
+    if (!maxQuaternionNormDeviation_.has_value()) {
+      maxQuaternionNormDeviation_ = sample.quaternionNormDeviation;
+    } else if (std::isnan(*sample.quaternionNormDeviation)) {
+      maxQuaternionNormDeviation_ = sample.quaternionNormDeviation;
+    } else if (!std::isnan(*maxQuaternionNormDeviation_) && *sample.quaternionNormDeviation > *maxQuaternionNormDeviation_) {
+      maxQuaternionNormDeviation_ = sample.quaternionNormDeviation;
+    }
+  }
+}
+
+void ClosedLoopMetrics::addSqpStep(const SqpStepSample& step) {
+  ++sqpSteps_;
+  if (step.stepSize >= 1.0) {
+    ++fullSteps_;
+  } else if (step.stepSize > 0.0) {
+    ++reducedSteps_;
+  } else {
+    ++zeroSteps_;
+  }
+  if (step.stepSize < 1.0 && step.fullStepKind == SqpStepKind::kConstraint) ++fullStepsRefusedAboveGMax_;
+  switch (step.stepKind) {
+    case SqpStepKind::kConstraint:
+      ++acceptedByConstraint_;
+      break;
+    case SqpStepKind::kDual:
+      ++acceptedByDual_;
+      break;
+    case SqpStepKind::kCost:
+      ++acceptedByCost_;
+      break;
+    case SqpStepKind::kUnknown:
+    case SqpStepKind::kZero:
+      break;
+  }
+  violationGrowthRun_ =
+      lastConstraintViolation_.has_value() && step.constraintViolation > *lastConstraintViolation_ ? violationGrowthRun_ + 1 : 0;
+  longestViolationGrowthRun_ = std::max(longestViolationGrowthRun_, violationGrowthRun_);
+  lastConstraintViolation_ = step.constraintViolation;
+  constraintViolations_.push_back(step.constraintViolation);
+  if (step.swingNormalVelocityResidual.has_value()) swingNormalVelocityResiduals_.push_back(*step.swingNormalVelocityResidual);
 }
 
 void ClosedLoopMetrics::setFall(double time, std::string reason) {
@@ -186,7 +256,7 @@ JsonValue ClosedLoopMetrics::report(const ClosedLoopRunInfo& info) const {
   // The stance phases still open at the end count as ended there.
   std::vector<double> finalDrifts = stanceFinalDrifts_;
   double slipMax = slipMax_;
-  for (size_t contact = 0; contact < 2; ++contact) {
+  for (size_t contact = 0; contact < kNumContacts; ++contact) {
     if (!stance_[contact].active) continue;
     finalDrifts.push_back((lastContactPosition_[contact] - stance_[contact].touchDownPosition).norm());
     slipMax = std::max(slipMax, stance_[contact].maxDrift);
@@ -197,7 +267,7 @@ JsonValue ClosedLoopMetrics::report(const ClosedLoopRunInfo& info) const {
   const std::optional<double> heightMean = meanOf(heightSum_, numCycles_);
   std::optional<double> heightStd;
   if (heightMean.has_value()) {
-    heightStd = std::sqrt(std::max(0.0, heightSquaredSum_ / static_cast<double>(numCycles_) - *heightMean * *heightMean));
+    heightStd = std::sqrt(heightSquaredDeviationSum_ / static_cast<double>(numCycles_));
   }
   const bool sampled = numCycles_ > 0;
 
@@ -254,15 +324,31 @@ JsonValue ClosedLoopMetrics::report(const ClosedLoopRunInfo& info) const {
           JsonValue::optionalNumber(maxRotationGap_.has_value() ? std::optional<double>(maxRotationGapTime_) : std::nullopt));
   gap.set("max_norm", JsonValue::optionalNumber(maxGapNorm_));
 
-  document.set("quaternion_norm", JsonValue::object()).set("max_deviation", JsonValue::optionalNumber(maxQuaternionNormDeviation_));
+  JsonValue& quaternionNorm = document.set("quaternion_norm", JsonValue::object());
+  quaternionNorm.set("max_deviation", JsonValue::optionalNumber(maxQuaternionNormDeviation_));
+  quaternionNorm.set("non_finite_solves", JsonValue::number(static_cast<double>(nonFiniteQuaternionSolves_)));
   document.set("non_finite_values", JsonValue::number(static_cast<double>(nonFiniteValues_)));
 
   JsonValue& solveTime = document.set("solve_time_ms", JsonValue::object());
-  solveTime.set("total", summarizeTimes(wallTimesMs_));
-  solveTime.set("lq_approximation", summarizeTimes(lqApproximationMs_));
-  solveTime.set("solve_qp", summarizeTimes(solveQpMs_));
-  solveTime.set("linesearch", summarizeTimes(linesearchMs_));
-  solveTime.set("compute_controller", summarizeTimes(computeControllerMs_));
+  solveTime.set("total", summarizeSample(wallTimesMs_));
+  solveTime.set("lq_approximation", summarizeSample(lqApproximationMs_));
+  solveTime.set("solve_qp", summarizeSample(solveQpMs_));
+  solveTime.set("linesearch", summarizeSample(linesearchMs_));
+  solveTime.set("compute_controller", summarizeSample(computeControllerMs_));
+
+  JsonValue& sqpStep = document.set("sqp_step", JsonValue::object());
+  sqpStep.set("steps", JsonValue::number(static_cast<double>(sqpSteps_)));
+  sqpStep.set("full_steps", JsonValue::number(static_cast<double>(fullSteps_)));
+  sqpStep.set("reduced_steps", JsonValue::number(static_cast<double>(reducedSteps_)));
+  sqpStep.set("zero_steps", JsonValue::number(static_cast<double>(zeroSteps_)));
+  sqpStep.set("full_steps_refused_above_g_max", JsonValue::number(static_cast<double>(fullStepsRefusedAboveGMax_)));
+  JsonValue& acceptedBy = sqpStep.set("accepted_by", JsonValue::object());
+  acceptedBy.set("constraint", JsonValue::number(static_cast<double>(acceptedByConstraint_)));
+  acceptedBy.set("dual", JsonValue::number(static_cast<double>(acceptedByDual_)));
+  acceptedBy.set("cost", JsonValue::number(static_cast<double>(acceptedByCost_)));
+  sqpStep.set("longest_violation_growth", JsonValue::number(static_cast<double>(longestViolationGrowthRun_)));
+  sqpStep.set("constraint_violation", summarizeSample(constraintViolations_));
+  sqpStep.set("swing_normal_velocity_residual", summarizeSample(swingNormalVelocityResiduals_));
 
   JsonValue& failures = document.set("failures", JsonValue::object());
   failures.set("failed_solves", JsonValue::number(static_cast<double>(failedSolves_)));

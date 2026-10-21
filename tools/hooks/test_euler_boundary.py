@@ -97,6 +97,14 @@ class EulerBoundaryTest(unittest.TestCase):
             "humanoid_nmpc/humanoid_common_mpc/src/HumanoidPreComputation.cpp",
             "lib/ocs2/pinocchio/centroidal_model/src/ModelHelperFunctions.cpp",
             "lib/ocs2/pinocchio/centroidal_model/include/ocs2_centroidal_model/implementation/ModelHelperFunctionsImpl.h",
+            # The whole-body precomputation the swing-foot constraints read their configs from, the heading-tilt
+            # residual, and the end-effector kinematics the centroidal MPC tapes.
+            "humanoid_nmpc/humanoid_wb_mpc/include/humanoid_wb_mpc/WBMpcPreComputation.h",
+            "humanoid_nmpc/humanoid_wb_mpc/src/WBMpcPreComputation.cpp",
+            "humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/orientation/BaseOrientation.h",
+            "humanoid_nmpc/humanoid_common_mpc/src/orientation/BaseOrientation.cpp",
+            "lib/ocs2/pinocchio/pinocchio_interface/include/ocs2_pinocchio_interface/PinocchioEndEffectorKinematicsCppAd.h",
+            "lib/ocs2/pinocchio/pinocchio_interface/src/PinocchioEndEffectorKinematicsCppAd.cpp",
         ):
             with self.subTest(path=path):
                 self.assertEqual(_found(flagged, path), [(1, 21), (2, 11)])
@@ -159,7 +167,7 @@ class RepositoryTest(unittest.TestCase):
                 "contact",
             ),
         )
-        self.assertEqual(len(euler_boundary.FORMULATION_FILES), 2)
+        self.assertEqual(len(euler_boundary.FORMULATION_FILES), 8)
         self.assertEqual(
             euler_boundary.FORMULATION_TREES, ("lib/ocs2/pinocchio/centroidal_model/",)
         )

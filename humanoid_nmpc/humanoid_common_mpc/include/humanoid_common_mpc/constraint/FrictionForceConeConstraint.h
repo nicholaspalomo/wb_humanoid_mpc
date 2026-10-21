@@ -85,6 +85,8 @@ namespace ocs2::humanoid {
  * semi-definite whatever the penalty; getQuadraticApproximation() still returns the exact second derivatives, minus the
  * Hessian shift, for anyone who asks. The gated term keeps ConstraintOrder::Quadratic: its row is concave, so its
  * Hessian can only add curvature to the penalty.
+ *
+ * Not thread-safe; the solver gives each worker thread its own clone().
  */
 class FrictionForceConeConstraint final : public StateInputConstraint {
  public:
@@ -100,10 +102,15 @@ class FrictionForceConeConstraint final : public StateInputConstraint {
    *   xi, E^T E = I / 4) leaves a quarter of the shift on the three rotation rows.
    */
   struct Config {
-    explicit Config(scalar_t frictionCoefficientParam = 0.7,
-                    scalar_t regularizationParam = 25.0,
+    static constexpr scalar_t kDefaultFrictionCoefficient = 0.7;
+    /** [N^2] the regularization under the square roots, sqrt(regularization) = 5 N. */
+    static constexpr scalar_t kDefaultRegularization = 25.0;
+    static constexpr scalar_t kDefaultHessianDiagonalShift = 1.0e-6;
+
+    explicit Config(scalar_t frictionCoefficientParam = kDefaultFrictionCoefficient,
+                    scalar_t regularizationParam = kDefaultRegularization,
                     scalar_t gripperForceParam = 0.0,
-                    scalar_t hessianDiagonalShiftParam = 1.0e-6)
+                    scalar_t hessianDiagonalShiftParam = kDefaultHessianDiagonalShift)
         : frictionCoefficient(frictionCoefficientParam),
           regularization(regularizationParam),
           gripperForce(gripperForceParam),
@@ -165,7 +172,7 @@ class FrictionForceConeConstraint final : public StateInputConstraint {
   void setActive(bool active) override { isActive_ = active; }
   bool getActive() const override { return isActive_; }
   /** One row when schedule gated, two when not: the friction row, then Fz >= 0. See the class comment. */
-  size_t getNumConstraints(scalar_t /*time*/) const override { return scheduleGated_ ? 1 : 2; }
+  size_t getNumConstraints(scalar_t /*time*/) const override { return scheduleGated_ ? kNumGatedConstraints : kNumUngatedConstraints; }
   vector_t getValue(scalar_t time, const vector_t& state, const vector_t& input, const PreComputation& preComp) const override;
   VectorFunctionLinearApproximation getLinearApproximation(scalar_t time,
                                                            const vector_t& state,
@@ -177,6 +184,10 @@ class FrictionForceConeConstraint final : public StateInputConstraint {
                                                                  const PreComputation& preComp) const override;
 
  private:
+  /** The rows of the schedule-gated form (the friction row) and of the un-gated one (the friction row and Fz >= 0). */
+  static constexpr int kNumGatedConstraints = 1;
+  static constexpr int kNumUngatedConstraints = 2;
+
   struct LocalForceDerivatives {
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW
     // 3 x contactInputDim_: derivative of the local-frame force w.r.t. THIS CONTACT'S INPUT BLOCK. It used to be the

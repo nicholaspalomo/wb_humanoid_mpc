@@ -255,6 +255,31 @@ class GeneratedFilesTest(GeneratorTestCase):
             files["pkg/color.nproto.pb.h"],
         )
 
+    def test_from_proto_names_each_enum_number_by_its_enumerator(self):
+        # The magic-number rule (tools/hooks/magic_number.py): `case static_cast<int32_t>(Color::kDarkRed):`, never
+        # `case 3:`. An alias (allow_alias) has no label of its own: the first name of its number wins.
+        body = (
+            'enum_type { name: "Color" options { [nproto.generate_enum]: "pkg::nproto::Color" allow_alias: true } '
+            'value { name: "COLOR_UNSPECIFIED" number: 0 } value { name: "COLOR_DARK_RED" number: 3 } '
+            'value { name: "COLOR_CRIMSON" number: 3 } }'
+        )
+        source = self.assertGenerates(
+            nproto_generator.generate(request(raw_file("pkg/color.proto", "pkg", body)))
+        )["pkg/color.nproto.pb.cc"]
+        self.assertIn(
+            "  switch (static_cast<int32_t>(proto)) {\n"
+            "    case static_cast<int32_t>(Color::kUnspecified):\n"
+            "      *value = Color::kUnspecified;\n"
+            "      return absl::OkStatus();\n"
+            "    case static_cast<int32_t>(Color::kDarkRed):\n"
+            "      *value = Color::kDarkRed;\n"
+            "      return absl::OkStatus();\n"
+            "    default:\n",
+            source,
+        )
+        self.assertNotIn("kCrimson", source)
+        self.assertNotRegex(source, r"case -?[0-9]")
+
     def test_the_output_parameters_are_nonnull_in_declarations_and_definitions(self):
         # A message, a nested enum and a nested message without fields, whose parameters have no names.
         members = (
@@ -310,6 +335,10 @@ class GeneratedFilesTest(GeneratorTestCase):
         self.assertIn("  static constexpr size_t kFIndex = 1;\n", header)
         self.assertIn(
             "std::numeric_limits<int64_t>::min()", files["pkg/limits.nproto.h"]
+        )
+        self.assertIn(
+            "  static constexpr int32_t kDefaultLow = std::numeric_limits<int32_t>::min();\n",
+            files["pkg/limits.nproto.h"],
         )
         for name, content in files.items():
             for qualified in ("std::int", "std::uint", "std::size_t"):
@@ -597,14 +626,14 @@ class RejectedFilesTest(GeneratorTestCase):
             nproto_generator.generate(request(message_file(members=oneof))),
             "oneof pkg.Node.size_t is named 'size_t'",
         )
-        nested = 'nested_type { name: "int64_t" ' + FIELD_X + " }"
+        nested = f'nested_type {{ name: "int64_t" {FIELD_X} }}'
         self.assertError(
             nproto_generator.generate(request(message_file(members=nested))),
             "message pkg.Node.int64_t is named 'int64_t'",
         )
 
     def test_a_nested_message_named_like_a_cpp_keyword(self):
-        members = 'nested_type { name: "union" ' + FIELD_X + " }"
+        members = f'nested_type {{ name: "union" {FIELD_X} }}'
         self.assertError(
             nproto_generator.generate(request(message_file(members=members))),
             "message pkg.Node.union is named 'union', a C++ keyword",
@@ -630,6 +659,59 @@ class RejectedFilesTest(GeneratorTestCase):
         self.assertError(
             nproto_generator.generate(request(message_file(members=members))),
             "fields a_b and aB of pkg.Node both name the oneof index constant kABIndex",
+        )
+
+    def test_two_fields_that_become_one_default_constant(self):
+        members = (
+            'field { name: "a_b" number: 1 label: LABEL_OPTIONAL type: TYPE_INT32 json_name: "first" '
+            'default_value: "2" } '
+            'field { name: "aB" number: 2 label: LABEL_OPTIONAL type: TYPE_INT32 json_name: "second" '
+            'default_value: "3" }'
+        )
+        text = message_file(members=members).replace(
+            'syntax: "proto3"', 'syntax: "proto2"'
+        )
+        self.assertError(
+            nproto_generator.generate(request(text)),
+            "fields a_b and aB of pkg.Node both name the default constant kDefaultAB",
+        )
+
+    def test_a_default_constant_and_an_index_constant_of_one_name(self):
+        members = (
+            'field { name: "default_x" number: 1 label: LABEL_OPTIONAL type: TYPE_INT32 oneof_index: 0 } '
+            'field { name: "x_index" number: 2 label: LABEL_OPTIONAL type: TYPE_INT32 default_value: "2" } '
+            'oneof_decl { name: "choice" }'
+        )
+        text = message_file(members=members).replace(
+            'syntax: "proto3"', 'syntax: "proto2"'
+        )
+        self.assertError(
+            nproto_generator.generate(request(text)),
+            "fields default_x and x_index of pkg.Node both name the default constant kDefaultXIndex",
+        )
+
+    def test_a_default_constant_named_like_a_member(self):
+        members = (
+            'field { name: "kDefaultX" number: 1 label: LABEL_OPTIONAL type: TYPE_INT32 } '
+            'field { name: "x" number: 2 label: LABEL_OPTIONAL type: TYPE_INT32 default_value: "2" }'
+        )
+        text = message_file(members=members).replace(
+            'syntax: "proto3"', 'syntax: "proto2"'
+        )
+        self.assertError(
+            nproto_generator.generate(request(text)),
+            "pkg.Node has a member or nested type named kDefaultX, which is also the default constant of field x",
+        )
+
+    def test_an_enumerator_too_long_for_its_case_label(self):
+        long_value = f'COLOR_{"VERY_" * 25}DARK'
+        enum = enum_file(
+            values=f'value {{ name: "COLOR_UNSPECIFIED" number: 0 }} value {{ name: "{long_value}" number: 1 }}'
+        )
+        self.assertError(
+            nproto_generator.generate(request(enum)),
+            "pkg/color.proto: the enumerator Color::kVery",
+            "of enum pkg.Color is too long for nproto's code",
         )
 
     def test_a_file_the_descriptor_api_rejects(self):
@@ -668,7 +750,7 @@ class GeneratedLayoutTest(GeneratorTestCase):
         self.assertNotIn("LINT.", header)
 
     def test_a_statement_longer_than_a_line_is_wrapped_as_clang_format_wraps_it(self):
-        name = "a_" + "very_" * 7 + "long_weight"
+        name = f'a_{"very_" * 7}long_weight'
         members = (
             f'field {{ name: "{name}" number: 1 label: LABEL_OPTIONAL type: TYPE_DOUBLE proto3_optional: true '
             f'oneof_index: 0 }} oneof_decl {{ name: "_{name}" }}'
@@ -707,13 +789,77 @@ class GeneratedLayoutTest(GeneratorTestCase):
         header = self.assertGenerates(nproto_generator.generate(request(text)))[
             "pkg/node.nproto.h"
         ]
-        self.assertIn("double tolerance = 1.0e-08;", header)
-        self.assertIn("float gain = -2.0e+20f;", header)
-        self.assertIn("double ratio = 0.25;", header)
-        self.assertIn("double count = 3.0;", header)
+        self.assertIn("static constexpr double kDefaultTolerance = 1.0e-08;", header)
+        self.assertIn("static constexpr float kDefaultGain = -2.0e+20f;", header)
+        self.assertIn("static constexpr double kDefaultRatio = 0.25;", header)
+        self.assertIn("static constexpr double kDefaultCount = 3.0;", header)
+
+    def test_an_explicit_default_of_a_number_is_a_named_constant(self):
+        # The magic-number rule (tools/hooks/magic_number.py): a number default is a constant of the struct and the
+        # member's initializer; a bool, string or enum default, and the implicit 0 of a field without one, stay as they
+        # are.
+        members = (
+            'field { name: "count" number: 1 label: LABEL_OPTIONAL type: TYPE_INT32 default_value: "5" } '
+            'field { name: "gain" number: 2 label: LABEL_OPTIONAL type: TYPE_DOUBLE default_value: "-1.5" } '
+            'field { name: "ratio" number: 3 label: LABEL_OPTIONAL type: TYPE_FLOAT default_value: "1" } '
+            'field { name: "enabled" number: 4 label: LABEL_OPTIONAL type: TYPE_BOOL default_value: "true" } '
+            'field { name: "title" number: 5 label: LABEL_OPTIONAL type: TYPE_STRING default_value: "hi" } '
+            'field { name: "level" number: 6 label: LABEL_OPTIONAL type: TYPE_ENUM type_name: ".pkg.Node.Level" '
+            'default_value: "LEVEL_HIGH" } '
+            'field { name: "required_count" number: 7 label: LABEL_REQUIRED type: TYPE_INT32 } '
+            'enum_type { name: "Level" value { name: "LEVEL_LOW" number: 1 } value { name: "LEVEL_HIGH" number: 2 } }'
+        )
+        text = message_file(members=members).replace(
+            'syntax: "proto3"', 'syntax: "proto2"'
+        )
+        header = self.assertGenerates(nproto_generator.generate(request(text)))[
+            "pkg/node.nproto.h"
+        ]
+        self.assertIn(
+            "  // The explicit defaults of the .proto file ([default = ...]), the initializers of the members.\n"
+            "  static constexpr int32_t kDefaultCount = 5;\n"
+            "  static constexpr double kDefaultGain = -1.5;\n"
+            "  static constexpr float kDefaultRatio = 1.0f;\n"
+            "\n"
+            "  int32_t count = kDefaultCount;\n"
+            "  double gain = kDefaultGain;\n"
+            "  float ratio = kDefaultRatio;\n"
+            "  bool enabled = true;\n"
+            '  std::string title = "hi";\n'
+            "  Level level = Level::kHigh;\n"
+            "  int32_t required_count = 0;\n"
+            "};",
+            header,
+        )
+        # Equality compares the members only.
+        self.assertNotIn("lhs.kDefault", header)
+        proto3 = self.assertGenerates(
+            nproto_generator.generate(request(message_file()))
+        )
+        self.assertNotIn("kDefault", proto3["pkg/node.nproto.h"])
+
+    def test_a_default_constant_longer_than_a_line_is_wrapped_as_clang_format_wraps_it(
+        self,
+    ):
+        name = f'a_{"very_" * 22}long_tolerance'
+        constant = f'kDefaultA{"Very" * 22}LongTolerance'
+        members = f'field {{ name: "{name}" number: 1 label: LABEL_OPTIONAL type: TYPE_DOUBLE default_value: "1e-06" }}'
+        text = message_file(members=members).replace(
+            'syntax: "proto3"', 'syntax: "proto2"'
+        )
+        lines = self.assertGenerates(nproto_generator.generate(request(text)))[
+            "pkg/node.nproto.h"
+        ].splitlines()
+        # The struct's declarations only: operator== does not wrap the comparison of a member name this long.
+        struct = lines[lines.index("struct Node {") : lines.index("};") + 1]
+        self.assertEqual([line for line in struct if len(line) > 140], [])
+        start = lines.index(f"  static constexpr double {constant} =")
+        self.assertEqual(lines[start + 1], "      1.0e-06;")
+        start = lines.index(f"  double {name} =")
+        self.assertEqual(lines[start + 1], f"      {constant};")
 
     def test_a_comparison_longer_than_a_line_is_wrapped_as_clang_format_wraps_it(self):
-        nested = "A" + "VeryLong" * 9 + "Name"
+        nested = f'A{"VeryLong" * 9}Name'
         for members in (
             f'nested_type {{ name: "{nested}" {FIELD_X} }}',
             f'nested_type {{ name: "{nested}" }}',
@@ -737,7 +883,7 @@ class GeneratedLayoutTest(GeneratorTestCase):
 
 
 # A nested message Child of Node, for the fields that hold one.
-CHILD = 'nested_type { name: "Child" ' + FIELD_X + " } "
+CHILD = f'nested_type {{ name: "Child" {FIELD_X} }} '
 OPTIONAL_MESSAGE = "options { [nproto.optional_message]: true }"
 RETIRED_DEPENDENCIES = ("nproto/options.proto", "nproto/retired_field_options.proto")
 

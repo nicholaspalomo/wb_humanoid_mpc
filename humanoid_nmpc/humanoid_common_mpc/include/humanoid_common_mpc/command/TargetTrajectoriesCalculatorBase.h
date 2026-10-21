@@ -60,12 +60,12 @@ namespace ocs2::humanoid {
  * which functions are thread-safe.
  *
  * The reference of a velocity command (velocityCommandKnots(), both formulations). The command (v_x, v_y, omega) is a
- * planar twist in the robot's heading frame, low-pass filtered from call to call. The base knots follow a body whose
- * planar twist in its own heading frame is, over the first segment [t0, t0 + tau], tau = 0.7 T, the mean of the measured
- * and the commanded twist, ((v_m + v_c) / 2, (omega_m + omega_c) / 2), and over the second, up to t0 + T, the command.
- * The measured twist is the robot's motion averaged over its last stride, [t0 - W, t0] with W the cycle of the gait the
- * schedule runs, so it lags the instantaneous motion by about W / 2 (ProceduralMpcMotionManager, StrideMotionHistory;
- * design defects D1, D1b).
+ * planar twist in the robot's heading frame, used as given: any smoothing of it is ProceduralMpcMotionManager's, on the
+ * solver time (its velocity command filter and ramp), so that the reference does not depend on the solve rate. The base knots follow a body
+ * whose planar twist in its own heading frame is, over the first segment [t0, t0 + tau], tau = 0.7 T, the mean of the measured and the
+ * commanded twist, ((v_m + v_c) / 2, (omega_m + omega_c) / 2), and over the second, up to t0 + T, the command. The measured twist is the
+ * robot's motion averaged over its last stride, [t0 - W, t0] with W the cycle of the gait the schedule runs, so it lags the instantaneous
+ * motion by about W / 2 (ProceduralMpcMotionManager, StrideMotionHistory; design defects D1, D1b).
  *
  * The first segment states one assumption (design README section 2.9): the robot's sway-free motion turns into the command over tau, its
  * body twist ramping linearly from (v_m, omega_m) to (v_c, omega_c). The mean twist held over tau ends at the ramp's
@@ -123,8 +123,8 @@ class TargetTrajectoriesCalculatorBase {
 
   /**
    * Forgets the filter state the command path carries from one target to the next, so that the next target is built
-   * exactly as the first one of a freshly constructed calculator: here the low-pass filter of the commanded velocity.
-   * A derived calculator with filters of its own overrides this and calls it. The limits and the ground are
+   * exactly as the first one of a freshly constructed calculator. This base carries none; a derived calculator with
+   * filters of its own overrides this and calls it. The limits and the ground are
    * configuration and are kept. Not thread-safe with respect to building a target: call it from the thread that builds
    * them (the solver thread, through ProceduralMpcMotionManager::setResetHook()).
    */
@@ -170,6 +170,23 @@ class TargetTrajectoriesCalculatorBase {
 
   /** [m] a commanded pelvis height at or below this is no command, and `defaultBaseHeight` is used instead. */
   static constexpr scalar_t kMinCommandedPelvisHeight = 0.1;
+
+  /**
+   * The entries of a base pose target [x, y, z, yaw, pitch, roll] (PoseCommandKnot::basePose, getCurrentBasePoseTarget())
+   * past x and y, and its size.
+   */
+  static constexpr int kPoseTargetZIndex = 2;
+  static constexpr int kPoseTargetYawIndex = 3;
+  static constexpr int kPoseTargetPitchIndex = 4;
+  static constexpr int kPoseTargetRollIndex = 5;
+  static constexpr int kPoseTargetDim = 6;
+
+  /** The entries of a pose command [delta x, delta y, delta z, delta yaw] past delta x and y (getDeltaBaseTarget()). */
+  static constexpr int kPoseCommandHeightIndex = 2;
+  static constexpr int kPoseCommandYawIndex = 3;
+
+  /** The intermediate knot of a velocity command at t0 + tau, tau = kIntermediateKnotHorizonFraction T (the class comment). */
+  static constexpr scalar_t kIntermediateKnotHorizonFraction = 0.7;
 
   void setTargetDisplacementVelocity(scalar_t targetDisplacementVelocity) { targetDisplacementVelocity_ = targetDisplacementVelocity; }
   /** [rad/s] the yaw rate a pose command turns at; a reload of the reference file resets it to its target_rotation_velocity. */
@@ -284,8 +301,7 @@ class TargetTrajectoriesCalculatorBase {
   /**
    * The base knots of the velocity command `commandedVelocities` ([v_x, v_y, pelvis height, yaw rate], pelvis frame) at
    * `initTime` from `initState`, the robot moving at `measuredMotion` (the class comment), in increasing time from
-   * initTime to initTime + T: the knots of the first segment, then those of the second. Advances the command filter
-   * once, so call it once per target.
+   * initTime to initTime + T: the knots of the first segment, then those of the second.
    */
   std::vector<VelocityCommandKnot> velocityCommandKnots(const vector4_t& commandedVelocities,
                                                         scalar_t initTime,
@@ -303,11 +319,11 @@ class TargetTrajectoriesCalculatorBase {
   vector6_t getDeltaBaseTarget(const vector4_t& commadLinePoseTarget, const vector6_t& currentPoseTarget) const;
 
   /**
-   * Low-pass filters the commanded velocity and rotates its linear part from the pelvis frame into the world frame.
-   *
-   * The filter state lives on the instance, so two calculators (or two tests) never share a hidden global.
+   * Returns the velocity command `commandHeadingFrame` ([v_x, v_y, pelvis height, yaw rate]) with its linear part
+   * rotated from the heading frame of `heading` into the world frame, R_z(heading) (v_x, v_y); the pelvis height and the
+   * yaw rate, which a rotation about z leaves unchanged, are copied.
    */
-  vector4_t filterAndTransformVelCommandToLocal(const vector4_t& commandedVelLocal, scalar_t currentEulerZ, scalar_t filterAlpha);
+  static vector4_t rotateVelocityCommandToWorld(const vector4_t& commandHeadingFrame, scalar_t heading);
 
   /**
    * `currentPose` moved on for `deltaT` along the arc of a constant planar twist that starts with the world velocity
@@ -324,11 +340,11 @@ class TargetTrajectoriesCalculatorBase {
   std::atomic<scalar_t> targetDisplacementVelocity_;
   std::atomic<scalar_t> targetRotationVelocity_;
 
-  // For velocity control mode
-  std::atomic<scalar_t> maxDisplacementVelocityX_{0.6};
-  std::atomic<scalar_t> maxDisplacementVelocityY_{0.3};
-  std::atomic<scalar_t> maxDeltaPelvisHeight_{0.3};
-  std::atomic<scalar_t> maxRotationVelocity_{0.6};
+  // For velocity control mode. The values before the constructor's applyCommandLimits() replaces them.
+  std::atomic<scalar_t> maxDisplacementVelocityX_{kInitialMaxDisplacementVelocityX};
+  std::atomic<scalar_t> maxDisplacementVelocityY_{kInitialMaxDisplacementVelocityY};
+  std::atomic<scalar_t> maxDeltaPelvisHeight_{kInitialMaxDeltaPelvisHeight};
+  std::atomic<scalar_t> maxRotationVelocity_{kInitialMaxRotationVelocity};
 
   std::atomic<scalar_t> defaultBaseHeight_;
   // The ground under the commanded base height (setTerrainHeightSource). Guarded, because the source is replaced from
@@ -337,8 +353,6 @@ class TargetTrajectoriesCalculatorBase {
   std::function<scalar_t()> terrainHeightSource_;
   vector_t targetJointState_;
   scalar_t mpcHorizon_;
-  // State of the first-order low-pass filter applied to the commanded velocity [v_x, v_y, dz, yaw rate].
-  vector4_t filteredVelocityCommand_ = vector4_t::Zero();
 };
 
 }  // namespace ocs2::humanoid

@@ -42,16 +42,29 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * Defines a linear constraint on an end-effector position (xee) and linear velocity (vee).
- * g(xee, vee, aee) = Ax * xee + Av * vee + Aa *aee + b
+ * Defines a constraint, linear in the coefficients, on the pose of an end effector with respect to the ground plane and
+ * its first two time derivatives:
+ *   g = b + Ax [p; e] + Av d/dt [p; e] + Aa d2/dt2 [p; e],
+ * p the end-effector position and e its orientation error with respect to the ground plane, n = e_z
+ * (getOrientationErrorWrtPlane(): e = -(v x n) / sqrt(2 (1 + v.n)), v the end-effector normal, the sine of half the tilt).
+ * The derivatives are EndEffectorDynamics::getPoseWrtPlaneRate() and getPoseWrtPlaneAcceleration(): the linear velocity
+ * and acceleration, and the rate and acceleration of e, whose row along n (where e has no component) carries half the
+ * rotation rate about the end-effector normal, v.w, and its derivative v.alpha. With diagonal gains the orientation rows
+ * are therefore the PD law on the error, Kp e + Kd de/dt + Ka d2e/dt2, not a mix of e with the raw angular velocity and
+ * acceleration: at a level end effector de/dt = w / 2 and d2e/dt2 = alpha / 2 + 1/2 (n.w)(n x w)
+ * (end_effector/OrientationErrorWrtPlaneRates.h). Value and linearization read the same CppAD libraries, so the
+ * linearization is exact, for any Ax and any number of rows.
  * - For defining constraint of type g(xee), set Av to matrix_t(0, 0)
  * - For defining constraint of type g(vee), set Ax to matrix_t(0, 0)
+ *
+ * Not thread-safe: its end-effector dynamics evaluate on the Pinocchio data of one worker's PreComputation, so the
+ * solver gives each worker thread its own clone().
  */
 class EndEffectorDynamicsAccelerationsConstraint final : public StateInputConstraint {
  public:
   /**
-   * Coefficients of the linear constraints of the form:
-   * g(xee, vee, aee) = Ax * xee + Av * vee + Aa *aee + b
+   * Coefficients of the constraints of the form:
+   * g = b + Ax [p; e] + Av d/dt [p; e] + Aa d2/dt2 [p; e] (the class comment)
    */
   struct Config {
     vector_t b;
@@ -64,8 +77,10 @@ class EndEffectorDynamicsAccelerationsConstraint final : public StateInputConstr
    * Makes the constraint on the end effector of `endEffectorDynamics`, which it clones.
    * @param [in] endEffectorDynamics: The dynamics interface to the target end-effector; it has exactly one end effector.
    * @param [in] numConstraints: The number of constraints {1, 2, 3, 4, 5, 6}
-   * @param [in] config: The constraint coefficients, g(xee, vee, aee) = Ax * xee + Av * vee + Aa *aee + b
-   * @return InvalidArgument naming the end effectors when `endEffectorDynamics` has other than one.
+   * @param [in] config: The constraint coefficients, g = b + Ax [p; e] + Av d/dt [p; e] + Aa d2/dt2 [p; e]
+   * @return InvalidArgument naming the end effectors when `endEffectorDynamics` has other than one; InvalidArgument when
+   *         numConstraints is not between 1 and 6, or `config` is not empty (to be set by configure()) and `config.b`
+   *         does not have numConstraints rows or one of Ax, Av, Aa is neither empty nor numConstraints x 6.
    */
   static absl::StatusOr<std::unique_ptr<EndEffectorDynamicsAccelerationsConstraint>> Create(
       const EndEffectorDynamics<scalar_t>& endEffectorDynamics, size_t numConstraints, Config config = Config());

@@ -33,6 +33,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <array>
 #include <cstddef>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "Eigen/Core"
@@ -40,7 +41,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/base/nullability.h"
 #include "absl/log/absl_check.h"
 #include "absl/status/statusor.h"
+#include "ocs2_core/Dimensions.h"
 #include "ocs2_core/manifold/UnitQuaternionMath.h"
+#include "ocs2_robotic_tools/common/RotationTransforms.h"
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
@@ -94,10 +97,10 @@ class WBAccelMpcRobotModel : public MpcRobotModelBase<SCALAR_T> {
  public:
   explicit WBAccelMpcRobotModel(const ModelSettings& modelSettings)
       : MpcRobotModelBase<SCALAR_T>(modelSettings,
-                                    MpcRobotModelDimensions{.stateDim = 13 + 2 * modelSettings.mpc_joint_dim,
-                                                            .inputDim = 6 * kNumContacts + modelSettings.mpc_joint_dim,
-                                                            .configurationDim = 7 + modelSettings.mpc_joint_dim,
-                                                            .velocityDim = 6 + modelSettings.mpc_joint_dim},
+                                    MpcRobotModelDimensions{.stateDim = kBaseStateDim + kStateEntriesPerJoint * modelSettings.mpc_joint_dim,
+                                                            .inputDim = kWrenchDim * kNumContacts + modelSettings.mpc_joint_dim,
+                                                            .configurationDim = kBaseConfigurationDim + modelSettings.mpc_joint_dim,
+                                                            .velocityDim = kBaseVelocityDim + modelSettings.mpc_joint_dim},
                                     placeTuningLayout(tuningLayoutOf(stateInputLayout(modelSettings, StateInputLayout::Mpc::kWholeBody)))) {
   }
   ~WBAccelMpcRobotModel() override = default;
@@ -111,17 +114,19 @@ class WBAccelMpcRobotModel : public MpcRobotModelBase<SCALAR_T> {
   /******************************************************************************************************/
 
   size_t getBaseStartindex() const override { return 0; };
-  size_t getBaseOrientationStartIndex() const override { return 3; }
-  size_t getJointStartindex() const override { return 7; };
+  size_t getBaseOrientationStartIndex() const override { return kPositionDim; }
+  size_t getJointStartindex() const override { return kPoseCoefficients; };
   // Be careful, the joint Velocities are part of the state vector here: after q (nq) and the base velocity (6).
-  size_t getJointVelocitiesStartindex() const override { return 13 + this->modelSettings.mpc_joint_dim; };
+  size_t getJointVelocitiesStartindex() const override { return kBaseStateDim + this->modelSettings.mpc_joint_dim; };
   // LINT.IfChange(input_indices)
-  size_t getJointAccelerationsStartindex() const { return 6 * kNumContacts; }
+  size_t getJointAccelerationsStartindex() const { return kWrenchDim * kNumContacts; }
 
   // Assumes contact wrench [f_x, f_y, f_z, M_x, M_y, M_z]^T
-  size_t getContactWrenchStartIndices(size_t contactIndex) const override { return 6 * contactIndex; };
+  size_t getContactWrenchStartIndices(size_t contactIndex) const override { return kWrenchDim * contactIndex; };
   size_t getContactForceStartIndices(size_t contactIndex) const override { return getContactWrenchStartIndices(contactIndex); };
-  size_t getContactMomentStartIndices(size_t contactIndex) const override { return getContactWrenchStartIndices(contactIndex) + 3; };
+  size_t getContactMomentStartIndices(size_t contactIndex) const override {
+    return getContactWrenchStartIndices(contactIndex) + kForceDim;
+  };
   // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/config/weights/StateInputWeightsFromConfig.cpp:input_offsets)
 
   /******************************************************************************************************/
@@ -131,15 +136,15 @@ class WBAccelMpcRobotModel : public MpcRobotModelBase<SCALAR_T> {
   /** q = [p_W, xi_hat, q_j] of state.head(nq), with the quaternion safely normalized (safelyNormalizedQuaternion()). */
   VECTOR_T<SCALAR_T> getGeneralizedCoordinates(const VECTOR_T<SCALAR_T>& state) const override {
     VECTOR_T<SCALAR_T> q = state.head(this->getConfigurationDim());
-    q.template segment<4>(getBaseOrientationStartIndex()) =
-        safelyNormalizedQuaternion(VECTOR4_T<SCALAR_T>(state.template segment<4>(getBaseOrientationStartIndex())));
+    q.template segment<kQuaternionCoefficients>(getBaseOrientationStartIndex()) =
+        safelyNormalizedQuaternion(VECTOR4_T<SCALAR_T>(state.template segment<kQuaternionCoefficients>(getBaseOrientationStartIndex())));
     return q;
   };
 
-  VECTOR3_T<SCALAR_T> getBasePosition(const VECTOR_T<SCALAR_T>& state) const override { return state.head(3); }
+  VECTOR3_T<SCALAR_T> getBasePosition(const VECTOR_T<SCALAR_T>& state) const override { return state.head(kPositionDim); }
 
   VECTOR3_T<SCALAR_T> getBaseComLinearVelocity(const VECTOR_T<SCALAR_T>& state) const override {
-    return state.segment(baseLinearVelocityStartIndex(), 3);
+    return state.segment(baseLinearVelocityStartIndex(), kPositionDim);
   }
 
   /**
@@ -149,12 +154,13 @@ class WBAccelMpcRobotModel : public MpcRobotModelBase<SCALAR_T> {
    */
   VECTOR6_T<SCALAR_T> getBaseComVelocity(const VECTOR_T<SCALAR_T>& state) const override {
     VECTOR6_T<SCALAR_T> baseVelocity;
-    baseVelocity << state.segment(baseLinearVelocityStartIndex(), 3), state.segment(baseAngularVelocityStartIndex(), 3).reverse();
+    baseVelocity << state.segment(baseLinearVelocityStartIndex(), kPositionDim),
+        state.segment(baseAngularVelocityStartIndex(), kRotationTangentDim).reverse();
     return baseVelocity;
   };
 
   void setBaseComLinearVelocity(VECTOR_T<SCALAR_T>& state, const VECTOR3_T<SCALAR_T>& velocity) const override {
-    state.segment(baseLinearVelocityStartIndex(), 3) = velocity;
+    state.segment(baseLinearVelocityStartIndex(), kPositionDim) = velocity;
   };
 
   VECTOR_T<SCALAR_T> getJointAngles(const VECTOR_T<SCALAR_T>& state) const override {
@@ -165,9 +171,15 @@ class WBAccelMpcRobotModel : public MpcRobotModelBase<SCALAR_T> {
     return state.tail(this->modelSettings.mpc_joint_dim);
   };
 
-  VECTOR_T<SCALAR_T> getGeneralizedVelocities(const VECTOR_T<SCALAR_T>& state, const VECTOR_T<SCALAR_T>& /*input*/) override {
+  // The base class declares this non-const because the centroidal model updates its Pinocchio data in it; the
+  // whole-body state carries the velocities, so here it is a pure read, and the const overload below serves the callers
+  // that hold a const model (WBAccelDynamicsAD, whose clones share one).
+  VECTOR_T<SCALAR_T> getGeneralizedVelocities(const VECTOR_T<SCALAR_T>& state, const VECTOR_T<SCALAR_T>& input) override {
+    return std::as_const(*this).getGeneralizedVelocities(state, input);
+  }
+  VECTOR_T<SCALAR_T> getGeneralizedVelocities(const VECTOR_T<SCALAR_T>& state, const VECTOR_T<SCALAR_T>& /*input*/) const {
     return state.tail(this->getVelocityDim());
-  };
+  }
 
   VECTOR_T<SCALAR_T> getJointAccelerations(const VECTOR_T<SCALAR_T>& input) const { return input.tail(this->modelSettings.mpc_joint_dim); }
 
@@ -175,10 +187,12 @@ class WBAccelMpcRobotModel : public MpcRobotModelBase<SCALAR_T> {
     state.head(this->getConfigurationDim()) = generalizedCorrdinates;
   }
 
-  void setBasePosition(VECTOR_T<SCALAR_T>& state, const VECTOR3_T<SCALAR_T>& position) const override { state.head(3) = position; }
+  void setBasePosition(VECTOR_T<SCALAR_T>& state, const VECTOR3_T<SCALAR_T>& position) const override {
+    state.head(kPositionDim) = position;
+  }
 
   void setBaseLinearVelocity(VECTOR_T<SCALAR_T>& state, const VECTOR3_T<SCALAR_T>& velocity) const {
-    state.segment(baseLinearVelocityStartIndex(), 3) = velocity;
+    state.segment(baseLinearVelocityStartIndex(), kPositionDim) = velocity;
   }
 
   void setJointAngles(VECTOR_T<SCALAR_T>& state, const VECTOR_T<SCALAR_T>& jointAngles) const override {
@@ -191,18 +205,18 @@ class WBAccelMpcRobotModel : public MpcRobotModelBase<SCALAR_T> {
     state.tail(this->modelSettings.mpc_joint_dim) = jointVelocities;
   }
 
-  void adaptBasePoseHeight(VECTOR_T<SCALAR_T>& state, scalar_t heightChange) const override { state[2] += heightChange; }
+  void adaptBasePoseHeight(VECTOR_T<SCALAR_T>& state, scalar_t heightChange) const override { state[kZAxisIndex] += heightChange; }
 
   /******************************************************************************************************/
   /*                   Layout-agnostic accessors (MpcRobotModelBase), the quaternion layout             */
   /******************************************************************************************************/
 
   VECTOR4_T<SCALAR_T> getBaseOrientation(const VECTOR_T<SCALAR_T>& state) const override {
-    return safelyNormalizedQuaternion(VECTOR4_T<SCALAR_T>(state.template segment<4>(getBaseOrientationStartIndex())));
+    return safelyNormalizedQuaternion(VECTOR4_T<SCALAR_T>(state.template segment<kQuaternionCoefficients>(getBaseOrientationStartIndex())));
   }
 
   void setBaseOrientation(vector_t& state, const vector4_t& orientation) const override {
-    state.segment<4>(getBaseOrientationStartIndex()) = safelyNormalizedQuaternion(orientation);
+    state.segment<kQuaternionCoefficients>(getBaseOrientationStartIndex()) = safelyNormalizedQuaternion(orientation);
   }
 
   scalar_t getBaseHeading(const vector_t& state) const override { return twistHeading(baseOrientationOf(state)); }
@@ -210,35 +224,37 @@ class WBAccelMpcRobotModel : public MpcRobotModelBase<SCALAR_T> {
   // NOLINTBEGIN(euler-boundary): Euler boundary accessor (design section 4.2)
   vector6_t getBasePoseEulerZyx(const vector_t& state) const override {
     vector6_t basePose;
-    basePose << state.segment<3>(getBaseStartindex()), getBaseOrientationEulerZyx(state);
+    basePose << state.segment<kPositionDim>(getBaseStartindex()), getBaseOrientationEulerZyx(state);
     return basePose;
   }
 
   void setBasePoseEulerZyx(vector_t& state, const vector6_t& basePose) const override {
-    state.segment<3>(getBaseStartindex()) = basePose.head<3>();
-    setBaseOrientationEulerZyx(state, basePose.tail<3>());
+    state.segment<kPositionDim>(getBaseStartindex()) = basePose.head<kPositionDim>();
+    setBaseOrientationEulerZyx(state, basePose.tail<kEulerAnglesZyxDim>());
   }
 
   vector3_t getBaseOrientationEulerZyx(const vector_t& state) const override { return eulerZyxFromQuaternion(baseOrientationOf(state)); }
 
   void setBaseOrientationEulerZyx(vector_t& state, const vector3_t& eulerZyx) const override {
-    state.segment<4>(getBaseOrientationStartIndex()) = quaternionFromEulerZyx(eulerZyx);
+    state.segment<kQuaternionCoefficients>(getBaseOrientationStartIndex()) = quaternionFromEulerZyx(eulerZyx);
   }
   // NOLINTEND(euler-boundary)
 
-  vector3_t getBaseAngularVelocityLocal(const vector_t& state) const override { return state.segment<3>(baseAngularVelocityStartIndex()); }
+  vector3_t getBaseAngularVelocityLocal(const vector_t& state) const override {
+    return state.segment<kRotationTangentDim>(baseAngularVelocityStartIndex());
+  }
 
   void setBaseAngularVelocityLocal(vector_t& state, const vector3_t& angularVelocityLocal) const override {
-    state.segment<3>(baseAngularVelocityStartIndex()) = angularVelocityLocal;
+    state.segment<kRotationTangentDim>(baseAngularVelocityStartIndex()) = angularVelocityLocal;
   }
 
   void setBaseAngularVelocityFromWorldYawRate(vector_t& state, scalar_t yawRate) const override {
-    state.segment<3>(baseAngularVelocityStartIndex()) =
+    state.segment<kRotationTangentDim>(baseAngularVelocityStartIndex()) =
         quaternionRotationMatrix<scalar_t>(baseOrientationOf(state)).transpose() * vector3_t(0.0, 0.0, yawRate);
   }
 
   BaseAngularVelocityJacobian getBaseAngularVelocityLocalJacobian(const vector_t& /*state*/) const override {
-    return BaseAngularVelocityJacobian{.orientationSlots = matrix_t::Zero(3, kQuaternionOrientationStateDim),
+    return BaseAngularVelocityJacobian{.orientationSlots = matrix_t::Zero(kRotationTangentDim, kQuaternionCoefficients),
                                        .angularVelocitySlots = matrix3_t::Identity()};
   }
 
@@ -256,7 +272,7 @@ class WBAccelMpcRobotModel : public MpcRobotModelBase<SCALAR_T> {
   /** (v_x, v_y, w_z) of the knot's base twist (getBaseTwistInWorldFrame()); the knot stores the velocity, no inertia is read. */
   vector3_t getTargetPlanarCommand(const vector_t& targetState, scalar_t /*compositeYawInertia*/) const override {
     const vector6_t twist = baseTwistOf(targetState);
-    return vector3_t(twist(0), twist(1), twist(5));
+    return vector3_t(twist(0), twist(1), twist(kTwistYawRateIndex));
   }
 
   absl::StatusOr<vector_t> stateFromTuning(const vector_t& tuningVector) const override {
@@ -273,12 +289,12 @@ class WBAccelMpcRobotModel : public MpcRobotModelBase<SCALAR_T> {
 
   vector_t getNeutralState() const override {
     vector_t state = vector_t::Zero(this->getStateDim());
-    state.segment<4>(getBaseOrientationStartIndex()) = vector4_t(0.0, 0.0, 0.0, 1.0);
+    state.segment<kQuaternionCoefficients>(getBaseOrientationStartIndex()) = vector4_t(0.0, 0.0, 0.0, 1.0);
     return state;
   }
 
   matrix_t getBaseRotationTangentJacobian(const vector_t& state) const override {
-    return configurationTangentLift(vector4_t(state.segment<4>(getBaseOrientationStartIndex())));
+    return configurationTangentLift(vector4_t(state.segment<kQuaternionCoefficients>(getBaseOrientationStartIndex())));
   }
 
   matrix_t getPinocchioTangentJacobian(const vector_t& state) const override {
@@ -286,9 +302,10 @@ class WBAccelMpcRobotModel : public MpcRobotModelBase<SCALAR_T> {
     // is the body rotation E^+(xi) dxi.
     const Eigen::Index jointDim = static_cast<Eigen::Index>(this->getJointDim());
     matrix_t jacobian = matrix_t::Zero(this->getVelocityDim(), this->getStateDim());
-    jacobian.block<3, 3>(0, getBaseStartindex()).setIdentity();
-    jacobian.block<3, 4>(3, getBaseOrientationStartIndex()) = getBaseRotationTangentJacobian(state);
-    jacobian.block(6, getJointStartindex(), jointDim, jointDim).setIdentity();
+    jacobian.block<kPositionDim, kPositionDim>(0, getBaseStartindex()).setIdentity();
+    jacobian.block<kRotationTangentDim, kQuaternionCoefficients>(kPositionDim, getBaseOrientationStartIndex()) =
+        getBaseRotationTangentJacobian(state);
+    jacobian.block(kPoseTangentDim, getJointStartindex(), jointDim, jointDim).setIdentity();
     return jacobian;
   }
 
@@ -296,8 +313,8 @@ class WBAccelMpcRobotModel : public MpcRobotModelBase<SCALAR_T> {
                                                  const vector4_t& orientation,
                                                  const vector_t& jointPositions,
                                                  Eigen::Ref<vector_t> q) const override {
-    q.head<3>() = positionWorld;
-    q.segment<4>(3) = safelyNormalizedQuaternion(orientation);
+    q.head<kPositionDim>() = positionWorld;
+    q.segment<kQuaternionCoefficients>(kPositionDim) = safelyNormalizedQuaternion(orientation);
     q.tail(this->modelSettings.mpc_joint_dim) = jointPositions;
   }
 
@@ -307,8 +324,8 @@ class WBAccelMpcRobotModel : public MpcRobotModelBase<SCALAR_T> {
                                                 const vector_t& jointVelocities,
                                                 Eigen::Ref<vector_t> v) const override {
     const quaternion_t rotation(safelyNormalizedQuaternion(orientation));
-    v.head<3>() = rotation * linearVelocityLocal;
-    v.segment<3>(3) = angularVelocityLocal;
+    v.head<kPositionDim>() = rotation * linearVelocityLocal;
+    v.segment<kRotationTangentDim>(kPositionDim) = angularVelocityLocal;
     v.tail(this->modelSettings.mpc_joint_dim) = jointVelocities;
   }
 
@@ -317,27 +334,27 @@ class WBAccelMpcRobotModel : public MpcRobotModelBase<SCALAR_T> {
   /******************************************************************************************************/
 
   VECTOR6_T<SCALAR_T> getContactWrench(const VECTOR_T<SCALAR_T>& input, size_t contactIndex) const override {
-    return input.segment(getContactWrenchStartIndices(contactIndex), 6);
+    return input.segment(getContactWrenchStartIndices(contactIndex), kWrenchDim);
   };
 
   VECTOR3_T<SCALAR_T> getContactForce(const VECTOR_T<SCALAR_T>& input, size_t contactIndex) const override {
-    return input.segment(getContactForceStartIndices(contactIndex), 3);
+    return input.segment(getContactForceStartIndices(contactIndex), kForceDim);
   };
 
   VECTOR3_T<SCALAR_T> getContactMoment(const VECTOR_T<SCALAR_T>& input, size_t contactIndex) const override {
-    return input.segment(getContactMomentStartIndices(contactIndex), 3);
+    return input.segment(getContactMomentStartIndices(contactIndex), kTorqueDim);
   };
 
   void setContactWrench(VECTOR_T<SCALAR_T>& input, const VECTOR6_T<SCALAR_T>& wrench, size_t contactIndex) const override {
-    input.segment(getContactWrenchStartIndices(contactIndex), 6) = wrench;
+    input.segment(getContactWrenchStartIndices(contactIndex), kWrenchDim) = wrench;
   };
 
   void setContactForce(VECTOR_T<SCALAR_T>& input, const VECTOR3_T<SCALAR_T>& force, size_t contactIndex) const override {
-    input.segment(getContactForceStartIndices(contactIndex), 3) = force;
+    input.segment(getContactForceStartIndices(contactIndex), kForceDim) = force;
   };
 
   void setContactMoment(VECTOR_T<SCALAR_T>& input, const VECTOR3_T<SCALAR_T>& moment, size_t contactIndex) const override {
-    input.segment(getContactMomentStartIndices(contactIndex), 3) = moment;
+    input.segment(getContactMomentStartIndices(contactIndex), kTorqueDim) = moment;
   };
 
  protected:
@@ -345,22 +362,31 @@ class WBAccelMpcRobotModel : public MpcRobotModelBase<SCALAR_T> {
   WBAccelMpcRobotModel(const WBAccelMpcRobotModel& rhs) : MpcRobotModelBase<SCALAR_T>(rhs) {}
 
  private:
+  // The base's entries of the state, its pose coefficients [p_W, xi] at the head of q and its twist [dp_W, w_B] at the head
+  // of v: the state without the joints.
+  static constexpr int kBaseStateDim = kPoseCoefficients + kTwistDim;
+  // The entries of each joint in the state: its angle in q and its velocity in v.
+  static constexpr int kStateEntriesPerJoint = 2;
+  // The base's slots before the body angular velocity w_B: p_W, xi and dp_W (the joint angles, between xi and dp_W, add
+  // mpc_joint_dim).
+  static constexpr int kBaseAngularVelocityOffset = kPoseCoefficients + kPositionDim;
+
   // The first state slot of the base linear velocity dp_W, the start of the base velocity rows: right after q.
-  size_t baseLinearVelocityStartIndex() const { return 7 + this->modelSettings.mpc_joint_dim; }
+  size_t baseLinearVelocityStartIndex() const { return kPoseCoefficients + this->modelSettings.mpc_joint_dim; }
 
   // The first state slot of the body angular velocity w_B = (w_x, w_y, w_z).
-  size_t baseAngularVelocityStartIndex() const { return 10 + this->modelSettings.mpc_joint_dim; }
+  size_t baseAngularVelocityStartIndex() const { return kBaseAngularVelocityOffset + this->modelSettings.mpc_joint_dim; }
 
   // getBaseOrientation() of a state in double precision, for every SCALAR_T.
   vector4_t baseOrientationOf(const vector_t& state) const {
-    return safelyNormalizedQuaternion(vector4_t(state.segment<4>(getBaseOrientationStartIndex())));
+    return safelyNormalizedQuaternion(vector4_t(state.segment<kQuaternionCoefficients>(getBaseOrientationStartIndex())));
   }
 
   // [dp_W, R(xi) w_B] of the state's base velocity slots (getBaseTwistInWorldFrame()).
   vector6_t baseTwistOf(const vector_t& state) const {
     vector6_t twist;
-    twist.head<3>() = state.segment<3>(baseLinearVelocityStartIndex());
-    twist.tail<3>() = quaternionRotationMatrix<scalar_t>(baseOrientationOf(state)) * getBaseAngularVelocityLocal(state);
+    twist.head<kPositionDim>() = state.segment<kPositionDim>(baseLinearVelocityStartIndex());
+    twist.tail<kRotationTangentDim>() = quaternionRotationMatrix<scalar_t>(baseOrientationOf(state)) * getBaseAngularVelocityLocal(state);
     return twist;
   }
 };

@@ -37,8 +37,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 #include "absl/base/nullability.h"
+#include "ocs2_core/Dimensions.h"
+
+#include "mujoco_sim_interface/MujocoUtils.h"
 
 namespace robot::mujoco_sim_interface {
+
+using ::ocs2::kHorizontalPositionDim;
+using ::ocs2::kPositionDim;
+using ::ocs2::kXAxisIndex;
+using ::ocs2::kYAxisIndex;
+using ::ocs2::kZAxisIndex;
 
 namespace {
 constexpr double kSlabHalfThickness = 0.002;  // [m] the filled patch is a slab of twice this height on the ground
@@ -46,6 +55,11 @@ constexpr double kOutlineRadius = 0.006;      // [m] capsule radius of the outli
 constexpr double kArrowWidth = 0.012;         // [m]
 constexpr double kMinArrowLength = 0.05;      // [m] arrow length for a patch that does not extend forward
 constexpr double kArrowLengthRatio = 0.75;    // arrow length relative to the patch's forward extent
+/// [m] Half the length (along x) and half the width (along y) of the generic foot outline.
+constexpr double kDefaultPatchHalfLength = 0.10;
+constexpr double kDefaultPatchHalfWidth = 0.05;
+/// The fewest corners that outline a polygon.
+constexpr int kMinPatchCorners = 3;
 
 /** Bounds of the corners in the contact frame. */
 struct Bounds {
@@ -55,7 +69,7 @@ struct Bounds {
 
 Bounds boundsOf(const ContactPatchCorners& corners) {
   Bounds b;
-  for (const std::array<double, 2>& corner : corners) {
+  for (const std::array<double, kHorizontalPositionDim>& corner : corners) {
     b.xMin = std::min(b.xMin, corner[0]);
     b.xMax = std::max(b.xMax, corner[0]);
     b.yMin = std::min(b.yMin, corner[1]);
@@ -66,17 +80,20 @@ Bounds boundsOf(const ContactPatchCorners& corners) {
 }  // namespace
 
 ContactPatchCorners defaultContactPatchCorners() {
-  return {{-0.10, -0.05}, {0.10, -0.05}, {0.10, 0.05}, {-0.10, 0.05}};
+  return {{-kDefaultPatchHalfLength, -kDefaultPatchHalfWidth},
+          {kDefaultPatchHalfLength, -kDefaultPatchHalfWidth},
+          {kDefaultPatchHalfLength, kDefaultPatchHalfWidth},
+          {-kDefaultPatchHalfLength, kDefaultPatchHalfWidth}};
 }
 
-std::vector<std::array<double, 3>> contactPatchWorldCorners(const TargetContactPatch& patch,
-                                                            const ContactPatchCorners& corners,
-                                                            double heightOffset) {
+std::vector<std::array<double, kPositionDim>> contactPatchWorldCorners(const TargetContactPatch& patch,
+                                                                       const ContactPatchCorners& corners,
+                                                                       double heightOffset) {
   const double c = std::cos(patch.yaw);
   const double s = std::sin(patch.yaw);
-  std::vector<std::array<double, 3>> world;
+  std::vector<std::array<double, kPositionDim>> world;
   world.reserve(corners.size());
-  for (const std::array<double, 2>& corner : corners) {
+  for (const std::array<double, kHorizontalPositionDim>& corner : corners) {
     world.push_back({patch.x + c * corner[0] - s * corner[1], patch.y + s * corner[0] + c * corner[1], patch.z + heightOffset});
   }
   return world;
@@ -86,14 +103,15 @@ int addContactPatchGeoms(mjvScene* absl_nullable scene,
                          const TargetContactPatch& patch,
                          const ContactPatchCorners& corners,
                          const ContactPatchStyle& style) {
-  if (scene == nullptr || !patch.valid || corners.size() < 3) return 0;
+  if (scene == nullptr || !patch.valid || corners.size() < kMinPatchCorners) return 0;
   const int needed = static_cast<int>(corners.size()) + (style.fill ? 1 : 0) + (style.arrow ? 1 : 0);
   if (scene->ngeom < 0 || scene->ngeom + needed > scene->maxgeom) return 0;
 
-  const float rgba[4] = {style.rgba[0], style.rgba[1], style.rgba[2], style.rgba[3]};
+  const float rgba[kMjRgbaChannels] = {style.rgba[kRedChannel], style.rgba[kGreenChannel], style.rgba[kBlueChannel],
+                                       style.rgba[kAlphaChannel]};
   const double c = std::cos(patch.yaw);
   const double s = std::sin(patch.yaw);
-  const mjtNum mat[9] = {c, -s, 0.0, s, c, 0.0, 0.0, 0.0, 1.0};  // row-major rotation about z by the yaw
+  const mjtNum mat[kMjMatrixSize] = {c, -s, 0.0, s, c, 0.0, 0.0, 0.0, 1.0};  // row-major rotation about z by the yaw
   // mjv_initGeom leaves the object fields alone, so every geom is cleared and marked as a free decoration first.
   const std::function<mjvGeom* absl_nonnull()> nextGeom = [scene]() {
     mjvGeom* absl_nonnull geom = &scene->geoms[scene->ngeom++];
@@ -115,8 +133,8 @@ int addContactPatchGeoms(mjvScene* absl_nullable scene,
     // A thin box centered on the bounds of the corners, rotated by the yaw: exactly the patch for a rectangle.
     const double cx = 0.5 * (bounds.xMin + bounds.xMax);
     const double cy = 0.5 * (bounds.yMin + bounds.yMax);
-    const mjtNum size[3] = {0.5 * (bounds.xMax - bounds.xMin), 0.5 * (bounds.yMax - bounds.yMin), kSlabHalfThickness};
-    const mjtNum pos[3] = {patch.x + c * cx - s * cy, patch.y + s * cx + c * cy, patch.z + kSlabHalfThickness};
+    const mjtNum size[kPositionDim] = {0.5 * (bounds.xMax - bounds.xMin), 0.5 * (bounds.yMax - bounds.yMin), kSlabHalfThickness};
+    const mjtNum pos[kPositionDim] = {patch.x + c * cx - s * cy, patch.y + s * cx + c * cy, patch.z + kSlabHalfThickness};
     mjvGeom* absl_nonnull slab = nextGeom();
     mjv_initGeom(slab, mjGEOM_BOX, size, pos, mat, rgba);
     finish(slab);
@@ -124,12 +142,12 @@ int addContactPatchGeoms(mjvScene* absl_nullable scene,
 
   // The outline and the arrow sit just above the slab so that neither is hidden by it.
   const double lineHeight = 2.0 * kSlabHalfThickness + kOutlineRadius;
-  const std::vector<std::array<double, 3>> world = contactPatchWorldCorners(patch, corners, lineHeight);
+  const std::vector<std::array<double, kPositionDim>> world = contactPatchWorldCorners(patch, corners, lineHeight);
   for (size_t i = 0; i < world.size(); ++i) {
-    const std::array<double, 3>& a = world[i];
-    const std::array<double, 3>& b = world[(i + 1) % world.size()];
-    const mjtNum from[3] = {a[0], a[1], a[2]};
-    const mjtNum to[3] = {b[0], b[1], b[2]};
+    const std::array<double, kPositionDim>& a = world[i];
+    const std::array<double, kPositionDim>& b = world[(i + 1) % world.size()];
+    const mjtNum from[kPositionDim] = {a[kXAxisIndex], a[kYAxisIndex], a[kZAxisIndex]};
+    const mjtNum to[kPositionDim] = {b[kXAxisIndex], b[kYAxisIndex], b[kZAxisIndex]};
     mjvGeom* absl_nonnull edge = nextGeom();
     mjv_initGeom(edge, mjGEOM_CAPSULE, /*size=*/nullptr, /*pos=*/nullptr, /*mat=*/nullptr, rgba);
     mjv_connector(edge, mjGEOM_CAPSULE, kOutlineRadius, from, to);
@@ -138,8 +156,8 @@ int addContactPatchGeoms(mjvScene* absl_nullable scene,
 
   if (style.arrow) {
     const double length = std::max(kMinArrowLength, kArrowLengthRatio * bounds.xMax);
-    const mjtNum from[3] = {patch.x, patch.y, patch.z + lineHeight};
-    const mjtNum to[3] = {patch.x + length * c, patch.y + length * s, patch.z + lineHeight};
+    const mjtNum from[kPositionDim] = {patch.x, patch.y, patch.z + lineHeight};
+    const mjtNum to[kPositionDim] = {patch.x + length * c, patch.y + length * s, patch.z + lineHeight};
     mjvGeom* absl_nonnull arrow = nextGeom();
     mjv_initGeom(arrow, mjGEOM_ARROW, /*size=*/nullptr, /*pos=*/nullptr, /*mat=*/nullptr, rgba);
     mjv_connector(arrow, mjGEOM_ARROW, kArrowWidth, from, to);

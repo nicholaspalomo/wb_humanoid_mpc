@@ -66,6 +66,13 @@ namespace ocs2::humanoid {
  */
 class ContactPlanningProblem {
  public:
+  ContactPlanningProblem() = default;
+  ContactPlanningProblem(ContactPlanningProblem&&) = default;
+  ContactPlanningProblem& operator=(ContactPlanningProblem&&) = default;
+  ContactPlanningProblem(const ContactPlanningProblem&) = delete;
+  ContactPlanningProblem& operator=(const ContactPlanningProblem&) = delete;
+  ~ContactPlanningProblem() = default;
+
   TermCollection<LipModelBlock> model;  // order fixes the variable layout
   TermCollection<LipCost> costs;        // order is the accumulation order of the stage matrices
   TermCollection<LipConstraint> softConstraints;
@@ -104,8 +111,14 @@ class ContactPlanningProblem {
   /** Fills the plan's trajectories from the incumbent through the model blocks. */
   void decode(const ContactPlanningContext& ctx, const MiqpResult& result, ContactPlan& plan) const;
 
+  /** The number of general rows of the nodes of an assembled problem. */
+  struct GeneralRowCounts {
+    int running = 0;   // per running node
+    int terminal = 0;  // at the terminal node
+  };
+
   /** Number of general rows a running node and the terminal node carry, from the terms' node sets; assemble()'s errors. */
-  absl::StatusOr<std::pair<int, int>> countRows(const ContactPlanningContext& ctx) const;
+  absl::StatusOr<GeneralRowCounts> countRows(const ContactPlanningContext& ctx) const;
 
   /** The start-up print: the layout, every collection with its terms and their one-line descriptions. */
   std::string summary(const ContactPlanningContext* absl_nullable ctx = nullptr) const;

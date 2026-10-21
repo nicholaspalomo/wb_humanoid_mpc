@@ -27,6 +27,7 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
+#include <cmath>
 #include <vector>
 
 #include "gtest/gtest.h"
@@ -64,13 +65,25 @@ TEST(ViewerInputQueueTest, MergesConsecutiveDragsWithTheSameButtonAndShift) {
   EXPECT_DOUBLE_EQ(drained[4].dx, 0.25);
 }
 
-TEST(ViewerInputQueueTest, AMergedDragKeepsTheRangeOfOneDrag) {
+// The old merge clamped the sum to [-2, 2] and lost 5.5 of these 7.5 fractions: a fast swipe, which the page sends in
+// pieces of at most 2 (page/index.html), turned the camera by less than the swipe.
+TEST(ViewerInputQueueTest, AMergedDragKeepsTheRangeOfOneDragWithoutLosingMotion) {
   ViewerInputQueue queue;
   for (int index = 0; index < 5; ++index) queue.push(drag(ViewerMouseButton::kMiddle, /*shift=*/false, /*dx=*/-1.5, /*dy=*/1.5));
+  queue.push(drag(ViewerMouseButton::kMiddle, /*shift=*/false, /*dx=*/0.25, /*dy=*/0.25));
   const std::vector<ViewerInput> drained = queue.drain();
-  ASSERT_EQ(drained.size(), 1U);
-  EXPECT_DOUBLE_EQ(drained[0].dx, -2.0);
-  EXPECT_DOUBLE_EQ(drained[0].dy, 2.0);
+  double dx = 0.0;
+  double dy = 0.0;
+  for (const ViewerInput& input : drained) {
+    EXPECT_LE(std::abs(input.dx), ViewerInput::kMaxDragFraction);
+    EXPECT_LE(std::abs(input.dy), ViewerInput::kMaxDragFraction);
+    dx += input.dx;
+    dy += input.dy;
+  }
+  EXPECT_DOUBLE_EQ(dx, -7.25);
+  EXPECT_DOUBLE_EQ(dy, 7.75);
+  // The small drag still merges into the last entry.
+  EXPECT_EQ(drained.size(), 5U);
 }
 
 TEST(ViewerInputQueueTest, DropsTheOldestEventWhenFull) {

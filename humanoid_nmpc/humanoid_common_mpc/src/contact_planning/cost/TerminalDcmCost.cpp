@@ -32,6 +32,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cmath>
 #include <string>
 
+#include "ocs2_core/Dimensions.h"
+
 namespace ocs2::humanoid {
 
 std::string TerminalDcmCost::describe() const {
@@ -50,7 +52,7 @@ void TerminalDcmCost::addToStage(const ContactPlanningContext& ctx, int /*node*/
   // w e^{2 omega dt} ||xi_{N-1} - zmp_{N-1} - e^{-omega dt} r||^2 exactly.
   const scalar_t omega = ctx.omega;
   const scalar_t growth = std::exp(omega * ctx.dt);
-  for (int axis = 0; axis < 2; ++axis) {
+  for (int axis = 0; axis < kHorizontalPositionDim; ++axis) {
     // With trackCommandedVelocity the target of the terminal DCM is zmp_{N-1} + v_cmd / omega, the offset of a CoM
     // over the foot that keeps moving at the commanded velocity, instead of the rest condition xi_N = zmp_{N-1}. The
     // residual used to apply that offset to xi_{N-1} instead, which put the target of xi_N at e^{omega dt} v_cmd /

@@ -267,19 +267,19 @@ VectorFunctionQuadraticApproximation& VectorFunctionQuadraticApproximation::resi
   dfdxx.resize(nv);
   dfdux.resize(nv);
   dfduu.resize(nv);
-  for (size_t i = 0; i < nv; i++) {
+  for (size_t i = 0; i < static_cast<size_t>(nv); i++) {
     dfdxx[i].resize(nx, nx);
   }
 
   if (nu >= 0) {
     dfdu.resize(nv, nu);
-    for (size_t i = 0; i < nv; i++) {
+    for (size_t i = 0; i < static_cast<size_t>(nv); i++) {
       dfdux[i].resize(nu, nx);
       dfduu[i].resize(nu, nu);
     }
   } else {
     dfdu = matrix_t();
-    for (size_t i = 0; i < nv; i++) {
+    for (size_t i = 0; i < static_cast<size_t>(nv); i++) {
       dfdux[i] = matrix_t();
       dfduu[i] = matrix_t();
     }
@@ -294,7 +294,7 @@ VectorFunctionQuadraticApproximation& VectorFunctionQuadraticApproximation::setZ
   f.setZero(nv);
   dfdx.setZero(nv, nx);
   dfdxx.resize(nv);
-  for (size_t i = 0; i < nv; i++) {
+  for (size_t i = 0; i < static_cast<size_t>(nv); i++) {
     dfdxx[i].setZero(nx, nx);
   }
 
@@ -302,7 +302,7 @@ VectorFunctionQuadraticApproximation& VectorFunctionQuadraticApproximation::setZ
     dfdu.setZero(nv, nu);
     dfdux.resize(nv);
     dfduu.resize(nv);
-    for (size_t i = 0; i < nv; i++) {
+    for (size_t i = 0; i < static_cast<size_t>(nv); i++) {
       dfdux[i].setZero(nu, nx);
       dfduu[i].setZero(nu, nu);
     }
@@ -310,7 +310,7 @@ VectorFunctionQuadraticApproximation& VectorFunctionQuadraticApproximation::setZ
     dfdu = matrix_t();
     dfdux.resize(nv);
     dfduu.resize(nv);
-    for (size_t i = 0; i < nv; i++) {
+    for (size_t i = 0; i < static_cast<size_t>(nv); i++) {
       dfdux[i] = matrix_t();
       dfduu[i] = matrix_t();
     }
@@ -334,13 +334,13 @@ std::ostream& operator<<(std::ostream& out, const VectorFunctionQuadraticApproxi
   out << "f: " << f.f.transpose() << '\n';
   out << "dfdx:\n" << f.dfdx << '\n';
   out << "dfdu:\n" << f.dfdu << '\n';
-  for (size_t i = 0; i < f.f.rows(); i++) {
+  for (size_t i = 0; i < static_cast<size_t>(f.f.rows()); i++) {
     out << "dfdxx[" << i << "]:\n" << f.dfdxx[i] << '\n';
   }
-  for (size_t i = 0; i < f.f.rows(); i++) {
+  for (size_t i = 0; i < static_cast<size_t>(f.f.rows()); i++) {
     out << "dfdux[" << i << "]:\n" << f.dfdux[i] << '\n';
   }
-  for (size_t i = 0; i < f.f.rows(); i++) {
+  for (size_t i = 0; i < static_cast<size_t>(f.f.rows()); i++) {
     out << "dfduu[" << i << "]:\n" << f.dfduu[i] << '\n';
   }
   return out;

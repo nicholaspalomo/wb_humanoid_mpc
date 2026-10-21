@@ -59,6 +59,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc_app/robot/RobotProcessSettings.h"
 #include "humanoid_common_mpc_app/robot/config/robot/RobotProcessSettingsFromConfig.h"
 #include "humanoid_mpc_config/joint_pd_gains_file.pb.h"
+#include "humanoid_mpc_config/joint_pd_gains_update.pb.h"
 #include "humanoid_mpc_config/mpc_parameter_update.pb.h"
 #include "humanoid_mpc_config/task_file.nproto.h"
 #include "humanoid_mpc_config/task_file.nproto.pb.h"
@@ -165,7 +166,6 @@ class RobotProcessTest : public ::testing::Test {
 
     robotBus_ = robot_test::createLoopbackBus("robot");
     operatorBus_ = robot_test::createLoopbackBus("operator");
-    robot_test::connectBoth(*robotBus_, *operatorBus_);
     ASSERT_TRUE(operatorBus_
                     ->subscribe<humanoid_mpc_msgs::FsmState>(ipc::topics::kRobotFsmState, robot::ipc::Delivery::kAll,
                                                              [this](const humanoid_mpc_msgs::FsmState& state) { view_.onFsmState(state); })
@@ -189,7 +189,7 @@ class RobotProcessTest : public ::testing::Test {
 
   void writeTaskFile(const std::string& contactEstimator) {
     std::ofstream file(taskFile_, std::ios::trunc);
-    file << "contact_estimator: \"" << contactEstimator << "\"\n";
+    file << "# proto-message: humanoid_mpc_config.TaskFile\ncontact_estimator: \"" << contactEstimator << "\"\n";
   }
 
   RobotProcess::Config processConfig() {
@@ -249,7 +249,7 @@ class RobotProcessTest : public ::testing::Test {
 
 TEST_F(RobotProcessTest, RunsTheLoopAndServesTheOperator) {
   absl::StatusOr<std::unique_ptr<RobotProcess>> created =
-      RobotProcess::Create(*robotBus_, *backend_, controller_, estimators_, processConfig());
+      RobotProcess::Create(robotBus_.get(), backend_.get(), &controller_, &estimators_, processConfig());
   ASSERT_TRUE(created.ok()) << created.status();
   process_ = *std::move(created);
   EXPECT_EQ(controller_.contactEstimatorName(), "RobotStateContactEstimator") << "the task file's estimator is installed";
@@ -258,7 +258,7 @@ TEST_F(RobotProcessTest, RunsTheLoopAndServesTheOperator) {
   ASSERT_TRUE(operatorBus_->start().ok());
 
   absl::StatusOr<std::unique_ptr<RobotProcess>> again =
-      RobotProcess::Create(*robotBus_, *backend_, controller_, estimators_, processConfig());
+      RobotProcess::Create(robotBus_.get(), backend_.get(), &controller_, &estimators_, processConfig());
   EXPECT_EQ(again.status().code(), absl::StatusCode::kFailedPrecondition) << "a running bus takes no more subscriptions";
 
   ASSERT_TRUE(process_->start().ok());
@@ -318,11 +318,14 @@ TEST_F(RobotProcessTest, RunsTheLoopAndServesTheOperator) {
   EXPECT_TRUE(waitFor([&]() { return controller_.gate().rampTime == ContactWrenchGate::Config{}.rampTime; }))
       << "the file without a gate kept the GUI's";
 
-  // PD gains from the GUI (its whole gains file) and the gains file watcher.
+  // PD gains from the GUI (its whole gains file, paired with its fingerprint) and the gains file watcher.
   humanoid_mpc_config::JointPdGainsFile gains;
   gains.mutable_default_gains()->set_kp(10.0);
   gains.mutable_default_gains()->set_kd(1.0);
-  EXPECT_TRUE(publishUntil(ipc::topics::kOperatorPdGains, gains, [&]() { return controller_.pdGainsDocuments() > 0; }));
+  humanoid_mpc_config::JointPdGainsUpdate update;
+  *update.mutable_gains() = gains;
+  update.set_schema_fingerprint(jointPdGainsFileSchemaFingerprint());
+  EXPECT_TRUE(publishUntil(ipc::topics::kOperatorPdGains, update, [&]() { return controller_.pdGainsDocuments() > 0; }));
   EXPECT_TRUE(waitFor([&]() { return controller_.pdGainsPolls() > 0; }));
 
   // The gantry: its release resets the MPC, its lock is a discontinuity that resets and holds the controller and counts
@@ -347,11 +350,40 @@ TEST_F(RobotProcessTest, RunsTheLoopAndServesTheOperator) {
   EXPECT_FALSE(robotBus_->isRunning());
 }
 
+// A Save followed by more tuning within one poll period: the task-file watcher notices the saved file after the GUI's
+// newer update, and that older edit must not undo it; a file written after the update is applied.
+TEST_F(RobotProcessTest, ATaskFileSavedBeforeTheNewestMpcParametersDoesNotUndoThem) {
+  absl::StatusOr<std::unique_ptr<RobotProcess>> created =
+      RobotProcess::Create(robotBus_.get(), backend_.get(), &controller_, &estimators_, processConfig());
+  ASSERT_TRUE(created.ok()) << created.status();
+  process_ = *std::move(created);
+  ASSERT_TRUE(robotBus_->start().ok());
+  ASSERT_TRUE(operatorBus_->start().ok());
+  ASSERT_TRUE(process_->start().ok());
+
+  // The saved file names the estimator in use; applied over the update, it would put it back.
+  writeTaskFile("robot_state");
+  std::filesystem::last_write_time(taskFile_, std::filesystem::file_time_type::clock::now() - std::chrono::seconds(5));
+  humanoid_mpc_config::MpcParameterUpdate parameters;
+  parameters.mutable_task()->set_contact_estimator("always_in_contact");
+  parameters.set_schema_fingerprint(mpcParameterUpdateSchemaFingerprint());
+  ASSERT_TRUE(publishUntil(ipc::topics::kOperatorMpcParameters, parameters,
+                           [&]() { return controller_.contactEstimatorName() == "AlwaysInContactEstimator"; }));
+  // Past two of the watcher's polls (kTaskFileCheckPeriod).
+  std::this_thread::sleep_for(std::chrono::milliseconds(2500));
+  EXPECT_EQ(controller_.contactEstimatorName(), "AlwaysInContactEstimator") << "the older saved file undid the newer update";
+
+  writeTaskFile("robot_state");
+  std::filesystem::last_write_time(taskFile_, std::filesystem::file_time_type::clock::now() + std::chrono::seconds(2));
+  EXPECT_TRUE(waitFor([&]() { return controller_.contactEstimatorName() == "RobotStateContactEstimator"; }))
+      << "a file written after the update was not applied";
+}
+
 TEST_F(RobotProcessTest, RefusesAnUnknownContactEstimatorAndASinkItDoesNotKnow) {
   RobotProcess::Config config = processConfig();
   config.settings.contactEstimator = "magic";
   absl::StatusOr<std::unique_ptr<RobotProcess>> unknownEstimator =
-      RobotProcess::Create(*robotBus_, *backend_, controller_, estimators_, config);
+      RobotProcess::Create(robotBus_.get(), backend_.get(), &controller_, &estimators_, config);
   EXPECT_EQ(unknownEstimator.status().code(), absl::StatusCode::kInvalidArgument);
   EXPECT_NE(unknownEstimator.status().message().find("cheater_sim"), std::string::npos) << unknownEstimator.status().message();
   // It names the file and the field the operator edits.
@@ -361,7 +393,8 @@ TEST_F(RobotProcessTest, RefusesAnUnknownContactEstimatorAndASinkItDoesNotKnow) 
   std::unique_ptr<robot::ipc::Bus> otherBus = robot_test::createLoopbackBus("robot");
   config = processConfig();
   config.settings.telemetrySinks = {"bus", "carrier_pigeon"};
-  absl::StatusOr<std::unique_ptr<RobotProcess>> unknownSink = RobotProcess::Create(*otherBus, *backend_, controller_, estimators_, config);
+  absl::StatusOr<std::unique_ptr<RobotProcess>> unknownSink =
+      RobotProcess::Create(otherBus.get(), backend_.get(), &controller_, &estimators_, config);
   EXPECT_EQ(unknownSink.status().code(), absl::StatusCode::kInvalidArgument);
   EXPECT_NE(unknownSink.status().message().find("carrier_pigeon"), std::string::npos);
 }
@@ -370,21 +403,22 @@ TEST_F(RobotProcessTest, RefusesAnUnknownContactEstimatorAndASinkItDoesNotKnow) 
 class OneFlagContactEstimator final : public robot::model::ContactEstimator {
  public:
   void estimateContactFlags(const robot::model::RobotState& /*robotState*/, std::vector<bool>& flags) override { flags.assign(1, true); }
-  std::string getName() const override { return "OneFlagContactEstimator"; }
+  absl::string_view getName() const override { return "OneFlagContactEstimator"; }
 };
 
 TEST_F(RobotProcessTest, RefusesAContactEstimatorWithoutOneFlagPerContactPointBeforeTheLoopCanInstallIt) {
   estimators_.add("one_flag", "one flag, whatever the robot", [] { return std::make_shared<OneFlagContactEstimator>(); });
   RobotProcess::Config config = processConfig();
   config.settings.contactEstimator = "one_flag";
-  absl::StatusOr<std::unique_ptr<RobotProcess>> refused = RobotProcess::Create(*robotBus_, *backend_, controller_, estimators_, config);
+  absl::StatusOr<std::unique_ptr<RobotProcess>> refused =
+      RobotProcess::Create(robotBus_.get(), backend_.get(), &controller_, &estimators_, config);
   EXPECT_EQ(refused.status().code(), absl::StatusCode::kInvalidArgument);
   EXPECT_NE(refused.status().message().find("'one_flag' reports 1 contact flags"), std::string::npos) << refused.status();
 
   // A swap to it while the loop runs is refused on the communication thread; the estimator in use stays. The refused
   // Create() above registered nothing on the bus.
   absl::StatusOr<std::unique_ptr<RobotProcess>> created =
-      RobotProcess::Create(*robotBus_, *backend_, controller_, estimators_, processConfig());
+      RobotProcess::Create(robotBus_.get(), backend_.get(), &controller_, &estimators_, processConfig());
   ASSERT_TRUE(created.ok()) << created.status();
   process_ = *std::move(created);
   ASSERT_TRUE(robotBus_->start().ok());
@@ -406,7 +440,7 @@ TEST_F(RobotProcessTest, RefusesAControllerOfAnotherRobotBeforeStart) {
   std::swap(names.front(), names.back());
   otherRobot.setRobotJointNames(names);
   absl::StatusOr<std::unique_ptr<RobotProcess>> reordered =
-      RobotProcess::Create(*robotBus_, *backend_, otherRobot, estimators_, processConfig());
+      RobotProcess::Create(robotBus_.get(), backend_.get(), &otherRobot, &estimators_, processConfig());
   EXPECT_EQ(reordered.status().code(), absl::StatusCode::kInvalidArgument);
   EXPECT_NE(reordered.status().message().find("joint 0 of the controller is '" + names.front() + "'"), std::string::npos)
       << reordered.status();
@@ -414,7 +448,7 @@ TEST_F(RobotProcessTest, RefusesAControllerOfAnotherRobotBeforeStart) {
   names.pop_back();
   otherRobot.setRobotJointNames(names);
   absl::StatusOr<std::unique_ptr<RobotProcess>> fewer =
-      RobotProcess::Create(*robotBus_, *backend_, otherRobot, estimators_, processConfig());
+      RobotProcess::Create(robotBus_.get(), backend_.get(), &otherRobot, &estimators_, processConfig());
   EXPECT_EQ(fewer.status().code(), absl::StatusCode::kInvalidArgument);
   EXPECT_NE(fewer.status().message().find("a robot of " + std::to_string(names.size()) + " joints"), std::string::npos) << fewer.status();
   EXPECT_EQ(otherRobot.eventSink(), nullptr) << "nothing was set up";
@@ -448,6 +482,8 @@ class RecordingBackend final : public RobotBackend {
   void registerContactEstimators(robot::model::ContactEstimatorRegistry& registry) const override {
     backend_.registerContactEstimators(registry);
   }
+  void enableTorques() override { backend_.enableTorques(); }
+  absl::string_view supervisorName() const override { return backend_.supervisorName(); }
   robot::mujoco_sim_interface::MujocoSimInterface* absl_nullable simulator() override { return backend_.simulator(); }
 
   /** The controller's mode of every cycle whose action reached the backend. */
@@ -465,7 +501,10 @@ class RecordingBackend final : public RobotBackend {
   std::atomic<uint64_t> safeStates_{0};
 };
 
-/** A backend that is not a simulator: the MuJoCo backend behind RobotBackend's simulator(), which is nullptr. */
+/**
+ * A backend that is not a simulator but names the simulator's supervisor: the MuJoCo backend behind RobotBackend's
+ * simulator(), which is nullptr.
+ */
 class NoSimulatorBackend final : public RobotBackend {
  public:
   explicit NoSimulatorBackend(RobotBackend& backend) : backend_(backend) {}
@@ -481,19 +520,34 @@ class NoSimulatorBackend final : public RobotBackend {
   void registerContactEstimators(robot::model::ContactEstimatorRegistry& registry) const override {
     backend_.registerContactEstimators(registry);
   }
+  void enableTorques() override { backend_.enableTorques(); }
+  absl::string_view supervisorName() const override { return backend_.supervisorName(); }
 
  private:
   RobotBackend& backend_;
 };
 
-TEST_F(RobotProcessTest, RefusesABackendThatIsNotASimulator) {
+TEST_F(RobotProcessTest, RefusesTheSimulatorsSupervisorForABackendThatIsNotASimulator) {
+  // A backend without a simulator runs on the `hardware` supervisor (testHardwareSupervisor.cpp); one that names the
+  // simulator's is a programming error of the backend, refused before anything starts.
   NoSimulatorBackend backend(*backend_);
   ASSERT_EQ(backend.simulator(), nullptr);
   absl::StatusOr<std::unique_ptr<RobotProcess>> created =
-      RobotProcess::Create(*robotBus_, backend, controller_, estimators_, processConfig());
-  EXPECT_EQ(created.status().code(), absl::StatusCode::kUnimplemented);
+      RobotProcess::Create(robotBus_.get(), &backend, &controller_, &estimators_, processConfig());
+  EXPECT_EQ(created.status().code(), absl::StatusCode::kInvalidArgument);
   EXPECT_NE(created.status().message().find("'no_simulator' is not a simulator"), std::string::npos) << created.status();
-  EXPECT_EQ(controller_.eventSink(), nullptr) << "the refused process hands the controller nothing";
+  EXPECT_NE(created.status().message().find("hardware"), std::string::npos) << created.status();
+}
+
+TEST_F(RobotProcessTest, RefusesAnUnknownStateEstimatorListingTheAvailableOnes) {
+  RobotProcess::Config config = processConfig();
+  config.settings.stateEstimator = "oracle";
+  absl::StatusOr<std::unique_ptr<RobotProcess>> created =
+      RobotProcess::Create(robotBus_.get(), backend_.get(), &controller_, &estimators_, config);
+  EXPECT_EQ(created.status().code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_NE(created.status().message().find("state_estimator"), std::string::npos) << created.status();
+  EXPECT_NE(created.status().message().find("ground_truth"), std::string::npos) << created.status();
+  EXPECT_NE(created.status().message().find("kalman"), std::string::npos) << created.status();
 }
 
 TEST_F(RobotProcessTest, TheCycleThatSwitchesTheTorquesOnHandsTheBackendItsOwnAction) {
@@ -502,7 +556,7 @@ TEST_F(RobotProcessTest, TheCycleThatSwitchesTheTorquesOnHandsTheBackendItsOwnAc
   // action of before, in the robot an MPC action with high gains - in force for a control period.
   RecordingBackend recording(*backend_, controller_);
   absl::StatusOr<std::unique_ptr<RobotProcess>> created =
-      RobotProcess::Create(*robotBus_, recording, controller_, estimators_, processConfig());
+      RobotProcess::Create(robotBus_.get(), &recording, &controller_, &estimators_, processConfig());
   ASSERT_TRUE(created.ok()) << created.status();
   process_ = *std::move(created);
   ASSERT_TRUE(robotBus_->start().ok());
@@ -534,7 +588,7 @@ TEST_F(RobotProcessTest, TheCycleThatSwitchesTheTorquesOnHandsTheBackendItsOwnAc
 TEST_F(RobotProcessTest, ACycleThatThrowsStopsTheLoopAndPutsTheBackendInItsSafeState) {
   RecordingBackend recording(*backend_, controller_);
   absl::StatusOr<std::unique_ptr<RobotProcess>> created =
-      RobotProcess::Create(*robotBus_, recording, controller_, estimators_, processConfig());
+      RobotProcess::Create(robotBus_.get(), &recording, &controller_, &estimators_, processConfig());
   ASSERT_TRUE(created.ok()) << created.status();
   process_ = *std::move(created);
   ASSERT_TRUE(robotBus_->start().ok());
@@ -560,7 +614,7 @@ TEST_F(RobotProcessTest, ACycleThatThrowsStopsTheLoopAndPutsTheBackendInItsSafeS
 TEST_F(RobotProcessTest, TheControllerReportsThroughTheEventLog) {
   EXPECT_EQ(controller_.eventSink(), nullptr);
   absl::StatusOr<std::unique_ptr<RobotProcess>> created =
-      RobotProcess::Create(*robotBus_, *backend_, controller_, estimators_, processConfig());
+      RobotProcess::Create(robotBus_.get(), backend_.get(), &controller_, &estimators_, processConfig());
   ASSERT_TRUE(created.ok()) << created.status();
   process_ = *std::move(created);
   EXPECT_NE(controller_.eventSink(), nullptr) << "Create() hands the controller the process's realtime event log";
@@ -568,7 +622,7 @@ TEST_F(RobotProcessTest, TheControllerReportsThroughTheEventLog) {
 
 TEST_F(RobotProcessTest, RunUntilShutdownReturnsOkOnAShutdown) {
   absl::StatusOr<std::unique_ptr<RobotProcess>> created =
-      RobotProcess::Create(*robotBus_, *backend_, controller_, estimators_, processConfig());
+      RobotProcess::Create(robotBus_.get(), backend_.get(), &controller_, &estimators_, processConfig());
   ASSERT_TRUE(created.ok()) << created.status();
   process_ = *std::move(created);
   ASSERT_TRUE(robotBus_->start().ok());
@@ -580,7 +634,7 @@ TEST_F(RobotProcessTest, RunUntilShutdownReturnsOkOnAShutdown) {
 
 TEST_F(RobotProcessTest, RunUntilShutdownReportsOnceTheLoopHasRunForTheGivenTime) {
   absl::StatusOr<std::unique_ptr<RobotProcess>> created =
-      RobotProcess::Create(*robotBus_, *backend_, controller_, estimators_, processConfig());
+      RobotProcess::Create(robotBus_.get(), backend_.get(), &controller_, &estimators_, processConfig());
   ASSERT_TRUE(created.ok()) << created.status();
   process_ = *std::move(created);
   ASSERT_TRUE(robotBus_->start().ok());
@@ -617,7 +671,8 @@ TEST_F(RobotProcessTest, ASaveOnTheBusIsStoredAndTheTaskFileWatcherAppliesIt) {
   RobotProcess::Config config = processConfig();
   // The test's task file is the store's copy.
   config.configStore.task = {.path = taskFile_, .identity = kTestTaskIdentity, .inPlacePath = ""};
-  absl::StatusOr<std::unique_ptr<RobotProcess>> created = RobotProcess::Create(*robotBus_, *backend_, controller_, estimators_, config);
+  absl::StatusOr<std::unique_ptr<RobotProcess>> created =
+      RobotProcess::Create(robotBus_.get(), backend_.get(), &controller_, &estimators_, config);
   ASSERT_TRUE(created.ok()) << created.status();
   process_ = *std::move(created);
   std::optional<humanoid_mpc_msgs::ConfigFileSaveStatus> answer;
@@ -635,7 +690,7 @@ TEST_F(RobotProcessTest, ASaveOnTheBusIsStoredAndTheTaskFileWatcherAppliesIt) {
   ASSERT_TRUE(waitFor([&]() { return controller_.contactEstimatorName() == "RobotStateContactEstimator"; }));
 
   // The GUI repeats the save until it hears the answer, as push_robot_config does.
-  const std::string saved = "contact_estimator: \"always_in_contact\"\n";
+  const std::string saved = "# proto-message: humanoid_mpc_config.TaskFile\ncontact_estimator: \"always_in_contact\"\n";
   const humanoid_mpc_msgs::ConfigFileSave save = taskFileSave(saved, /*sequence=*/1);
   ASSERT_TRUE(publishUntil(ipc::topics::kOperatorConfigSave, save, [&]() {
     absl::MutexLock lock(answerMutex);
@@ -657,7 +712,8 @@ TEST_F(RobotProcessTest, ASaveOnTheBusIsStoredAndTheTaskFileWatcherAppliesIt) {
 TEST_F(RobotProcessTest, AnMpcParameterUpdateOfAnotherConfigurationInstallsNothing) {
   RobotProcess::Config config = processConfig();
   config.taskFileIdentity = kTestTaskIdentity;
-  absl::StatusOr<std::unique_ptr<RobotProcess>> created = RobotProcess::Create(*robotBus_, *backend_, controller_, estimators_, config);
+  absl::StatusOr<std::unique_ptr<RobotProcess>> created =
+      RobotProcess::Create(robotBus_.get(), backend_.get(), &controller_, &estimators_, config);
   ASSERT_TRUE(created.ok()) << created.status();
   process_ = *std::move(created);
   ASSERT_TRUE(robotBus_->start().ok());
@@ -681,6 +737,34 @@ TEST_F(RobotProcessTest, AnMpcParameterUpdateOfAnotherConfigurationInstallsNothi
   own.set_config_path(kTestTaskIdentity);
   EXPECT_TRUE(publishUntil(ipc::topics::kOperatorMpcParameters, own,
                            [&]() { return controller_.contactEstimatorName() == "AlwaysInContactEstimator"; }));
+}
+
+constexpr char kTestPdGainsIdentity[] = "robot_models/test_robot/test_robot_mpc/config/controller/joint_pd_gains.textproto";
+
+TEST_F(RobotProcessTest, AJointPdGainsUpdateOfAnotherConfigurationInstallsNothing) {
+  RobotProcess::Config config = processConfig();
+  config.pdGainsFileIdentity = kTestPdGainsIdentity;
+  absl::StatusOr<std::unique_ptr<RobotProcess>> created =
+      RobotProcess::Create(robotBus_.get(), backend_.get(), &controller_, &estimators_, config);
+  ASSERT_TRUE(created.ok()) << created.status();
+  process_ = *std::move(created);
+  ASSERT_TRUE(robotBus_->start().ok());
+  ASSERT_TRUE(operatorBus_->start().ok());
+  ASSERT_TRUE(process_->start().ok());
+
+  // Another configuration of the robot: refused before reaching the controller.
+  humanoid_mpc_config::JointPdGainsUpdate other;
+  other.mutable_gains()->mutable_default_gains()->set_kp(10.0);
+  other.set_schema_fingerprint(jointPdGainsFileSchemaFingerprint());
+  other.set_config_path("robot_models/test_robot/another_mpc/config/controller/joint_pd_gains.textproto");
+  ASSERT_TRUE(publishUntil(ipc::topics::kOperatorPdGains, other, [&]() { return process_->mailbox().statistics().pdGainsRejected > 0; }));
+  std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  EXPECT_EQ(controller_.pdGainsDocuments(), 0u);
+
+  // The running configuration's own update is applied.
+  humanoid_mpc_config::JointPdGainsUpdate own = other;
+  own.set_config_path(kTestPdGainsIdentity);
+  EXPECT_TRUE(publishUntil(ipc::topics::kOperatorPdGains, own, [&]() { return controller_.pdGainsDocuments() > 0; }));
 }
 
 }  // namespace

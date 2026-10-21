@@ -194,7 +194,8 @@ TEST_F(ContactWrenchConeBarrierRangeTest, AValueThatIsNotFiniteIsRefusedNamingIt
 TEST_F(ContactWrenchConeBarrierRangeTest, AWordWhereTheNumberGoesIsRefusedByTheParserNamingTheFile) {
   // The strict parser returns the refusal, naming the file (and the line and column).
   const std::string path = (std::filesystem::path(testing::TempDir()) / "testContactWrenchConeBarrierRange_mu_word.textproto").string();
-  std::ofstream(path) << "contacts {\n  contact_wrench_cone_soft_constraint {\n    mu: strong\n  }\n}\n";
+  std::ofstream(path)
+      << "# proto-message: humanoid_mpc_config.TaskFile\ncontacts {\n  contact_wrench_cone_soft_constraint {\n    mu: strong\n  }\n}\n";
   const absl::StatusOr<mpc_config::TaskFile> task = loadTaskFile(path);
   EXPECT_EQ(task.status().code(), absl::StatusCode::kInvalidArgument) << task.status();
   EXPECT_TRUE(absl::StrContains(task.status().message(), path)) << task.status();

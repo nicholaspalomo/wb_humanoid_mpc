@@ -37,6 +37,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <ocs2_core/manifold/UnitQuaternionMath.h>
 
+#include "ocs2_core/Dimensions.h"
+
 #include "ocs2_centroidal_model/AccessHelperFunctions.h"
 #include "ocs2_centroidal_model/ModelHelperFunctions.h"
 
@@ -79,7 +81,8 @@ template <typename SCALAR>
 auto CentroidalModelPinocchioMappingTpl<SCALAR>::getPinocchioJointPosition(const vector_t& state) const -> vector_t {
   vector_t qPinocchio = centroidal_model::getGeneralizedCoordinates(state, centroidalModelInfo_);
   const quaternion_coeffs_t<SCALAR> orientation = centroidal_model::getBaseQuaternion(state, centroidalModelInfo_);
-  qPinocchio.template segment<4>(3) = quaternionSafeNormalize(orientation);
+  qPinocchio.template segment<kQuaternionCoefficients>(centroidal_model::kBaseQuaternionStartInConfiguration) =
+      quaternionSafeNormalize(orientation);
   return qPinocchio;
 }
 
@@ -93,18 +96,20 @@ auto CentroidalModelPinocchioMappingTpl<SCALAR>::getPinocchioJointVelocity(const
   assert(info.inputDim == input.rows());
 
   const auto& A = getCentroidalMomentumMatrix(*pinocchioInterfacePtr_);
-  const Eigen::Matrix<SCALAR, 6, 6> Ab = A.template leftCols<6>();
+  const Eigen::Matrix<SCALAR, centroidal_model::kCentroidalMomentumDim, centroidal_model::kBaseVelocityDim> Ab =
+      A.template leftCols<centroidal_model::kBaseVelocityDim>();
   const auto Ab_inv = computeFloatingBaseCentroidalMomentumMatrixInverse(Ab);
 
   const auto jointVelocities = centroidal_model::getJointVelocities(input, info).head(info.actuatedDofNum);
 
-  Eigen::Matrix<SCALAR, 6, 1> momentum = info.robotMass * centroidal_model::getNormalizedMomentum(state, info);
+  Eigen::Matrix<SCALAR, centroidal_model::kCentroidalMomentumDim, 1> momentum =
+      info.robotMass * centroidal_model::getNormalizedMomentum(state, info);
   if (info.centroidalModelType == CentroidalModelType::FullCentroidalDynamics) {
     momentum.noalias() -= A.rightCols(info.actuatedDofNum) * jointVelocities;
   }
 
   vector_t vPinocchio(info.velocityDim);
-  vPinocchio.template head<6>().noalias() = Ab_inv * momentum;
+  vPinocchio.template head<centroidal_model::kBaseVelocityDim>().noalias() = Ab_inv * momentum;
   vPinocchio.tail(info.actuatedDofNum) = jointVelocities;
 
   return vPinocchio;

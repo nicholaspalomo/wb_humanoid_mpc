@@ -29,7 +29,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc_app/robot/RobotStartup.h"
 
-#include <functional>
 #include <string>
 #include <utility>
 
@@ -94,7 +93,7 @@ absl::StatusOr<RobotStack> bringUpRobot(RobotConfigDirectory& directory, const R
   return bringUp(directory);
 }
 
-absl::Status runRobot(const RobotAppOptions& options, const RobotSetUp& setUpRobot, const std::function<bool()>& shutdownRequested) {
+absl::Status runRobot(const RobotAppOptions& options, const RobotSetUp& setUpRobot, absl::FunctionRef<bool()> shutdownRequested) {
   ASSIGN_OR_RETURN(RobotConfigDirectory directory, openRobotConfigDirectory(options));
   const RobotBringUp bringUp = [&setUpRobot](const RobotConfigDirectory& files) -> absl::StatusOr<RobotStack> {
     // A stack that fails to start is destroyed on the way out, which stops what it started.

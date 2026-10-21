@@ -43,6 +43,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "turbojpeg.h"  // NOLINT(build/include_subdir): libjpeg-turbo installs turbojpeg.h without a directory
 
 namespace robot::web_viewer {
+namespace {
+
+// The highest JPEG quality.
+constexpr int kMaxJpegQuality = 100;
+
+}  // namespace
 
 absl::StatusOr<std::unique_ptr<JpegEncoder>> JpegEncoder::Create() {
   void* absl_nullable compressor = tj3Init(TJINIT_COMPRESS);
@@ -63,11 +69,13 @@ absl::StatusOr<std::string> JpegEncoder::encode(absl::Span<const uint8_t> rgb, i
   if (width <= 0 || height <= 0) {
     return absl::InvalidArgumentError(absl::StrCat("JPEG encoding needs a positive size, not ", width, "x", height));
   }
-  const int64_t expectedBytes = int64_t{width} * height * 3;
+  const int64_t expectedBytes = int64_t{width} * height * kRgbBytesPerPixel;
   if (static_cast<int64_t>(rgb.size()) != expectedBytes) {
     return absl::InvalidArgumentError(absl::StrCat("a ", width, "x", height, " RGB image has ", expectedBytes, " bytes, not ", rgb.size()));
   }
-  if (quality < 1 || quality > 100) return absl::InvalidArgumentError(absl::StrCat("JPEG quality is 1 to 100, not ", quality));
+  if (quality < 1 || quality > kMaxJpegQuality) {
+    return absl::InvalidArgumentError(absl::StrCat("JPEG quality is 1 to ", kMaxJpegQuality, ", not ", quality));
+  }
   const bool configured = tj3Set(compressor_, TJPARAM_QUALITY, quality) == 0 && tj3Set(compressor_, TJPARAM_SUBSAMP, TJSAMP_420) == 0 &&
                           tj3Set(compressor_, TJPARAM_BOTTOMUP, rowOrder == RowOrder::kBottomUp ? 1 : 0) == 0;
   if (!configured) return absl::InternalError(absl::StrCat("libjpeg-turbo refused the settings: ", tj3GetErrorStr(compressor_)));
@@ -75,7 +83,7 @@ absl::StatusOr<std::string> JpegEncoder::encode(absl::Span<const uint8_t> rgb, i
   // On input the capacity of the buffer that libjpeg-turbo may grow; on output the size of the image.
   size_t size = outputCapacity_;
   unsigned char* absl_nullable const previousOutput = output_;
-  if (tj3Compress8(compressor_, rgb.data(), width, /*pitch=*/width * 3, height, TJPF_RGB, &output_, &size) != 0) {
+  if (tj3Compress8(compressor_, rgb.data(), width, /*pitch=*/width * kRgbBytesPerPixel, height, TJPF_RGB, &output_, &size) != 0) {
     return absl::InternalError(absl::StrCat("libjpeg-turbo could not encode the frame: ", tj3GetErrorStr(compressor_)));
   }
   // A grown buffer holds at least the image; the next frame lets libjpeg-turbo grow it again if needed.

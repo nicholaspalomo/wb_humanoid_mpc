@@ -1,6 +1,6 @@
 # Distributed runtime: robot, MPC and operator
 
-This document describes how the humanoid NMPC runs as a set of processes that talk over **ZeroMQ** with
+This document describes how the humanoid NMPC runs as a set of processes that talk over **Cyclone DDS** with
 **Protocol Buffers** messages, and how it is visualized with **Rerun**.
 
 The design is driven by one deployment:
@@ -19,7 +19,7 @@ flowchart LR
   subgraph Robot["Robot realtime computer"]
     direction TB
     RT["realtime thread<br/>backend read -> MRT joint controller -> backend write<br/>(no IPC, no protobuf, no locks it can wait on)"]
-    COMM_R["communication thread<br/>ZeroMQ, protobuf, file reading"]
+    COMM_R["communication thread<br/>DDS, protobuf, file reading"]
     RT -- "observation (triple buffer)<br/>telemetry (SPSC ring)" --> COMM_R
     COMM_R -- "policy (MRT_BASE buffer, try-lock)<br/>commands (triple buffers, SPSC queues)" --> RT
   end
@@ -63,50 +63,108 @@ the MPC. `InProcessMpcLink` (the solver on a thread of the process, through `ocs
 controller unit tests and the deterministic lockstep closed loop of `humanoid_nmpc/humanoid_mpc_validation`, which runs
 its solver iterations itself (`InProcessMpcLink::Execution::kCaller`, `runSolverIteration()`) on the simulation's clock.
 
-## IPC: a ZeroMQ bus without a broker
+## IPC: a Cyclone DDS bus without ROS
 
 `robot_runtime/robot_ipc` (C++) and its Python twin (`robot_runtime/robot_ipc/python/robot_ipc`) implement one
-pattern:
+pattern on [Eclipse Cyclone DDS](https://cyclonedds.io) - the DDS library alone, without ROS, rmw or ROS IDL packages:
 
-- Every process that publishes binds **one PUB socket** at the endpoint of its **node name** in the network file.
-- Every process that subscribes connects **one SUB socket to every endpoint** in the network file and filters by topic.
-  Any process may therefore publish any topic, and a subscriber does not need to know which process publishes it.
-  ZeroMQ reconnects on its own, so processes start in any order.
-- There is no broker, no discovery and no multicast (which is unreliable over Wi-Fi).
+- Every process joins the DDS domain of the network file as **one DDS participant** named after its **node**.
+- Every bus topic is a **DDS topic of the same name**, so any process may publish any topic and a subscriber does not
+  need to know which process publishes it. DDS discovery matches writers and readers, so processes start, stop and
+  restart in any order.
+- Discovery is **unicast** to the host of every node of the network file (`AllowMulticast` false): multicast is
+  unreliable over Wi-Fi and absent on a container's loopback. There is no broker.
 
-The network file (`config/ipc/network.textproto`, chosen with `--network_config`) names the nodes. It is a textproto
-of `robot_ipc_proto.NetworkConfig` (`robot_runtime/robot_ipc/proto/network_config.proto`):
+The network file (`config/ipc/network.textproto`, chosen with `--network_config`) names the domain, the nodes, the QoS
+of every topic and the transport. It is a textproto of `robot_ipc_proto.NetworkConfig`
+(`robot_runtime/robot_ipc/proto/network_config.proto`):
 
 ```textproto
-nodes { name: "robot"     host: "127.0.0.1"  port: 5600 }  # the robot process
-nodes { name: "mpc"       host: "127.0.0.1"  port: 5610 }  # the MPC node
-nodes { name: "operator"  host: "127.0.0.1"  port: 5620 }  # the remote_control GUI
-nodes { name: "teleop"    host: "127.0.0.1"  port: 5621 }  # keyboard / Xbox teleoperation
-nodes { name: "config_push"  host: "127.0.0.1"  port: 5622 }  # push_robot_config: a configuration file to the robot
+domain_id: 0
+nodes { name: "robot"        host: "127.0.0.1" }  # the robot process (or the dummy simulation)
+nodes { name: "mpc"          host: "127.0.0.1" }  # the MPC node, with its visualization publisher
+nodes { name: "operator"     host: "127.0.0.1" }  # the remote_control GUI
+nodes { name: "teleop"       host: "127.0.0.1" }  # keyboard / Xbox teleoperation
+nodes { name: "config_push"  host: "127.0.0.1" }  # push_robot_config: a configuration file to the robot
+topics { name: "mpc/policy"  qos_profile: "reliable_latest"  publishers: "mpc" }
+...
+transport { max_message_size_bytes: 65500 socket_receive_buffer_bytes: 8388608 }
 ```
 
-For the hardware split both machines use the same file with the robot's and the laptop's addresses. The C++ and the
-Python loader parse it strictly: an unknown field, a value of the wrong type or a syntax error is an error naming the
-file, the line and the column, and an invalid node (a duplicate name or endpoint, a port outside 1-65535, an empty
-host) is an error naming the node ([`robot_ipc`](../../../robot_runtime/robot_ipc/README.md#the-network-file)).
+Each process turns the file into its Cyclone DDS configuration (`robot_ipc/DomainConfig.h`, the same text in C++ and
+Python) and passes it to `dds_create_domain()`: no XML file, and `CYCLONEDDS_URI` is never read. A node's process uses
+the network interface of its node's host (one that is no address of its machine is refused), discovery goes to every
+node's host with automatic process indices (`ParticipantIndex auto`, up to 20 processes per machine), a `domain_tag`
+keeps two robots on one network (and the tests) apart, and a peer that vanished is unmatched after its 3 s lease. For
+the hardware split both machines use the same file with the robot's and the laptop's addresses. The C++ and the Python
+loader parse it strictly: an unknown field (the retired `port` and `bind_host` included), a value of the wrong type or a
+syntax error is an error naming the file, the line and the column, and an invalid entry (a duplicate name, a wildcard
+host, a topic that is no DDS name, an unknown QoS profile, a publisher that is no node) is an error naming it
+([`robot_ipc`](../../../robot_runtime/robot_ipc/README.md#the-network-file)).
 
-**Framing.** Each message is three frames: the topic, the full protobuf type name (`humanoid_mpc_msgs.MpcPolicy`), and
-the serialized message. The type name lets the generic tool ([`tools/ipc`](../../../tools/ipc/README.md)) decode any
-topic without a registry: `bazel run //tools/ipc:ipc_tool -- echo mpc/status`, `hz robot/mpc_observation`, `list`.
+**Ports.** UDP only. A process with index i listens on `7400 + 250 * domain_id + 10 + 2 i` (discovery) and the port
+after it (data), DDSI's port mapping: domain 0 uses **7410-7449** on every machine.
+
+**Wire protocol.** Every sample is one `robot_ipc::Envelope` (`robot_runtime/robot_ipc/idl/Envelope.idl`, C type
+support generated by `idlc` in the build): the wire protocol's version (2; 1 was the ZeroMQ framing that came before,
+`robot_ipc/WireProtocol.h`), the writer's sequence number, the full protobuf type name (`humanoid_mpc_msgs.MpcPolicy`)
+and the serialized message. Protocol Buffers stay the payload serialization. A bus refuses a sample of another protocol
+version, counts it as `rejected` and logs which version the peer speaks, so that a robot and a laptop built from
+checkouts that drifted apart say so at once. The type name lets the generic tool
+([`tools/ipc`](../../../tools/ipc/README.md)) decode any topic without a registry: `bazel run //tools/ipc:ipc_tool --
+echo mpc/status`, `hz robot/mpc_observation`, `list`.
+
+**Quality of service.** Each topic of the network file names a profile (`robot_ipc/QosProfile.h`); every profile is
+VOLATILE, so a process that restarts is never handed old commands:
+
+| Profile | DDS policies | Topics |
+|---|---|---|
+| `latest` | BEST_EFFORT, KEEP_LAST 1 | `robot/mpc_observation`, `robot/state`, `robot/loop_timing`, `viz/telemetry`, `operator/walking_velocity_command` |
+| `reliable_latest` | RELIABLE, KEEP_LAST 1 | `mpc/policy`, `mpc/status`, `robot/fsm_state`, `viz/scene`, `operator/mpc_parameters`, `operator/pd_gains`, `operator/joint_targets` |
+| `reliable_events` | RELIABLE, KEEP_LAST 64 (the default of an unlisted topic) | `operator/fsm_command`, `operator/dodgeball_throw`, `operator/config_save`, `robot/config_save_status` |
+
+A policy (0.5-0.75 MB) is hundreds of UDP fragments: under BEST_EFFORT one lost fragment would lose the whole policy,
+so `reliable_latest` repairs lost fragments, while a newer policy replaces one that is still being repaired, so that a
+slow link never builds a backlog. A stream that comes again every cycle is `latest`: a lost sample is replaced by the
+next one rather than sent again. The nodes a topic lists as `publishers` create its DDS writer when their bus is
+created, so the subscribers have discovered it before a one-off command is written (a VOLATILE reader gets only what is
+written after it matched). A reliable write never waits for acknowledgments: at the writer's unacknowledged-bytes limit
+(8 MiB by default) DDS refuses it, and the bus counts it as `sendDropped`.
 
 **Delivery.** A subscriber picks per topic:
 
-- `kLatest`: each time the IO thread drains the socket, only the newest message of the topic is handed over. Used for
-  every stream (observations, policies, velocity commands, parameter documents, joint targets, telemetry for the
-  scene).
-- `kAll`: every message, in order. Used for discrete events (FSM commands, dodgeball throws) and for plots.
+- `kLatest`: each time the IO thread drains the topic's reader (which keeps the newest 4 samples), only the newest is
+  handed over. Used for every stream (observations, policies, velocity commands, parameter documents, joint targets,
+  telemetry for the scene).
+- `kAll`: every sample, in order (the reader keeps 256). Used for discrete events (FSM commands, dodgeball throws) and
+  for plots.
 
-PUB sockets never block: a slow or absent subscriber makes ZeroMQ drop at the high-water mark. `LINGER` is 0, so a
-process exits immediately.
+One drain takes the samples of every topic and dispatches them in the order they were written - by their source
+timestamps, which every bus makes strictly increasing across its topics: `kAll`'s every sample, `kLatest`'s newest one
+at the place it was written. Within a drain, a handler never sees a sample of one topic before an earlier one of another
+topic from the same publisher (an FSM command before the parameter update the GUI sent ahead of it). DDS gives no such
+guarantee across drains: the topics are separate readers, and a large sample being repaired may arrive after a small
+one written later.
 
-**Threads.** ZeroMQ sockets are owned by exactly one thread, the bus's IO thread. Handlers and periodic callbacks run
-on it. `Bus::publish()` may be called from any non-realtime thread (it serializes on the caller and hands the bytes to
-the IO thread). **The realtime thread never calls the bus.**
+**After a stall.** A subscriber that falls behind - a stalled process or a slow link - is handed the newest value of a
+latest-value topic, not a backlog: the writer keeps one sample and the reader four, whichever node publishes it
+(`robot_ipc`'s `BusDeliveryTest.AStalledSubscriberGetsTheNewestLatestValueNotABacklog`). This replaces the per-node
+ZeroMQ send queues (`NodeBusProfile`) that bounded the same backlog before: the bound is now the topic's QoS.
+
+**What the counters say** (`Bus::topicStatistics()`, `TopicStatistics.h`). `written` counts samples handed to the DDS
+writer, not samples delivered. A subscriber counts `received` (taken from its reader), `delivered`, `superseded` (the
+older `kLatest` samples of a drain) and `rejected`, with received = delivered + superseded + rejected; `missed` counts
+the gaps in each writer's sequence numbers, the samples a matched writer wrote that the reader never took (replaced in a
+KEEP_LAST history, or lost under BEST_EFFORT). From DDS itself: `sampleLost` and `sampleRejected` of the reader,
+`incompatibleQos` (a RELIABLE reader and a BEST_EFFORT writer from two different network files never match), and
+`matchedReaders` / `matchedWriters`, the peers currently up, which take the place of ZeroMQ's heartbeats and reconnects.
+DDS cannot say which subscriber a BEST_EFFORT sample did not reach; the subscriber's `missed` against the publisher's
+`written` shows what a link lost.
+
+**Threads.** The DDS readers and writers belong to one thread, the bus's IO thread, which waits on a DDS waitset.
+Handlers and periodic callbacks run on it. `Bus::publish()` may be called from any non-realtime thread (it serializes on
+the caller and hands the bytes to the IO thread; only the IO thread calls `dds_write()`). **The realtime thread never
+calls the bus.**
 
 ### Topics
 
@@ -114,35 +172,44 @@ The names are constants in `humanoid_nmpc/humanoid_mpc_ipc/include/humanoid_mpc_
 `humanoid_nmpc/humanoid_mpc_ipc/python/humanoid_mpc_ipc/topics.py`, tied together with `LINT.IfChange`. The messages
 are those of `humanoid_nmpc/humanoid_mpc_msgs`, except the two tuning payloads of the GUI, which are whole
 configuration files of `humanoid_nmpc/humanoid_mpc_config`: `MpcParameterUpdate` (the task file and, for a robot that
-plans its contacts, the contact planner's file) and `JointPdGainsFile`. The payload is the file: a block it does not
-carry means its defaults, as at start-up. A subscriber drops, and logs, a message of another type than its own. A
-payload of the same type built from another version of the schemas is refused by the receiver, logged and counted: one
-with a field the receiver does not know, and an `MpcParameterUpdate` or a `ConfigFileSave` whose schema fingerprint is
-not the receiver's (humanoid_nmpc/humanoid_mpc_config/README.md, "Version skew"). Both also name the configuration they
-are of (`config_path`, the file's path from `robot_models/` on: `configFileIdentity()`), and the MPC node and the robot
-refuse one of another configuration, such as a centroidal G1 GUI's update reaching the whole-body G1, whose
-`robot_name` is the same.
+plans its contacts, the contact planner's file) and `JointPdGainsUpdate` (the PD gains file, paired with its configuration identity).
+The payload is the file: a block it does not carry means its defaults, as at start-up. A subscriber drops, and logs, a message
+of another type than its own. A payload of the same type built from another version of the schemas is refused by the receiver,
+logged and counted: one with a field the receiver does not know, and an `MpcParameterUpdate`, a `JointPdGainsUpdate` or a
+`ConfigFileSave` whose schema fingerprint is not the receiver's (humanoid_nmpc/humanoid_mpc_config/README.md, "Version skew").
+Both also name the configuration they are of (`config_path`, the file's path from `robot_models/` on: `configFileIdentity()`),
+and the MPC node and the robot refuse one of another configuration, such as a centroidal G1 GUI's update reaching the whole-body G1,
+whose `robot_name` is the same.
 
 <!-- LINT.IfChange(topic_table) -->
-| Topic | Message | Publisher | Subscribers | Delivery | Rate |
-|---|---|---|---|---|---|
-| `robot/mpc_observation` | `MpcObservation` | robot | MPC | latest | every control cycle |
-| `robot/state` | `RobotStateSample` | robot | MPC (visualization) | all | `telemetry_frequency` |
-| `robot/fsm_state` | `FsmState` | robot | GUI | latest | on change and 2 Hz |
-| `robot/loop_timing` | `LoopTiming` | robot | GUI, bridge | latest | 1 Hz |
-| `mpc/policy` | `MpcPolicy` | MPC | robot, dummy sim | latest | every solve |
-| `mpc/status` | `MpcStatus` | MPC | robot (solver health), GUI, bridge | latest | every solve attempt |
-| `viz/scene` | `VisualizationScene` | MPC (visualization) | bridge | latest | `rerun_scene_frequency` |
-| `viz/telemetry` | `TelemetrySeries` | MPC (visualization) | bridge | all | per `robot/state` sample |
-| `operator/walking_velocity_command` | `WalkingVelocityCommand` | GUI, teleop | MPC; robot (gantry height in sim) | latest | 25 Hz |
-| `operator/fsm_command` | `FsmCommand` | GUI | robot | all | on change |
-| `operator/mpc_parameters` | `MpcParameterUpdate` | GUI | MPC; robot (controller-side settings) | latest | on edit |
-| `operator/pd_gains` | `JointPdGainsFile` | GUI | robot | latest | on edit |
-| `operator/joint_targets` | `JointTargets` | GUI | robot | latest | on edit, JOINT_PD only |
-| `operator/dodgeball_throw` | `DodgeballThrow` | GUI | robot (simulation) | all | on button press |
-| `operator/config_save` | `ConfigFileSave` | GUI, `push_robot_config` | robot (its persistent copy) | all | on Save |
-| `robot/config_save_status` | `ConfigFileSaveStatus` | robot | GUI, `push_robot_config` | all | once per save |
-<!-- LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_ipc/include/humanoid_mpc_ipc/Topics.h:topics, //humanoid_nmpc/remote_control/remote_control/operator_bus.py:operator_topics) -->
+| Topic | Message | Publisher | Subscribers | Delivery | QoS | Rate |
+|---|---|---|---|---|---|---|
+| `robot/mpc_observation` | `MpcObservation` | robot | MPC | latest | `latest` | every control cycle |
+| `robot/state` | `RobotStateSample` | robot | MPC (visualization) | all | `latest` | `telemetry_frequency` |
+| `robot/fsm_state` | `FsmState` | robot | GUI | latest | `reliable_latest` | on change and 2 Hz |
+| `robot/loop_timing` | `LoopTiming` | robot | bridge | latest | `latest` | 1 Hz |
+| `mpc/policy` | `MpcPolicy` | MPC | robot, dummy sim | latest | `reliable_latest` | every solve |
+| `mpc/status` | `MpcStatus` | MPC | robot (solver health), bridge | latest | `reliable_latest` | every solve attempt |
+| `viz/scene` | `VisualizationScene` | MPC (visualization) | bridge | latest | `reliable_latest` | `rerun_scene_frequency` |
+| `viz/telemetry` | `TelemetrySeries` | MPC (visualization) | bridge | all | `latest` | per `robot/state` sample |
+| `operator/walking_velocity_command` | `WalkingVelocityCommand` | GUI, teleop | MPC; robot (gantry height in sim) | latest | `latest` | 25 Hz |
+| `operator/fsm_command` | `FsmCommand` | GUI | robot | all | `reliable_events` | on change |
+| `operator/mpc_parameters` | `MpcParameterUpdate` | GUI | MPC; robot (controller-side settings) | latest | `reliable_latest` | on edit |
+| `operator/pd_gains` | `JointPdGainsUpdate` | GUI | robot | latest | `reliable_latest` | on edit |
+| `operator/joint_targets` | `JointTargets` | GUI | robot | latest | `reliable_latest` | on edit, JOINT_PD only |
+| `operator/dodgeball_throw` | `DodgeballThrow` | GUI | robot (simulation) | all | `reliable_events` | on button press |
+| `operator/config_save` | `ConfigFileSave` | GUI, `push_robot_config` | robot (its persistent copy) | all | `reliable_events` | on Save |
+| `robot/config_save_status` | `ConfigFileSaveStatus` | robot | GUI, `push_robot_config` | all | `reliable_events` | once per save |
+<!-- LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_ipc/include/humanoid_mpc_ipc/Topics.h:topics, //humanoid_nmpc/remote_control/remote_control/operator_bus.py:operator_topics, //config/ipc/network.textproto:topic_qos) -->
+
+The MPC keeps the last `operator/walking_velocity_command` it received, so every publisher leaves the stop command (zero
+velocities, the pelvis height kept) behind when its source goes away: the GUI when its Xbox controller is lost or its
+**Publish walking commands** is unticked, the Xbox publisher when its controller goes away, and every teleoperation
+publisher when it ends (humanoid_nmpc/remote_control/README.md, humanoid_nmpc/humanoid_common_mpc_app/teleop/README.md).
+A publisher killed with SIGKILL, or a laptop cut off from the robot, sends nothing; against that the MPC nodes read the
+task file's `interface.walking_command_timeout` (seconds, positive; 0.5 by default), past which a command that was not
+renewed is replaced by the stop command once, until the next one arrives (`MpcNodeRuntime::Config::walkingCommandTimeout`).
+Every publisher renews its command at 25 Hz, so the half second outlasts a dozen lost messages.
 
 ### Saving the configuration
 
@@ -176,8 +243,8 @@ line, as the bus node `config_push` (an editor's save, which the robot does not 
 
 The bus has no authentication. Anything that can publish on it can command the robot's FSM, change its PD gains live
 and, with `operator/config_save`, replace the robot's three configuration files - so the bus belongs on the robot's
-private network (the addresses of the network file), never on an open one, and its ports (TCP 5600-5629) are open only
-between the robot and the laptop. The checks limit what a save can do, not who sends it: the store writes only its three
+private network (the addresses of the network file), never on an open one, and its ports (UDP 7410-7449 for domain 0) are
+open only between the robot and the laptop. The checks limit what a save can do, not who sends it: the store writes only its three
 fixed files (the message's `config_path` is compared with the configuration's, never joined into a path, and the contact
 planner's mirror has no kind), refuses whatever the robot would refuse at start-up, caps the size and the queue, keeps
 `.bak`, `.seed` and `.rejected`, and falls back to the bundled files when a stored configuration does not set up or dies
@@ -188,7 +255,10 @@ mistakes, a GUI opened on another configuration; it is not authentication.
 
 The realtime thread of the robot process does, every period, only this:
 
-1. read the latest robot state from the backend (`RobotHWInterfaceBase`);
+1. read the latest robot state from the backend (`RobotHWInterfaceBase`), through the task file's state estimator:
+   `ground_truth` (the default) hands it on, `kalman` replaces the base's position and linear velocity with a linear
+   Kalman filter's estimate from the IMU's acceleration and the leg kinematics of the stance feet
+   (`humanoid_state_estimation`), allocation-free;
 2. take the latest operator commands from lock-free mailboxes (`robot::TripleBuffer` for latest-value data, a
    bounded `robot::realtime::SpscQueue` for events);
 3. run the MRT joint controller (`computeJointControlAction`), which evaluates the policy in use;
@@ -196,7 +266,7 @@ The realtime thread of the robot process does, every period, only this:
 5. write the MPC observation into a triple buffer and, every `telemetry_frequency`, a telemetry sample into an SPSC
    ring.
 
-It never calls ZeroMQ or protobuf, never parses a configuration file, never touches a file, never logs in steady
+It never calls DDS or protobuf, never parses a configuration file, never touches a file, never logs in steady
 state, and never waits on a lock another thread can hold for long: the policy swap is `MRT_BASE::updatePolicy()`, a
 `try_lock` that skips the swap if the communication thread is moving a new policy in.
 
@@ -259,7 +329,9 @@ in-process controller sees `hasOutstandingReset()` (its supervisor requested the
 **Link loss.** If no policy solved from an observation of the last `mpc_link.policy_timeout` seconds of robot time has
 arrived, the link reports itself unhealthy and the controller holds the robot in JOINT_PD, as for a failing solver; a
 policy that is older than the timeout when it arrives, or whose horizon has ended by then, is dropped. A plan is never
-executed past the end of its horizon: the link is lost, too, when the robot clock reaches the end of the newest policy.
+executed past the end of its horizon: the link is lost, too, when the robot clock reaches the end of the policy that may
+be in use - the newest one, or the older one the controller still runs when the newest was dropped from the buffer
+before its swap (a reset, a failed solve).
 The realtime thread checks both itself, every cycle, against the deadline the communication thread publishes with each
 policy it accepts, so that a stalled communication thread cannot keep a stale plan in use. The communication thread
 then drops the buffered policy and requests a full reset, as the in-process supervisor does once it declares a failing
@@ -287,7 +359,7 @@ nodes, and a manifold-linear one about 490 KB with a quaternion in the state (nx
 (`humanoid_mpc_ipc:test_mpc_message_conversions` prints all three). At 50-80 Hz the latter two are 24-40 MB/s, too much
 for Wi-Fi. `mpc.solution_time_window` (OCS2's MPC settings) bounds the horizon that is sent: the MPC node cuts every policy
 to it (`trimToSolutionWindow()`, upstream OCS2 GaussNewtonDDP's rule), also for `SqpSolver`, which ignores it in
-process. Every shipped task file keeps the full horizon (-1). A DRC Atlas policy (nx = 37) is roughly 0.75 MB, under
+process. Every shipped task file keeps the full horizon (it leaves the field out). A DRC Atlas policy (nx = 37) is roughly 0.75 MB, under
 40 MB/s at about 50 Hz (`make ipc-hz TOPIC=mpc/policy` measures it), which loopback carries easily and a gigabit link
 with room. Before a robot runs over a slower link, set `solution_time_window` to what the robot needs between two
 policies (a few MPC periods).
@@ -316,7 +388,7 @@ entity paths and the telemetry groups the visualization publisher must send: the
 | Rerun entity | What it draws |
 |---|---|
 | `world/robots/measured` | the measured robot, every joint of the URDF |
-| `world/robots/terminal_state` | the robot at the last node of the plan |
+| `world/robots/terminal_state` | the robot at the last node of the plan (not drawn with the shipped plot configuration, `draw_terminal_state: false`; `--terminal_state` on the bridge draws it) |
 | `world/robots/terminal_target` (hidden by default) | the robot at the target trajectory's state at the plan's final time |
 | `world/markers/contact_forces`, `world/markers/center_of_pressure`, `world/markers/corner_forces` (hidden) | the end-effector forces at the center of pressure, the center of pressure, the equivalent corner forces |
 | `world/plan/end_effectors`, `world/plan/base`, `world/plan/com`, `world/plan/footholds` | the plan's end-effector, base and CoM trajectories and its future footholds |
@@ -326,10 +398,16 @@ entity paths and the telemetry groups the visualization publisher must send: the
 
 ## Configuration
 
-- **Command line** (Abseil flags): `--robot_name --task_file --reference_file --gait_file --urdf_file --mjcf_file
-  --network_config --ipc_node --realtime_priority`; the robot binaries add `--backend --realtime_cores
-  --backend_cores --viewer --plot_config --web_viewer_address --web_viewer_port --web_viewer_allowed_hosts
-  --viewer_cores --config_store_dir --config_seed` ([`humanoid_common_mpc_app/robot`](../../humanoid_common_mpc_app/robot/README.md#the-command-line)).
+<!-- LINT.IfChange(command_line_flags) -->
+- **Command line** (Abseil flags): every binary takes `--robot_name --task_file --reference_file --gait_file
+  --urdf_file --network_config --ipc_node` (the robot binaries and the dummy simulators accept `--gait_file` but do not
+  read it); the MPC nodes have no flag of their own beyond these (their solver threads' priority is the task file's
+  `multiple_shooting.thread_priority`, their walking command timeout `interface.walking_command_timeout`); the robot
+  binaries add `--mjcf_file
+  --realtime_priority --backend --realtime_cores --backend_cores --viewer --plot_config --web_viewer_address
+  --web_viewer_port --web_viewer_allowed_hosts --viewer_cores --config_store_dir --config_seed`
+  ([`humanoid_common_mpc_app/robot`](../../humanoid_common_mpc_app/robot/README.md#the-command-line)).
+<!-- LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_app/node/src/MpcAppFlags.cpp:mpc_app_flags, //humanoid_nmpc/humanoid_centroidal_mpc_app/src/CentroidalMpcNodeMain.cpp:node_flags, //humanoid_nmpc/humanoid_centroidal_mpc_app/src/CentroidalMpcDummySimMain.cpp:dummy_sim_flags, //humanoid_nmpc/humanoid_common_mpc_app/robot/src/RobotAppFlags.cpp:robot_flags) -->
 - **Task file** (`config/mpc/task.textproto`): `mpc_link.policy_timeout`, `telemetry_sinks` (the robot process's
   telemetry, by name: `bus` publishes `robot/state`), `telemetry_frequency`, `telemetry_frames`, `rerun_scene_frequency`,
   `rerun_plan_frames`, and the existing controller and simulator fields
@@ -374,9 +452,11 @@ laptop runs the MPC node, the GUI and the Rerun bridge from the dev container.
 
 **Bring-up.**
 
-1. Write a network file with both machines' addresses (a copy of `config/ipc/two_machine.example.textproto`: every
-   node binds `0.0.0.0`, the others connect to its `host`) and open the bus's ports, TCP 5600-5629, on both machines
-   for the other one.
+1. Write a network file with both machines' addresses (a copy of `config/ipc/two_machine.example.textproto`: each
+   process uses the interface of its node's `host`, and discovery goes by unicast to both hosts), open the bus's ports,
+   UDP 7410-7449 for domain 0, on both machines for the other one, and let both kernels give the 8 MiB receive buffer: the Makefile's launch and deploy targets raise
+   `net.core.rmem_max` to the network file's request on both machines (sudo, once per machine; `make udp-buffers`,
+   tools/deploy/README.md).
 2. On the laptop: `make deploy-robot ROBOT=<robot> HOST=<robot's ssh host> NETWORK=<file> SERVICE=enable`. It builds
    the bundle and the image, ships the image over ssh (`docker save | docker load`, or `REGISTRY=`), installs
    `~/wb-humanoid-robot` (the compose file, the network file, a `.env`) and the systemd unit
@@ -395,33 +475,43 @@ localhost network. Nothing runs the MPC inside the robot process (the robot bina
 are the checkout's `robot_models`, mounted read-only, which seed its stored configuration at every start; while it runs,
 the GUI's Save reaches it over the bus, as on the robot ("Saving the configuration", tools/deploy/README.md,
 "Simulation"). `NETEM="delay 3ms 1ms loss 0.5%"` shapes
-the bus's packets on loopback with tc-netem while the robot container runs, to rehearse the robot's link
+the bus's UDP packets on loopback with tc-netem while the robot container runs, to rehearse the robot's link
 (`tools/deploy/netem.sh`). The MuJoCo viewer is chosen by name: the `mujoco_viewer` of the plot configuration
 (`humanoid_nmpc/humanoid_rerun_viewer/config/plot_config.textproto`, `PLOT_CONFIG=`) unless `--viewer` (`VIEWER=`,
-`WB_ROBOT_VIEWER`) names one. `web`, the default, renders offscreen and serves the view to a browser tab at
+`WB_ROBOT_VIEWER`) or a named `VIEWS=` does (`VIEWS=browser|vnc|display`, the same on every launch target, the
+robot's `-mpc` included: browser tabs for MuJoCo, Rerun and the GUI through noVNC; all on the VNC desktop; or native
+windows on `DISPLAY`; `.devcontainer/README.md`, "Views"). `web`, the default, renders offscreen and serves the view to a browser tab at
 `http://localhost:6090` (loopback only; `ssh -L 6090:127.0.0.1:6090 <host>` from another machine); `glfw` is a window
-on the VNC desktop; `none` runs without one. Until a hardware backend exists, the robot deployment runs the MuJoCo backend without a viewer (`none`,
+on the VNC desktop; `none` runs without one. Until a robot's hardware backend exists, the robot deployment runs the MuJoCo backend without a viewer (`none`,
 robot-runtime's default) on the robot's computer: a true two-machine simulation. A hardware backend registers under a name of its own
-(`RobotBackendRegistry`) and is selected with `WB_ROBOT_BACKEND` (`make deploy-robot BACKEND=`), but that is not all it
-takes: the robot process's FSM bridge (`SimFsmBridge`) and fall recovery (`SimFallRecovery`) drive the simulator's
-gantry and torque switch, and `RobotProcess::Create()` refuses a backend without a simulator (Unimplemented). A
-hardware backend brings an FSM bridge of its own - the torque switch of its drives, no gantry and no simulator reset -
-and the robot process takes it in place of the simulator's.
+(`RobotBackendRegistry`) and is selected with `WB_ROBOT_BACKEND` (`make deploy-robot BACKEND=`). It names the `hardware`
+supervisor (`RobotBackend::supervisorName()`, `RobotSupervisorRegistry`): its FSM bridge switches the backend's torques
+(`enableTorques()`, `enterSafeState()`) and ignores the gantry commands, and its fall recovery switches the torques off
+when the base tilts past `sim_max_base_tilt_angle`, where the simulator's (`sim`) drive the gantry, the dodgeballs and
+the simulator's resets. The backend publishes the IMU's specific force with the state, and the task file's
+`state_estimator: "kalman"` estimates the base's position and velocity a robot cannot measure. The steps are in
+[`humanoid_common_mpc_app/robot`](../../humanoid_common_mpc_app/robot/README.md#a-hardware-backend); its
+`:test_hardware_supervisor` runs the whole robot process on a fake backend that is no simulator.
 
 **Start order does not matter.** The robot process comes up in ZERO_TORQUE (on the gantry in simulation) whatever the
 MPC does, and streams `robot/mpc_observation` until a policy arrives; the MPC node answers whichever robot process
 sends observations, and a restart of either side is a full reset of the MPC (sequence numbers or counters going
-backwards). ZeroMQ reconnects on its own, so either side may start, stop and restart in any order. The container's
+backwards). DDS discovery matches the writers and readers of a process that (re)starts, and unmatches those of one that
+went away after its 3 s lease, so either side may start, stop and restart in any order; the policy timeout below does
+not rely on it. The container's
 restart policy brings a robot process that exits back - in ZERO_TORQUE, so an operator has to take it into WB_MPC
 again.
 
 **Link loss holds the robot.** Without a policy solved from an observation of the last `mpc_link.policy_timeout`
 (0.5 s) of robot time, WB_MPC holds the JOINT_PD action, `robot/fsm_state` reports `mpc_healthy: false`, and the
 first policy solved after the full reset it requests ends the hold with the usual entry blend ("Link loss" above). The
-hold is not ramped in, so a false loss is a jump to the standing posture. A lost TCP segment costs a retransmission
-timeout of at least 200 ms (Linux's TCP_RTO_MIN); with the earlier 0.2 s timeout, every single lost segment read as a
-lost link - twice in one NETEM run (`delay 3ms 1ms loss 0.5%`), once under the robot standing free in WB_MPC. 0.5 s
-outlasts one retransmission with margin and still leaves at least half of every shipped policy horizon (1.0-1.2 s).
+hold is not ramped in, so a false loss is a jump to the standing posture. The timeout was set when the bus ran on TCP,
+where a lost segment cost a retransmission timeout of at least 200 ms (Linux's TCP_RTO_MIN): with the earlier 0.2 s
+timeout, every single lost segment read as a lost link - twice in one NETEM run (`delay 3ms 1ms loss 0.5%`), once under
+the robot standing free in WB_MPC. On DDS a lost fragment of a `reliable_latest` policy is repaired after a NACK, within
+a few round trips, and a newer policy may replace it; 0.5 s still outlasts a burst of losses with margin and leaves at
+least half of every shipped policy horizon (1.0-1.2 s). The hold is the robot's own clock against the policy's
+observation time, independent of DDS liveliness.
 
 **Realtime in the container.** The realtime thread runs `SCHED_FIFO` with its memory locked (`--realtime_priority`,
 80 by default in `robot.textproto`): the compose file adds `CAP_SYS_NICE` and `CAP_IPC_LOCK` and sets the `rtprio` and
@@ -436,5 +526,5 @@ Measured on the development workstation (20 cores, Ubuntu's PREEMPT_DYNAMIC gene
 in `make launch-drc-atlas-sim` with the viewer on an X server, a scripted operator taking it from JOINT_PD into WB_MPC,
 off the gantry, standing, walking at 0.3 m/s and stopping (25 s operated): the realtime thread `robot_rt` at
 `SCHED_FIFO` 80 on cores 4-5 with the process's memory locked, 0 overruns, the 10 ms period held to within 0.2 ms, at
-most 0.9 ms of compute per cycle; solves 9.0 ms median, 10.3 ms p99; the policy in use 20 ms old (40 ms at most) at the
+most 0.9 ms of compute per cycle; solves 9.0 ms median, 10.3 ms p99; the newest policy 20 ms old (40 ms at most) at the
 robot. Under NETEM: the same loop timing, the policy 30 ms old (40 ms at most), no fall.

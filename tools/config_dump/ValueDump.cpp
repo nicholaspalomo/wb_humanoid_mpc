@@ -30,9 +30,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "tools/config_dump/ValueDump.h"
 
 #include <algorithm>
+#include <climits>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -42,19 +45,29 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_format.h"
 #include "absl/strings/string_view.h"
 
+#include "nproto/Fnv1a64Constants.h"
+
 namespace ocs2::humanoid::config_dump {
 namespace {
 
-constexpr uint64_t kFnvOffsetBasis = 14695981039346656037ULL;
-constexpr uint64_t kFnvPrime = 1099511628211ULL;
-
 /** `hash` with the eight bytes of `word` folded in, lowest byte first. */
 uint64_t foldWord(uint64_t hash, uint64_t word) {
-  for (int byte = 0; byte < 8; ++byte) {
-    hash ^= (word >> (8 * byte)) & 0xffULL;
-    hash *= kFnvPrime;
+  for (int byte = 0; byte < nproto::kFnvWordOctets; ++byte) {
+    hash ^= (word >> (CHAR_BIT * byte)) & nproto::kFnvOctetMask;
+    hash *= nproto::kFnvPrime;
   }
   return hash;
+}
+
+/**
+ * `value` with the bits of every zero and every NaN made one: +0.0 for -0.0, and the quiet NaN for every NaN payload and
+ * sign. The two zeros are equal values (the nonzero count and the sum of a fingerprint do not tell them apart), and an
+ * arithmetic change that flips the sign of a zero, invisible in a matrix too large to dump, would otherwise change the hash.
+ */
+double canonicalValue(double value) {
+  if (value == 0.0) return 0.0;
+  if (std::isnan(value)) return std::numeric_limits<double>::quiet_NaN();
+  return value;
 }
 
 }  // namespace
@@ -129,12 +142,12 @@ void ValueDump::addFingerprint(absl::string_view path, const Eigen::Ref<const Ei
 }
 
 uint64_t matrixHash(const Eigen::Ref<const Eigen::MatrixXd>& matrix) {
-  uint64_t hash = kFnvOffsetBasis;
+  uint64_t hash = nproto::kFnvOffsetBasis;
   hash = foldWord(hash, static_cast<uint64_t>(matrix.rows()));
   hash = foldWord(hash, static_cast<uint64_t>(matrix.cols()));
   for (Eigen::Index row = 0; row < matrix.rows(); ++row) {
     for (Eigen::Index col = 0; col < matrix.cols(); ++col) {
-      const double value = matrix(row, col);
+      const double value = canonicalValue(matrix(row, col));
       uint64_t bits = 0;
       static_assert(sizeof(bits) == sizeof(value), "a double is 64 bits");
       std::memcpy(&bits, &value, sizeof(bits));

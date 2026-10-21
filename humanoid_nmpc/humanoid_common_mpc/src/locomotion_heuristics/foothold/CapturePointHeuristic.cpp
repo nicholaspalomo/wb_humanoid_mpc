@@ -32,6 +32,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cmath>
 #include <string>
 
+#include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 
 #include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicModelParameters.h"
@@ -41,6 +42,10 @@ namespace ocs2::humanoid {
 absl::Status CapturePointHeuristic::configure(const LocomotionHeuristicConfig& config, const LocomotionHeuristicModelParameters& model) {
   parameters_ = config.capturePoint;
   nominalComHeight_ = model.nominalComHeight;
+  if (!(model.gravity > 0.0)) {
+    return absl::InvalidArgumentError(absl::StrCat("capture_point: the model's gravity ", model.gravity, " m/s^2 is not positive."));
+  }
+  gravity_ = model.gravity;
   return absl::OkStatus();
 }
 
@@ -57,8 +62,11 @@ vector2_t CapturePointHeuristic::offset(const FootholdHeuristicContext& context)
   if (!(comHeight > 0.0)) comHeight = nominalComHeight_;
   if (!(comHeight > 0.0)) return vector2_t::Zero();
 
-  const scalar_t timeConstant = std::sqrt(comHeight / parameters_.gravity);
-  const vector2_t velocityError = context.measuredVelocity - context.commandedVelocity;
+  const scalar_t timeConstant = std::sqrt(comHeight / gravity_);
+  // The error at ONE instant, the last solve: the measurement against the command of that same instant. The command at
+  // the touch-down is the wrong comparison - on a turning command it has rotated by psidot * (t_td - t_0) since, and a
+  // robot tracking the turn perfectly would be read as an error of |v| times that angle and stepped outwards.
+  const vector2_t velocityError = context.measuredVelocity - context.commandedVelocityAtMeasurement;
   vector2_t result = parameters_.gain * timeConstant * velocityError;
   // Clamped in MAGNITUDE rather than per axis, so that the direction of the step into the error is preserved. A
   // per-axis clamp would rotate the offset towards the diagonal exactly when it is largest, which is when the robot
@@ -71,8 +79,7 @@ vector2_t CapturePointHeuristic::offset(const FootholdHeuristicContext& context)
 }
 
 std::string CapturePointHeuristic::describe() const {
-  return absl::StrCat("capture_point: dr = ", parameters_.gain, " * sqrt(z/", parameters_.gravity,
-                      ") * (v_measured - v_commanded) [m], z = ",
+  return absl::StrCat("capture_point: dr = ", parameters_.gain, " * sqrt(z/", gravity_, ") * (v_measured - v_commanded) [m], z = ",
                       parameters_.comHeightOverride > 0.0 ? absl::StrCat(parameters_.comHeightOverride, " m (fixed)")
                                                           : absl::StrCat("measured, nominally ", nominalComHeight_, " m"),
                       ", clamped to ", parameters_.maximumOffset, " m");

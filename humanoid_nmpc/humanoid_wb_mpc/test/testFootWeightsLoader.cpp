@@ -92,14 +92,14 @@ std::string runfilePath(absl::string_view relativePath) {
 }
 
 /**
- * The foot cost weights of the task file `contents`, written to a file of its own under the test's temporary directory
- * and read as the stack reads a task file (loadTaskFile(), endEffectorDynamicsWeightsFromConfig()); a test failure and
+ * The foot cost weights of the task file `contents`, written below the header that names its schema to a file of its own under the test's
+ * temporary directory and read as the stack reads a task file (loadTaskFile(), endEffectorDynamicsWeightsFromConfig()); a test failure and
  * the default weights when it does not read or convert.
  */
 EndEffectorDynamicsWeights footWeightsOf(absl::string_view name, absl::string_view contents) {
   const std::string path =
       (std::filesystem::path(testing::TempDir()) / absl::StrCat("testFootWeightsLoader_", name, ".textproto")).string();
-  std::ofstream(path) << contents;
+  std::ofstream(path) << "# proto-message: humanoid_mpc_config.TaskFile\n" << contents;
   const absl::StatusOr<mpc_config::TaskFile> task = loadTaskFile(path);
   EXPECT_TRUE(task.ok()) << task.status();
   if (!task.ok()) return EndEffectorDynamicsWeights();

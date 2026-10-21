@@ -47,6 +47,8 @@ namespace ocs2::humanoid {
  * the null space of B (numBasisPerFoot - 6 directions) completely free during swing, held down by nothing but the
  * small input regularization. Since the wrench is zero exactly when lambda is zero, constraining the block itself is
  * equivalent, full rank and better conditioned for the equality-constraint projection.
+ *
+ * Not thread-safe; the solver gives each worker thread its own clone().
  */
 class ZeroWrenchConstraint final : public StateInputConstraint {
  public:

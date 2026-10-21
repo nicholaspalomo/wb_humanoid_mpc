@@ -54,6 +54,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/StateManifoldFactory.h"
+#include "humanoid_common_mpc/config/ConfigFiles.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_common_mpc/mrt/ControllerEvent.h"
 #include "humanoid_common_mpc/mrt/ControllerEventSink.h"
@@ -126,8 +127,9 @@ class PolicyExecution : public ::testing::Test {
     absl::StatusOr<std::shared_ptr<const StateManifold>> manifold = stateManifoldOf(*model_);
     ASSERT_TRUE(manifold.ok()) << manifold.status();
     manifold_ = *std::move(manifold);
-    absl::StatusOr<std::unique_ptr<WBMpcMrtJointController>> controller = WBMpcMrtJointController::Create(
-        *description_, *modelSettings_, test_support::ScriptedPolicyMpcLink::factory(&link_), *std::move(pinocchioInterface));
+    absl::StatusOr<std::unique_ptr<WBMpcMrtJointController>> controller =
+        WBMpcMrtJointController::Create(*description_, *modelSettings_, test_support::ScriptedPolicyMpcLink::factory(&link_),
+                                        *std::move(pinocchioInterface), jointPdGainsFileBeside(taskFile));
     ASSERT_TRUE(controller.ok()) << controller.status();
     controller_ = *std::move(controller);
     ASSERT_NE(link_, nullptr);
@@ -138,21 +140,31 @@ class PolicyExecution : public ::testing::Test {
     nominal_.assign(description_->getNumJoints(), 0.1);
   }
 
-  /** `cycles` control cycles in `mode` at the robot state of the test, 2 ms apart. */
-  void run(const char* absl_nonnull mode, int cycles) {
+  /** `cycles` control cycles in `mode` at the robot state of the test, `period` apart. */
+  void run(const char* absl_nonnull mode, int cycles, scalar_t period = 0.002) {
     for (int cycle = 0; cycle < cycles; ++cycle) {
       controller_->setNominalJointPositions(nominal_);
       controller_->setControlMode(mode);
-      time_ += 0.002;
+      time_ += period;
       state_->setTime(time_);
       controller_->computeJointControlAction(time_, *state_, *action_);
     }
   }
 
+  /** The joints outside the MPC model, by joint index. */
+  std::vector<size_t> otherJointIndices() const { return description_->getJointIndices(modelSettings_->fixedJointNames); }
+
   /** The joint actions of the robot, flattened: q_des, qd_des, kp, kd and the feedforward of each joint. */
   std::vector<scalar_t> actionValues() const {
+    std::vector<size_t> joints;
+    for (size_t joint = 0; joint < description_->getNumJoints(); ++joint) joints.push_back(joint);
+    return actionValuesOf(joints);
+  }
+
+  /** The actions of `joints`, flattened as actionValues() flattens them (kActionValuesPerJoint each). */
+  std::vector<scalar_t> actionValuesOf(const std::vector<size_t>& joints) const {
     std::vector<scalar_t> values;
-    for (size_t joint = 0; joint < description_->getNumJoints(); ++joint) {
+    for (size_t joint : joints) {
       const robot::model::JointAction& action = jointActionUnchecked(*action_, joint);
       values.insert(values.end(), {action.q_des, action.qd_des, action.kp, action.kd, action.feed_forward_effort});
     }
@@ -203,6 +215,8 @@ class PolicyExecution : public ::testing::Test {
 };
 
 constexpr int kCycles = 20;
+/** q_des, qd_des, kp, kd and the feedforward of a joint (PolicyExecution::actionValuesOf()). */
+constexpr size_t kActionValuesPerJoint = 5;
 /** 0.6 s of 2 ms cycles. */
 constexpr int kSettlingCycles = 300;
 
@@ -319,6 +333,86 @@ TEST_F(PolicyExecution, AtGimbalLockAManifoldPolicyGivesTheSameFiniteActionForEi
       const scalar_t tolerance = 1.0e-12 * std::max(1.0, std::abs(actions[0][i]));
       EXPECT_NEAR(actions[2][i], actions[0][i], tolerance) << "the action had not settled: entry " << i;
       EXPECT_NEAR(actions[1][i], actions[0][i], tolerance) << "the action at -xi, entry " << i;
+    }
+  }
+}
+
+// The joints outside the MPC hold one target in every mode that holds them - JOINT_PD, the hold of WB_MPC, the
+// execution of a policy and GRAVITY_COMP: the nominal posture. WB_MPC used to send them to 0, so that the hand-over
+// from JOINT_PD swung them from the nominal posture to the zero posture in one cycle.
+TEST_F(PolicyExecution, TheJointsOutsideTheMpcHoldTheNominalPostureAcrossEveryHandOver) {
+  const std::vector<size_t> others = otherJointIndices();
+  ASSERT_FALSE(others.empty()) << "the whole-body G1 has joints outside the MPC model";
+  const Eigen::Index nu = static_cast<Eigen::Index>(model_->getInputDim());
+  const vector_t state = mpcState(vector4_t(0.0, 0.0, 0.0, 1.0), /*joints=*/0.15);
+  const vector_t input = vector_t::Zero(nu);
+  const scalar_array_t times = {time_ - 1.0, time_ + 100.0};
+  std::vector<std::vector<scalar_t>> targets;
+  run("JOINT_PD", kCycles);
+  targets.push_back(actionValuesOf(others));
+  run("WB_MPC", kCycles);  // the hold of the entry
+  targets.push_back(actionValuesOf(others));
+  link_->deliver(policyOf(std::make_unique<FeedforwardController>(times, vector_array_t{input, input}), state, input));
+  run("WB_MPC", kCycles);  // the policy
+  ASSERT_EQ(jointsCommandedTo(0.15), static_cast<int>(model_->getJointDim())) << "the policy is executed";
+  targets.push_back(actionValuesOf(others));
+  run("JOINT_PD", kCycles);
+  targets.push_back(actionValuesOf(others));
+  for (size_t k = 1; k < targets.size(); ++k) EXPECT_EQ(targets[k], targets.front()) << "hand-over " << k;
+  for (size_t i = 0; i < others.size(); ++i) {
+    EXPECT_EQ(targets.front()[kActionValuesPerJoint * i], 0.1) << "joint " << others[i] << " is at its nominal posture";
+  }
+}
+
+// On a moving plan the feedback of the policy acts on the error at the measurement time: a robot measured exactly on the
+// plan gets exactly the feedforward, at every lookahead, so the action of a manifold-linear policy with large gains is
+// the action of the same plan without gains. Evaluated at the lookahead on the state measured before it, as it used to
+// be, the gains acted on x(t) (-) x*(t + delta) = -(x*(t + delta) (-) x*(t)) and the planned motion itself was fed back.
+TEST_F(PolicyExecution, ARobotMeasuredOnAMovingPlanGetsExactlyTheFeedforwardAtEveryLookahead) {
+  run("JOINT_PD", kCycles);
+  run("WB_MPC", kCycles);
+  const Eigen::Index nu = static_cast<Eigen::Index>(model_->getInputDim());
+  const Eigen::Index ndx = static_cast<Eigen::Index>(manifold_->getTangentDim());
+  // Settle the time-dependent parts of the action (the contact wrench gate's ramp) on a policy that holds still.
+  const vector_t still = mpcState(vector4_t(0.0, 0.0, 0.0, 1.0), /*joints=*/0.1);
+  vector_t input = vector_t::Zero(nu);
+  for (Eigen::Index i = 0; i < nu; ++i) input(i) = 0.3 * std::sin(1.7 * static_cast<scalar_t>(i));
+  link_->deliver(policyOf(std::make_unique<FeedforwardController>(scalar_array_t{time_ - 1.0, time_ + 100.0}, vector_array_t{input, input}),
+                          still, input));
+  run("WB_MPC", kSettlingCycles);
+
+  std::mt19937 generator(/*sd=*/29);
+  std::normal_distribution<scalar_t> normal(0.0, 1.0);
+  matrix_t gain(nu, ndx);
+  for (Eigen::Index i = 0; i < gain.size(); ++i) gain.data()[i] = 50.0 * normal(generator);
+  for (const scalar_t period : {0.002, 0.005, 0.013}) {
+    SCOPED_TRACE(period);
+    std::vector<std::vector<scalar_t>> actions;
+    for (const scalar_t gainScale : {1.0, 0.0}) {
+      // The plan starts at the next measurement, on the state the controller measures (the robot does not move), and
+      // moves fast: the joints, the base and its attitude, and the velocities.
+      const scalar_t measurementTime = time_ + period;
+      const vector_t measured = link_->lastObservation().state;
+      vector_t later = measured;
+      for (Eigen::Index i = 0; i < later.size(); ++i) later(i) += 0.5 * std::cos(static_cast<scalar_t>(i));
+      manifold_->project(later);
+      const vector_t laterInput = input + vector_t::Constant(nu, 0.7);
+      PrimalSolution plan;
+      plan.timeTrajectory_ = {measurementTime, measurementTime + 1.0};
+      plan.stateTrajectory_ = {measured, later};
+      plan.inputTrajectory_ = {input, laterInput};
+      plan.modeSchedule_ = ModeSchedule(/*eventTimesInput=*/{}, /*modeSequenceInput=*/{static_cast<size_t>(ModeNumber::kStance)});
+      const matrix_t scaledGain = gainScale * gain;
+      plan.controllerPtr_ = std::make_unique<ManifoldLinearController>(plan.timeTrajectory_, plan.stateTrajectory_, plan.inputTrajectory_,
+                                                                       matrix_array_t{scaledGain, scaledGain}, manifold_);
+      link_->deliver(plan);
+      run("WB_MPC", /*cycles=*/1, period);
+      ASSERT_EQ(time_, measurementTime);
+      actions.push_back(actionValues());
+    }
+    ASSERT_EQ(actions[0].size(), actions[1].size());
+    for (size_t i = 0; i < actions[0].size(); ++i) {
+      EXPECT_NEAR(actions[0][i], actions[1][i], 1.0e-9 * std::max(1.0, std::abs(actions[1][i]))) << "entry " << i;
     }
   }
 }

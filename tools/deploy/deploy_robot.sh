@@ -223,7 +223,7 @@ build_image() {
         built="$(bundle_architecture)"
         [ "${built}" = "${wanted}" ] ||
             fail "the bundle is built for ${built}, the image for ${wanted}: build the bundle in a dev container of" \
-                "that architecture (tools/deploy/README.md, \"aarch64\")"
+                "that architecture (DOCKER_PLATFORM=linux/${wanted} for docker compose; tools/deploy/README.md, \"aarch64\")"
     fi
     local revision
     revision="$(git rev-parse HEAD 2> /dev/null || echo unknown)"
@@ -361,12 +361,29 @@ deploy() {
     echo "  Start it: make launch-<robot>-robot HOST=${host}, or on the host: cd ${remote_dir} && docker compose up"
 }
 
-compose_on_host() {
-    local remote_dir="${deploy_dir}"
+host_deploy_dir() {
     if [ "${host}" = "localhost" ] && [ "${deploy_dir#/}" = "${deploy_dir}" ]; then
-        remote_dir="${HOME}/${deploy_dir}"
+        echo "${HOME}/${deploy_dir}"
+    else
+        echo "${deploy_dir}"
     fi
-    on_host "cd '${remote_dir}' && ROBOT='${robot}' docker compose $1"
+}
+
+# Runs the deployment that is on the host, as its unit does: only for the robot its .env names (one robot per machine;
+# the compose project is shared, so another robot's container would replace the deployed one), and with ROBOT from that
+# .env alone - a ROBOT of the caller's environment (`make ... ROBOT=`, an exported one) would override it.
+up_on_host() {
+    local remote_dir
+    remote_dir="$(host_deploy_dir)"
+    # LINT.IfChange(deployed_robot_guard)
+    local guard="grep -qx 'ROBOT=${robot}' .env 2> /dev/null || { echo \"deploy_robot.sh: \$(pwd) holds the deployment of \
+\$(sed -n 's/^ROBOT=//p' .env 2> /dev/null | grep . || echo nothing); make deploy-robot ROBOT=${robot} HOST=${host} deploys this one\" >&2; exit 1; }"
+    # LINT.ThenChange(//tools/deploy/wb-humanoid-robot@.service:deployed_robot_guard)
+    on_host "cd '${remote_dir}' && { ${guard}; } && env -u ROBOT docker compose up"
+}
+
+down_on_host() {
+    on_host "cd '$(host_deploy_dir)' && ROBOT='${robot:-none}' docker compose down"
 }
 
 case "${command}" in
@@ -374,7 +391,7 @@ case "${command}" in
     image) build_image ;;
     deploy) deploy ;;
     environment) check_robot; print_environment ;;
-    up) check_robot; compose_on_host "up" ;;
-    down) robot="${robot:-none}"; compose_on_host "down" ;;
+    up) check_robot; up_on_host ;;
+    down) down_on_host ;;
     *) echo "deploy_robot.sh: unknown command ${command}" >&2; usage ;;
 esac

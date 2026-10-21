@@ -72,17 +72,35 @@ size_t modeIndexAtTime(const ModeSchedule& schedule, scalar_t time);
 /** Contact flags of the phase active at `time` (same convention as modeIndexAtTime). */
 contact_flag_t contactFlagsAtTime(const ModeSchedule& schedule, scalar_t time);
 
+/** A range [first, last] of phase indices of a mode schedule. */
+struct PhaseIndexRange {
+  size_t first = 0;
+  size_t last = 0;
+};
+
+/** One swing of a foot in continuous time: [liftOff, touchDown]. */
+struct SwingWindow {
+  scalar_t liftOff = 0.0;    // [s]
+  scalar_t touchDown = 0.0;  // [s]
+};
+
+/** One re-timing of the later events of the executed schedule (ContactPlanningReferenceManager). */
+struct ScheduleShift {
+  scalar_t time = 0.0;   // [s] when the later events were re-timed
+  scalar_t shift = 0.0;  // [s] by how much
+};
+
 /**
  * Range [first, last] of consecutive phases in which `foot` is out of contact around `time`, empty if the foot is in
  * contact at `time`. Several phases belong to the same swing when other feet switch while this foot is in the air.
  */
-std::optional<std::pair<size_t, size_t>> swingPhaseIndexRange(const ModeSchedule& schedule, size_t foot, scalar_t time);
+std::optional<PhaseIndexRange> swingPhaseIndexRange(const ModeSchedule& schedule, size_t foot, scalar_t time);
 
 /**
  * Swing phase [liftOff, touchDown] of `foot` around `time`, empty if the foot is in contact or if the lift-off or the
  * touch-down event is not part of the schedule.
  */
-std::optional<std::pair<scalar_t, scalar_t>> swingPhaseAtTime(const ModeSchedule& schedule, size_t foot, scalar_t time);
+std::optional<SwingWindow> swingPhaseAtTime(const ModeSchedule& schedule, size_t foot, scalar_t time);
 
 /** Index into eventTimes of the touch-down event of the swing of `foot` around `time`, empty if there is none. */
 std::optional<size_t> touchDownEventIndex(const ModeSchedule& schedule, size_t foot, scalar_t time);
@@ -225,12 +243,25 @@ void fillPlannerInputFromSchedule(
 /** [s] the elapsed phase time fillPlannerInputFromSchedule() reports for a phase that began before the schedule. */
 inline constexpr scalar_t kPhaseElapsedTimeBeforeTheSchedule = 10.0;
 
+// The time tolerances of the schedule adaptation, the execution rules and the planners' reading of the executed schedule.
+/** [s] Lift-off times closer than this identify the same swing. */
+inline constexpr scalar_t kSameSwingTolerance = 1.0e-6;
+/** [s] An event shift smaller than this is not applied. */
+inline constexpr scalar_t kMinTimeShift = 1.0e-6;
 /**
- * Applies to `plan` the re-timings of the executed schedule that happened after the plan's snapshot was taken. The log
- * holds (time of the shift, shift) pairs; every entry younger than the snapshot is summed and applied once, so that
+ * [s] Times closer than this coincide: a time this close to an event counts as at or after it, a phase that starts on
+ * the commit boundary starts there, and a time at either end of a plan is in it.
+ */
+inline constexpr scalar_t kEventTimeTolerance = 1.0e-9;
+/** [s] The slack on the window an executed event time must fall in to be taken as the switch of a committed node. */
+inline constexpr scalar_t kSwitchTimeTolerance = 1.0e-9;
+
+/**
+ * Applies to `plan` the re-timings of the executed schedule that happened after the plan's snapshot was taken. Every
+ * entry of the log younger than the snapshot is summed and applied once, so that
  * shifts of opposite sign cancel instead of the first one moving the comparison key for the second. Returns the total.
  */
-scalar_t applyScheduleShiftsToPlan(ContactPlan& plan, const std::deque<std::pair<scalar_t, scalar_t>>& shiftLog);
+scalar_t applyScheduleShiftsToPlan(ContactPlan& plan, const std::deque<ScheduleShift>& shiftLog);
 
 /*============================================ schedule edits ==============================================*/
 

@@ -44,9 +44,13 @@ namespace ocs2::humanoid {
 /// \param[in] polygonBounds the maximum extension of the rectangle aligned with the specified frame
 /// \param[in] frameName name of pinocchio frame the polygon is specified in
 /// \param[in] scaleFactor A factor to shrink or extent the polygon
+/// An immutable value: its const methods are safe to call concurrently.
 ///
 class ContactRectangle : public ContactPolygon {
  public:
+  /** The corners of a rectangle, the contact points of its polygon. */
+  static constexpr int kNumCorners = 4;
+
   ContactRectangle(const PolygonBounds& polygonBounds, const ContactCenterPoint& contactCenterPoint, scalar_t scaleFactor = 1.0);
 };  // namespace ContactPolygon
 

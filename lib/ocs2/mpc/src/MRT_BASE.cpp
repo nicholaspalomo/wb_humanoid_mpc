@@ -50,32 +50,52 @@ MRT_BASE::MRT_BASE() {
 /******************************************************************************************************/
 /******************************************************************************************************/
 void MRT_BASE::reset() {
-  std::lock_guard<std::mutex> lock(bufferMutex_);
+  // The policies are taken out under the lock and destroyed after it is released (at the end of this function, in the
+  // reverse order of declaration): destroying a policy frees its trajectories and controller, which must not keep the
+  // control thread's try-lock in updatePolicy() failing.
+  std::unique_ptr<CommandData> droppedActiveCommand;
+  std::unique_ptr<CommandData> droppedBufferCommand;
+  std::unique_ptr<PrimalSolution> droppedActivePrimalSolution;
+  std::unique_ptr<PrimalSolution> droppedBufferPrimalSolution;
+  std::unique_ptr<PerformanceIndex> droppedActivePerformanceIndices;
+  std::unique_ptr<PerformanceIndex> droppedBufferPerformanceIndices;
+  {
+    std::lock_guard<std::mutex> lock(bufferMutex_);
 
-  policyReceivedEver_ = false;
-  newPolicyInBuffer_ = false;
-  mrtTrylockWarningCount_ = 0;
+    policyReceivedEver_ = false;
+    newPolicyInBuffer_ = false;
+    consecutiveFailedPolicyUpdateLocks_.store(0, std::memory_order_relaxed);
 
-  activeCommandPtr_.reset();
-  bufferCommandPtr_.reset();
-  activePrimalSolutionPtr_.reset();
-  bufferPrimalSolutionPtr_.reset();
-  activePerformanceIndicesPtr_.reset();
-  bufferPerformanceIndicesPtr_.reset();
-  // A policy moved to the buffer before this reset must not count as current after it.
-  policyEpoch_.fetch_add(1);
+    droppedActiveCommand.swap(activeCommandPtr_);
+    droppedBufferCommand.swap(bufferCommandPtr_);
+    droppedActivePrimalSolution.swap(activePrimalSolutionPtr_);
+    droppedBufferPrimalSolution.swap(bufferPrimalSolutionPtr_);
+    droppedActivePerformanceIndices.swap(activePerformanceIndicesPtr_);
+    droppedBufferPerformanceIndices.swap(bufferPerformanceIndicesPtr_);
+    // A policy moved to the buffer before this reset must not count as current after it.
+    policyEpoch_.fetch_add(1);
+  }
 }
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-void MRT_BASE::discardBufferedPolicy() {
-  std::lock_guard<std::mutex> lock(bufferMutex_);
-  newPolicyInBuffer_ = false;
-  bufferCommandPtr_.reset();
-  bufferPrimalSolutionPtr_.reset();
-  bufferPerformanceIndicesPtr_.reset();
-  policyEpoch_.fetch_add(1);
+bool MRT_BASE::discardBufferedPolicy() {
+  // Taken out under the lock, destroyed after it is released (see reset()).
+  std::unique_ptr<CommandData> droppedCommand;
+  std::unique_ptr<PrimalSolution> droppedPrimalSolution;
+  std::unique_ptr<PerformanceIndex> droppedPerformanceIndices;
+  bool dropped = false;
+  {
+    std::lock_guard<std::mutex> lock(bufferMutex_);
+    dropped = newPolicyInBuffer_;
+    newPolicyInBuffer_ = false;
+    droppedCommand.swap(bufferCommandPtr_);
+    droppedPrimalSolution.swap(bufferPrimalSolutionPtr_);
+    droppedPerformanceIndices.swap(bufferPerformanceIndicesPtr_);
+    policyEpoch_.fetch_add(1);
+  }
+  return dropped;
 }
 
 /******************************************************************************************************/
@@ -176,7 +196,7 @@ void MRT_BASE::rolloutPolicy(
 bool MRT_BASE::updatePolicy() {
   std::unique_lock<std::mutex> lock(bufferMutex_, std::try_to_lock);
   if (lock.owns_lock()) {
-    mrtTrylockWarningCount_ = 0;
+    consecutiveFailedPolicyUpdateLocks_.store(0, std::memory_order_relaxed);
     if (newPolicyInBuffer_) {
       // update the active solution from buffer
       activeCommandPtr_.swap(bufferCommandPtr_);
@@ -189,11 +209,10 @@ bool MRT_BASE::updatePolicy() {
       return false;  // No policy update: the buffer contains nothing new.
     }
   } else {
-    ++mrtTrylockWarningCount_;
-    if (mrtTrylockWarningCount_ > mrtTrylockWarningThreshold_) {
-      LOG_EVERY_N_SEC(WARNING, 1.0) << "[MRT_BASE::updatePolicy] failed to lock the policyBufferMutex for " << mrtTrylockWarningCount_
-                                    << " consecutive times.";
-    }
+    // Counted, not logged: this is the control thread, where a log line can allocate or block. The controllers report
+    // the count off this thread (getConsecutiveFailedPolicyUpdateLocks()).
+    consecutiveFailedPolicyUpdateLocks_.fetch_add(1, std::memory_order_relaxed);
+    failedPolicyUpdateLocks_.fetch_add(1, std::memory_order_relaxed);
     return false;  // No policy update: the lock could not be acquired.
   }
 }
@@ -201,7 +220,7 @@ bool MRT_BASE::updatePolicy() {
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-void MRT_BASE::moveToBuffer(std::unique_ptr<CommandData> commandDataPtr,
+bool MRT_BASE::moveToBuffer(std::unique_ptr<CommandData> commandDataPtr,
                             std::unique_ptr<PrimalSolution> primalSolutionPtr,
                             std::unique_ptr<PerformanceIndex> performanceIndicesPtr) {
   if (commandDataPtr == nullptr) {
@@ -223,8 +242,10 @@ void MRT_BASE::moveToBuffer(std::unique_ptr<CommandData> commandDataPtr,
   bufferPerformanceIndicesPtr_.swap(performanceIndicesPtr);
   bufferPolicyEpoch_ = policyEpoch_.load();
 
+  const bool replaced = newPolicyInBuffer_;
   newPolicyInBuffer_ = true;
   policyReceivedEver_ = true;
+  return replaced;
 }
 
 }  // namespace ocs2

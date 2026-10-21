@@ -45,8 +45,9 @@ namespace robot::web_viewer {
  * it once per frame.
  *
  * It never grows past kCapacity: a push into a full queue drops the oldest event (counted by droppedCount()). A drag
- * that follows a drag with the same button and shift is merged into it (the motions add up, clamped to [-2, 2] like
- * one drag), so a burst of mouse motion between two frames costs one entry.
+ * that follows a drag with the same button and shift is merged into it while the motions add up to no more than one
+ * drag may move ([-2, 2] on each axis), so a burst of mouse motion between two frames costs one entry and a fast swipe
+ * none of its motion.
  *
  * Thread-safe.
  */
@@ -60,7 +61,10 @@ class ViewerInputQueue {
   ViewerInputQueue(const ViewerInputQueue&) = delete;
   ViewerInputQueue& operator=(const ViewerInputQueue&) = delete;
 
-  /** Appends `input`, or merges it into the last event when both are drags with the same button and shift. */
+  /**
+   * Appends `input`, or merges it into the last event when both are drags with the same button and shift whose sum is
+   * within [-ViewerInput::kMaxDragFraction, ViewerInput::kMaxDragFraction] on each axis.
+   */
   void push(ViewerInput input);
 
   /** Returns every queued event, oldest first, and empties the queue. */

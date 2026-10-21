@@ -54,7 +54,6 @@ TEST(CostTermNames, TheQuadraticAndStateSoftConstraintTermsKeepTheirNames) {
   EXPECT_EQ(absl::string_view(kTerminalCostTerm), "terminalCost");
   EXPECT_EQ(absl::string_view(kJointLimitsTerm), "jointLimits");
   EXPECT_EQ(absl::string_view(kFootCollisionTerm), "FootCollisionSoftConstraint");
-  EXPECT_EQ(absl::string_view(kIcpCostTerm), "icp_Cost");
 }
 
 TEST(CostTermNames, ThePerLinkAndPerFootTermsAreTheNameAndTheirSuffix) {

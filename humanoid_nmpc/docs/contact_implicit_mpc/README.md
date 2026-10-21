@@ -324,8 +324,8 @@ resist, and 7.4x on a single corner. Both numbers are below the compliance of an
 
 `FootprintCornerHeights` also exists for a build reason. The obvious implementation, a
 `PinocchioEndEffectorKinematicsCppAd` over the corner frames, generates **six** code-generated models per frame set --
-position, velocity, orientation, orientation error, orientation against a plane, angular velocity -- of which only the
-first is ever read. Over a four-corner set per foot that is five large dead models each, enough to push a test past its
+position, velocity, orientation, orientation against a plane, angular velocity, twist -- of which only the first is
+ever read. Over a four-corner set per foot that is five large dead models each, enough to push a test past its
 900 s timeout on a clean tree. One tape of `N` heights replaces them.
 
 ## 4. The three weights

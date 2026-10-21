@@ -82,11 +82,8 @@ robot::model::RobotDescription atlasDescription();
 /** A headless simulator on the Atlas scene, held by the gantry (weld) or not. */
 std::unique_ptr<robot::mujoco_sim_interface::MujocoSimInterface> makeHeadlessAtlas(bool gantryLocked);
 
-/** A bus publishing as `nodeName` on an ephemeral loopback port, alone in its network. */
+/** A bus publishing as `nodeName` on this test process's DDS domain (robot::ipc::isolatedTestNetwork()). */
 std::unique_ptr<robot::ipc::Bus> createLoopbackBus(const std::string& nodeName);
-
-/** Connects each bus's subscriber to the other's publisher. Before either starts. */
-void connectBoth(robot::ipc::Bus& first, robot::ipc::Bus& second);
 
 /** Polls `condition` every millisecond until it holds or `timeout` passes; whether it held. */
 bool waitFor(const std::function<bool()>& condition, absl::Duration timeout = absl::Seconds(10));
@@ -120,6 +117,11 @@ class ScriptedRobotController final : public RobotController {
   /** The joints the controller claims to be built for (robotJointNames()); none until set. Before the loop runs. */
   void setRobotJointNames(std::vector<std::string> names) { robotJointNames_ = std::move(names); }
   void setHealthy(bool healthy) { healthy_.store(healthy); }
+  /**
+   * Called at the end of every computeJointControlAction(), on the realtime thread, with the number of the cycle (from
+   * 0): for a test that measures that thread. Before the loop runs.
+   */
+  void setCycleHook(std::function<void(uint64_t cycle)> hook) { cycleHook_ = std::move(hook); }
   /** The next computeJointControlAction() throws std::runtime_error(`message`). */
   void throwInNextCycle(const std::string& message);
   ControllerEventSink* absl_nullable eventSink() const { return eventSink_.load(); }
@@ -134,12 +136,17 @@ class ScriptedRobotController final : public RobotController {
   bool started() const { return started_.load(); }
   /** The posture handed over with the newest cycle. */
   std::vector<scalar_t> nominal() const;
+  /** The base position [m, world] and linear velocity [m/s, base frame] of the state of the newest cycle. */
+  vector3_t rootPosition() const;
+  vector3_t rootLinearVelocity() const;
 
  private:
   mutable absl::Mutex mutex_;
   std::string mode_ ABSL_GUARDED_BY(mutex_);
   std::string contactEstimatorName_ ABSL_GUARDED_BY(mutex_);
   std::vector<scalar_t> nominal_ ABSL_GUARDED_BY(mutex_);
+  vector3_t rootPosition_ ABSL_GUARDED_BY(mutex_) = vector3_t::Zero();
+  vector3_t rootLinearVelocity_ ABSL_GUARDED_BY(mutex_) = vector3_t::Zero();
   ContactWrenchGate::Config gate_;
   std::shared_ptr<robot::model::ContactEstimator> contactEstimator_;
   contact_flag_t measuredContactFlags_{};
@@ -155,6 +162,7 @@ class ScriptedRobotController final : public RobotController {
   std::atomic<uint64_t> pdGainsDocuments_{0};
   std::atomic<uint64_t> pdGainsPolls_{0};
   std::vector<std::string> robotJointNames_;
+  std::function<void(uint64_t cycle)> cycleHook_;
 };
 
 }  // namespace ocs2::humanoid::robot_test

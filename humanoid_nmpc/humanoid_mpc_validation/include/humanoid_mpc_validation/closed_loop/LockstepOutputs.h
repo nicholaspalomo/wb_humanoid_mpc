@@ -32,6 +32,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 
 #include "absl/status/status.h"
+#include "absl/strings/string_view.h"
 
 #include "humanoid_mpc_validation/closed_loop/LockstepClosedLoop.h"
 #include "humanoid_mpc_validation/io/GoldenIo.h"
@@ -40,11 +41,11 @@ namespace ocs2::humanoid::validation {
 
 // LINT.IfChange(output_names)
 /** <robot>_<scenario>.json: the metrics document. */
-std::string metricsFileName(const std::string& robot, const std::string& scenario);
+std::string metricsFileName(absl::string_view robot, absl::string_view scenario);
 /** <robot>_<scenario>_timeseries.txt: the base, its reference and each solve's rotation gap over the commands, a golden file. */
-std::string timeSeriesFileName(const std::string& robot, const std::string& scenario);
+std::string timeSeriesFileName(absl::string_view robot, absl::string_view scenario);
 /** <robot>_<scenario>_states.txt: the robot at the recorded solves, the input of the solve benchmark. */
-std::string recordedStatesFileName(const std::string& robot, const std::string& scenario);
+std::string recordedStatesFileName(absl::string_view robot, absl::string_view scenario);
 // clang-format off
 // LINT.ThenChange(//Makefile:closed_loop_targets, //humanoid_nmpc/humanoid_mpc_validation/README.md:output_names, //humanoid_nmpc/humanoid_mpc_validation/src/closed_loop/MetricBands.cpp:archived_file_names)
 // clang-format on

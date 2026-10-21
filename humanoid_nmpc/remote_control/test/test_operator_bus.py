@@ -27,9 +27,9 @@
 
 """The remote control's side of the bus: the publishers, the FSM commands, the FSM state mailbox and the operator bus.
 
-The operator bus is tested first over a bus that records and then over real robot_ipc buses on loopback TCP. The
-loopback tests bind ephemeral ports (robot_ipc.EPHEMERAL_PORT) and connect to each other's bound endpoint, so they
-never collide with a running GUI or with each other.
+The operator bus is tested first over a bus that records and then over real robot_ipc buses over DDS. The DDS tests
+share a domain and tag of this test process's own (robot_ipc.isolated_test_network()), so they never see a running GUI
+or another test.
 """
 
 import os
@@ -40,6 +40,7 @@ import unittest
 
 from humanoid_mpc_config import contact_planning_file_pb2
 from humanoid_mpc_config import joint_pd_gains_file_pb2
+from humanoid_mpc_config import joint_pd_gains_update_pb2
 from humanoid_mpc_config import mpc_parameter_update_pb2
 from humanoid_mpc_config import task_file_pb2
 from humanoid_mpc_msgs import config_file_save_pb2
@@ -69,6 +70,10 @@ def _gains(kp: float) -> joint_pd_gains_file_pb2.JointPdGainsFile:
     return gains
 
 
+def _gains_update(kp: float) -> joint_pd_gains_update_pb2.JointPdGainsUpdate:
+    return operator_bus.joint_pd_gains_update(_gains(kp), config_path=CONFIG_PATH)
+
+
 def wait_for(condition, timeout=TIMEOUT):
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -82,11 +87,11 @@ class TestTopicPublisher(unittest.TestCase):
     def test_it_publishes_its_message_on_its_topic(self):
         bus = operator_test_support.RecordingBus()
         publisher = operator_bus.TopicPublisher.for_topic(bus, topics.OPERATOR_PD_GAINS)
-        self.assertTrue(publisher.publish(_gains(1.0)))
+        self.assertTrue(publisher.publish(_gains_update(1.0)))
         self.assertEqual(len(bus.published), 1)
         topic, message = bus.published[0]
         self.assertEqual(topic, topics.OPERATOR_PD_GAINS)
-        self.assertEqual(message, _gains(1.0))
+        self.assertEqual(message, _gains_update(1.0))
 
     def test_a_message_of_another_type_is_refused_before_it_is_sent(self):
         bus = operator_test_support.RecordingBus()
@@ -329,7 +334,7 @@ class TestOperatorBusOverARecordingBus(unittest.TestCase):
                 task_file_pb2.TaskFile(), config_path=CONFIG_PATH
             )
         )
-        self.gui_bus.pd_gains.publish(_gains(1.0))
+        self.gui_bus.pd_gains.publish(_gains_update(1.0))
         self.gui_bus.joint_targets.publish(operator_bus.joint_targets({"j": 0.1}))
         self.gui_bus.dodgeball_throw.publish(dodgeball_throw_pb2.DodgeballThrow())
         self.gui_bus.config_save.publish(config_file_save_pb2.ConfigFileSave())
@@ -340,7 +345,7 @@ class TestOperatorBusOverARecordingBus(unittest.TestCase):
                 topics.OPERATOR_WALKING_VELOCITY_COMMAND: walking_velocity_command_pb2.WalkingVelocityCommand,
                 topics.OPERATOR_FSM_COMMAND: fsm_command_pb2.FsmCommand,
                 topics.OPERATOR_MPC_PARAMETERS: mpc_parameter_update_pb2.MpcParameterUpdate,
-                topics.OPERATOR_PD_GAINS: joint_pd_gains_file_pb2.JointPdGainsFile,
+                topics.OPERATOR_PD_GAINS: joint_pd_gains_update_pb2.JointPdGainsUpdate,
                 topics.OPERATOR_JOINT_TARGETS: joint_targets_pb2.JointTargets,
                 topics.OPERATOR_DODGEBALL_THROW: dodgeball_throw_pb2.DodgeballThrow,
                 topics.OPERATOR_CONFIG_SAVE: config_file_save_pb2.ConfigFileSave,
@@ -362,26 +367,19 @@ class TestOperatorBusOverARecordingBus(unittest.TestCase):
         self.assertTrue(self.bus.closed)
 
 
-def _ephemeral_network(name):
-    return robot_ipc.NetworkConfig(
-        nodes=(robot_ipc.NodeEndpoint(name, "127.0.0.1", robot_ipc.EPHEMERAL_PORT),)
-    )
+def _test_network():
+    return robot_ipc.isolated_test_network(["robot", operator_bus.OPERATOR_NODE])
 
 
 class TestOperatorBusOverLoopback(unittest.TestCase):
-    """The operator bus between a robot bus and an MPC bus, all three real, on loopback TCP."""
+    """The operator bus and a robot bus, both real, on this test process's DDS domain."""
 
     def setUp(self):
-        self.robot = robot_ipc.Bus("robot", _ephemeral_network("robot"))
+        self.robot = robot_ipc.Bus("robot", _test_network())
         self.addCleanup(self.robot.close)
-        operator = robot_ipc.Bus(
-            operator_bus.OPERATOR_NODE, _ephemeral_network(operator_bus.OPERATOR_NODE)
-        )
+        operator = robot_ipc.Bus(operator_bus.OPERATOR_NODE, _test_network())
         self.gui_bus = operator_bus.OperatorBus(operator)
         self.addCleanup(self.gui_bus.close)
-        # The operator hears the robot, and the robot hears the operator.
-        operator.connect(self.robot.bound_endpoint)
-        self.robot.connect(operator.bound_endpoint)
 
         self.lock = threading.Lock()
         self.received = {}
@@ -425,7 +423,7 @@ class TestOperatorBusOverLoopback(unittest.TestCase):
             return list(self.received.get(topic, []))
 
     def _publish_until_received(self, publish, topic):
-        """Publishes until the robot has the message (ZeroMQ drops what is sent before the connection is up)."""
+        """Publishes until the robot has the message (a VOLATILE reader misses what is written before it matched)."""
 
         def arrived():
             publish()
@@ -524,7 +522,7 @@ class TestOperatorBusConnect(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = os.path.join(directory, "network.textproto")
             with open(path, "w", encoding="utf-8") as handle:
-                handle.write('nodes { name: "robot" host: "127.0.0.1" port: 5600 }\n')
+                handle.write('nodes { name: "robot" host: "127.0.0.1" }\n')
             with self.assertRaisesRegex(ValueError, "operator"):
                 operator_bus.OperatorBus.connect(path)
 

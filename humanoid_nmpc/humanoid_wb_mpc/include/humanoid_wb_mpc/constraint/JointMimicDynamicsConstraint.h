@@ -66,7 +66,8 @@ class JointMimicDynamicsConstraint final : public StateInputConstraint {
    * The constraint q_child = multiplier * q_parent between two MPC joints of `mpcRobotModel`, which must outlive it.
    *
    * @return NotFound naming the joint when `parentJointName` or `childJointName` is not an active joint of the MPC
-   *         model; InvalidArgument unless 0 < velocityGain < positionGain.
+   *         model; InvalidArgument unless positionGain and velocityGain are finite and positive, the condition
+   *         for the error dynamics e'' + velocityGain e' + positionGain e = 0 to be asymptotically stable.
    */
   static absl::StatusOr<std::unique_ptr<JointMimicDynamicsConstraint>> Create(const WBAccelMpcRobotModel<scalar_t>& mpcRobotModel,
                                                                               const std::string& parentJointName,

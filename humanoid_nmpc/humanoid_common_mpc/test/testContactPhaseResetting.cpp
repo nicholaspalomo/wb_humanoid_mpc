@@ -186,12 +186,12 @@ TEST(ContactScheduleQueries, EventAtQueryTimeCountsAsPassed) {
 TEST(ContactScheduleQueries, SwingPhaseLookup) {
   for (size_t foot = 0; foot < kNumContacts; ++foot) {
     const ModeSchedule schedule = singleSwingSchedule(foot, /*liftOff=*/1.0, /*touchDown=*/1.4);
-    const std::optional<std::pair<scalar_t, scalar_t>> phase = swingPhaseAtTime(schedule, foot, /*time=*/1.2);
+    const std::optional<SwingWindow> phase = swingPhaseAtTime(schedule, foot, /*time=*/1.2);
     if (!phase.has_value()) {
       FAIL() << "phase has no value";
     }
-    EXPECT_NEAR(phase->first, 1.0, kTol);
-    EXPECT_NEAR(phase->second, 1.4, kTol);
+    EXPECT_NEAR(phase->liftOff, 1.0, kTol);
+    EXPECT_NEAR(phase->touchDown, 1.4, kTol);
     EXPECT_FALSE(swingPhaseAtTime(schedule, foot, /*time=*/0.5).has_value());
     EXPECT_FALSE(swingPhaseAtTime(schedule, foot, /*time=*/1.4).has_value());
     for (size_t other = 0; other < kNumContacts; ++other) {
@@ -199,12 +199,12 @@ TEST(ContactScheduleQueries, SwingPhaseLookup) {
         EXPECT_FALSE(swingPhaseAtTime(schedule, other, /*time=*/1.2).has_value());
       }
     }
-    const std::optional<std::pair<size_t, size_t>> range = swingPhaseIndexRange(schedule, foot, /*time=*/1.2);
+    const std::optional<PhaseIndexRange> range = swingPhaseIndexRange(schedule, foot, /*time=*/1.2);
     if (!range.has_value()) {
       FAIL() << "range has no value";
     }
     EXPECT_EQ(range->first, 1u);
-    EXPECT_EQ(range->second, 1u);
+    EXPECT_EQ(range->last, 1u);
     const std::optional<size_t> tdIndex = touchDownEventIndex(schedule, foot, /*time=*/1.2);
     if (!tdIndex.has_value()) {
       FAIL() << "tdIndex has no value";
@@ -230,25 +230,25 @@ TEST(ContactScheduleQueries, SwingSpanningSeveralPhases) {
   // foot 0 in the air over [1.0, 1.6] while foot 1 lifts at 1.2 and lands at 1.4 (a flight phase, only for the query).
   const ModeSchedule schedule({1.0, 1.2, 1.4, 1.6},
                               {kAllInContact, modeWithSwinging({0}), modeWithSwinging({0, 1}), modeWithSwinging({0}), kAllInContact});
-  const std::optional<std::pair<scalar_t, scalar_t>> phase = swingPhaseAtTime(schedule, /*foot=*/0, /*time=*/1.3);
+  const std::optional<SwingWindow> phase = swingPhaseAtTime(schedule, /*foot=*/0, /*time=*/1.3);
   if (!phase.has_value()) {
     FAIL() << "phase has no value";
   }
-  EXPECT_NEAR(phase->first, 1.0, kTol);
-  EXPECT_NEAR(phase->second, 1.6, kTol);
-  const std::optional<std::pair<size_t, size_t>> range = swingPhaseIndexRange(schedule, /*foot=*/0, /*time=*/1.3);
+  EXPECT_NEAR(phase->liftOff, 1.0, kTol);
+  EXPECT_NEAR(phase->touchDown, 1.6, kTol);
+  const std::optional<PhaseIndexRange> range = swingPhaseIndexRange(schedule, /*foot=*/0, /*time=*/1.3);
   if (!range.has_value()) {
     FAIL() << "range has no value";
   }
   EXPECT_EQ(range->first, 1u);
-  EXPECT_EQ(range->second, 3u);
+  EXPECT_EQ(range->last, 3u);
   EXPECT_EQ(valueOrFailure(touchDownEventIndex(schedule, /*foot=*/0, /*time=*/1.1)), 3u);
-  const std::optional<std::pair<scalar_t, scalar_t>> inner = swingPhaseAtTime(schedule, /*foot=*/1, /*time=*/1.3);
+  const std::optional<SwingWindow> inner = swingPhaseAtTime(schedule, /*foot=*/1, /*time=*/1.3);
   if (!inner.has_value()) {
     FAIL() << "inner has no value";
   }
-  EXPECT_NEAR(inner->first, 1.2, kTol);
-  EXPECT_NEAR(inner->second, 1.4, kTol);
+  EXPECT_NEAR(inner->liftOff, 1.2, kTol);
+  EXPECT_NEAR(inner->touchDown, 1.4, kTol);
 }
 
 /*============================================ schedule edits ==============================================*/
@@ -742,10 +742,10 @@ TEST_F(ContactEventTest, AlternatingGaitSimulationStaysConsistent) {
   for (scalar_t time = 0.5; time < 6.0; time += 0.02) {
     contact_flag_t contact = makeFeetArray(true);
     for (size_t foot = 0; foot < kNumContacts; ++foot) {
-      const std::optional<std::pair<scalar_t, scalar_t>> phase = swingPhaseAtTime(schedule, foot, time);
+      const std::optional<SwingWindow> phase = swingPhaseAtTime(schedule, foot, time);
       if (phase.has_value()) {
-        const int swingNumber = static_cast<int>(std::floor((phase->first - 1.0) / 0.5 + 0.5));
-        const bool landsEarly = swingNumber % 2 == 1 && time - phase->first > 0.3;
+        const int swingNumber = static_cast<int>(std::floor((phase->liftOff - 1.0) / 0.5 + 0.5));
+        const bool landsEarly = swingNumber % 2 == 1 && time - phase->liftOff > 0.3;
         contact[foot] = landsEarly;
       } else {
         const SwingTimingLatch& latch = latches_[foot];
@@ -763,9 +763,9 @@ TEST_F(ContactEventTest, AlternatingGaitSimulationStaysConsistent) {
     ASSERT_FALSE(hasFlightPhase(schedule)) << "at t=" << time;
     // Every phase of every foot keeps a positive duration and a swing never lasts longer than max + extension.
     for (size_t foot = 0; foot < kNumContacts; ++foot) {
-      const std::optional<std::pair<scalar_t, scalar_t>> phase = swingPhaseAtTime(schedule, foot, time);
+      const std::optional<SwingWindow> phase = swingPhaseAtTime(schedule, foot, time);
       if (phase.has_value()) {
-        ASSERT_LE(phase->second - phase->first,
+        ASSERT_LE(phase->touchDown - phase->liftOff,
                   config_.shared.gaitLimits.maxSwingDuration + config_.phaseResetting.maxLateTouchdownExtension + kTol);
       }
     }
@@ -955,12 +955,12 @@ TEST(PlanShiftLog, ShiftsYoungerThanTheSnapshotAreSummedAgainstTheOriginalStartT
   plan.committedUntil = 1.3;
   // A cadence advance undone one cycle later: net zero. Comparing against the already-shifted start time would apply
   // the first (+0.10 -> start 1.105) and then skip the second (1.020 < 1.105).
-  std::deque<std::pair<scalar_t, scalar_t>> log = {{1.010, +0.10}, {1.020, -0.10}};
+  std::deque<ScheduleShift> log = {{.time = 1.010, .shift = +0.10}, {.time = 1.020, .shift = -0.10}};
   EXPECT_NEAR(applyScheduleShiftsToPlan(plan, log), 0.0, kTol);
   EXPECT_NEAR(plan.startTime, 1.005, kTol);
   EXPECT_NEAR(plan.committedUntil, 1.3, kTol);
   // Shifts at or before the snapshot were already seen by it; later ones apply.
-  log = {{1.005, +0.5}, {1.0, +0.3}, {1.1, +0.07}, {1.2, -0.02}};
+  log = {{.time = 1.005, .shift = +0.5}, {.time = 1.0, .shift = +0.3}, {.time = 1.1, .shift = +0.07}, {.time = 1.2, .shift = -0.02}};
   EXPECT_NEAR(applyScheduleShiftsToPlan(plan, log), 0.05, kTol);
   EXPECT_NEAR(plan.startTime, 1.055, kTol);
   EXPECT_NEAR(plan.committedUntil, 1.35, kTol);

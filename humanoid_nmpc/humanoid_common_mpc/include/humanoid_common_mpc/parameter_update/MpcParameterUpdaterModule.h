@@ -44,6 +44,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 #include "absl/synchronization/mutex.h"
+#include "absl/time/time.h"
 #include "ocs2_mpc/MPC_BASE.h"
 #include "ocs2_oc/synchronized_module/SolverSynchronizedModule.h"
 #include "ocs2_sqp/SqpSolver.h"
@@ -58,6 +59,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_mpc_config/task_file.nproto.h"
 
 namespace ocs2::humanoid {
+
+/** The modification time of `path`, or nullopt when it cannot be read (the file does not exist, or `path` is empty). */
+std::optional<std::filesystem::file_time_type> lastWriteTime(absl::string_view path);
 
 /**
  * SolverSynchronizedModule that applies a reloaded configuration to the running MPC of either formulation: it updates
@@ -77,12 +81,15 @@ namespace ocs2::humanoid {
  * while the next one runs.
  *
  * Two pathways deliver a reload:
- *   1. File watching: the task file and the contact planner's file, polled about once a second (every 100th
- *      preSolverRun()), and the reference file, whose command limits go to the registered reloaders
+ *   1. File watching: the task file and the contact planner's file, polled at Options::fileCheckPeriod (by default about
+ *      once a second), and the reference file, whose command limits go to the registered reloaders
  *      (addReferenceFileReloader()).
  *   2. enqueueParameterUpdate(): the tuning GUI's whole task file and contact planner's file, applied by the next
  *      preSolverRun() without touching any file. The transport is the caller's (the MPC node forwards
  *      operator/mpc_parameters).
+ * The two are applied in the order they were made, not the order they were noticed: a watched file written before the
+ * newest update arrived (a Save followed by more tuning within one poll period) is an older edit and is not applied over
+ * it, and a file written after it is. The reference file has no live pathway.
  *
  * preSolverRun() runs on the solver thread, before any worker of the solve, after the reference manager's own
  * preSolverRun(); enqueueParameterUpdate() is thread-safe, and so are the const methods. Nothing here runs on the
@@ -105,6 +112,17 @@ class MpcParameterUpdaterModule final : public SolverSynchronizedModule {
     std::string referenceFile;
     // The contact planner's file watched for changes; empty: none is watched (a robot without one).
     std::string contactPlanningFile;
+    // The modification time of the task file when read to build the running problem, if known.
+    // When set, this baseline ensures edits made while the interface or solver was initializing are detected.
+    std::optional<std::filesystem::file_time_type> taskFileReadAt;
+    // The modification time of the reference file when read at start-up, if known.
+    std::optional<std::filesystem::file_time_type> referenceFileReadAt;
+    // The modification time of the contact planning file when read at start-up, if known.
+    std::optional<std::filesystem::file_time_type> contactPlanningFileReadAt;
+    // How often watched files are checked for modification. Defaults to 1 second.
+    absl::Duration fileCheckPeriod = absl::Seconds(1);
+    // Clock source for file checking; defaults to absl::Now.
+    std::function<absl::Time()> clock;
     // The task file the running problem was built from, which a reload's start-up fields are compared with.
     mpc_config::TaskFile runningTask;
     // The coordinates the task file's weights are addressed on: stateInputLayout() of the MPC's model settings.
@@ -168,8 +186,9 @@ class MpcParameterUpdaterModule final : public SolverSynchronizedModule {
   void addReferenceFileReloader(ReferenceFileReloader reloader);
 
   /**
-   * Runs every applier's beforeEverySolve(), then applies the update enqueued last, if any, and every 100th call the
-   * watched files that changed. On the solver thread.
+   * Runs every applier's beforeEverySolve(), applies the update enqueued last, if any, then periodically (at
+   * Options::fileCheckPeriod) polls the watched files and applies the ones that changed, but for an edit written before
+   * the newest enqueued update arrived. On the solver thread.
    */
   void preSolverRun(scalar_t initTime,
                     scalar_t finalTime,
@@ -200,8 +219,11 @@ class MpcParameterUpdaterModule final : public SolverSynchronizedModule {
   /** Applies the update enqueued last, if any. */
   void applyPendingUpdate() ABSL_LOCKS_EXCLUDED(pendingMutex_);
 
-  /** Polls the watched files' modification times and applies the ones that changed. */
-  void applyChangedFiles();
+  /**
+   * Polls the watched files' modification times and applies the ones that changed; a task or contact planner's file
+   * written before the newest enqueued update of it arrived is logged and not applied.
+   */
+  void applyChangedFiles() ABSL_LOCKS_EXCLUDED(pendingMutex_);
 
   /** Reads and converts the reference file and hands it to the reloaders; logs what refused it. */
   void reloadReferenceFile();
@@ -228,12 +250,18 @@ class MpcParameterUpdaterModule final : public SolverSynchronizedModule {
   std::filesystem::file_time_type contactPlanningFileLastWriteTime_;
   std::filesystem::file_time_type referenceFileLastWriteTime_;
   std::vector<ReferenceFileReloader> referenceFileReloaders_;
-  size_t checkCounter_ = 0;
+  absl::Duration fileCheckPeriod_;
+  std::function<absl::Time()> clock_;
+  absl::Time lastFileCheck_ = absl::InfinitePast();
 
   // The update enqueued by enqueueParameterUpdate() and not yet applied; hasPendingUpdate_ says, without the lock, that
   // there is one.
   absl::Mutex pendingMutex_;
   std::optional<mpc_config::MpcParameterUpdate> pendingUpdate_ ABSL_GUARDED_BY(pendingMutex_);
+  // When the newest enqueued update arrived, on the clock of the files' modification times: always for the task file,
+  // and for the contact planner's file when the update carried it. nullopt: none has arrived.
+  std::optional<std::filesystem::file_time_type> taskFileUpdateArrival_ ABSL_GUARDED_BY(pendingMutex_);
+  std::optional<std::filesystem::file_time_type> contactPlanningFileUpdateArrival_ ABSL_GUARDED_BY(pendingMutex_);
   std::atomic<bool> hasPendingUpdate_ = false;
 };
 

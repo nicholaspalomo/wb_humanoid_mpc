@@ -59,8 +59,6 @@ inline constexpr char kTerminalCostTerm[] = "terminalCost";
 // The state soft constraints.
 inline constexpr char kJointLimitsTerm[] = "jointLimits";
 inline constexpr char kFootCollisionTerm[] = "FootCollisionSoftConstraint";
-// The instantaneous capture point cost of the centroidal MPC.
-inline constexpr char kIcpCostTerm[] = "icp_Cost";
 
 /** The task-space kinematics cost of the link or foot `name` (a task_space_costs entry's name, or a contact's). */
 inline std::string taskSpaceKinematicsCostName(absl::string_view name) {

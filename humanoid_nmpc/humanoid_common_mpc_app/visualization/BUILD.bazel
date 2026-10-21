@@ -14,9 +14,12 @@ package(default_visibility = ["//visibility:public"])
 cc_library(
     name = "visualization",
     srcs = [
+        "src/BalanceQuantities.cpp",
+        "src/IoThreadOutbox.cpp",
         "src/PolicySnapshot.cpp",
         "src/RobotStateDecoder.cpp",
         "src/SceneBuilder.cpp",
+        "src/SolutionTermEvaluator.cpp",
         "src/TelemetryBuilder.cpp",
         "src/VisualizationConfig.cpp",
         "src/VisualizationModel.cpp",
@@ -24,10 +27,13 @@ cc_library(
         "src/config/robot/VisualizationConfigFromConfig.cpp",
     ],
     hdrs = [
+        "include/humanoid_common_mpc_app/visualization/BalanceQuantities.h",
+        "include/humanoid_common_mpc_app/visualization/IoThreadOutbox.h",
         "include/humanoid_common_mpc_app/visualization/PolicySnapshot.h",
         "include/humanoid_common_mpc_app/visualization/RobotStateDecoder.h",
         "include/humanoid_common_mpc_app/visualization/SceneBuilder.h",
         "include/humanoid_common_mpc_app/visualization/SceneContract.h",
+        "include/humanoid_common_mpc_app/visualization/SolutionTermEvaluator.h",
         "include/humanoid_common_mpc_app/visualization/TelemetryBuilder.h",
         "include/humanoid_common_mpc_app/visualization/VisualizationConfig.h",
         "include/humanoid_common_mpc_app/visualization/VisualizationModel.h",
@@ -154,6 +160,39 @@ cc_test(
     deps = _TEST_DEPS,
 )
 
+# The balance quantities against their defining properties: the pendulum's frequency, the DCM as the divergent mode of
+# the linear inverted pendulum, the ZMP as the point about which the contact moment is vertical.
+cc_test(
+    name = "test_balance_quantities",
+    size = "small",
+    srcs = ["test/testBalanceQuantities.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":visualization",
+        "//humanoid_nmpc/humanoid_common_mpc:humanoid_common_mpc_types",
+        "@eigen",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The cost and constraint terms of a solution, by name, against the quadratic forms by hand and OCS2's own sums.
+cc_test(
+    name = "test_solution_term_evaluator",
+    size = "small",
+    srcs = ["test/testSolutionTermEvaluator.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":visualization",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_oc",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@eigen",
+        "@googletest//:gtest_main",
+    ],
+)
+
 # The plan's and the target's sampling: the states along the state manifold's geodesic, the inputs linear, at events and
 # outside the horizon.
 cc_test(
@@ -214,14 +253,15 @@ cc_test(
     deps = _TEST_DEPS + [
         "//humanoid_nmpc/humanoid_mpc_ipc",
         "//robot_runtime/robot_ipc",
+        "//robot_runtime/robot_ipc:test_network",
         "//robot_runtime/web_viewer:viewer_thread_priority",
         "@abseil-cpp//absl/synchronization",
         "@abseil-cpp//absl/time",
     ],
 )
 
-# Publishes the G1's scene and telemetry from synthetic data on a bus bound to an ephemeral port (printed as
-# "PORT <n>"), for :test_end_to_end.
+# Publishes the G1's scene and telemetry from synthetic data on the network file the test hands it (printing "READY"),
+# for :test_end_to_end.
 cc_binary(
     name = "visualization_publisher_driver",
     testonly = True,
@@ -232,6 +272,7 @@ cc_binary(
         ":test_robot",
         ":visualization",
         "//humanoid_nmpc/humanoid_mpc_msgs:messages_cc_proto",
+        "//lib/ocs2:ocs2_core",
         "//lib/ocs2:ocs2_mpc",
         "//lib/ocs2:ocs2_oc",
         "//robot_runtime/robot_ipc",
@@ -243,7 +284,9 @@ cc_binary(
         "@abseil-cpp//absl/log:check",
         "@abseil-cpp//absl/log:initialize",
         "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/strings",
         "@abseil-cpp//absl/time",
+        "@eigen",
     ],
 )
 

@@ -32,7 +32,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <array>
 #include <cstddef>
-#include <iostream>
 #include <map>
 #include <string>
 #include <vector>
@@ -57,6 +56,16 @@ enum ModeNumber {
   kStance = 3,
 };
 
+/** The mode numbers, FLY to STANCE: the modes a humanoid MPC's mode schedule and policy may carry. */
+inline constexpr size_t kNumModeNumbers = static_cast<size_t>(ModeNumber::kStance) + 1;
+
+/**
+ * The left foot's stance flag in a mode number, bit 1: as the mask modeNumber2StanceLeg() reads it with, and as the
+ * place value stanceLeg2ModeNumber() weighs it with. The right foot's is bit 0, the value 1.
+ */
+inline constexpr unsigned int kLeftStanceModeBitMask = 2U;
+inline constexpr int kLeftStanceModePlaceValue = 2;
+
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
@@ -66,7 +75,7 @@ inline contact_flag_t modeNumber2StanceLeg(size_t modeNumber) {
     return contact_flag_t{false, false};
   }
   // The inverse of stanceLeg2ModeNumber(): bit 1 is the left foot, bit 0 the right one.
-  return contact_flag_t{(modeNumber & 2U) != 0, (modeNumber & 1U) != 0};
+  return contact_flag_t{(modeNumber & kLeftStanceModeBitMask) != 0, (modeNumber & 1U) != 0};
 }
 
 /******************************************************************************************************/
@@ -74,7 +83,7 @@ inline contact_flag_t modeNumber2StanceLeg(size_t modeNumber) {
 /******************************************************************************************************/
 
 inline size_t stanceLeg2ModeNumber(const contact_flag_t& stanceLegs) {
-  return static_cast<size_t>(static_cast<size_t>(stanceLegs[1]) + 2 * static_cast<size_t>(stanceLegs[0]));
+  return static_cast<size_t>(static_cast<size_t>(stanceLegs[1]) + kLeftStanceModePlaceValue * static_cast<size_t>(stanceLegs[0]));
 }
 
 /******************************************************************************************************/
@@ -85,7 +94,7 @@ inline size_t stanceLeg2ModeNumber(const contact_flag_t& stanceLegs) {
 inline std::string modeNumber2String(size_t modeNumber) {
   // Indexed by the mode number.
   // LINT.IfChange(mode_names)
-  constexpr std::array<absl::string_view, static_cast<size_t>(ModeNumber::kStance) + 1> kModeNames = {"FLY", "RF", "LF", "STANCE"};
+  constexpr std::array<absl::string_view, kNumModeNumbers> kModeNames = {"FLY", "RF", "LF", "STANCE"};
   // LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_config/mode_sequence_template_config.proto:mode_names)
   return modeNumber < kModeNames.size() ? std::string(kModeNames[modeNumber]) : std::string();
 }

@@ -34,7 +34,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cmath>
 #include <cstdint>
 #include <memory>
-#include <random>
 #include <string>
 #include <utility>
 
@@ -61,7 +60,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "robot_ipc/Bus.h"
 #include "robot_ipc/BusOptions.h"
 #include "robot_ipc/Delivery.h"
-#include "robot_ipc/NodeEndpoint.h"
+#include "robot_runtime/robot_ipc/test/TestNetwork.h"
 
 namespace ocs2::humanoid::ipc {
 namespace {
@@ -128,15 +127,14 @@ class RemoteMpcLinkProtocolTest : public ::testing::Test {
 
   void build(RemoteMpcLink::Config config) {
     robotBus_ = test_support::createNodeBus("robot");
-    test_support::connectBoth(*robotBus_, mpc_.bus());
-    absl::StatusOr<std::unique_ptr<RemoteMpcLink>> link = RemoteMpcLink::Create(*robotBus_, supervisor_, std::move(config));
+    absl::StatusOr<std::unique_ptr<RemoteMpcLink>> link = RemoteMpcLink::Create(robotBus_.get(), &supervisor_, std::move(config));
     CHECK_OK(link.status());
     link_ = std::move(*link);
     // Every poll of the robot's IO thread passes the gate, so that closing it stalls the thread the link runs on.
     CHECK_OK(robotBus_->addPeriodicCallback(absl::Milliseconds(1), [this]() { ioGate_.pass(); }));
     CHECK_OK(robotBus_->start());
     CHECK_OK(mpc_.bus().start());
-    // Both directions are up once a message of each has gone through (ZeroMQ's "slow joiner").
+    // Both directions are up once a message of each has gone through (DDS discovery has matched the writers and readers).
     ASSERT_TRUE(waitFor([&]() {
       link_->setCurrentObservation(observationAt(kStartTime, /*value=*/1.0));
       CHECK_OK(mpc_.bus().publish(topics::kMpcStatus, makeStatus(/*observationTime=*/-1.0, /*healthy=*/true, /*consecutiveFailures=*/0,
@@ -256,6 +254,36 @@ TEST_F(RemoteMpcLinkProtocolTest, APolicyWithAModeTheModelDoesNotHaveIsRejected)
 
   sendPolicy(policyFrom(/*initTime=*/kStartTime, /*solveCount=*/2));
   EXPECT_TRUE(link_->initialPolicyReceived()) << "positive control: the same policy with a mode of the model is taken";
+}
+
+/** The protocol fixture on a robot whose model layout has a fingerprint. */
+class RemoteMpcLinkModelLayoutTest : public RemoteMpcLinkProtocolTest {
+ protected:
+  static constexpr uint64_t kLayout = 0x5eed'0000'0000'0002;
+  void SetUp() override {
+    RemoteMpcLink::Config config = defaultConfig();
+    config.modelFingerprint = kLayout;
+    build(config);
+  }
+};
+
+TEST_F(RemoteMpcLinkModelLayoutTest, EveryObservationCarriesTheLayoutAndAPolicyOfAnotherLayoutIsRejected) {
+  sendObservation(/*time=*/kStartTime);
+  EXPECT_EQ(mpc_.latest().model_fingerprint(), kLayout);
+
+  // Equal dimensions, another joint order or set of fixed joints: refused, as a policy of other dimensions.
+  humanoid_mpc_msgs::MpcPolicy other = policyFrom(/*initTime=*/kStartTime, /*solveCount=*/1);
+  other.set_model_fingerprint(kLayout + 1);
+  sendPolicy(other);
+  humanoid_mpc_msgs::MpcPolicy unstamped = policyFrom(/*initTime=*/kStartTime, /*solveCount=*/2);
+  sendPolicy(unstamped);
+  EXPECT_EQ(link_->statistics().invalidPoliciesRejected, 2u);
+  EXPECT_FALSE(link_->initialPolicyReceived());
+
+  humanoid_mpc_msgs::MpcPolicy same = policyFrom(/*initTime=*/kStartTime, /*solveCount=*/3);
+  same.set_model_fingerprint(kLayout);
+  sendPolicy(same);
+  EXPECT_TRUE(link_->initialPolicyReceived()) << "positive control";
 }
 
 /** The protocol fixture with a policy timeout short enough to be reached. */
@@ -399,6 +427,54 @@ TEST_F(RemoteMpcLinkProtocolTest, ARestartedMpcNodesStatusesAreMirroredBeforeIts
   EXPECT_TRUE(supervisor_.isHealthy());
   sendStatus(makeStatus(kStartTime, /*healthy=*/false, /*consecutiveFailures=*/2, /*solveCount=*/5, /*serverInstance=*/22));
   EXPECT_TRUE(supervisor_.isHealthy());
+}
+
+// The plan in use (P1, ending at kStartTime + 0.1) and a successor (P2, ending a second later) accepted but not swapped
+// in yet: P2 is dropped from the buffer (`dropSuccessor`) before the controller takes it, so P1 keeps running, and the
+// watchdog must follow P1's horizon, not P2's.
+class RemoteMpcLinkInUseWatchdogTest : public RemoteMpcLinkProtocolTest {
+ protected:
+  static constexpr scalar_t kPlanEnd = kStartTime + 0.1;
+  static constexpr scalar_t kSuccessorTime = kStartTime + 0.05;
+
+  void acceptPlanAndSuccessor(bool swapSuccessor) {
+    sendPolicy(makePolicyMessage(kStartTime, /*finalTime=*/kPlanEnd, /*value=*/1.0, /*resetsServed=*/0, /*fullResetsServed=*/0,
+                                 /*solveCount=*/1));
+    ASSERT_TRUE(link_->updatePolicy());
+    sendObservation(/*time=*/kSuccessorTime);
+    sendPolicy(policyFrom(/*initTime=*/kSuccessorTime, /*solveCount=*/2));
+    if (swapSuccessor) ASSERT_TRUE(link_->updatePolicy());
+  }
+};
+
+TEST_F(RemoteMpcLinkInUseWatchdogTest, TheWatchdogFollowsThePolicyInUseWhenItsSuccessorIsDroppedBeforeTheSwap) {
+  acceptPlanAndSuccessor(/*swapSuccessor=*/false);
+  // A failed solve drops the buffered successor; P1 stays in use.
+  sendStatus(makeStatus(kSuccessorTime, /*healthy=*/true, /*consecutiveFailures=*/1, /*solveCount=*/3));
+  controlCycle(kPlanEnd - 0.01);
+  EXPECT_TRUE(supervisor_.isHealthy());
+  controlCycle(kPlanEnd);
+  EXPECT_FALSE(supervisor_.isHealthy()) << "P1 ran past its horizon with its dropped successor's deadline";
+  ASSERT_TRUE(waitFor([&]() { return link_->statistics().linkLosses == 1; }));
+}
+
+TEST_F(RemoteMpcLinkInUseWatchdogTest, TheWatchdogFollowsThePolicyInUseWhenAResetDropsItsSuccessor) {
+  acceptPlanAndSuccessor(/*swapSuccessor=*/false);
+  // A reset the robot requests drops the buffered successor when the IO thread takes it.
+  supervisor_.requestReset(MpcResetSupervisor::ResetKind::kSolver);
+  sendObservation(/*time=*/kSuccessorTime + 0.01);
+  ASSERT_TRUE(waitFor([&]() { return link_->statistics().resetTicketsTaken == 1; }));
+  controlCycle(kPlanEnd);
+  EXPECT_FALSE(supervisor_.isHealthy());
+}
+
+TEST_F(RemoteMpcLinkInUseWatchdogTest, ASuccessorSwappedInBeforeTheDropKeepsTheLinkHealthy) {
+  acceptPlanAndSuccessor(/*swapSuccessor=*/true);
+  sendStatus(makeStatus(kSuccessorTime, /*healthy=*/true, /*consecutiveFailures=*/1, /*solveCount=*/3));
+  controlCycle(kPlanEnd);
+  EXPECT_TRUE(supervisor_.isHealthy()) << "P2 is in use, and its horizon runs a second more";
+  controlCycle(kSuccessorTime + 1.0);
+  EXPECT_FALSE(supervisor_.isHealthy());
 }
 
 TEST_F(RemoteMpcLinkProtocolTest, TheLinkIsLostAtTheEndOfTheNewestPolicysHorizon) {
@@ -556,26 +632,26 @@ TEST(RemoteMpcLinkCreateTest, RefusesARunningBusAndAnInvalidConfig) {
 
   RemoteMpcLink::Config noDimensions = config;
   noDimensions.dimensions.stateDim = 0;
-  EXPECT_EQ(RemoteMpcLink::Create(*bus, supervisor, noDimensions).status().code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_EQ(RemoteMpcLink::Create(bus.get(), &supervisor, noDimensions).status().code(), absl::StatusCode::kInvalidArgument);
   RemoteMpcLink::Config noModes = config;
   noModes.dimensions.numModes = 0;
-  EXPECT_EQ(RemoteMpcLink::Create(*bus, supervisor, noModes).status().code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_EQ(RemoteMpcLink::Create(bus.get(), &supervisor, noModes).status().code(), absl::StatusCode::kInvalidArgument);
   RemoteMpcLink::Config noTimeout = config;
   noTimeout.policyTimeout = 0.0;
-  EXPECT_EQ(RemoteMpcLink::Create(*bus, supervisor, noTimeout).status().code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_EQ(RemoteMpcLink::Create(bus.get(), &supervisor, noTimeout).status().code(), absl::StatusCode::kInvalidArgument);
   RemoteMpcLink::Config noPoll = config;
   noPoll.pollPeriod = absl::ZeroDuration();
-  EXPECT_EQ(RemoteMpcLink::Create(*bus, supervisor, noPoll).status().code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_EQ(RemoteMpcLink::Create(bus.get(), &supervisor, noPoll).status().code(), absl::StatusCode::kInvalidArgument);
   // A state manifold must be the manifold of the model's state: [E(3), Q, E(5)] has 12 ambient dimensions, not 3.
   RemoteMpcLink::Config otherManifold = config;
   otherManifold.stateManifold = test_data::toyStateManifold();
-  const absl::Status refused = RemoteMpcLink::Create(*bus, supervisor, otherManifold).status();
+  const absl::Status refused = RemoteMpcLink::Create(bus.get(), &supervisor, otherManifold).status();
   EXPECT_EQ(refused.code(), absl::StatusCode::kInvalidArgument);
   EXPECT_TRUE(absl::StrContains(refused.message(), "Config::stateManifold has 12 ambient dimensions but Config::dimensions.stateDim is 3"))
       << refused;
 
   CHECK_OK(bus->start());
-  EXPECT_EQ(RemoteMpcLink::Create(*bus, supervisor, config).status().code(), absl::StatusCode::kFailedPrecondition);
+  EXPECT_EQ(RemoteMpcLink::Create(bus.get(), &supervisor, config).status().code(), absl::StatusCode::kFailedPrecondition);
 }
 
 TEST(RemoteMpcLinkCreateTest, ALinkOnAStateManifoldGivesItToItsMrt) {
@@ -586,14 +662,14 @@ TEST(RemoteMpcLinkCreateTest, ALinkOnAStateManifoldGivesItToItsMrt) {
   RemoteMpcLink::Config config;
   config.dimensions = test_support::manifoldModelDimensions();
   config.stateManifold = test_data::toyStateManifold();
-  absl::StatusOr<std::unique_ptr<RemoteMpcLink>> link = RemoteMpcLink::Create(*bus, supervisor, config);
+  absl::StatusOr<std::unique_ptr<RemoteMpcLink>> link = RemoteMpcLink::Create(bus.get(), &supervisor, config);
   ASSERT_TRUE(link.ok()) << link.status();
   EXPECT_EQ((*link)->getStateManifold(), config.stateManifold);
 
   std::unique_ptr<robot::ipc::Bus> flatBus = test_support::createNodeBus("robot");
   RemoteMpcLink::Config flat;
   flat.dimensions = modelDimensions();
-  absl::StatusOr<std::unique_ptr<RemoteMpcLink>> flatLink = RemoteMpcLink::Create(*flatBus, supervisor, flat);
+  absl::StatusOr<std::unique_ptr<RemoteMpcLink>> flatLink = RemoteMpcLink::Create(flatBus.get(), &supervisor, flat);
   ASSERT_TRUE(flatLink.ok()) << flatLink.status();
   EXPECT_EQ((*flatLink)->getStateManifold(), nullptr);
 }
@@ -619,26 +695,13 @@ TEST(RemoteMpcLinkOwnBusTest, ALinkWithABusOfItsOwnSendsAndReceives) {
   MpcResetSupervisor supervisor;
   RemoteMpcLink::Config config;
   config.dimensions = modelDimensions();
-  // The link's bus binds a port of its own choosing; a random high one, retried if it is taken.
-  std::mt19937 generator(std::random_device{}());
-  std::uniform_int_distribution<int> ports(20000, 60000);
-  std::unique_ptr<RemoteMpcLink> link;
-  int port = 0;
-  for (int attempt = 0; attempt < 20 && link == nullptr; ++attempt) {
-    port = ports(generator);
-    robot::ipc::BusOptions options;
-    options.nodeName = "robot";
-    options.network.nodes = {robot::ipc::NodeEndpoint{.name = "robot", .host = "127.0.0.1", .port = port, .bindHost = ""},
-                             robot::ipc::NodeEndpoint{.name = "mpc", .host = "127.0.0.1", .port = mpc.bus().boundPort(), .bindHost = ""}};
-    absl::StatusOr<std::unique_ptr<RemoteMpcLink>> created = RemoteMpcLink::Create(std::move(options), supervisor, config);
-    if (created.ok()) {
-      link = std::move(*created);
-    } else {
-      ASSERT_EQ(created.status().code(), absl::StatusCode::kUnavailable) << created.status();
-    }
-  }
-  ASSERT_NE(link, nullptr);
-  CHECK_OK(mpc.bus().connect(absl::StrCat("tcp://127.0.0.1:", port)));
+  // The link creates and owns its bus, on this test process's DDS domain, where the fake MPC's bus is.
+  robot::ipc::BusOptions options;
+  options.nodeName = "robot";
+  options.network = robot::ipc::isolatedTestNetwork({"robot", "mpc"});
+  absl::StatusOr<std::unique_ptr<RemoteMpcLink>> created = RemoteMpcLink::Create(std::move(options), &supervisor, config);
+  ASSERT_TRUE(created.ok()) << created.status();
+  std::unique_ptr<RemoteMpcLink> link = *std::move(created);
   CHECK_OK(mpc.bus().start());
 
   ASSERT_TRUE(waitFor([&]() {

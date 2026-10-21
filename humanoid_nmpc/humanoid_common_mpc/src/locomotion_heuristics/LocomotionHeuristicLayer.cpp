@@ -70,15 +70,15 @@ absl::StatusOr<std::unique_ptr<LocomotionHeuristicLayer>> LocomotionHeuristicLay
 
   // The foothold anchor keeps the feet apart laterally with the nominal step width, or - with hip_centered_stepping -
   // with the hips. With neither, every other foothold heuristic is a velocity- or rate-proportional correction around
-  // the STANCE foot's own lateral line, and the swing foot is targeted onto the stance foot: towards self-collision
-  // and zero support width. That cannot work, so it is refused.
+  // the base's own lateral line, half of a zero step width to either side, and both feet are targeted onto the same
+  // point: towards self-collision and zero support width. That cannot work, so it is refused.
   const bool listsAnchor = config.formulation.listed(HeuristicKind::kFoothold, heuristic::kHipCenteredStepping);
   if (!config.formulation.foothold.empty() && !listsAnchor && !(environment.nominalStepWidth > 0.0)) {
     return absl::InvalidArgumentError(absl::StrCat(
         "[LocomotionHeuristicLayer] locomotion_heuristics.foothold lists ", absl::StrJoin(config.formulation.foothold, ", "),
         " with nominal_foothold.step_width at ", environment.nominalStepWidth,
         " and without 'hip_centered_stepping'. Nothing would then keep the feet apart: the other foothold heuristics correct a "
-        "landing target that sits on the stance foot's own lateral line, so the swing foot would be aimed at the stance foot. "
+        "landing target that sits on the base's own lateral line, so both feet would be aimed at the same point under the base. "
         "Either add 'hip_centered_stepping' to the list, which places each foot relative to its own hip, or set "
         "nominal_foothold.step_width to the lateral distance between the feet."));
   }

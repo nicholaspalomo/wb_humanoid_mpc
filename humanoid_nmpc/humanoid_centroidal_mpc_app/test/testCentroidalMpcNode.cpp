@@ -59,6 +59,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_centroidal_mpc/mrt/CentroidalMpcParameterUpdater.h"
 #include "humanoid_centroidal_mpc_app/CentroidalMpcNode.h"
 #include "humanoid_common_mpc/common/CostTermNames.h"
+#include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/config/ConfigFiles.h"
 #include "humanoid_common_mpc/config/OperatorPayloadChecks.h"
 #include "humanoid_common_mpc/cost/TuningQuadraticStateInputCost.h"
@@ -88,8 +89,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "robot_ipc/Bus.h"
 #include "robot_ipc/BusOptions.h"
 #include "robot_ipc/NetworkConfig.h"
-#include "robot_ipc/NodeEndpoint.h"
 #include "robot_model/RobotDescription.h"
+#include "robot_runtime/robot_ipc/test/TestNetwork.h"
 
 /*
  * The centroidal MPC node on the DRC Atlas task file, with the real SQP solver, served over loopback buses: to a robot
@@ -117,7 +118,7 @@ node::MpcFiles atlasFiles() {
 std::unique_ptr<robot::ipc::Bus> loopbackBus(const std::string& name) {
   robot::ipc::BusOptions options;
   options.nodeName = name;
-  options.network.nodes = {robot::ipc::NodeEndpoint{.name = name, .host = "127.0.0.1", .port = robot::ipc::kEphemeralPort, .bindHost = ""}};
+  options.network = robot::ipc::isolatedTestNetwork({name});
   absl::StatusOr<std::unique_ptr<robot::ipc::Bus>> bus = robot::ipc::Bus::Create(std::move(options));
   EXPECT_TRUE(bus.ok()) << bus.status();
   return *std::move(bus);
@@ -128,7 +129,6 @@ class NodeHarness {
  public:
   NodeHarness() : files_(atlasFiles()) {
     std::unique_ptr<robot::ipc::Bus> mpcBus = loopbackBus("mpc");
-    robot_.connect(*mpcBus);
     absl::StatusOr<std::unique_ptr<CentroidalMpcNode>> node =
         CentroidalMpcNode::Create(files_, std::move(mpcBus), CentroidalMpcNode::Options());
     EXPECT_TRUE(node.ok()) << node.status();
@@ -152,7 +152,10 @@ class NodeHarness {
   }
 
   std::optional<humanoid_mpc_msgs::MpcPolicy> solve(scalar_t time, uint64_t sequence, uint64_t requested = 0, uint64_t fullRequested = 0) {
-    return robot_.solve(ScriptedRobot::observationMessage(standing(time), sequence, requested, fullRequested), /*timeoutSeconds=*/60.0);
+    humanoid_mpc_msgs::MpcObservation message = ScriptedRobot::observationMessage(standing(time), sequence, requested, fullRequested);
+    // The robot of the node's model layout: the node refuses an observation of another, an unstamped one included.
+    message.set_model_fingerprint(modelLayoutFingerprint(node_->interface().modelSettings()));
+    return robot_.solve(message, /*timeoutSeconds=*/60.0);
   }
 
   const node::MpcFiles& files() const { return files_; }
@@ -338,7 +341,7 @@ TEST(CentroidalMpcNode, ResetsToTheTargetTheControllerHandsItsInProcessLink) {
   };
   absl::StatusOr<std::unique_ptr<CentroidalMpcMrtJointController>> controllerOrStatus = CentroidalMpcMrtJointController::Create(
       description, interface.modelSettings(), interface.getMpcRobotModel(), capturing, interface.getPinocchioInterface(),
-      /*pdGainsFile=*/"", &interface.getEffectiveMpcRobotModel());
+      jointPdGainsFileBeside(harness.files().taskFile), &interface.getEffectiveMpcRobotModel());
   // The controller, which owns the link the factory captured, lives in controllerOrStatus for the whole test.
   ASSERT_TRUE(controllerOrStatus.ok()) << controllerOrStatus.status();
   ASSERT_TRUE(controllerResetTarget);
@@ -359,15 +362,14 @@ TEST(CentroidalMpcNode, ResetsToTheTargetTheControllerHandsItsInProcessLink) {
 /** The dummy simulator against the node, on a bus of its own, playing the robot; run() on a thread of its own. */
 class DummySimRunner {
  public:
-  DummySimRunner(CentroidalMpcNode& node, robot::ipc::Bus& mpcBus) {
+  explicit DummySimRunner(CentroidalMpcNode& node) {
     std::unique_ptr<robot::ipc::Bus> robotBus = loopbackBus("robot");
-    EXPECT_TRUE(robotBus->connect(mpcBus.boundEndpoint()).ok());
-    EXPECT_TRUE(mpcBus.connect(robotBus->boundEndpoint()).ok());
     node::DummySimLoop::Config config;
     config.mpcDesiredFrequency = node.interface().mpcSettings().mpcDesiredFrequency_;
     config.link.dimensions = node.dimensions();
     // The robot's link decodes the node's manifold-linear policies on the MPC's state manifold, as the dummy-sim binary's.
     config.link.stateManifold = node.interface().getStateManifold();
+    config.link.modelFingerprint = modelLayoutFingerprint(node.interface().modelSettings());
     absl::StatusOr<std::unique_ptr<node::DummySimLoop>> loop =
         node::DummySimLoop::Create(std::move(robotBus), node.interface().getRollout(), config);
     EXPECT_TRUE(loop.ok()) << loop.status();
@@ -402,11 +404,10 @@ class DummySimRunner {
 TEST(CentroidalMpcNode, TheDummySimulatorStandsOnTheNodesPoliciesWithoutAReset) {
   const node::MpcFiles files = atlasFiles();
   std::unique_ptr<robot::ipc::Bus> mpcBus = loopbackBus("mpc");
-  robot::ipc::Bus* absl_nonnull mpcBusPointer = mpcBus.get();
   absl::StatusOr<std::unique_ptr<CentroidalMpcNode>> node =
       CentroidalMpcNode::Create(files, std::move(mpcBus), CentroidalMpcNode::Options());
   ASSERT_TRUE(node.ok()) << node.status();
-  DummySimRunner dummySim(**node, *mpcBusPointer);
+  DummySimRunner dummySim(**node);
   ASSERT_TRUE((*node)->start().ok());
   ASSERT_TRUE(dummySim.runFor(absl::Seconds(4)).ok());
   (*node)->stop();

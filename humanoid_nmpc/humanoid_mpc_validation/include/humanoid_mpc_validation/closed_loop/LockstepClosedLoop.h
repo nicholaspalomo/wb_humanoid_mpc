@@ -70,8 +70,10 @@ struct LockstepOptions {
 struct LockstepResult {
   JsonValue metrics;                   ///< the closed-loop metrics document (ClosedLoopMetricsSchema)
   RecordedRobotStates recordedStates;  ///< with LockstepOptions::recordRobotStates
-  GoldenFile timeSeries;               ///< the base, its reference and each solve's rotation gap over the commands (TimeSeriesLabels.h)
-  vector_t finalObservationState;      ///< the controller's last observation, for the determinism test
+  /// the base and its reference, and each solve's rotation gap, SQP step and swing residual, over the commands
+  /// (TimeSeriesLabels.h)
+  GoldenFile timeSeries;
+  vector_t finalObservationState;  ///< the controller's last observation, for the determinism test
 };
 
 /**
@@ -80,14 +82,14 @@ struct LockstepResult {
  * synchronously (InProcessMpcLink::Execution::kCaller), all on the calling thread.
  *
  * Every control cycle (1 / mpc.mrt_desired_frequency of the task file, a whole number of simulation steps) runs in the order
- * of RobotProcess::cycle(): the runner reads the simulator's state, hands the controller the mode and the JOINT_PD
- * posture, computes the joint action, applies the controller-side settings of the task file, serves the operator's commands
- * of this cycle (which take effect from the next one) and applies the action last. A solve is due every
- * 1 / mpc.mpc_desired_frequency of simulation time; it runs in the cycle it falls in, after the action, on that cycle's
- * observation, and its policy is in use from the next cycle on. A failed solve's pause before the next attempt ends
- * when its delay has passed or a reset is requested after it, as on the solver thread (LockstepSolveSchedule). The
- * solve takes no simulation time: the closed loop measures the controller, not the machine or the bus, and so is
- * reproducible.
+ * of RobotProcess::cycle(): the runner reads the simulator's state, estimates the controller's state from it with the
+ * task file's state_estimator as the robot process does (createRobotProcessStateEstimator(); ground_truth hands on the
+ * simulator's state itself), hands the controller the mode and the JOINT_PD posture, computes the joint action, applies the controller-side
+ * settings of the task file, serves the operator's commands of this cycle (which take effect from the next one) and applies the action
+ * last. A solve is due every 1 / mpc.mpc_desired_frequency of simulation time; it runs in the cycle it falls in, after the action, on that
+ * cycle's observation, and its policy is in use from the next cycle on. A failed solve's pause before the next attempt ends when its delay
+ * has passed or a reset is requested after it, as on the solver thread (LockstepSolveSchedule). The solve takes no simulation time: the
+ * closed loop measures the controller, not the machine or the bus, and so is reproducible.
  *
  * The sequence (LockstepTimeline): the robot starts on the locked gantry in JOINT_PD with torques enabled, enters WB_MPC
  * once settled, has the gantry released as the robot process releases it (unlockGantry() and a reset of the MPC) once

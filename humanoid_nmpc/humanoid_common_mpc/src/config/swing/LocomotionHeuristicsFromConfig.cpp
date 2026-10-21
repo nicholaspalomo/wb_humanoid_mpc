@@ -32,6 +32,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <array>
 #include <cmath>
 #include <cstddef>
+#include <optional>
 
 #include "absl/base/nullability.h"
 #include "absl/status/status.h"
@@ -150,12 +151,9 @@ constexpr std::array<Coefficient<HipCenteredSteppingBlock, HipCenteredSteppingPa
      .parameter = &HipCenteredSteppingParameters::longitudinalScale},
 }};
 
-constexpr std::array<Coefficient<CapturePointBlock, CapturePointParameters>, 4> kCapturePointCoefficients = {{
+// com_height_override is optional (optionalPositive()).
+constexpr std::array<Coefficient<CapturePointBlock, CapturePointParameters>, 2> kCapturePointCoefficients = {{
     {.name = "gain", .field = &CapturePointBlock::gain, .parameter = &CapturePointParameters::gain},
-    {.name = "com_height_override",
-     .field = &CapturePointBlock::com_height_override,
-     .parameter = &CapturePointParameters::comHeightOverride},
-    {.name = "gravity", .field = &CapturePointBlock::gravity, .parameter = &CapturePointParameters::gravity},
     {.name = "maximum_offset", .field = &CapturePointBlock::maximum_offset, .parameter = &CapturePointParameters::maximumOffset},
 }};
 
@@ -215,16 +213,32 @@ constexpr std::array<Coefficient<ImpulseScalingBlock, ImpulseScalingParameters>,
      .parameter = &ImpulseScalingParameters::maximumForceRatio},
 }};
 
-constexpr std::array<Coefficient<CentripetalAccelerationBlock, CentripetalAccelerationParameters>, 3> kCentripetalAccelerationCoefficients =
+// maximum_force is optional (optionalPositive()).
+constexpr std::array<Coefficient<CentripetalAccelerationBlock, CentripetalAccelerationParameters>, 2> kCentripetalAccelerationCoefficients =
     {{
         {.name = "scale", .field = &CentripetalAccelerationBlock::scale, .parameter = &CentripetalAccelerationParameters::scale},
-        {.name = "maximum_force",
-         .field = &CentripetalAccelerationBlock::maximum_force,
-         .parameter = &CentripetalAccelerationParameters::maximumForce},
         {.name = "maximum_force_ratio_of_weight",
          .field = &CentripetalAccelerationBlock::maximum_force_ratio_of_weight,
          .parameter = &CentripetalAccelerationParameters::maximumForceRatioOfWeight},
     }};
+/**
+ * The parameter of the optional field `name` of the block `heuristic`: `absent`, the parameter struct's value for "not
+ * set", when the file leaves it out; otherwise the value, which must be finite and positive (the schema has no
+ * sentinel: leaving the field out is how a file says "not set").
+ */
+absl::StatusOr<scalar_t> optionalPositive(absl::string_view heuristic,
+                                          absl::string_view name,
+                                          std::optional<double> value,
+                                          scalar_t absent) {
+  if (!value.has_value()) return absent;
+  // Negated, so that NaN is refused too.
+  if (!std::isfinite(*value) || !(*value > 0.0)) {
+    return absl::InvalidArgumentError(absl::StrCat("locomotion_heuristics.", heuristic, ".", name, " is ", *value,
+                                                   ", but it must be finite and positive; leave it out for the default."));
+  }
+  return *value;
+}
+
 }  // namespace
 
 absl::StatusOr<LocomotionHeuristicConfig> locomotionHeuristicConfigFromConfig(const mpc_config::LocomotionHeuristicsConfig& config) {
@@ -241,6 +255,9 @@ absl::StatusOr<LocomotionHeuristicConfig> locomotionHeuristicConfigFromConfig(co
   ASSIGN_OR_RETURN(heuristics.hipCenteredStepping,
                    convertBlock(heuristic::kHipCenteredStepping, config.hip_centered_stepping, kHipCenteredSteppingCoefficients));
   ASSIGN_OR_RETURN(heuristics.capturePoint, convertBlock(heuristic::kCapturePoint, config.capture_point, kCapturePointCoefficients));
+  // Absent: the center-of-mass height measured at each solve (CapturePointParameters::comHeightOverride 0).
+  ASSIGN_OR_RETURN(heuristics.capturePoint.comHeightOverride, optionalPositive(heuristic::kCapturePoint, "com_height_override",
+                                                                               config.capture_point.com_height_override, /*absent=*/0.0));
   ASSIGN_OR_RETURN(heuristics.translationalStepping,
                    convertBlock(heuristic::kTranslationalStepping, config.translational_stepping, kTranslationalSteppingCoefficients));
   ASSIGN_OR_RETURN(heuristics.inPlaceTurning,
@@ -251,6 +268,10 @@ absl::StatusOr<LocomotionHeuristicConfig> locomotionHeuristicConfigFromConfig(co
                    convertBlock(heuristic::kImpulseScaling, config.impulse_scaling, kImpulseScalingCoefficients));
   ASSIGN_OR_RETURN(heuristics.centripetalAcceleration, convertBlock(heuristic::kCentripetalAcceleration, config.centripetal_acceleration,
                                                                     kCentripetalAccelerationCoefficients));
+  // Absent: the clamp is maximum_force_ratio_of_weight (CentripetalAccelerationParameters::maximumForce 0).
+  ASSIGN_OR_RETURN(heuristics.centripetalAcceleration.maximumForce,
+                   optionalPositive(heuristic::kCentripetalAcceleration, "maximum_force", config.centripetal_acceleration.maximum_force,
+                                    /*absent=*/0.0));
   RETURN_IF_ERROR(heuristics.validate());
   return heuristics;
 }

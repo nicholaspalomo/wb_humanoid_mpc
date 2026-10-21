@@ -40,6 +40,7 @@ from typing import Any, Protocol
 
 from humanoid_mpc_msgs import walking_velocity_command_pb2
 
+from remote_control import config_files
 from remote_control import operator_bus
 
 _LOGGER = logging.getLogger(__name__)
@@ -161,17 +162,24 @@ class XBoxControllerInterface:
     Args:
         publisher_rate: how often get_walking_command_msg() is called [Hz]; it scales the pelvis height rate.
         backend: the joysticks (default: pygame's).
+        initial_pelvis_height: the pelvis height target the triggers start from [m]: the robot's default_base_height
+            (teleop.initial_pelvis_height()), clamped to the target's range.
     """
 
     def __init__(
-        self, publisher_rate: float, backend: JoystickBackend | None = None
+        self,
+        publisher_rate: float,
+        backend: JoystickBackend | None = None,
+        initial_pelvis_height: float = config_files.DEFAULT_PELVIS_HEIGHT,
     ) -> None:
         self._backend = backend if backend is not None else PygameJoystickBackend()
         self._backend.init()
         self.publisher_rate = publisher_rate
-        self.current_pelvis_height_target = 0.8
         self.min_pelvis_height = 0.2
         self.max_pelvis_height = 1.0
+        self.current_pelvis_height_target = clamp(
+            initial_pelvis_height, self.min_pelvis_height, self.max_pelvis_height
+        )
         self.joystick: Joystick | None = None
         self.joystick_connected = False
         self.bluetooth_connection = False
@@ -270,6 +278,26 @@ class GamepadPoller:
     @property
     def connected(self) -> bool:
         return bool(self._controller.joystick_connected)
+
+    @property
+    def pelvis_height_target(self) -> float:
+        """The pelvis height target the controller's triggers move [m]."""
+        return float(self._controller.current_pelvis_height_target)
+
+    def set_pelvis_height_target(self, height: float) -> None:
+        """Moves the pelvis height target the triggers move from to `height` [m], clamped to its range.
+
+        The GUI calls it when a controller connects and when the default pelvis height moves, so that the controller
+        starts from the height the slider shows rather than from its own.
+
+        Args:
+            height: the new target [m].
+        """
+        self._controller.current_pelvis_height_target = clamp(
+            height,
+            self._controller.min_pelvis_height,
+            self._controller.max_pelvis_height,
+        )
 
     def tick(self) -> walking_velocity_command_pb2.WalkingVelocityCommand | None:
         """The controller's command, or None when there is no controller (or it was just lost)."""

@@ -32,13 +32,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 
 #include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/config/ConfigFiles.h"
 
 namespace ocs2::humanoid {
 
-absl::StatusOr<CentroidalMpcConfig> loadCentroidalMpcConfig(const std::string& taskFile, const std::string& referenceFile) {
+absl::StatusOr<CentroidalMpcConfig> loadCentroidalMpcConfig(absl::string_view taskFile, absl::string_view referenceFile) {
   CentroidalMpcConfig config;
   ASSIGN_OR_RETURN(config.task, loadTaskFile(taskFile));
   ASSIGN_OR_RETURN(config.reference, loadReferenceFile(referenceFile));

@@ -33,11 +33,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <memory>
 #include <utility>
 
+#include "absl/base/nullability.h"
 #include "absl/memory/memory.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
+#include "ocs2_core/Dimensions.h"
 
 #include "humanoid_common_mpc/common/Types.h"
 
@@ -54,6 +56,27 @@ absl::StatusOr<std::unique_ptr<EndEffectorDynamicsAccelerationsConstraint>> EndE
         absl::StrCat("[EndEffectorDynamicsAccelerationsConstraint] this class only accepts a single end-effector; "
                      "the end-effector dynamics has ",
                      endEffectorDynamics.getIds().size(), ": [", absl::StrJoin(endEffectorDynamics.getIds(), ", "), "]"));
+  }
+  if (numConstraints < 1 || numConstraints > static_cast<size_t>(kPoseTangentDim)) {
+    return absl::InvalidArgumentError(
+        absl::StrCat("[EndEffectorDynamicsAccelerationsConstraint] ", numConstraints, " constraints: between 1 and ", kPoseTangentDim));
+  }
+  const Eigen::Index rows = static_cast<Eigen::Index>(numConstraints);
+  // An empty config is set later, by configure(); a given one has the shape of the constraint.
+  const bool unconfigured = config.b.size() == 0 && config.Ax.size() == 0 && config.Av.size() == 0 && config.Aa.size() == 0;
+  if (!unconfigured && config.b.size() != rows) {
+    return absl::InvalidArgumentError(
+        absl::StrCat("[EndEffectorDynamicsAccelerationsConstraint] b has ", config.b.size(), " rows for a constraint of ", numConstraints));
+  }
+  for (const std::pair<const char* absl_nonnull, const matrix_t* absl_nonnull>& gain :
+       {std::pair<const char* absl_nonnull, const matrix_t* absl_nonnull>("Ax", &config.Ax),
+        std::pair<const char* absl_nonnull, const matrix_t* absl_nonnull>("Av", &config.Av),
+        std::pair<const char* absl_nonnull, const matrix_t* absl_nonnull>("Aa", &config.Aa)}) {
+    const matrix_t& matrix = *gain.second;
+    if (matrix.size() > 0 && (matrix.rows() != rows || matrix.cols() != kPoseTangentDim)) {
+      return absl::InvalidArgumentError(absl::StrCat("[EndEffectorDynamicsAccelerationsConstraint] ", gain.first, " is ", matrix.rows(),
+                                                     "x", matrix.cols(), ": empty, or ", numConstraints, "x", kPoseTangentDim));
+    }
   }
   return absl::WrapUnique(new EndEffectorDynamicsAccelerationsConstraint(endEffectorDynamics, numConstraints, std::move(config)));
 }
@@ -106,11 +129,14 @@ vector_t EndEffectorDynamicsAccelerationsConstraint::getValue(scalar_t /*time*/,
         endEffectorDynamicsPtr_->getOrientationErrorWrtPlane(state, {ground_plane_normal_}).front();
     f.noalias() += config_.Ax * footPose;
   }
+  // The velocity and acceleration gains act on the time derivatives of that pose: the linear velocity and acceleration,
+  // and the rate and acceleration of the orientation error (completed along the ground normal by half the rotation rate
+  // about the foot normal), so that the orientation rows are the PD law on the error, Kp e + Kd de/dt + Ka d2e/dt2.
   if (config_.Av.size() > 0) {
-    f.noalias() += config_.Av * endEffectorDynamicsPtr_->getTwist(state, input).front();
+    f.noalias() += config_.Av * endEffectorDynamicsPtr_->getPoseWrtPlaneRate(state, input, {ground_plane_normal_}).front();
   }
   if (config_.Aa.size() > 0) {
-    f.noalias() += config_.Aa * endEffectorDynamicsPtr_->getAccelerations(state, input).front();
+    f.noalias() += config_.Aa * endEffectorDynamicsPtr_->getPoseWrtPlaneAcceleration(state, input, {ground_plane_normal_}).front();
   }
   return f;
 }
@@ -126,33 +152,36 @@ VectorFunctionLinearApproximation EndEffectorDynamicsAccelerationsConstraint::ge
 
   linearApproximation.f = config_.b;
 
-  // The position goes through the top-left 3x3 block of Ax and the orientation error with respect to the ground plane
-  // through the bottom-right one. The two off-diagonal blocks are not read, so this is the linearization of getValue(),
-  // which applies all of Ax, only for a block-diagonal Ax - the form WBMpcInterface::getStanceFootConstraint builds.
+  // The pose [p; e] and its Jacobian, stacked as getValue() stacks the pose, through all of Ax: the linearization of
+  // getValue() for any Ax and any number of rows. The pose depends on the state alone.
   if (config_.Ax.size() > 0) {
     const VectorFunctionLinearApproximation positionApprox = endEffectorDynamicsPtr_->getPositionLinearApproximation(state).front();
     const VectorFunctionLinearApproximation orientationApprox =
         endEffectorDynamicsPtr_->getOrientationErrorWrtPlaneLinearApproximation(state, {ground_plane_normal_}).front();
-
-    linearApproximation.f.head(3).noalias() += config_.Ax.topLeftCorner(3, 3) * positionApprox.f;
-    linearApproximation.f.tail(3).noalias() += config_.Ax.bottomRightCorner(3, 3) * orientationApprox.f;
-    linearApproximation.dfdx.topRows(3).noalias() += config_.Ax.topLeftCorner(3, 3) * positionApprox.dfdx;
-    linearApproximation.dfdx.bottomRows(3).noalias() += config_.Ax.bottomRightCorner(3, 3) * orientationApprox.dfdx;
+    vector6_t footPose;
+    footPose << positionApprox.f, orientationApprox.f;
+    matrix_t footPoseJacobian(kPoseTangentDim, state.size());
+    footPoseJacobian << positionApprox.dfdx, orientationApprox.dfdx;
+    linearApproximation.f.noalias() += config_.Ax * footPose;
+    linearApproximation.dfdx.noalias() += config_.Ax * footPoseJacobian;
   }
 
+  // The rates of getValue(), from the libraries that give their values: the Jacobians are their exact derivatives, the
+  // state-dependent map from the angular velocity and acceleration to the error's rates included.
   if (config_.Av.size() > 0) {
-    const VectorFunctionLinearApproximation velocityApprox = endEffectorDynamicsPtr_->getTwistLinearApproximation(state, input).front();
-    linearApproximation.f.noalias() += config_.Av * velocityApprox.f;
-    linearApproximation.dfdx.noalias() += config_.Av * velocityApprox.dfdx;
-    linearApproximation.dfdu.noalias() += config_.Av * velocityApprox.dfdu;
+    const VectorFunctionLinearApproximation rateApprox =
+        endEffectorDynamicsPtr_->getPoseWrtPlaneRateLinearApproximation(state, input, {ground_plane_normal_}).front();
+    linearApproximation.f.noalias() += config_.Av * rateApprox.f;
+    linearApproximation.dfdx.noalias() += config_.Av * rateApprox.dfdx;
+    linearApproximation.dfdu.noalias() += config_.Av * rateApprox.dfdu;
   }
 
   if (config_.Aa.size() > 0) {
-    const VectorFunctionLinearApproximation accelApprox =
-        endEffectorDynamicsPtr_->getAccelerationsLinearApproximation(state, input).front();
-    linearApproximation.f.noalias() += config_.Aa * accelApprox.f;
-    linearApproximation.dfdx.noalias() += config_.Aa * accelApprox.dfdx;
-    linearApproximation.dfdu.noalias() += config_.Aa * accelApprox.dfdu;
+    const VectorFunctionLinearApproximation accelerationApprox =
+        endEffectorDynamicsPtr_->getPoseWrtPlaneAccelerationLinearApproximation(state, input, {ground_plane_normal_}).front();
+    linearApproximation.f.noalias() += config_.Aa * accelerationApprox.f;
+    linearApproximation.dfdx.noalias() += config_.Aa * accelerationApprox.dfdx;
+    linearApproximation.dfdu.noalias() += config_.Aa * accelerationApprox.dfdu;
   }
 
   return linearApproximation;

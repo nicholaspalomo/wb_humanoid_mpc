@@ -63,7 +63,7 @@ OcpQpProblem makeDoubleIntegratorProblem(scalar_t p0, scalar_t v0) {
   for (int k = 0; k <= kNumStages; ++k) {
     const bool terminal = (k == kNumStages);
     OcpQpStage& s = problem.stages[k];
-    s = OcpQpStage::Zero(2, terminal ? 0 : 1, !terminal);
+    s = OcpQpStage::Zero(2, terminal ? 0 : 1, terminal ? OcpQpStageKind::kTerminal : OcpQpStageKind::kIntermediate);
     s.Q = (matrix_t(2, 2) << 10.0, 0.0, 0.0, 1.0).finished();
     if (!terminal) {
       s.R = matrix_t::Constant(1, 1, 0.1);
@@ -144,7 +144,7 @@ OcpQpProblem makeSoftRowSelectionProblem(int softRow) {
   for (int k = 0; k <= kSoftSelectionNumStages; ++k) {
     const bool terminal = (k == kSoftSelectionNumStages);
     OcpQpStage& s = problem.stages[k];
-    s = OcpQpStage::Zero(1, terminal ? 0 : 1, !terminal);
+    s = OcpQpStage::Zero(1, terminal ? 0 : 1, terminal ? OcpQpStageKind::kTerminal : OcpQpStageKind::kIntermediate);
     s.Q = matrix_t::Constant(1, 1, 1.0);
     if (!terminal) {
       s.R = matrix_t::Constant(1, 1, 1.0);
@@ -414,7 +414,7 @@ TEST(OcpQpHpipmTest, AnInconsistentProblemIsAnInvalidArgumentNamingTheProblem) {
   OcpQpProblem noStages;
   noStages.x0 = vector_t::Zero(2);
   noStages.stages.resize(1);
-  noStages.stages[0] = OcpQpStage::Zero(/*nx=*/2, /*nu=*/0, /*hasDynamics=*/false);
+  noStages.stages[0] = OcpQpStage::Zero(/*nx=*/2, /*nu=*/0, OcpQpStageKind::kTerminal);
   expectRejected(noStages, "at least one stage");
 
   OcpQpProblem wrongQ = makeDoubleIntegratorProblem(1.0, -0.5);

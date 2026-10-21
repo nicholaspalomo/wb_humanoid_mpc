@@ -39,6 +39,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/container/flat_hash_map.h"
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
+#include "ocs2_core/Dimensions.h"
 
 #include "humanoid_common_mpc/orientation/EulerBoundary.h"
 
@@ -48,6 +49,9 @@ namespace {
 
 /** A quaternion whose norm is this far from 1 is not a rotation up to rounding. */
 constexpr scalar_t kQuaternionNormTolerance = 1.0e-3;
+
+/** The optional joint arrays of the action applied: the targets, the gains and the feed-forward efforts. */
+constexpr size_t kNumActionArrays = 5;
 
 /** A joint array of the sample: aligned with the joint names, or (`optional`) empty. */
 absl::Status checkJointArray(const Eigen::VectorXd& values, size_t jointCount, const char* absl_nonnull field, bool optional) {
@@ -135,7 +139,7 @@ absl::Status RobotStateDecoder::decode(const msgs::RobotStateSample& sample, Dec
   if (absl::Status status = checkJointArray(sample.joint_velocities, jointCount, "joint_velocities", /*optional=*/false); !status.ok()) {
     return status;
   }
-  const std::array<std::pair<const Eigen::VectorXd* absl_nonnull, const char* absl_nonnull>, 5> actionArrays = {{
+  const std::array<std::pair<const Eigen::VectorXd* absl_nonnull, const char* absl_nonnull>, kNumActionArrays> actionArrays = {{
       {&sample.joint_position_targets, "joint_position_targets"},
       {&sample.joint_velocity_targets, "joint_velocity_targets"},
       {&sample.joint_kp, "joint_kp"},
@@ -219,8 +223,8 @@ absl::Status RobotStateDecoder::decode(const msgs::RobotStateSample& sample, Dec
     vector6_t& wrench = state->measuredContactWrenches[contact];
     wrench.setZero();
     if (contact < sample.measured_contact_wrenches.size()) {
-      wrench.head<3>() = toVector3(sample.measured_contact_wrenches[contact].force);
-      wrench.tail<3>() = toVector3(sample.measured_contact_wrenches[contact].torque);
+      wrench.head<kForceDim>() = toVector3(sample.measured_contact_wrenches[contact].force);
+      wrench.tail<kTorqueDim>() = toVector3(sample.measured_contact_wrenches[contact].torque);
     }
   }
   return absl::OkStatus();

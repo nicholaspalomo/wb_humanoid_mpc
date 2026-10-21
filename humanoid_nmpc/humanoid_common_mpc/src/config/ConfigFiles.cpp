@@ -66,9 +66,16 @@ namespace {
 constexpr absl::string_view kRobotModelsDirectory = "robot_models";
 // LINT.ThenChange(//humanoid_nmpc/remote_control/remote_control/config_files.py:robot_models_dir)
 
-/** The textproto `text` as the nproto struct `Struct` of its message `Message`, as nproto::LoadTextprotoFile() reads a file. */
+/**
+ * The textproto `text` of a file as the nproto struct `Struct` of its message `Message`, as nproto::LoadTextprotoFile()
+ * reads a file: its header must name its schema (nproto::CheckProtoMessageHeader()), since the text is written to disk.
+ */
 template <typename Struct, typename Message>
 absl::StatusOr<Struct> parseTextprotoAs(absl::string_view text, absl::string_view source) {
+  absl::Status header = nproto::CheckProtoMessageHeader(text, source, *Message::descriptor());
+  if (!header.ok()) {
+    return header;
+  }
   absl::StatusOr<Message> message = nproto::ParseTextproto<Message>(text, source);
   if (!message.ok()) {
     return message.status();

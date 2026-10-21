@@ -37,6 +37,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
+#include "ocs2_core/penalties/penalties/PenaltyBase.h"
 #include "ocs2_core/soft_constraint/StateInputSoftConstraint.h"
 #include "ocs2_core/soft_constraint/StateSoftConstraint.h"
 
@@ -89,7 +90,7 @@ void ContactImplicitApplier::apply(HotUpdateTarget& target) {
   const vector_t complementarityParams = (vector_t(1) << reloaded.complementarityWeight).finished();
   const vector_t slipParams = (vector_t(1) << reloaded.slipWeight).finished();
   // SquaredHingePenalty::setParameters takes (mu, delta); delta stays 0 so the hinge's zero stays on the ground.
-  const vector_t penetrationParams = (vector_t(2) << reloaded.penetrationWeight, 0.0).finished();
+  const vector_t penetrationParams = (vector_t(kMuDeltaParameterCount) << reloaded.penetrationWeight, 0.0).finished();
   for (OptimalControlProblem& ocp : target.problems()) {
     for (const std::string& footName : target.contactNames()) {
       updateTermIfPresent<StateInputSoftConstraint>(

@@ -30,7 +30,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <iterator>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <string>
@@ -44,6 +46,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
+#include "absl/time/time.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/initialization/DefaultInitializer.h"
@@ -94,6 +97,7 @@ class MpcParameterUpdaterModuleTest : public ::testing::Test {
     options.layout = stateInputLayout(testingModelInterface_.getModelSettings(), StateInputLayout::Mpc::kCentroidal);
     options.inputDim = testingModelInterface_.getMpcRobotModel().getInputDim();
     options.appliers = std::move(appliers);
+    options.fileCheckPeriod = absl::ZeroDuration();
     absl::StatusOr<std::unique_ptr<MpcParameterUpdaterModule>> created = MpcParameterUpdaterModule::Create(mpc, std::move(options));
     EXPECT_TRUE(created.ok()) << created.status();
     return created.ok() ? *std::move(created) : nullptr;
@@ -179,21 +183,52 @@ TEST_F(MpcParameterUpdaterModuleTest, theSolverSettingsOfAnAppliedFileReachTheRu
   }
   EXPECT_EQ(solver.getSettings().sqpIteration, running + 3);
 
+  // A hot field out of its range (a non-positive or NaN tolerance, g_min above g_max) is refused the same way: the
+  // running delta_tol, g_max and g_min are kept, and so is the iteration count the same block carries.
+  const scalar_t runningDeltaTol = solver.getSettings().deltaTol;
+  const scalar_t runningGMax = solver.getSettings().g_max;
+  const scalar_t runningGMin = solver.getSettings().g_min;
+  const std::vector<std::function<void(mpc_config::SqpSettingsConfig&)>> outOfRange = {
+      [](mpc_config::SqpSettingsConfig& c) { c.delta_tol = 0.0; },
+      [](mpc_config::SqpSettingsConfig& c) { c.delta_tol = -1.0; },
+      [](mpc_config::SqpSettingsConfig& c) { c.delta_tol = std::numeric_limits<double>::quiet_NaN(); },
+      [](mpc_config::SqpSettingsConfig& c) { c.g_max = -1.0; },
+      [](mpc_config::SqpSettingsConfig& c) { c.g_min = std::numeric_limits<double>::quiet_NaN(); },
+      [](mpc_config::SqpSettingsConfig& c) { c.g_min = 2.0 * c.g_max; },
+  };
+  for (const std::function<void(mpc_config::SqpSettingsConfig&)>& corrupt : outOfRange) {
+    mpc_config::TaskFile refused = shipped;
+    refused.multiple_shooting.sqp_iteration = static_cast<int32_t>(running) + 5;
+    refused.multiple_shooting.delta_tol = runningDeltaTol * 2.0;
+    corrupt(refused.multiple_shooting);
+    absl::ScopedMockLog log(absl::MockLogDefault::kIgnoreUnexpected);
+    EXPECT_CALL(log, Log(absl::LogSeverity::kWarning, testing::_,
+                         testing::AllOf(testing::HasSubstr("multiple_shooting"), testing::HasSubstr("was not applied"))))
+        .Times(1);
+    log.StartCapturingLogs();
+    writeAndPoll(*updater, taskFileText(refused));
+    log.StopCapturingLogs();
+    EXPECT_EQ(solver.getSettings().sqpIteration, running + 3);
+    EXPECT_EQ(solver.getSettings().deltaTol, runningDeltaTol);
+    EXPECT_EQ(solver.getSettings().g_max, runningGMax);
+    EXPECT_EQ(solver.getSettings().g_min, runningGMin);
+  }
+
   // A value that does not parse refuses the whole file, with an error that names the file and the position, where a
   // `get` with a default used to apply the default in its place without a word.
   {
     absl::ScopedMockLog log(absl::MockLogDefault::kIgnoreUnexpected);
     EXPECT_CALL(log, Log(absl::LogSeverity::kError, testing::_,
-                         testing::AllOf(testing::HasSubstr("was not reloaded"), testing::HasSubstr("test_task.textproto:2:"))))
+                         testing::AllOf(testing::HasSubstr("was not reloaded"), testing::HasSubstr("test_task.textproto:3:"))))
         .Times(1);
     log.StartCapturingLogs();
-    writeAndPoll(*updater, "multiple_shooting {\n  sqp_iteration: many\n}\n");
+    writeAndPoll(*updater, "# proto-message: humanoid_mpc_config.TaskFile\nmultiple_shooting {\n  sqp_iteration: many\n}\n");
     log.StopCapturingLogs();
   }
   EXPECT_EQ(solver.getSettings().sqpIteration, running + 3) << "a file that does not parse was applied";
 
   // A file without the block applies its defaults.
-  writeAndPoll(*updater, "state_weights { scaling: 1.0 }\n");
+  writeAndPoll(*updater, "# proto-message: humanoid_mpc_config.TaskFile\nstate_weights { scaling: 1.0 }\n");
   EXPECT_EQ(solver.getSettings().sqpIteration, static_cast<size_t>(mpc_config::SqpSettingsConfig{}.sqp_iteration));
 }
 

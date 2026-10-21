@@ -10,6 +10,7 @@ package(default_visibility = ["//visibility:public"])
 _TEST_DEPS = [
     ":humanoid_centroidal_mpc_test_headers",
     "//humanoid_nmpc/humanoid_centroidal_mpc",
+    "//humanoid_nmpc/humanoid_common_mpc:status_test_macros",
     "//robot_runtime/robot_core:resource_paths",
     "//robot_runtime/robot_model",
     "@eigen",
@@ -99,19 +100,25 @@ cc_test(
         "//lib/ocs2:ocs2_oc",
         "//lib/ocs2:ocs2_sqp",
         "@abseil-cpp//absl/log:scoped_mock_log",
+        "@abseil-cpp//absl/time",
     ],
 )
-# The controller's observation, passive modes and WB_MPC hold allocate nothing; a binary of its own, because the
-# allocation counter replaces malloc for the whole binary.
+# The controller's observation, passive modes, WB_MPC hold, weight compensation and policy execution allocate nothing;
+# a binary of its own, because the allocation counter replaces malloc for the whole binary.
 cc_test(
     name = "test_centroidal_mpc_mrt_joint_controller_allocations",
     size = "small",
     srcs = ["src/testCentroidalMpcMrtJointControllerAllocations.cpp"],
     copts = FIRST_PARTY_COPTS,
-    data = _TEST_DATA,
+    data = _TEST_DATA + ["//humanoid_nmpc/humanoid_common_mpc:gait_config"],
     linkstatic = True,
     deps = _TEST_DEPS + [
+        "//humanoid_nmpc/humanoid_centroidal_mpc:typed_config_support",
+        "//humanoid_nmpc/humanoid_common_mpc",
         "//humanoid_nmpc/humanoid_common_mpc:null_mpc_link",
+        "//humanoid_nmpc/humanoid_common_mpc:scripted_policy_mpc_link",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_oc",
         "//robot_runtime/robot_realtime:allocation_counter",
     ],
 )
@@ -187,6 +194,7 @@ cc_library(
         "//humanoid_nmpc/humanoid_centroidal_mpc",
         # The shipped robots' typed configuration files (support/TypedConfigFiles.h).
         "//humanoid_nmpc/humanoid_centroidal_mpc:typed_config_support",
+        "//humanoid_nmpc/humanoid_common_mpc:status_test_macros",
         "//robot_runtime/robot_core:resource_paths",
         "@abseil-cpp//absl/base:nullability",
     ],

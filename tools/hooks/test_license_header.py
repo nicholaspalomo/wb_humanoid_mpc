@@ -89,8 +89,7 @@ class LicenseHeaderTest(unittest.TestCase):
 
     def test_line_comments_wrap_the_same_text(self):
         lines = [
-            f"// {line}".rstrip()
-            for line in (_HOLDER + "\n" + _CONDITIONS).splitlines()
+            f"// {line}".rstrip() for line in (f"{_HOLDER}\n{_CONDITIONS}").splitlines()
         ]
         self.assertEqual(_messages("\n".join(lines) + "\n\n#pragma once\n"), [])
 
@@ -135,7 +134,7 @@ class LicenseHeaderTest(unittest.TestCase):
         self.assertEqual(_messages(""), [])
 
     def test_a_block_that_follows_code_is_not_the_header(self):
-        self.assertIn("no license header", _messages("#pragma once\n" + _block())[0])
+        self.assertIn("no license header", _messages(f"#pragma once\n{_block()}")[0])
 
     def test_generated_files_are_exempt(self):
         self.assertEqual(

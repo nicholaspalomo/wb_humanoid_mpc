@@ -80,7 +80,7 @@ absl::StatusOr<JointMimicSettings> mimicJointFromConfig(const MimicJoint& block,
 }  // namespace
 
 absl::StatusOr<feet_array_t<JointMimicSettings>> kneeMimicJointsFromConfig(const mpc_config::MimicJointsConfig& mimicJoints) {
-  static_assert(kNumContacts == 2, "one knee mimic block per leg: left_knee and right_knee");
+  static_assert(kNumContacts == kBipedFootCount, "one knee mimic block per leg: left_knee and right_knee");
   ASSIGN_OR_RETURN(JointMimicSettings left, mimicJointFromConfig(mimicJoints.left_knee, "left_knee"));
   ASSIGN_OR_RETURN(JointMimicSettings right, mimicJointFromConfig(mimicJoints.right_knee, "right_knee"));
   return feet_array_t<JointMimicSettings>{std::move(left), std::move(right)};

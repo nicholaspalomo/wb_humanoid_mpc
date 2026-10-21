@@ -33,8 +33,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 // Pinocchio forward declarations must be included first
 #include "pinocchio/fwd.hpp"
 
-#include <utility>
-
 #include "absl/status/status.h"
 #include "ocs2_pinocchio_interface/urdf.h"
 #include "pinocchio/multibody/model.hpp"
@@ -42,6 +40,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/common/ModelSettings.h"
 
 namespace ocs2::humanoid {
+
+/** Whether a function of this file logs what it reads and does. */
+enum class Verbosity {
+  kQuiet,
+  kVerbose,
+};
+
+/// The first joint of a floating-base Pinocchio model after the universe (joint 0) and the floating-base root (joint 1):
+/// the first actuated joint.
+inline constexpr pinocchio::JointIndex kFirstJointAfterFloatingBase = 2;
 
 ///
 /// \brief Checks that the actuated joints of the Pinocchio model are ModelSettings::mpcModelJointNames, in that order.
@@ -57,7 +65,7 @@ namespace ocs2::humanoid {
 
 [[nodiscard]] absl::Status checkPinocchioJointNaming(const PinocchioInterface& pinocchioInterface,
                                                      const ModelSettings& modelSettings,
-                                                     bool verbose = false);
+                                                     Verbosity verbosity = Verbosity::kQuiet);
 
 ///
 /// \brief Reads the position limits of the MPC joints from the Pinocchio model.
@@ -65,12 +73,13 @@ namespace ocs2::humanoid {
 /// \param[in] pinocchioInterface: The Pinocchio interface of the MPC model. Its joints must match ModelSettings
 ///                                (checkPinocchioJointNaming); this is CHECKed, because the limits are read by position.
 ///
-/// \return A std pair of joint limits consisting of {lower_bounds, upper_bounds}
+/// \return The lower and upper position limits of the MPC joints.
 
-std::pair<vector_t, vector_t> readPinocchioJointLimits(const PinocchioInterface& pinocchioInterface,
-                                                       const ModelSettings& modelSettings,
-                                                       bool verbose = true);
+JointPositionLimits readPinocchioJointLimits(const PinocchioInterface& pinocchioInterface,
+                                             const ModelSettings& modelSettings,
+                                             Verbosity verbosity = Verbosity::kVerbose);
 
-void scalePinocchioModelInertia(pinocchio::ModelTpl<scalar_t>& model, scalar_t targetRobotMass, bool verbose = true);
+/** Scales every body's mass and rotational inertia of `model` by one factor so that the total mass is `targetRobotMass`. */
+void scalePinocchioModelInertia(pinocchio::ModelTpl<scalar_t>& model, scalar_t targetRobotMass, Verbosity verbosity = Verbosity::kVerbose);
 
 }  // namespace ocs2::humanoid

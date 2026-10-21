@@ -175,12 +175,12 @@ class TestTunedFile(TempFileTestCase):
             self.task.saved_value("swing_trajectory_config.swing_height"), 0.12
         )
         # The first save keeps the file as it was.
-        self.assertEqual(self.read(self.path + ".bak"), TASK)
+        self.assertEqual(self.read(f"{self.path}.bak"), TASK)
 
     def test_save_without_changes_writes_nothing(self):
         self.task.save()
         self.assertEqual(self.read(self.path), TASK)
-        self.assertFalse(os.path.exists(self.path + ".bak"))
+        self.assertFalse(os.path.exists(f"{self.path}.bak"))
 
     def test_reset_returns_to_the_checkpoint(self):
         self.task.set("terrain_height", 0.5)
@@ -188,8 +188,37 @@ class TestTunedFile(TempFileTestCase):
         self.assertEqual(self.task.value("terrain_height"), 0.0)
         self.assertFalse(self.task.edited().changed)
 
+    def test_set_refuses_a_value_below_the_minimum(self):
+        gains_path = self.write(
+            "pd.textproto",
+            "# proto-file: humanoid_nmpc/humanoid_mpc_config/joint_pd_gains_file.proto\n"
+            "# proto-message: humanoid_mpc_config.JointPdGainsFile\n"
+            "default_gains { kp: 10.0 kd: 1.0 }\n",
+        )
+        gains = tuned_file.TunedFile(
+            gains_path, joint_pd_gains_file_pb2.JointPdGainsFile
+        )
+        with self.assertRaisesRegex(ValueError, r"below its minimum"):
+            gains.set("default_gains.kp", -5.0)
+
+    def test_set_refuses_a_negative_or_nan_weight(self):
+        # The weight blocks carry minimum: 0 at the block, which every number below them inherits; the C++
+        # conversions refuse the same values (StateInputWeightsFromConfig).
+        for path in (
+            "state_weights.scaling",
+            "state_weights.joint_positions[joint=back_bkz].value",
+            "final_state_weights.scaling",
+            "terminal_cost_scaling",
+        ):
+            for value in (-1.0, float("nan")):
+                with self.subTest(path=path, value=value):
+                    with self.assertRaisesRegex(ValueError, r"below its minimum"):
+                        self.task.set(path, value)
+            self.task.set(path, 0.0)
+            self.assertEqual(self.task.value(path), 0.0)
+
     def test_a_file_that_does_not_parse_is_refused_with_its_position(self):
-        path = self.write("bad.textproto", _TASK_HEADER + "terrainHeight: 0.1\n")
+        path = self.write("bad.textproto", f"{_TASK_HEADER}terrainHeight: 0.1\n")
         with self.assertRaisesRegex(tuned_file.TunedFileError, r"bad.textproto:3:"):
             tuned_file.TunedFile(path, task_file_pb2.TaskFile)
 
@@ -201,6 +230,52 @@ class TestTunedFile(TempFileTestCase):
             "state_weights",
         )
         self.assertEqual(tuned_file.group_of(self.task.spec("terrain_height")), "")
+
+    def test_refresh_unchanged_file_returns_none(self):
+        self.assertIsNone(self.task.refresh())
+
+    def test_refresh_picks_up_editors_change_and_preserves_operator_change(self):
+        self.task.set("terrain_height", 0.05)
+        edited_text = TASK.replace("scaling: 85", "scaling: 95.0")
+        self.write(self.path, edited_text)
+
+        dropped = self.task.refresh()
+        self.assertEqual(dropped, {})
+        self.assertEqual(self.task.saved_value("state_weights.scaling"), 95.0)
+        self.assertEqual(self.task.value("state_weights.scaling"), 95.0)
+        self.assertEqual(self.task.value("terrain_height"), 0.05)
+        self.assertEqual(self.task.saved_value("terrain_height"), 0.0)
+
+    def test_refresh_operator_change_wins_on_conflict_unless_editor_matched_it(self):
+        self.task.set("state_weights.scaling", 100.0)
+
+        self.write(self.path, TASK.replace("scaling: 85", "scaling: 90.0"))
+        dropped = self.task.refresh()
+        self.assertEqual(dropped, {})
+        self.assertEqual(self.task.value("state_weights.scaling"), 100.0)
+        self.assertEqual(self.task.saved_value("state_weights.scaling"), 90.0)
+
+        self.write(self.path, TASK.replace("scaling: 85", "scaling: 100.0"))
+        dropped = self.task.refresh()
+        self.assertEqual(dropped, {"state_weights.scaling": 100.0})
+        self.assertEqual(self.task.changes(), {})
+        self.assertEqual(self.task.saved_value("state_weights.scaling"), 100.0)
+
+    def test_refresh_unparsable_file_keeps_checkpoint_and_changes(self):
+        self.task.set("terrain_height", 0.05)
+        self.write(self.path, f"{_TASK_HEADER}unrecognizedField: 999\n")
+        self.assertIsNone(self.task.refresh())
+        self.assertEqual(self.task.value("terrain_height"), 0.05)
+        self.assertEqual(self.task.saved_value("terrain_height"), 0.0)
+
+    def test_a_file_with_invalid_utf8_is_refused_with_its_position(self):
+        bad_path = os.path.join(self.tmpdir, "invalid_utf8.textproto")
+        with open(bad_path, "wb") as handle:
+            handle.write(b"terrain_height: 0.1\n\xff\xfe")
+        with self.assertRaisesRegex(
+            tuned_file.TunedFileError, r":1:1: cannot decode as UTF-8:"
+        ):
+            tuned_file.TunedFile(bad_path, task_file_pb2.TaskFile)
 
 
 def _shipped_task_files() -> list[tuned_file.TunedFile]:
@@ -459,6 +534,55 @@ class TestSliderRowEntry(unittest.TestCase):
         self.assertEqual(self.changes[-1], ("gain", None))
         self.assertFalse(row.is_modified())
 
+    def test_a_change_of_a_small_logarithmic_value_is_marked(self):
+        row = slider_row.SliderRow(
+            self.root,
+            name="x",
+            initial_value=1e-9,
+            min_val=1e-11,
+            max_val=1e-7,
+            log_scale=True,
+        )
+        self.assertFalse(row.is_modified())
+        row.set_value(5e-9)
+        self.assertTrue(row.is_modified())
+        row.reset_to_default()
+        self.assertFalse(row.is_modified())
+        row._on_scale_change("-8.5")
+        self.assertTrue(row.is_modified())
+
+        # Shipped g_min case: a row at 1e-6 with range 1e-8 to 1e-4
+        g_min_row = slider_row.SliderRow(
+            self.root,
+            name="g_min",
+            initial_value=1e-6,
+            min_val=1e-8,
+            max_val=1e-4,
+            log_scale=True,
+        )
+        self.assertFalse(g_min_row.is_modified())
+        g_min_row.set_value(1e-8)
+        self.assertTrue(g_min_row.is_modified())
+
+    def test_hard_min_clamps_floor_while_top_still_widens(self):
+        row = slider_row.SliderRow(
+            self.root,
+            name="gain",
+            initial_value=5.0,
+            min_val=0.0,
+            max_val=10.0,
+            hard_min=0.0,
+        )
+        row.entry_var.set("-5")
+        row._on_entry_submit()
+        self.assertEqual(row.get_value(), 0.0)
+        self.assertEqual(row.min_val, 0.0)
+
+        row.entry_var.set("20")
+        row._on_entry_submit()
+        self.assertEqual(row.get_value(), 20.0)
+        self.assertEqual(row.max_val, 30.0)
+
 
 @operator_test_support.requires_display
 class TestUnsetParameters(TempFileTestCase):
@@ -696,7 +820,7 @@ class TestCommandLimitsTab(TempFileTestCase):
             tab.save()
         )  # nothing changed: nothing written, and the file is sent all the same
         self.assertEqual(self.read(path), original)
-        self.assertFalse(os.path.exists(path + ".bak"))
+        self.assertFalse(os.path.exists(f"{path}.bak"))
         row = tab.slider_rows["max_rotation_velocity"]
         row.set_value(float(row.get_value()) + 0.25)
         self.assertEqual(tab.status_var.get(), "unsaved changes")
@@ -712,6 +836,33 @@ class TestCommandLimitsTab(TempFileTestCase):
         ]
         self.assertEqual(len(changed), 1, changed)
         self.assertIn("max_rotation_velocity", changed[0][1])
+
+    def test_the_command_limits_tab_saves_nothing_while_online_tuning_is_off(self):
+        root = tk.Tk()
+        root.withdraw()
+        self.addCleanup(root.destroy)
+        path = os.path.join(self.tmpdir, "reference.textproto")
+        shutil.copyfile(operator_test_support.ATLAS_REFERENCE_FILE, path)
+        original = self.read(path)
+        publisher = operator_test_support.RecordingPublisher(
+            topics.OPERATOR_CONFIG_SAVE
+        )
+        robot_saver = robot_config_save.RobotConfigSaver(
+            publisher, operator_bus.ConfigSaveStatusMailbox()
+        )
+        tab = command_limits_tab.CommandLimitsTab(
+            root,
+            reference_file=path,
+            enable_online_tuning=False,
+            robot_saver=robot_saver,
+        )
+        self.assertEqual(str(tab.save_btn.cget("state")), "disabled")
+        row = tab.slider_rows["max_rotation_velocity"]
+        row.set_value(float(row.get_value()) + 0.25)
+        self.assertFalse(tab.save())
+        self.assertEqual(self.read(path), original)
+        self.assertFalse(os.path.exists(f"{path}.bak"))
+        self.assertEqual(publisher.publish_count, 0)
 
 
 _Status = config_file_save_status_pb2.ConfigFileSaveStatus
@@ -864,6 +1015,36 @@ class TestTwoCopySave(TempFileTestCase):
             task_path,
             task_file_pb2.TaskFile,
         )
+
+    def test_a_planner_saved_before_a_failed_task_save_is_what_its_rows_reset_to(
+        self,
+    ):
+        tab = self._mpc_tab()
+        assert tab.task is not None and tab.contact_planning is not None
+        tab.render_category_containing(
+            f"{mpc_params_tab.CONTACT_PLANNING_BLOCK}.planner.commit_time"
+        )
+        planner_key = f"{mpc_params_tab.CONTACT_PLANNING_BLOCK}.planner.commit_time"
+        self.assertIn(planner_key, tab.slider_rows)
+        row = tab.slider_rows[planner_key]
+        initial_val = row.get_value()
+        new_val = initial_val + 0.1
+        row.set_value(new_val)
+        self.assertTrue(row.is_modified())
+
+        with mock.patch.object(
+            tab.task, "save", side_effect=OSError("permission denied")
+        ):
+            self.assertFalse(tab.save())
+
+        # The planner's file was saved: its rows show it, unmodified, and reset to it.
+        saved = tab.contact_planning.saved_value("planner.commit_time")
+        self.assertAlmostEqual(saved, new_val)
+        row = tab.slider_rows[planner_key]
+        self.assertFalse(row.is_modified())
+        self.assertEqual(row.default_value, saved)
+        row.reset_to_default()
+        self.assertEqual(row.get_value(), saved)
 
     def test_every_answer_of_the_robot_is_shown(self):
         tab = self._mpc_tab()

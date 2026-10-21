@@ -45,8 +45,10 @@ class HandOverMrt final : public MRT_BASE {
  public:
   void resetMpcNode(const TargetTrajectories& /*initTargetTrajectories*/) override {}
   void setCurrentObservation(const SystemObservation& /*observation*/) override {}
-  void handOver(const PrimalSolution& primalSolution) {
-    moveToBuffer(std::make_unique<CommandData>(), std::make_unique<PrimalSolution>(primalSolution), std::make_unique<PerformanceIndex>());
+  /** MRT_BASE::moveToBuffer(): whether it replaced a policy updatePolicy() never took. */
+  bool handOver(const PrimalSolution& primalSolution) {
+    return moveToBuffer(std::make_unique<CommandData>(), std::make_unique<PrimalSolution>(primalSolution),
+                        std::make_unique<PerformanceIndex>());
   }
 };
 
@@ -102,6 +104,22 @@ TEST(MrtStateManifold, WithoutAManifoldThePlannedStateIsInterpolatedLinearly) {
   size_t mode = 0;
   mrt.evaluatePolicy(/*currentTime=*/0.13, plan.stateTrajectory_[0], mpcState, mpcInput, mode);
   EXPECT_EQ(mpcState, LinearInterpolation::interpolate(/*enquiryTime=*/0.13, plan.timeTrajectory_, plan.stateTrajectory_));
+}
+
+TEST(MrtBuffer, TellsWhetherItReplacedOrDroppedAPolicyThatWasNeverSwappedIn) {
+  // The remote MPC link's watchdog follows the policy that may be in use, which these answers tell it without racing the
+  // swap: a policy the buffer no longer holds, and that nothing dropped, was swapped in.
+  HandOverMrt mrt;
+  const PrimalSolution plan = planOn(attitudeManifold());
+  EXPECT_FALSE(mrt.handOver(plan)) << "an empty buffer";
+  EXPECT_TRUE(mrt.handOver(plan)) << "the first one was never swapped in";
+  ASSERT_TRUE(mrt.updatePolicy());
+  EXPECT_FALSE(mrt.handOver(plan)) << "the one before was swapped in";
+  EXPECT_TRUE(mrt.discardBufferedPolicy()) << "dropped before its swap";
+  EXPECT_FALSE(mrt.discardBufferedPolicy()) << "nothing left to drop";
+  EXPECT_FALSE(mrt.handOver(plan));
+  ASSERT_TRUE(mrt.updatePolicy());
+  EXPECT_FALSE(mrt.discardBufferedPolicy()) << "swapped in before the discard";
 }
 
 }  // namespace

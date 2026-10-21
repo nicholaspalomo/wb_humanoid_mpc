@@ -158,7 +158,7 @@ class ConfigurationTest(unittest.TestCase):
         flags = set(_bzl_list("CLANG_DIAGNOSTIC_FLAGS"))
         for check in _load(CONFIG)["Checks"]:
             if check.startswith("clang-diagnostic-"):
-                self.assertIn("-W" + check[len("clang-diagnostic-") :], flags)
+                self.assertIn(f'-W{check[len("clang-diagnostic-") :]}', flags)
 
 
 class AspectFileListsTest(unittest.TestCase):

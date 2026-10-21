@@ -10,16 +10,17 @@ import "nproto/options.proto";
 // code.
 //
 // The options of a block field apply to every field below it, unless that field sets its own: each option the field
-// sets replaces the block's, except `registry`, which is each field's own, and `active_when`, whose conditions add up
-// from the top of the file down. A shared message (Xyz, JointValue) is therefore annotated where it is
-// used: `StateWeights state_weights = 39 [(humanoid_mpc_config.tuning) = { reload: RELOAD_HOT }];` makes every weight
-// below it hot. remote_control/config_schema.py (inherit()) reads them so, and so must any other walk of the descriptors
-// (the C++ test that compares the RELOAD_HOT fields with what each formulation's parameter updater applies).
-// Next ID: 12
+// sets replaces the block's, except `registry` and `base_controller_label`, which are each field's own, and
+// `active_when`, whose conditions add up from the top of the file down. A shared message (Xyz, JointValue) is
+// therefore annotated where it is used: `StateWeights state_weights = 39 [(humanoid_mpc_config.tuning) = { reload:
+// RELOAD_HOT }];` makes every weight below it hot. remote_control/config_schema.py (inherit()) reads them so, and so
+// must any other walk of the descriptors (the C++ test that compares the RELOAD_HOT fields with what each
+// formulation's parameter updater applies).
+// Next ID: 14
 message TuningOptions {
   option (nproto.generate_struct) = "ocs2::humanoid::mpc_config::TuningOptions";
 
-  reserved 12 to max;
+  reserved 14 to max;
   // 5 was the display label: a control is labeled by its field names (humanoid_nmpc/remote_control/README.md).
   reserved 5;
 
@@ -73,4 +74,11 @@ message TuningOptions {
   // LINT.IfChange(formulations)
   repeated string formulations = 11;
   // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/config/ConfigReload.h:formulation_names, //humanoid_nmpc/remote_control/remote_control/config_schema.py:formulation_names)
+  // An inclusive hard lower bound the GUI enforces: typed, dragged and set values are raised to it.
+  double minimum = 12;
+  // Non-empty: the operator GUI's Base Controller tab also offers the field beside the walking controls, as a
+  // drop-down of its choices (a registry's names or an enum's values) labeled with this text, for a choice the
+  // operator switches while the robot runs. The MPC Parameters tab owns the value: the drop-down shows what it shows,
+  // the default included, and selects through it. Each field's own, never inherited, as `registry`.
+  string base_controller_label = 13 [default = ""];
 }

@@ -25,14 +25,19 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-"""robot_ipc: the ZeroMQ bus of the distributed runtime, in Python (the twin of robot_runtime/robot_ipc in C++).
+
+"""robot_ipc: the Cyclone DDS bus of the distributed runtime, in Python (the twin of robot_runtime/robot_ipc in C++).
 
 See robot_runtime/robot_ipc/README.md and humanoid_nmpc/docs/distributed_runtime/README.md.
 """
 
 from robot_ipc import bus
 from robot_ipc import codec
+from robot_ipc import domain_config
+from robot_ipc import envelope
+from robot_ipc import isolated_network
 from robot_ipc import network_config
+from robot_ipc import qos_profile
 
 # The package's API, so that callers import the package and write `robot_ipc.Bus` (Python style 2.2.4: they import a
 # module, not its names).
@@ -41,39 +46,57 @@ BusError = bus.BusError
 Delivery = bus.Delivery
 parse_delivery = bus.parse_delivery
 TopicStatistics = bus.TopicStatistics
+WIRE_PROTOCOL_VERSION = envelope.WIRE_PROTOCOL_VERSION
+ENVELOPE_TYPE_NAME = envelope.ENVELOPE_TYPE_NAME
+Envelope = envelope.Envelope
 decode = codec.decode
 message_class = codec.message_class
 UnknownMessageTypeError = codec.UnknownMessageTypeError
-EPHEMERAL_PORT = network_config.EPHEMERAL_PORT
+cyclone_domain_config = domain_config.cyclone_domain_config
+InterfaceError = domain_config.InterfaceError
+unicast_port_range = network_config.unicast_port_range
+isolated_test_network = isolated_network.isolated_test_network
 format_network_config = network_config.format_network_config
-is_wildcard_host = network_config.is_wildcard_host
 load_network_config = network_config.load_network_config
-localhost_network_config = network_config.localhost_network_config
-MAX_PORT = network_config.MAX_PORT
+LOOPBACK_HOST = network_config.LOOPBACK_HOST
+MAX_DOMAIN_ID = network_config.MAX_DOMAIN_ID
 NetworkConfig = network_config.NetworkConfig
 NetworkConfigError = network_config.NetworkConfigError
 NodeEndpoint = network_config.NodeEndpoint
 parse_network_config = network_config.parse_network_config
+TopicQos = network_config.TopicQos
+TransportOptions = network_config.TransportOptions
 validate_network_config = network_config.validate_network_config
+QosProfile = qos_profile.QosProfile
+parse_qos_profile = qos_profile.parse_qos_profile
 
 __all__ = [
     "Bus",
     "BusError",
     "Delivery",
-    "EPHEMERAL_PORT",
-    "MAX_PORT",
+    "ENVELOPE_TYPE_NAME",
+    "Envelope",
+    "InterfaceError",
+    "LOOPBACK_HOST",
+    "MAX_DOMAIN_ID",
     "NetworkConfig",
     "NetworkConfigError",
     "NodeEndpoint",
+    "QosProfile",
+    "TopicQos",
     "TopicStatistics",
+    "TransportOptions",
     "UnknownMessageTypeError",
+    "WIRE_PROTOCOL_VERSION",
+    "cyclone_domain_config",
     "decode",
     "format_network_config",
-    "is_wildcard_host",
+    "isolated_test_network",
     "load_network_config",
-    "localhost_network_config",
     "message_class",
     "parse_delivery",
     "parse_network_config",
+    "parse_qos_profile",
+    "unicast_port_range",
     "validate_network_config",
 ]

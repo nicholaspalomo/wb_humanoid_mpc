@@ -30,38 +30,76 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "robot_ipc/NetworkConfig.h"
 
 #include <algorithm>
-#include <array>
 #include <cstdint>
+#include <limits>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "absl/base/nullability.h"
 #include "absl/container/flat_hash_map.h"
+#include "absl/container/flat_hash_set.h"
+#include "absl/log/check.h"
 #include "absl/strings/ascii.h"
 #include "absl/strings/match.h"
+#include "absl/strings/numbers.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/str_join.h"
+#include "absl/strings/str_split.h"
 #include "absl/strings/string_view.h"
 #include "google/protobuf/text_format.h"
 
+#include "robot_ipc/DomainConfig.h"
 #include "robot_ipc/NodeEndpoint.h"
+#include "robot_ipc/QosProfile.h"
 #include "robot_ipc_proto/network_config.pb.h"
+#include "robot_runtime/robot_ipc/LocalhostNetworkText.h"
 #include "robot_runtime/robot_ipc/src/StatusMacros.h"
 #include "robot_runtime/robot_ipc/src/Textproto.h"
 
 namespace robot::ipc {
 namespace {
 
-// The rules of a node and the words of their error messages. The Python loader applies the same ones.
-// LINT.IfChange(node_rules)
-constexpr int kMinFilePort = 1;
+using NodeProto = robot_ipc_proto::NetworkConfig::Node;
+using TopicProto = robot_ipc_proto::NetworkConfig::Topic;
+using TransportProto = robot_ipc_proto::NetworkConfig::Transport;
+
+// The rules of the network file and the words of their error messages. The Python loader applies the same ones.
+// LINT.IfChange(network_rules)
 constexpr absl::string_view kNodesField = "nodes";
-// A wildcard host binds every interface, and the other processes reach it over loopback.
-constexpr std::array<absl::string_view, 2> kWildcardHosts = {"*", "0.0.0.0"};
-constexpr absl::string_view kLoopbackHost = "127.0.0.1";
+constexpr absl::string_view kTopicsField = "topics";
+constexpr absl::string_view kTransportField = "transport";
 // A node name is a non-empty run of letters, digits and these.
 constexpr absl::string_view kNodeNamePunctuation = "_-";
-// LINT.ThenChange(//robot_runtime/robot_ipc/python/robot_ipc/network_config.py:node_rules)
+// A domain tag is a run of letters, digits and these.
+constexpr absl::string_view kDomainTagPunctuation = "_-.";
+// A DDS topic name is letters, digits and these, not starting with a digit (Cyclone DDS's own rule).
+constexpr absl::string_view kTopicNamePunctuation = "_/";
+// The hosts that name every interface rather than a machine.
+constexpr absl::string_view kWildcardHostAny = "0.0.0.0";
+constexpr absl::string_view kWildcardHostStar = "*";
+constexpr absl::string_view kLocalhostName = "localhost";
+constexpr absl::string_view kLoopbackPrefix = "127.";
+// A host is printable ASCII without a space (host names and IPv4 addresses are ASCII; an IDN name is written in
+// punycode), and without these, which belong to an endpoint or a port.
+constexpr unsigned char kFirstHostCharacter = '!';
+constexpr unsigned char kLastHostCharacter = '~';
+constexpr absl::string_view kHostRefusedPunctuation = "/:";
+// The UDP payload sizes Cyclone DDS can send: from one that holds a DDSI header and a fragment, to the largest IPv4
+// UDP payload.
+constexpr int64_t kMinMessageSizeBytes = 1024;
+constexpr int64_t kMaxMessageSizeBytes = 65500;
+// The largest process count per host whose unicast ports (two per process) a domain's 250 ports leave room for.
+constexpr int kMaxProcessesPerHost = 115;
+// Packets per thousand: 1000 drops every one.
+constexpr int kPerMille = 1000;
+// LINT.ThenChange(//robot_runtime/robot_ipc/python/robot_ipc/network_config.py:network_rules)
+// The largest UDP port.
+constexpr int kMaxPort = 65535;
+// An IPv4 address: four decimal octets.
+constexpr size_t kIpv4Octets = 4;
+constexpr int kMaxOctet = 255;
+constexpr size_t kMaxOctetDigits = 3;
 
 absl::Status invalid(absl::string_view key, absl::string_view problem) {
   return absl::InvalidArgumentError(absl::StrCat(key, ": ", problem));
@@ -71,96 +109,229 @@ absl::Status withSource(absl::string_view source, const absl::Status& status) {
   return absl::Status(status.code(), absl::StrCat(source, ": ", status.message()));
 }
 
-// "nodes[1] (mpc)": the position of the node in the file, and its name when it has one.
-std::string nodeKey(size_t index, absl::string_view name) {
-  const std::string position = absl::StrCat(kNodesField, "[", index, "]");
+// "nodes[1] (mpc)": the position of an entry in the file, and its name when it has one.
+std::string entryKey(absl::string_view field, size_t index, absl::string_view name) {
+  const std::string position = absl::StrCat(field, "[", index, "]");
   return name.empty() ? position : absl::StrCat(position, " (", name, ")");
 }
 
-std::string fieldKey(size_t index, absl::string_view name, absl::string_view field) {
-  return absl::StrCat(nodeKey(index, name), ".", field);
+std::string fieldKey(absl::string_view field, size_t index, absl::string_view name, absl::string_view member) {
+  return absl::StrCat(entryKey(field, index, name), ".", member);
 }
 
-bool isValidNodeName(absl::string_view name) {
-  if (name.empty()) {
-    return false;
-  }
-  for (const char character : name) {
-    if (!absl::ascii_isalnum(static_cast<unsigned char>(character)) && !absl::StrContains(kNodeNamePunctuation, character)) {
+bool isRunOf(absl::string_view text, absl::string_view punctuation) {
+  for (const char character : text) {
+    if (!absl::ascii_isalnum(static_cast<unsigned char>(character)) && !absl::StrContains(punctuation, character)) {
       return false;
     }
   }
   return true;
 }
 
-// A host is an IPv4 address, a host name or a wildcard; not an endpoint ("tcp://..."), not "host:port" and not IPv6.
+// A host is an IPv4 address or a host name; not a wildcard, an endpoint ("udp://..."), "host:port" or IPv6.
 absl::Status validateHost(absl::string_view key, absl::string_view host) {
   if (host.empty()) {
     return invalid(key, "is missing");
   }
-  if (isWildcardHost(host)) {
-    return absl::OkStatus();
+  if (host == kWildcardHostAny || host == kWildcardHostStar) {
+    return invalid(key, absl::StrCat("'", host, "' names every interface, not a machine: write the address of the node's machine"));
   }
   for (const char character : host) {
-    if (absl::ascii_isspace(static_cast<unsigned char>(character)) || character == '/' || character == ':') {
+    const unsigned char byte = static_cast<unsigned char>(character);
+    if (byte < kFirstHostCharacter || byte > kLastHostCharacter || absl::StrContains(kHostRefusedPunctuation, character)) {
       return invalid(key, absl::StrCat("'", host, "' is not a host: write an IPv4 address or a host name, without a scheme or a port"));
     }
   }
   return absl::OkStatus();
 }
 
-std::string portProblem(int64_t port) {
-  return absl::StrCat(port, " is not a port in [", kMinFilePort, ", ", kMaxPort, "]");
+absl::Status validateNodes(const NetworkConfig& config) {
+  if (config.nodes.empty()) {
+    return invalid(kNodesField, "names no node");
+  }
+  absl::flat_hash_map<std::string, size_t> names;
+  for (size_t index = 0; index < config.nodes.size(); ++index) {
+    const NodeEndpoint& node = config.nodes[index];
+    const std::string nameKey = fieldKey(kNodesField, index, node.name, "name");
+    if (node.name.empty()) {
+      return invalid(nameKey, "is missing");
+    }
+    if (!isRunOf(node.name, kNodeNamePunctuation)) {
+      return invalid(nameKey, "a node name is a non-empty run of letters, digits, '_' and '-'");
+    }
+    const std::pair<absl::flat_hash_map<std::string, size_t>::iterator, bool> named = names.emplace(node.name, index);
+    if (!named.second) {
+      return invalid(nameKey, absl::StrCat("is also the name of ", entryKey(kNodesField, named.first->second, node.name)));
+    }
+    ROBOT_IPC_RETURN_IF_ERROR(validateHost(fieldKey(kNodesField, index, node.name, "host"), node.host));
+  }
+  return absl::OkStatus();
 }
 
-const google::protobuf::FieldDescriptor& nodeField(int number) {
-  return *robot_ipc_proto::NetworkConfig::Node::descriptor()->FindFieldByNumber(number);
+absl::Status validateTopics(const NetworkConfig& config) {
+  absl::flat_hash_map<std::string, size_t> topics;
+  for (size_t index = 0; index < config.topics.size(); ++index) {
+    const TopicQos& topic = config.topics[index];
+    const absl::Status name = validateTopicName(topic.topic);
+    if (!name.ok()) {
+      return invalid(fieldKey(kTopicsField, index, topic.topic, "name"), name.message());
+    }
+    const std::pair<absl::flat_hash_map<std::string, size_t>::iterator, bool> listed = topics.emplace(topic.topic, index);
+    if (!listed.second) {
+      return invalid(fieldKey(kTopicsField, index, topic.topic, "name"),
+                     absl::StrCat("is also the name of ", entryKey(kTopicsField, listed.first->second, topic.topic)));
+    }
+    for (const std::string& publisher : topic.publishers) {
+      if (config.find(publisher) == nullptr) {
+        return invalid(
+            fieldKey(kTopicsField, index, topic.topic, "publishers"),
+            absl::StrCat("'", publisher, "' is not a node of the network (nodes: ", absl::StrJoin(config.nodeNames(), ", "), ")"));
+      }
+    }
+  }
+  return absl::OkStatus();
 }
 
-// The checks only a file needs: a network built in code may leave out what a file must name (kEphemeralPort).
+absl::Status validateTransport(const TransportOptions& transport) {
+  const std::string key(kTransportField);
+  if (transport.maxMessageSizeBytes != 0 &&
+      (transport.maxMessageSizeBytes < kMinMessageSizeBytes || transport.maxMessageSizeBytes > kMaxMessageSizeBytes)) {
+    return invalid(absl::StrCat(key, ".max_message_size_bytes"),
+                   absl::StrCat(transport.maxMessageSizeBytes, " is not 0 (the default) or in [", kMinMessageSizeBytes, ", ",
+                                kMaxMessageSizeBytes, "]"));
+  }
+  if (transport.socketReceiveBufferBytes < 0 || transport.socketSendBufferBytes < 0 || transport.writerUnackedBytesLimit < 0) {
+    return invalid(key, "the buffer sizes must be >= 0 (0: the default)");
+  }
+  if (transport.maxProcessesPerHost < 0 || transport.maxProcessesPerHost > kMaxProcessesPerHost) {
+    return invalid(absl::StrCat(key, ".max_processes_per_host"),
+                   absl::StrCat(transport.maxProcessesPerHost, " is not 0 (the default) or in [1, ", kMaxProcessesPerHost, "]"));
+  }
+  if (transport.leaseDuration < absl::ZeroDuration()) {
+    return invalid(absl::StrCat(key, ".lease_duration_ms"), "must be >= 0 (0: the default)");
+  }
+  if (transport.simulatedSendLossPerMille < 0 || transport.simulatedSendLossPerMille >= kPerMille) {
+    return invalid(absl::StrCat(key, ".simulated_send_loss_per_mille"),
+                   absl::StrCat(transport.simulatedSendLossPerMille, " is not in [0, ", kPerMille, ")"));
+  }
+  return absl::OkStatus();
+}
+
 absl::StatusOr<NetworkConfig> fromProto(const robot_ipc_proto::NetworkConfig& message) {
-  const std::string nameField(nodeField(robot_ipc_proto::NetworkConfig::Node::kNameFieldNumber).name());
-  const std::string portField(nodeField(robot_ipc_proto::NetworkConfig::Node::kPortFieldNumber).name());
   NetworkConfig config;
   config.nodes.reserve(message.nodes_size());
-  for (int index = 0; index < message.nodes_size(); ++index) {
-    const robot_ipc_proto::NetworkConfig::Node& node = message.nodes(index);
-    const size_t position = static_cast<size_t>(index);
-    if (node.name().empty()) {
-      return invalid(fieldKey(position, node.name(), nameField), "is missing");
-    }
-    if (node.port() == 0) {
-      return invalid(fieldKey(position, node.name(), portField),
-                     absl::StrCat("is missing (a network file names a port in [", kMinFilePort, ", ", kMaxPort, "])"));
-    }
-    if (node.port() > static_cast<uint32_t>(kMaxPort)) {
-      return invalid(fieldKey(position, node.name(), portField), portProblem(node.port()));
-    }
-    config.nodes.push_back(
-        NodeEndpoint{.name = node.name(), .host = node.host(), .port = static_cast<int>(node.port()), .bindHost = node.bind_host()});
+  for (const NodeProto& node : message.nodes()) {
+    config.nodes.push_back(NodeEndpoint{.name = node.name(), .host = node.host()});
   }
+  if (message.domain_id() > static_cast<uint32_t>(NetworkConfig::kMaxDomainId)) {
+    return invalid("domain_id", absl::StrCat(message.domain_id(), " is not a domain id in [0, ", NetworkConfig::kMaxDomainId, "]"));
+  }
+  config.domainId = static_cast<int>(message.domain_id());
+  config.domainTag = message.domain_tag();
+  for (int index = 0; index < message.topics_size(); ++index) {
+    const TopicProto& topic = message.topics(index);
+    const std::string profileKey = fieldKey(kTopicsField, static_cast<size_t>(index), topic.name(), "qos_profile");
+    if (topic.qos_profile().empty()) {
+      return invalid(profileKey, "is missing");
+    }
+    const absl::StatusOr<QosProfile> profile = parseQosProfile(topic.qos_profile());
+    if (!profile.ok()) {
+      return invalid(profileKey, profile.status().message());
+    }
+    config.topics.push_back(
+        TopicQos{.topic = topic.name(), .profile = *profile, .publishers = {topic.publishers().begin(), topic.publishers().end()}});
+  }
+  if (!message.default_qos_profile().empty()) {
+    const absl::StatusOr<QosProfile> profile = parseQosProfile(message.default_qos_profile());
+    if (!profile.ok()) {
+      return invalid("default_qos_profile", profile.status().message());
+    }
+    config.defaultQosProfile = *profile;
+  }
+  const TransportProto& transport = message.transport();
+  config.transport = TransportOptions{
+      .maxMessageSizeBytes = static_cast<int64_t>(transport.max_message_size_bytes()),
+      .socketReceiveBufferBytes = static_cast<int64_t>(transport.socket_receive_buffer_bytes()),
+      .socketSendBufferBytes = static_cast<int64_t>(transport.socket_send_buffer_bytes()),
+      .writerUnackedBytesLimit = static_cast<int64_t>(transport.writer_unacked_bytes_limit()),
+      .maxProcessesPerHost = static_cast<int>(std::min<uint32_t>(transport.max_processes_per_host(), std::numeric_limits<int32_t>::max())),
+      .leaseDuration = absl::Milliseconds(transport.lease_duration_ms()),
+      .simulatedSendLossPerMille = static_cast<int>(std::min<uint32_t>(transport.simulated_send_loss_per_mille(), kPerMille)),
+  };
   ROBOT_IPC_RETURN_IF_ERROR(validateNetworkConfig(config));
   return config;
 }
 
+robot_ipc_proto::NetworkConfig toProto(const NetworkConfig& config) {
+  robot_ipc_proto::NetworkConfig message;
+  for (const NodeEndpoint& node : config.nodes) {
+    NodeProto& entry = *message.add_nodes();
+    entry.set_name(node.name);
+    entry.set_host(node.host);
+  }
+  message.set_domain_id(static_cast<uint32_t>(std::max(config.domainId, 0)));
+  message.set_domain_tag(config.domainTag);
+  for (const TopicQos& topic : config.topics) {
+    TopicProto& entry = *message.add_topics();
+    entry.set_name(topic.topic);
+    entry.set_qos_profile(std::string(qosProfileName(topic.profile)));
+    for (const std::string& publisher : topic.publishers) {
+      entry.add_publishers(publisher);
+    }
+  }
+  if (config.defaultQosProfile != QosProfile::kReliableEvents) {
+    message.set_default_qos_profile(std::string(qosProfileName(config.defaultQosProfile)));
+  }
+  const TransportOptions& transport = config.transport;
+  if (!(transport == TransportOptions{})) {
+    TransportProto& entry = *message.mutable_transport();
+    entry.set_max_message_size_bytes(static_cast<uint32_t>(transport.maxMessageSizeBytes));
+    entry.set_socket_receive_buffer_bytes(static_cast<uint32_t>(transport.socketReceiveBufferBytes));
+    entry.set_socket_send_buffer_bytes(static_cast<uint32_t>(transport.socketSendBufferBytes));
+    entry.set_writer_unacked_bytes_limit(static_cast<uint32_t>(transport.writerUnackedBytesLimit));
+    entry.set_max_processes_per_host(static_cast<uint32_t>(transport.maxProcessesPerHost));
+    entry.set_lease_duration_ms(static_cast<uint32_t>(absl::ToInt64Milliseconds(transport.leaseDuration)));
+    entry.set_simulated_send_loss_per_mille(static_cast<uint32_t>(transport.simulatedSendLossPerMille));
+  }
+  return message;
+}
+
+// One line of the network file: `message` printed on a single line.
+std::string singleLine(const google::protobuf::Message& message) {
+  google::protobuf::TextFormat::Printer printer;
+  printer.SetSingleLineMode(/*single_line_mode=*/true);
+  std::string line;
+  // Printing a message without unknown fields into a string cannot fail.
+  static_cast<void>(printer.PrintToString(message, &line));
+  return std::string(absl::StripTrailingAsciiWhitespace(line));
+}
+
 }  // namespace
 
-bool isWildcardHost(absl::string_view host) {
-  return std::find(kWildcardHosts.begin(), kWildcardHosts.end(), host) != kWildcardHosts.end();
+bool isLoopbackHost(absl::string_view host) {
+  return host == kLocalhostName || (isIpv4Address(host) && absl::StartsWith(host, kLoopbackPrefix));
 }
 
-std::string NodeEndpoint::bindEndpoint() const {
-  const absl::string_view address = bindHost.empty() ? absl::string_view(host) : absl::string_view(bindHost);
-  const absl::string_view boundAddress = isWildcardHost(address) ? absl::string_view("*") : address;
-  if (port == kEphemeralPort) {
-    return absl::StrCat("tcp://", boundAddress, ":*");
+bool isIpv4Address(absl::string_view host) {
+  const std::vector<absl::string_view> octets = absl::StrSplit(host, '.');
+  if (octets.size() != kIpv4Octets) {
+    return false;
   }
-  return absl::StrCat("tcp://", boundAddress, ":", port);
-}
-
-std::string NodeEndpoint::connectEndpoint() const {
-  const absl::string_view address = isWildcardHost(host) ? kLoopbackHost : absl::string_view(host);
-  return absl::StrCat("tcp://", address, ":", port);
+  for (const absl::string_view octet : octets) {
+    int value = 0;
+    if (octet.empty() || octet.size() > kMaxOctetDigits) {
+      return false;
+    }
+    for (const char digit : octet) {
+      if (!absl::ascii_isdigit(static_cast<unsigned char>(digit))) {
+        return false;
+      }
+    }
+    if (!absl::SimpleAtoi(octet, &value) || value > kMaxOctet) {
+      return false;
+    }
+  }
+  return true;
 }
 
 const NodeEndpoint* absl_nullable NetworkConfig::find(absl::string_view name) const {
@@ -181,43 +352,69 @@ std::vector<std::string> NetworkConfig::nodeNames() const {
   return names;
 }
 
-absl::Status validateNetworkConfig(const NetworkConfig& config) {
-  const std::string nameField(nodeField(robot_ipc_proto::NetworkConfig::Node::kNameFieldNumber).name());
-  const std::string hostField(nodeField(robot_ipc_proto::NetworkConfig::Node::kHostFieldNumber).name());
-  const std::string portField(nodeField(robot_ipc_proto::NetworkConfig::Node::kPortFieldNumber).name());
-  const std::string bindHostField(nodeField(robot_ipc_proto::NetworkConfig::Node::kBindHostFieldNumber).name());
-  if (config.nodes.empty()) {
-    return invalid(kNodesField, "names no node");
+const TopicQos* absl_nullable NetworkConfig::findTopic(absl::string_view topic) const {
+  for (const TopicQos& entry : topics) {
+    if (entry.topic == topic) {
+      return &entry;
+    }
   }
-  // name -> its position, and "host:port" -> the key of the node that has it.
-  absl::flat_hash_map<std::string, size_t> names;
-  absl::flat_hash_map<std::string, std::string> endpoints;
-  for (size_t index = 0; index < config.nodes.size(); ++index) {
-    const NodeEndpoint& node = config.nodes[index];
-    if (!isValidNodeName(node.name)) {
-      return invalid(fieldKey(index, node.name, nameField),
-                     node.name.empty() ? "is missing" : "a node name is a non-empty run of letters, digits, '_' and '-'");
+  return nullptr;
+}
+
+QosProfile NetworkConfig::qosProfileOf(absl::string_view topic) const {
+  const TopicQos* absl_nullable entry = findTopic(topic);
+  return entry == nullptr ? defaultQosProfile : entry->profile;
+}
+
+std::vector<std::string> NetworkConfig::topicsPublishedBy(absl::string_view nodeName) const {
+  std::vector<std::string> published;
+  for (const TopicQos& entry : topics) {
+    for (const std::string& publisher : entry.publishers) {
+      if (publisher == nodeName) {
+        published.push_back(entry.topic);
+        break;
+      }
     }
-    const std::pair<absl::flat_hash_map<std::string, size_t>::iterator, bool> named = names.emplace(node.name, index);
-    if (!named.second) {
-      return invalid(fieldKey(index, node.name, nameField), absl::StrCat("is also the name of ", nodeKey(named.first->second, node.name)));
+  }
+  return published;
+}
+
+std::vector<std::string> NetworkConfig::peerHosts() const {
+  std::vector<std::string> hosts;
+  absl::flat_hash_set<absl::string_view> seen;
+  for (const NodeEndpoint& node : nodes) {
+    if (seen.insert(node.host).second) {
+      hosts.push_back(node.host);
     }
-    ROBOT_IPC_RETURN_IF_ERROR(validateHost(fieldKey(index, node.name, hostField), node.host));
-    if (!node.bindHost.empty()) {
-      ROBOT_IPC_RETURN_IF_ERROR(validateHost(fieldKey(index, node.name, bindHostField), node.bindHost));
-    }
-    if (node.port == kEphemeralPort) {
-      continue;
-    }
-    if (node.port < kMinFilePort || node.port > kMaxPort) {
-      return invalid(fieldKey(index, node.name, portField), portProblem(node.port));
-    }
-    const std::string endpoint = absl::StrCat(node.host, ":", node.port);
-    const std::pair<absl::flat_hash_map<std::string, std::string>::iterator, bool> inserted =
-        endpoints.emplace(endpoint, nodeKey(index, node.name));
-    if (!inserted.second) {
-      return invalid(nodeKey(index, node.name), absl::StrCat(endpoint, " is also the endpoint of ", inserted.first->second));
-    }
+  }
+  return hosts;
+}
+
+absl::Status validateTopicName(absl::string_view topic) {
+  if (topic.empty()) {
+    return absl::InvalidArgumentError("the topic is empty");
+  }
+  if (absl::ascii_isdigit(static_cast<unsigned char>(topic.front())) || !isRunOf(topic, kTopicNamePunctuation)) {
+    return absl::InvalidArgumentError(
+        absl::StrCat("'", topic, "' is not a DDS topic name: letters, digits, '_' and '/', not starting with a digit"));
+  }
+  return absl::OkStatus();
+}
+
+absl::Status validateNetworkConfig(const NetworkConfig& config) {
+  ROBOT_IPC_RETURN_IF_ERROR(validateNodes(config));
+  if (config.domainId < 0 || config.domainId > NetworkConfig::kMaxDomainId) {
+    return invalid("domain_id", absl::StrCat(config.domainId, " is not a domain id in [0, ", NetworkConfig::kMaxDomainId, "]"));
+  }
+  if (!isRunOf(config.domainTag, kDomainTagPunctuation)) {
+    return invalid("domain_tag", absl::StrCat("'", config.domainTag, "': a domain tag is a run of letters, digits, '_', '-' and '.'"));
+  }
+  ROBOT_IPC_RETURN_IF_ERROR(validateTopics(config));
+  ROBOT_IPC_RETURN_IF_ERROR(validateTransport(config.transport));
+  if (const int lastPort = unicastPortRange(config).last; lastPort > kMaxPort) {
+    return invalid("domain_id", absl::StrCat("domain ", config.domainId, " with ", lastPort - unicastPortRange(config).first + 1,
+                                             " ports per host reaches UDP port ", lastPort, ", beyond ", kMaxPort,
+                                             ": a smaller domain_id or transport.max_processes_per_host"));
   }
   return absl::OkStatus();
 }
@@ -247,38 +444,38 @@ absl::StatusOr<NetworkConfig> loadNetworkConfig(const std::string& path) {
 }
 
 std::string formatNetworkConfig(const NetworkConfig& config) {
-  google::protobuf::TextFormat::Printer printer;
-  printer.SetSingleLineMode(/*single_line_mode=*/true);
+  const robot_ipc_proto::NetworkConfig message = toProto(config);
   std::string text;
-  for (const NodeEndpoint& node : config.nodes) {
-    robot_ipc_proto::NetworkConfig message;
-    robot_ipc_proto::NetworkConfig::Node& entry = *message.add_nodes();
-    entry.set_name(node.name);
-    entry.set_host(node.host);
-    entry.set_port(node.port < 0 ? 0 : static_cast<uint32_t>(node.port));
-    entry.set_bind_host(node.bindHost);
-    std::string line;
-    // Printing a message without unknown fields into a string cannot fail.
-    static_cast<void>(printer.PrintToString(message, &line));
-    absl::StrAppend(&text, absl::StripTrailingAsciiWhitespace(line), "\n");
+  robot_ipc_proto::NetworkConfig scalars = message;
+  scalars.clear_nodes();
+  scalars.clear_topics();
+  scalars.clear_transport();
+  if (const std::string line = singleLine(scalars); !line.empty()) {
+    absl::StrAppend(&text, line, "\n");
+  }
+  for (const NodeProto& node : message.nodes()) {
+    robot_ipc_proto::NetworkConfig entry;
+    *entry.add_nodes() = node;
+    absl::StrAppend(&text, singleLine(entry), "\n");
+  }
+  for (const TopicProto& topic : message.topics()) {
+    robot_ipc_proto::NetworkConfig entry;
+    *entry.add_topics() = topic;
+    absl::StrAppend(&text, singleLine(entry), "\n");
+  }
+  if (message.has_transport()) {
+    robot_ipc_proto::NetworkConfig entry;
+    *entry.mutable_transport() = message.transport();
+    absl::StrAppend(&text, singleLine(entry), "\n");
   }
   return text;
 }
 
-// LINT.IfChange(localhost_nodes)
 NetworkConfig localhostNetworkConfig() {
-  NetworkConfig config;
-  config.nodes = {
-      NodeEndpoint{.name = "robot", .host = "127.0.0.1", .port = 5600},
-      NodeEndpoint{.name = "mpc", .host = "127.0.0.1", .port = 5610},
-      NodeEndpoint{.name = "operator", .host = "127.0.0.1", .port = 5620},
-      NodeEndpoint{.name = "teleop", .host = "127.0.0.1", .port = 5621},
-      NodeEndpoint{.name = "config_push", .host = "127.0.0.1", .port = 5622},
-  };
-  return config;
+  absl::StatusOr<NetworkConfig> config = parseNetworkConfig(kLocalhostNetworkText, "config/ipc/network.textproto");
+  // The text is the shipped file, built in; network_config_test parses the same file.
+  ABSL_CHECK_OK(config.status());
+  return *std::move(config);
 }
-// clang-format off
-// LINT.ThenChange(//config/ipc/network.textproto:localhost_nodes, //robot_runtime/robot_ipc/python/robot_ipc/network_config.py:localhost_nodes)
-// clang-format on
 
 }  // namespace robot::ipc

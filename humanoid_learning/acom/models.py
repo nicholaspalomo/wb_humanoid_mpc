@@ -148,6 +148,23 @@ def so3_right_jacobian(phi: jnp.ndarray) -> jnp.ndarray:
     return jnp.eye(3) - first * cross + second * jnp.dot(cross, cross)
 
 
+def so3_left_jacobian(phi: jnp.ndarray) -> jnp.ndarray:
+    """Returns the left Jacobian of SO(3), Exp(phi + d) = Exp(J_l(phi) d) (x) Exp(phi) to first order.
+
+    J_l(phi) = J_r(-phi) = R(Exp(phi)) J_r(phi): under a rotation-vector rate
+    phi_dot, Exp(phi) turns at the angular velocity J_l(phi) phi_dot in the
+    outer frame, the one R(Exp(phi)) maps into, and at J_r(phi) phi_dot in its
+    own.
+
+    Args:
+        phi: A rotation vector.
+
+    Returns:
+        The (3, 3) left Jacobian.
+    """
+    return so3_right_jacobian(-phi)
+
+
 class SirenACOM:
     """SIREN-based Angular Center of Mass network mapping joint positions to orientation offset.
 
@@ -282,3 +299,28 @@ class SirenACOM:
         return jnp.concatenate([base_block, joint_block], axis=1)
 
     # LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/acom/AngularCenterOfMass.cpp:acom_attitude)
+
+    def acom_joint_rate_jacobian(
+        self, params: SirenParams, q_j: jnp.ndarray
+    ) -> jnp.ndarray:
+        """Computes the map from joint velocities to the ACoM's angular velocity, in base axes.
+
+        The world angular velocity of acom_attitude is R(xi) (omega_B +
+        J_l(Delta_theta) J_Delta_theta qdot_j), with omega_B the base's body
+        angular velocity: the joint block of acom_attitude_tangent_jacobian,
+        J_r(Delta_theta) J_Delta_theta in the attitude's own axes, carried into
+        the base's by R(Delta_theta). The aCOM's defining property is that this
+        map is the locked-inertia connection Abar_omega,j = I_G^-1 A_omega,j in
+        base axes, so it - and not J_Delta_theta alone, which equals it only
+        where Delta_theta = 0 - is what training fits.
+
+        Args:
+            params: The network parameters.
+            q_j: The joint positions, in the network's joint order.
+
+        Returns:
+            J_l(Delta_theta(q_j)) J_Delta_theta(q_j), shape (3, n_j).
+        """
+        return jnp.dot(
+            so3_left_jacobian(self.forward(params, q_j)), self.jacobian_qj(params, q_j)
+        )

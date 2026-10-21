@@ -43,6 +43,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/mrt/ControlMode.h"
 #include "mujoco_sim_interface/viewer/ViewerNames.h"
+#include "robot_runtime/robot_ipc/test/TestNetwork.h"
 
 namespace ocs2::humanoid::robot_test {
 
@@ -67,17 +68,11 @@ std::unique_ptr<robot::mujoco_sim_interface::MujocoSimInterface> makeHeadlessAtl
 std::unique_ptr<robot::ipc::Bus> createLoopbackBus(const std::string& nodeName) {
   robot::ipc::BusOptions options;
   options.nodeName = nodeName;
-  options.network.nodes = {
-      robot::ipc::NodeEndpoint{.name = nodeName, .host = "127.0.0.1", .port = robot::ipc::kEphemeralPort, .bindHost = ""}};
+  options.network = robot::ipc::isolatedTestNetwork({nodeName});
   options.ioPollPeriod = absl::Milliseconds(5);
   absl::StatusOr<std::unique_ptr<robot::ipc::Bus>> bus = robot::ipc::Bus::Create(std::move(options));
   CHECK_OK(bus.status());
   return *std::move(bus);
-}
-
-void connectBoth(robot::ipc::Bus& first, robot::ipc::Bus& second) {
-  CHECK_OK(first.connect(second.boundEndpoint()));
-  CHECK_OK(second.connect(first.boundEndpoint()));
 }
 
 bool waitFor(const std::function<bool()>& condition, absl::Duration timeout) {
@@ -107,6 +102,8 @@ void ScriptedRobotController::computeJointControlAction(const robot::model::Robo
   }
   {
     absl::MutexLock lock(mutex_);
+    rootPosition_ = robotState.getRootPositionInWorldFrame();
+    rootLinearVelocity_ = robotState.getRootLinearVelocityInLocalFrame();
     const bool zeroTorque = mode_ == control_mode::kZeroTorque;
     for (size_t joint = 0; joint < nominal_.size(); ++joint) {
       std::optional<robot::model::JointAction>& action = jointAction.at(joint);
@@ -124,7 +121,8 @@ void ScriptedRobotController::computeJointControlAction(const robot::model::Robo
       measuredContactFlags_[contact] = estimatedFlags_[contact];
     }
   }
-  cycles_.fetch_add(1);
+  const uint64_t cycle = cycles_.fetch_add(1);
+  if (cycleHook_) cycleHook_(cycle);
 }
 
 std::optional<contact_flag_t> ScriptedRobotController::plannedContactFlags() const {
@@ -160,6 +158,16 @@ std::string ScriptedRobotController::contactEstimatorName() const {
 ContactWrenchGate::Config ScriptedRobotController::gate() const {
   absl::MutexLock lock(mutex_);
   return gate_;
+}
+
+vector3_t ScriptedRobotController::rootPosition() const {
+  absl::MutexLock lock(mutex_);
+  return rootPosition_;
+}
+
+vector3_t ScriptedRobotController::rootLinearVelocity() const {
+  absl::MutexLock lock(mutex_);
+  return rootLinearVelocity_;
 }
 
 std::vector<scalar_t> ScriptedRobotController::nominal() const {

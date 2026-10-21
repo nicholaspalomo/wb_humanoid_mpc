@@ -28,9 +28,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <fstream>
 #include <memory>
+#include <numbers>
+#include <random>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -38,6 +41,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/base/nullability.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 #include "gtest/gtest.h"
 #include "mujoco/mujoco.h"
 
@@ -412,6 +417,120 @@ TEST(MujocoUtils, MjStateCopiesAreDeepAndMovesHandTheDataOver) {
   EXPECT_EQ(moved.data->qpos[0], 2.5);
   EXPECT_EQ(copy.data, nullptr);   // NOLINT(bugprone-use-after-move): the moved-from state is what is tested.
   EXPECT_EQ(copy.model, nullptr);  // NOLINT(bugprone-use-after-move): the moved-from state is what is tested.
+}
+
+/**
+ * A 30 kg trunk welded to a 1 kg foot that carries the foot force sensor, standing on the floor yawed by `yawDegrees`,
+ * under a gravity with a horizontal part (a slope's). The sensor reads the force between the foot and the trunk.
+ */
+MjModelPtr compileFootForceScene(absl::string_view yawDegrees) {
+  const std::string xml = absl::StrCat(R"(
+<mujoco>
+  <option timestep="0.002" gravity="1.5 0 -9.81"/>
+  <worldbody>
+    <geom name="floor" type="plane" size="5 5 0.1"/>
+    <body name="trunk" pos="0 0 0.15" euler="0 0 )",
+                                       yawDegrees, R"(">
+      <freejoint/>
+      <geom type="box" size="0.1 0.1 0.05" mass="30"/>
+      <body name="foot" pos="0 0 -0.1">
+        <geom type="box" size="0.1 0.05 0.05" mass="1"/>
+        <site name="foot_site"/>
+      </body>
+    </body>
+  </worldbody>
+  <sensor>
+    <force name="left_foot_force_sensor" site="foot_site"/>
+  </sensor>
+</mujoco>
+)");
+  char error[1000] = "";
+  const MjSpecPtr spec(mj_parseXMLString(xml.c_str(), /*vfs=*/nullptr, error, sizeof(error)));
+  if (spec == nullptr) throw std::runtime_error(std::string("mj_parseXMLString: ") + error);
+  return MjModelPtr(mj_compile(spec.get(), /*vfs=*/nullptr));
+}
+
+TEST(MujocoUtils, TheFootForceIsTheWorldFrameForceTheFootCarries) {
+  // At rest the foot carries the trunk: minus the trunk's weight, 30 kg * (1.5, 0, -9.81), whatever the foot's yaw. The
+  // sensor's own reading is in the site frame and of the other sign: (45, 0, -294.3), and (0, -45, -294.3) yawed.
+  const double trunkMass = 30.0;
+  for (const char* absl_nonnull yaw : {"0", "90"}) {
+    SCOPED_TRACE(absl::StrCat("yaw ", yaw, " deg"));
+    const MjModelPtr model = compileFootForceScene(yaw);
+    ASSERT_NE(model, nullptr);
+    absl::StatusOr<MjDataPtr> data = makeMjData(model.get());
+    ASSERT_TRUE(data.ok()) << data.status();
+    for (int step = 0; step < 3000; ++step) mj_step(model.get(), data->get());
+    const int sensor = mj_name2id(model.get(), mjOBJ_SENSOR, "left_foot_force_sensor");
+    ASSERT_TRUE(isFootForceSensor(model.get(), sensor));
+    const std::array<mjtNum, ocs2::kPositionDim> force = footForceInWorldFrame(model.get(), data->get(), sensor);
+    EXPECT_NEAR(force[0], -trunkMass * model->opt.gravity[0], 0.5);
+    EXPECT_NEAR(force[1], -trunkMass * model->opt.gravity[1], 0.5);
+    EXPECT_NEAR(force[2], -trunkMass * model->opt.gravity[2], 0.5);
+  }
+}
+
+TEST(MujocoUtils, OnlyAForceSensorOnASiteIsAFootForceSensor) {
+  const MjModelPtr model = compileFootForceScene("0");
+  ASSERT_NE(model, nullptr);
+  EXPECT_TRUE(isFootForceSensor(model.get(), mj_name2id(model.get(), mjOBJ_SENSOR, "left_foot_force_sensor")));
+  EXPECT_FALSE(isFootForceSensor(model.get(), /*sensorId=*/-1)) << "a sensor the scene does not have";
+  EXPECT_FALSE(isFootForceSensor(model.get(), model->nsensor));
+}
+
+// The twist about the vertical of a MuJoCo quaternion, against the defining property of the twist-swing split rather
+// than a formula: q = q_t (x) s with the swing s = q_t^-1 (x) q a rotation about a horizontal axis (s_z = 0), and q_t a
+// unit rotation about z with w >= 0.
+TEST(VerticalTwist, LeavesASwingAboutAHorizontalAxisForRandomAttitudes) {
+  std::mt19937 generator(/*seed=*/7);
+  std::normal_distribution<double> normal(/*mean=*/0.0, /*stddev=*/1.0);
+  for (int sample = 0; sample < 1000; ++sample) {
+    mjtNum q[4] = {normal(generator), normal(generator), normal(generator), normal(generator)};
+    mju_normalize4(q);
+    const VerticalTwist twist = verticalTwistOf(q[0], q[3]);
+    EXPECT_NEAR(twist.w * twist.w + twist.z * twist.z, 1.0, 1.0e-12);
+    EXPECT_GE(twist.w, 0.0);
+    const mjtNum twistInverse[4] = {twist.w, 0.0, 0.0, -twist.z};
+    mjtNum swing[4];
+    mju_mulQuat(swing, twistInverse, q);
+    EXPECT_NEAR(swing[3], 0.0, 1.0e-12) << "sample " << sample;
+    // The heading is the twist's angle, in (-pi, pi].
+    const double heading = twistHeadingOf(q[0], q[3]);
+    EXPECT_GT(heading, -std::numbers::pi);
+    EXPECT_LE(heading, std::numbers::pi);
+    EXPECT_NEAR(std::cos(heading / 2.0), twist.w, 1.0e-12);
+    EXPECT_NEAR(std::sin(heading / 2.0), twist.z, 1.0e-12);
+  }
+}
+
+// Upside down the twist is undefined; the MPC (headingQuaternion(), twistHeading()) reads it as heading 0, and so must the
+// gantry anchor and the dodgeball's yaw frame. It used to fall back to the ZYX yaw instead.
+TEST(VerticalTwist, AnUpsideDownAttitudeHasTheIdentityTwistAsInTheMpc) {
+  for (const std::array<double, 4>& q : {std::array<double, 4>{0.0, 1.0, 0.0, 0.0}, std::array<double, 4>{0.0, 0.6, 0.8, 0.0},
+                                         std::array<double, 4>{-0.0, 0.6, -0.8, -0.0}}) {
+    const VerticalTwist twist = verticalTwistOf(q[0], q[3]);
+    EXPECT_EQ(twist.w, 1.0) << "(" << q[0] << ", " << q[1] << ", " << q[2] << ", " << q[3] << ")";
+    EXPECT_EQ(twist.z, 0.0);
+    EXPECT_EQ(twistHeadingOf(q[0], q[3]), 0.0);
+  }
+}
+
+TEST(VerticalTwist, IsContinuousDownToUpsideDownAndTheSameForQAndMinusQ) {
+  // Just above the old 1e-9 guard and below it: the normalized (w, z) either way, with no switch of formula.
+  for (const double rho : {1.0e-6, 1.0e-9, 1.0e-12}) {
+    const double angle = 0.7;
+    const double w = rho * std::cos(angle);
+    const double z = rho * std::sin(angle);
+    const VerticalTwist twist = verticalTwistOf(w, z);
+    EXPECT_NEAR(twist.w, std::cos(angle), 1.0e-12) << "rho = " << rho;
+    EXPECT_NEAR(twist.z, std::sin(angle), 1.0e-12) << "rho = " << rho;
+    const VerticalTwist negated = verticalTwistOf(-w, -z);
+    EXPECT_EQ(negated.w, twist.w) << "q and -q are one rotation";
+    EXPECT_EQ(negated.z, twist.z);
+  }
+  // A heading of exactly pi is +pi from either hemisphere.
+  EXPECT_NEAR(twistHeadingOf(0.0, 1.0), std::numbers::pi, 1.0e-15);
+  EXPECT_NEAR(twistHeadingOf(0.0, -1.0), std::numbers::pi, 1.0e-15);
 }
 
 }  // namespace

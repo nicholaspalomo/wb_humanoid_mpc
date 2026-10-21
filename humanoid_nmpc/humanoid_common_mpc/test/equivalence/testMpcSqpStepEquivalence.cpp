@@ -30,6 +30,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "pinocchio/fwd.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <limits>
 #include <memory>
@@ -71,9 +72,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *        angles: (S1w)). The warm start is then a resting robot carrying its weight with no moment on the base (the
  *        resting warm-start input corrected by the least-norm change that cancels the moment,
  *        MpcEquivalenceFixture::torqueFreeInput()), level or tilted, whose gaps the test shows to carry neither a rotation
- *        nor an angular velocity. From the warm start itself the two iterations agree within tier 1 (design section
- *        4.4): they differ by the RK4 flow's coordinate dependence only, O(dt^5) per interval
- *        (testMpcDynamicsEquivalence); from an initial state off it by an attitude eps they differ only through the
+ *        nor an angular velocity. From the warm start itself the two QPs are one up to round-off (kSameQpTolerance;
+ *        design section 4.4): both integrate the same RK4 flow, and without a rotation or an angular velocity in the
+ *        gaps the chart maps the sensitivities by the identity. (RK4's O(dt^5) coordinate dependence separates the chart
+ *        SQP from a true Euler-RK4 formulation, which testMpcDynamicsEquivalence and testMpcRolloutEquivalence bound;
+ *        it is not in this comparison.) From an initial state off it by an attitude eps they differ only through the
  *        initial gap, Log(R_ws' R_init) against T_B(Theta_ws) (Theta_init - Theta_ws), equal to first order: O(eps^2),
  *        tier 2 (halving eps divides the difference by a ratio in [kTierTwoRatioLow, kTierTwoRatioHigh]). (S1) and (S2)
  *        compare the QPs' solutions (the steps over the line search's step size, qpSolutionOf()) and gains.
@@ -99,15 +102,32 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *        the kick, and vanishes with it).
  *   (S3) The two SQPs solve one discrete problem - the same terms of the same states, the same RK4 node map and
  *        projection, a gap that vanishes exactly where the quaternion manifold's does - in two charts of its defects, so
- *        they have the same fixed points, the trajectories without gaps, where (S1) their QPs are one. Along the
- *        quaternion SQP's iterations from the resting warm start (whose gaps carry rotations, (S2)) the difference of the
- *        two charts' gap linearizations falls with the gaps the SQP closes, in proportion to them.
+ *        they have the same fixed points, the trajectories without gaps, where (S1) their QPs are one. At the resting warm
+ *        start (whose gaps carry rotations, (S2)) and at the quaternion SQP's iterate from it the difference of the two
+ *        charts' gap linearizations is at most proportional to the gaps, and as the iterate's gaps are closed it falls
+ *        with them, to none without a gap. The gaps are closed by construction, not by the SQP, which need not converge:
+ *        its QP's Hessian is the costs' Gauss-Newton Hessian, without the hard constraints' curvature lambda' grad^2 g
+ *        (whether the constraints are projected out or not), its merit has no penalty on their violation, and its line
+ *        search accepts any decrease of the merit while the violation stays below g_max. So each full step can lower the
+ *        merit and raise the violation until a full step would pass g_max and a reduced one resets it: a cycle whose
+ *        iterates, within a period, none of those before dominates. From this warm start it does so on DRC Atlas, the
+ *        same cycle in both charts (MpcSqpConvergence.OnAtlasTheEulerChartCyclesAsTheQuaternionManifoldDoes), and on
+ *        the whole-body G1 (testMpcSqpConvergence.cpp; design README section 6,
+ *        risk 12).
  */
 
 namespace ocs2::humanoid {
 namespace {
 
-/** Tier 1 (design section 4.4): RK4's O(dt^5) coordinate dependence over the horizon, relative to the step's largest entry. */
+/**
+ * (S1) at a gap-free warm start: the two QPs are one up to round-off (the same RK4 flow, an identity chart map of the
+ * gap-free sensitivities), relative to the step's largest entry; 27 times the largest recorded difference, 3.7e-12 (G1-WB).
+ */
+constexpr scalar_t kSameQpTolerance = 1.0e-10;
+/**
+ * Tier 1 (design section 4.4): the floor below which a difference is too small to measure an O(eps^2) or first-order
+ * ratio (tier 2, S2, S1w), relative to the step's largest entry.
+ */
 constexpr scalar_t kTierOneTolerance = 1.0e-6;
 /** Tier 2: an O(eps^2) difference shrinks by 4 when eps halves; [3, 5] allows the O(eps^3) term. */
 constexpr scalar_t kTierTwoRatioLow = 3.0;
@@ -151,6 +171,12 @@ constexpr scalar_t kConvergenceTolerance = 1.0e-9;
  * gap, times the base sensitivities (of order one): at most this factor of the gap.
  */
 constexpr scalar_t kGapProportionality = 100.0;
+/**
+ * (S3): the factors by which the iterate's gaps are closed (withScaledGaps()): 1 is the iterate itself, 0 a trajectory
+ * without gaps. At 1e-4 the bound kGapProportionality times the gap is a hundredth of the iterate's gap, which a
+ * difference that did not fall with the gaps would exceed.
+ */
+constexpr std::array<scalar_t, 4> kGapScales = {1.0, 1.0e-2, 1.0e-4, 0.0};
 
 class MpcSqpStepEquivalence : public MpcEquivalenceTest {};
 
@@ -225,11 +251,6 @@ scalar_t warmStartRotationGap(const MpcEquivalenceFixture& mpc, const vector_t& 
   vector_t end = discretizer(dynamics, /*t=*/0.0, state, input, mpc.nodeTimeStep());
   mpc.manifold().project(end);
   return mpc.manifold().getMaximumRotationAngle(mpc.manifold().difference(state, end));
-}
-
-/** The Euler-chart manifold of the MPC. */
-std::shared_ptr<const StateManifold> eulerChartOf(const MpcEquivalenceFixture& mpc) {
-  return std::make_shared<const EulerChartStateManifold>(mpc.manifoldPtr(), mpc.eulerLayout());
 }
 
 /** `state` with its base orientation's ZYX angles offset by `offset`. */
@@ -366,12 +387,13 @@ KickedWarmStart kickedWarmStart(const MpcEquivalenceFixture& mpc,
 TEST_P(MpcSqpStepEquivalence, WithoutARotationInTheShootingGapsTheQuaternionIterationIsTheEulerOne) {
   MpcEquivalenceFixture& mpc = this->mpc();
   const EquivalenceReference reference = mpc.walkingReference();
-  const std::shared_ptr<const StateManifold> chart = eulerChartOf(mpc);
+  const std::shared_ptr<const StateManifold> chart = mpc.eulerChartPtr();
   const SqpCase resting = mpc.restingWarmStart();
   // The resting warm start, and the same tilted to a small attitude, held with its input corrected to exert no moment on
   // the base: the weight carried, nothing turning the base.
   for (const vector3_t& attitude : {vector3_t(0.0, 0.0, 0.0), vector3_t(0.4, -0.03, 0.05)}) {
     SCOPED_TRACE(absl::StrCat("warm start attitude ", attitude(0), " ", attitude(1), " ", attitude(2)));
+    const std::string attitudeName = attitude.isZero() ? "level" : "tilted";
     const vector_t warmStart = withAttitudeOffset(mpc, resting.warmStartState, attitude);
     SqpCase sqpCase{.initState = warmStart,
                     .warmStartState = warmStart,
@@ -380,8 +402,8 @@ TEST_P(MpcSqpStepEquivalence, WithoutARotationInTheShootingGapsTheQuaternionIter
     // On the whole body (S1w): nor an angular velocity, which would change the chart's gap sensitivity.
     ASSERT_LE(warmStartAngularVelocityGap(mpc, sqpCase.warmStartState, sqpCase.warmStartInput), kNoAngularVelocity);
     const IterationDifference atTheWarmStart = quaternionAgainstChart(mpc, chart, reference, sqpCase);
-    EXPECT_LE(atTheWarmStart.largest(), kTierOneTolerance) << describe(atTheWarmStart);
-    RecordProperty("torque_free_relative_difference", absl::StrCat(atTheWarmStart.largest()));
+    EXPECT_LE(atTheWarmStart.largest(), kSameQpTolerance) << describe(atTheWarmStart);
+    RecordProperty(absl::StrCat("torque_free_relative_difference_", attitudeName), absl::StrCat(atTheWarmStart.largest()));
 
     // Tier 2: initial states off the warm start by eps in roll and pitch.
     std::vector<scalar_t> differences;
@@ -396,14 +418,14 @@ TEST_P(MpcSqpStepEquivalence, WithoutARotationInTheShootingGapsTheQuaternionIter
       EXPECT_GE(ratio, kTierTwoRatioLow) << differences[i] << " at eps, " << differences[i + 1] << " at eps / 2";
       EXPECT_LE(ratio, kTierTwoRatioHigh) << differences[i] << " at eps, " << differences[i + 1] << " at eps / 2";
     }
-    RecordProperty("tier_two_difference_at_eps_0.02", absl::StrCat(differences[0]));
+    RecordProperty(absl::StrCat("tier_two_difference_at_eps_0.02_", attitudeName), absl::StrCat(differences[0]));
   }
 }
 
 TEST_P(MpcSqpStepEquivalence, TheIterationsDifferAtFirstOrderInTheRotationOfTheShootingGaps) {
   MpcEquivalenceFixture& mpc = this->mpc();
   const EquivalenceReference reference = mpc.walkingReference();
-  const std::shared_ptr<const StateManifold> chart = eulerChartOf(mpc);
+  const std::shared_ptr<const StateManifold> chart = mpc.eulerChartPtr();
   const SqpCase resting = mpc.restingWarmStart();
   // The resting warm start, the moment its input exerts on the base scaled by s (the torque-free input plus s times the
   // difference): the base's turn per interval scales with s, the rest of the warm start stays.
@@ -431,7 +453,7 @@ TEST_P(MpcSqpStepEquivalence, OnTheWholeBodyAnAngularVelocityGapChangesTheGapSen
   MpcEquivalenceFixture& mpc = this->mpc();
   if (!mpc.isWholeBody()) GTEST_SKIP() << "the centroidal state has no angular velocity";
   const OrientationRows rows = orientationRowsOf(mpc);
-  const std::shared_ptr<const StateManifold> chart = eulerChartOf(mpc);
+  const std::shared_ptr<const StateManifold> chart = mpc.eulerChartPtr();
   SystemDynamicsBase& dynamics = *mpc.problem().dynamicsPtr;
   const DynamicsSensitivityDiscretizer sensitivity = selectDynamicsSensitivityDiscretization(mpc.sqpSettings().integratorType);
   const Eigen::Index tangentDim = static_cast<Eigen::Index>(mpc.manifold().getTangentDim());
@@ -493,7 +515,7 @@ TEST_P(MpcSqpStepEquivalence, OnTheWholeBodyTheIterationsDifferAtFirstOrderInAnA
   MpcEquivalenceFixture& mpc = this->mpc();
   if (!mpc.isWholeBody()) GTEST_SKIP() << "the centroidal state has no angular velocity";
   const EquivalenceReference reference = mpc.walkingReference();
-  const std::shared_ptr<const StateManifold> chart = eulerChartOf(mpc);
+  const std::shared_ptr<const StateManifold> chart = mpc.eulerChartPtr();
   const SqpCase resting = mpc.restingWarmStart();
   const vector_t input = mpc.torqueFreeInput(mpc.eulerStateOf(resting.warmStartState), resting.warmStartInput);
   const OrientationRows rows = orientationRowsOf(mpc);
@@ -538,21 +560,25 @@ TEST_P(MpcSqpStepEquivalence, OnTheWholeBodyTheIterationsDifferAtFirstOrderInAnA
 }
 
 /**
- * Along a trajectory on the SQP's grid: the largest rotation [rad] and angular velocity [rad/s] of its shooting gaps, and
- * the largest difference of the two charts' linearizations of a gap, max |A_chart - A_quaternion| and the same of B, the
- * QPs' dynamics data. Passive data.
+ * Along a trajectory on the SQP's grid: the largest rotation [rad] and angular velocity [rad/s] of its shooting gaps, the
+ * interval that carries the largest of them, and the largest difference of the two charts' linearizations of a gap,
+ * max |A_chart - A_quaternion| and the same of B, the QPs' dynamics data. Passive data.
  */
 struct GapComparison {
   scalar_t rotation = 0.0;
   scalar_t angularVelocity = 0.0;
+  /** The node that starts the interval with the largest gap (rotation or angular velocity); 0 when no interval has a gap. */
+  size_t largestGapNode = 0;
   scalar_t sensitivityDifference = 0.0;
 
   scalar_t largestGap() const { return std::max(rotation, angularVelocity); }
 };
 
 /**
- * The gaps of the intervals of `states` and `inputs` (one per node of `grid`, an event node's interval skipped: its jump
- * map is the identity in both charts) and the two charts' linearizations of each, from the MPC's own RK4 sensitivities.
+ * The gaps of the intervals of `states` and `inputs` (one per node of `grid`) and the two charts' linearizations of each:
+ * a flow interval's from the MPC's own RK4 sensitivities, an event node's from its identity jump map, Phi(x) = x with
+ * dPhi/dx = I, whose gap's linearization still depends on the chart where the jump gap is not zero (Jr^-1(b) against
+ * P_e(x_e,next) P_e(x_e)^-1, both I + O(|b|)).
  */
 GapComparison compareGaps(const MpcEquivalenceFixture& mpc,
                           const StateManifold& chart,
@@ -565,20 +591,37 @@ GapComparison compareGaps(const MpcEquivalenceFixture& mpc,
   GapComparison comparison;
   EXPECT_EQ(states.size(), grid.size());
   for (size_t i = 0; i + 1 < std::min(grid.size(), states.size()); ++i) {
-    if (grid[i].event == AnnotatedTime::Event::PreEvent) continue;
-    const VectorFunctionLinearApproximation interval =
-        sensitivity(dynamics, getIntervalStart(grid[i]), states[i], inputs[i], getIntervalDuration(grid[i], grid[i + 1]));
-    VectorFunctionLinearApproximation onQuaternions = interval;
-    mpc.manifold().pushForwardDynamics(states[i], states[i + 1], onQuaternions);
-    VectorFunctionLinearApproximation onTheChart = interval;
-    chart.pushForwardDynamics(states[i], states[i + 1], onTheChart);
-    comparison.rotation = std::max(comparison.rotation, mpc.manifold().getMaximumRotationAngle(onQuaternions.f));
-    if (rows.angularVelocity >= 0) {
-      comparison.angularVelocity = std::max(comparison.angularVelocity, onQuaternions.f.segment<3>(rows.eulerRates).cwiseAbs().maxCoeff());
+    const bool jump = grid[i].event == AnnotatedTime::Event::PreEvent;
+    VectorFunctionLinearApproximation onQuaternions;
+    VectorFunctionLinearApproximation onTheChart;
+    if (jump) {
+      VectorFunctionLinearApproximation identityJump;
+      identityJump.f = states[i];
+      identityJump.dfdx = matrix_t::Identity(states[i].size(), states[i].size());
+      onQuaternions = identityJump;
+      mpc.manifold().pushForwardJump(states[i], states[i + 1], onQuaternions);
+      onTheChart = identityJump;
+      chart.pushForwardJump(states[i], states[i + 1], onTheChart);
+    } else {
+      const VectorFunctionLinearApproximation interval =
+          sensitivity(dynamics, getIntervalStart(grid[i]), states[i], inputs[i], getIntervalDuration(grid[i], grid[i + 1]));
+      onQuaternions = interval;
+      mpc.manifold().pushForwardDynamics(states[i], states[i + 1], onQuaternions);
+      onTheChart = interval;
+      chart.pushForwardDynamics(states[i], states[i + 1], onTheChart);
     }
+    const scalar_t rotation = mpc.manifold().getMaximumRotationAngle(onQuaternions.f);
+    const scalar_t angularVelocity = rows.angularVelocity >= 0 ? onQuaternions.f.segment<3>(rows.eulerRates).cwiseAbs().maxCoeff() : 0.0;
+    if (std::max(rotation, angularVelocity) > comparison.largestGap()) comparison.largestGapNode = i;
+    comparison.rotation = std::max(comparison.rotation, rotation);
+    comparison.angularVelocity = std::max(comparison.angularVelocity, angularVelocity);
     comparison.sensitivityDifference =
-        std::max({comparison.sensitivityDifference, (onTheChart.dfdx - onQuaternions.dfdx).cwiseAbs().maxCoeff(),
-                  (onTheChart.dfdu - onQuaternions.dfdu).cwiseAbs().maxCoeff()});
+        std::max(comparison.sensitivityDifference, (onTheChart.dfdx - onQuaternions.dfdx).cwiseAbs().maxCoeff());
+    // A jump's dfdu is empty (tangent x 0) in both charts.
+    if (!jump) {
+      comparison.sensitivityDifference =
+          std::max(comparison.sensitivityDifference, (onTheChart.dfdu - onQuaternions.dfdu).cwiseAbs().maxCoeff());
+    }
   }
   return comparison;
 }
@@ -589,18 +632,58 @@ scalar_t qpStateStepDistance(const RealTimeIteration& a, const RealTimeIteration
   return largestFinite(difference);
 }
 
-TEST_P(MpcSqpStepEquivalence, AsTheSqpClosesTheGapsTheTwoChartsLinearizationsCoincide) {
+/**
+ * The trajectory on the SQP's `grid` through the flows of `states` under `inputs` (one per node) with every gap scaled by
+ * `scale`: from the first node of `states`, each interval's flow (the MPC's RK4 step and the projection) retracted by
+ * -scale times the gap of the same interval of `states`, so that its gap is that gap times `scale`; an event node's
+ * interval, whose jump map is the identity, retracts the event node itself by -scale times its jump gap (which
+ * compareGaps() compares as the identity jump's). A scale of 1 gives back `states` to round-off, 0 a trajectory without gaps: the
+ * rollout of `inputs` through the events.
+ */
+vector_array_t withScaledGaps(const MpcEquivalenceFixture& mpc,
+                              const std::vector<AnnotatedTime>& grid,
+                              const vector_array_t& states,
+                              const vector_array_t& inputs,
+                              scalar_t scale) {
+  SystemDynamicsBase& dynamics = *mpc.problem().dynamicsPtr;
+  const DynamicsDiscretizer discretizer = selectDynamicsDiscretization(mpc.sqpSettings().integratorType);
+  vector_array_t scaled = {states.front()};
+  for (size_t i = 0; i + 1 < std::min(grid.size(), states.size()); ++i) {
+    if (grid[i].event == AnnotatedTime::Event::PreEvent) {
+      // The identity jump map's gap, the event node against the post-event node, scaled as a flow's gap is.
+      const vector_t jumpGap = mpc.manifold().difference(states[i + 1], states[i]);
+      vector_t next;
+      mpc.manifold().retract(scaled[i], jumpGap, -scale, next);  // difference(next, scaled[i]) = scale * jumpGap
+      scaled.push_back(std::move(next));
+      continue;
+    }
+    const scalar_t start = getIntervalStart(grid[i]);
+    const scalar_t dt = getIntervalDuration(grid[i], grid[i + 1]);
+    const vector_t gap = mpc.manifold().difference(states[i + 1], discretizer(dynamics, start, states[i], inputs[i], dt));
+    vector_t flow = discretizer(dynamics, start, scaled[i], inputs[i], dt);
+    mpc.manifold().project(flow);
+    vector_t next;
+    mpc.manifold().retract(flow, gap, -scale, next);  // difference(next, flow) = scale * gap
+    scaled.push_back(std::move(next));
+  }
+  return scaled;
+}
+
+TEST_P(MpcSqpStepEquivalence, AsTheGapsCloseTheTwoChartsLinearizationsCoincide) {
   // (S3): the two QPs differ only through the gaps' chart (S2, S1w): the same costs and constraints pulled back through
-  // the same E, and gap linearizations that differ in proportion to the gaps. Along the quaternion SQP's iterations from
-  // the resting warm start, whose gaps carry rotations, that difference of the QPs' dynamics data falls with the gaps the SQP
-  // closes, so the two have the same fixed points, the trajectories with no gap. Compared at the warm start and after
-  // kConvergenceIterations iterations: the largest difference of the charts' A and B, at most kGapProportionality times
-  // the largest gap (rotation, and on the whole body angular velocity) at both. The QP solutions' difference at the
-  // iterate is recorded only: the QPs weigh the yaw by no cost (no shipped robot does), so round-off of the chart's
-  // arithmetic moves their solutions along it by far more than the charts' first-order difference.
+  // the same E, and gap linearizations that differ in proportion to the gaps. That difference of the QPs' dynamics data,
+  // the largest difference of the charts' A and B, is at most kGapProportionality times the largest gap (rotation, and on
+  // the whole body angular velocity) at the resting warm start, whose gaps carry rotations, and at the quaternion SQP's
+  // iterate after kConvergenceIterations iterations from it, wherever the SQP has got to. Closing the iterate's gaps
+  // (withScaledGaps(), by kGapScales) it falls with them, and it vanishes with them, at the trajectory without gaps where
+  // (S1) the two QPs are one: the two SQPs have the same fixed points, the trajectories with no gap. The gaps are closed
+  // by construction because the SQP need not close them (the file comment); the iterate's gaps are recorded, with the
+  // node of the largest. The QP solutions' difference at the iterate is recorded only: the QPs weigh the yaw by no cost
+  // (no shipped robot does), so round-off of the chart's arithmetic moves their solutions along it by far more than the
+  // charts' first-order difference.
   MpcEquivalenceFixture& mpc = this->mpc();
   const EquivalenceReference reference = mpc.walkingReference();
-  const std::shared_ptr<const StateManifold> chart = eulerChartOf(mpc);
+  const std::shared_ptr<const StateManifold> chart = mpc.eulerChartPtr();
   const SqpCase resting = mpc.restingWarmStart();
   const std::vector<AnnotatedTime> grid = mpc.sqpNodeGrid(reference);
   PrimalSolution warmStart;
@@ -625,13 +708,24 @@ TEST_P(MpcSqpStepEquivalence, AsTheSqpClosesTheGapsTheTwoChartsLinearizationsCoi
   RecordProperty("first_sensitivity_difference", absl::StrCat(first.sensitivityDifference));
   RecordProperty("iterate_rotation_gap", absl::StrCat(last.rotation));
   RecordProperty("iterate_angular_velocity_gap", absl::StrCat(last.angularVelocity));
+  RecordProperty("iterate_largest_gap_node", absl::StrCat(last.largestGapNode));
+  RecordProperty("iterate_largest_gap_time", absl::StrCat(grid[last.largestGapNode].time));
   RecordProperty("iterate_sensitivity_difference", absl::StrCat(last.sensitivityDifference));
   RecordProperty("iterate_qp_distance", absl::StrCat(qpDistance));
   EXPECT_GT(first.sensitivityDifference, kSameArithmeticTolerance) << "the warm start's gaps change the chart's linearization";
   EXPECT_LE(first.sensitivityDifference, kGapProportionality * first.largestGap());
-  EXPECT_LT(last.largestGap(), first.largestGap()) << "the SQP closes the gaps";
   EXPECT_LE(last.sensitivityDifference, kGapProportionality * last.largestGap() + kSameArithmeticTolerance)
       << "the charts' linearizations differ beyond the gaps' first order";
+
+  for (const scalar_t scale : kGapScales) {
+    SCOPED_TRACE(absl::StrCat("the iterate's gaps scaled by ", scale));
+    const GapComparison closing = compareGaps(
+        mpc, *chart, grid, withScaledGaps(mpc, grid, iterate.stateTrajectory_, iterate.inputTrajectory_, scale), iterate.inputTrajectory_);
+    RecordProperty(absl::StrCat("gap_scale_", scale, "_sensitivity_difference"), absl::StrCat(closing.sensitivityDifference));
+    ASSERT_LE(std::abs(closing.largestGap() - scale * last.largestGap()), kSameArithmeticTolerance) << "the iterate's gaps, scaled";
+    EXPECT_LE(closing.sensitivityDifference, kGapProportionality * closing.largestGap() + kSameArithmeticTolerance)
+        << "the charts' linearizations differ beyond the gaps' first order";
+  }
 }
 
 INSTANTIATE_TEST_SUITE_P(Shipped, MpcSqpStepEquivalence, ::testing::ValuesIn(mpcEquivalenceConfigurationNames()), mpcEquivalenceTestName);

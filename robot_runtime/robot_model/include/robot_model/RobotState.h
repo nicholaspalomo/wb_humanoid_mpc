@@ -58,7 +58,10 @@ struct JointState {
  */
 class RobotState {
  public:
-  explicit RobotState(const RobotDescription& robotDescription, size_t contactSize = 2);
+  /** The default number of contact points: the two feet of a biped. */
+  static constexpr size_t kDefaultContactSize = 2;
+
+  explicit RobotState(const RobotDescription& robotDescription, size_t contactSize = kDefaultContactSize);
 
   // orientation of the root joint wrt world frame, corresponds to the passive
   // rotation from local to world R_l_to_w
@@ -75,6 +78,16 @@ class RobotState {
 
   void setRootLinearVelocityInLocalFrame(const vector3_t& linearVelocity) { rootLinearVelocity_ = linearVelocity; }
   void setRootAngularVelocityInLocalFrame(const vector3_t& angularVelocity) { rootAngularVelocity_ = angularVelocity; }
+
+  /**
+   * What an accelerometer at the root's origin reads, in the root's frame [m/s^2]: the specific force R^T (a - g) of
+   * that point, with a its acceleration and g the gravity in the world frame, so +|g| along the root's vertical at rest.
+   * The input of a state estimator that integrates the IMU (KalmanStateEstimator); zero from a backend without one. The
+   * root's orientation and angular velocity above are the IMU's on hardware; the root's position and linear velocity
+   * are what a backend measures (the simulator: the truth) and what a state estimator replaces.
+   */
+  vector3_t getImuLinearAccelerationInLocalFrame() const { return imuLinearAcceleration_; }
+  void setImuLinearAccelerationInLocalFrame(const vector3_t& linearAcceleration) { imuLinearAcceleration_ = linearAcceleration; }
 
   /** True when `jointId` is a joint of the robot description. */
   bool hasJoint(size_t jointId) const { return findJoint(jointId) != nullptr; }
@@ -166,6 +179,7 @@ class RobotState {
   vector3_t rootLinearVelocity_;
   quaternion_t rootOrientation_;
   vector3_t rootAngularVelocity_;
+  vector3_t imuLinearAcceleration_;
   std::vector<bool> contactFlags_;
 };
 

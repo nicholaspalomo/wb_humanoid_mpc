@@ -21,7 +21,7 @@ message CollisionConstraintConfig {
 
     string left_ankle_frame = 1 [default = ""];
     string right_ankle_frame = 2 [default = ""];
-    // [m]
+    // [m] Positive; the two frames are required when the soft constraint foot_collision is listed.
     double foot_collision_sphere_radius = 3 [default = 0.0, (humanoid_mpc_config.tuning) = { unit: "m" }];
   }
 
@@ -32,13 +32,13 @@ message CollisionConstraintConfig {
 
     string left_knee_frame = 1 [default = ""];
     string right_knee_frame = 2 [default = ""];
-    // [m]
+    // [m] Positive; the two frames are required when the soft constraint foot_collision is listed.
     double knee_collision_sphere_radius = 3 [default = 0.0, (humanoid_mpc_config.tuning) = { unit: "m" }];
   }
 
   Foot foot = 1;
   Knee knee = 2;
-  // The barrier (PieceWisePolynomialBarrierPenalty).
+  // The barrier (PieceWisePolynomialBarrierPenalty), both positive.
   double mu = 3 [default = 1.0, (humanoid_mpc_config.tuning) = { reload: RELOAD_HOT }];
   double delta = 4 [default = 0.001, (humanoid_mpc_config.tuning) = { reload: RELOAD_HOT }];
 }

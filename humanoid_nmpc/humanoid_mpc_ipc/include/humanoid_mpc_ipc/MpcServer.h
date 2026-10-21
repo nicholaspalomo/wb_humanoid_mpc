@@ -132,6 +132,12 @@ class MpcServer {
      * MemoryLock::kLockProcess locks the memory of the whole process, every thread of it.
      */
     robot::realtime::RealtimeThreadConfig solverThread{.name = "mpc_solver", .cores = {}, .memoryLock = robot::realtime::MemoryLock::kNone};
+    /**
+     * The MPC's model layout (modelLayoutFingerprint() of its ModelSettings): stamped on every policy, and an
+     * observation of another layout - unstamped (0) included - is rejected (observationsRejected) and not solved, as
+     * one of other dimensions. 0: neither stamped nor checked.
+     */
+    uint64_t modelFingerprint = 0;
   };
 
   /** Optional; empty ones are skipped. An error they return is logged and the solve loop goes on. */
@@ -163,11 +169,14 @@ class MpcServer {
   };
 
   /**
-   * A server on `bus`, which must not be running yet; the caller starts it, and start() starts the solver thread.
-   * `mpc` must outlive the server and must not be used by anything else while it runs.
+   * A server on `bus`, which must not be running yet and must outlive the server; the caller starts it, and start()
+   * starts the solver thread. `mpc` must outlive the server and must not be used by anything else while it runs.
    */
-  static absl::StatusOr<std::unique_ptr<MpcServer>> Create(
-      robot::ipc::Bus& bus, MPC_BASE& mpc, ResetTargetTrajectoriesFunction resetTargetTrajectories, Config config, Hooks hooks = Hooks());
+  static absl::StatusOr<std::unique_ptr<MpcServer>> Create(robot::ipc::Bus* absl_nonnull bus,
+                                                           MPC_BASE* absl_nonnull mpc,
+                                                           ResetTargetTrajectoriesFunction resetTargetTrajectories,
+                                                           Config config,
+                                                           Hooks hooks = Hooks());
 
   /** Stops the solver thread. */
   ~MpcServer();
@@ -205,7 +214,11 @@ class MpcServer {
     uint64_t sessions = 0;
   };
 
-  MpcServer(robot::ipc::Bus& bus, MPC_BASE& mpc, ResetTargetTrajectoriesFunction resetTargetTrajectories, Config config, Hooks hooks);
+  MpcServer(robot::ipc::Bus* absl_nonnull bus,
+            MPC_BASE* absl_nonnull mpc,
+            ResetTargetTrajectoriesFunction resetTargetTrajectories,
+            Config config,
+            Hooks hooks);
   absl::Status registerOnBus();
 
   // IO thread.
@@ -213,8 +226,13 @@ class MpcServer {
 
   // Solver thread.
   void runSolverLoop();
-  /** Blocks until there is an observation (a new one if `requireNew`) or stop(); false on stop(). */
-  bool awaitObservation(bool requireNew);
+  /** Which observation the solver thread waits for. */
+  enum class ObservationWait {
+    kAny,  ///< any observation, the one already taken included (to retry a failed attempt at once)
+    kNew,  ///< one newer than the last taken
+  };
+  /** Blocks until there is an observation `wait` accepts, or stop(); false on stop(). */
+  bool awaitObservation(ObservationWait wait);
   bool hasWork() const ABSL_EXCLUSIVE_LOCKS_REQUIRED(mutex_);
   /**
    * True after stop(), or when the robot has asked for a reset since the attempt's observation was taken: its counters
@@ -235,8 +253,8 @@ class MpcServer {
   /** Sleeps until `deadline` or stop(). */
   void sleepUntil(absl::Time deadline);
 
-  robot::ipc::Bus& bus_;
-  MPC_BASE& mpc_;
+  robot::ipc::Bus* absl_nonnull bus_;
+  MPC_BASE* absl_nonnull mpc_;
   const ResetTargetTrajectoriesFunction resetTargetTrajectories_;
   const Config config_;
   const Hooks hooks_;

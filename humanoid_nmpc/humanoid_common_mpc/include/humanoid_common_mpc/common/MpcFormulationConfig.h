@@ -50,7 +50,6 @@ enum class MpcCostType {
   kStateQuadraticCost,
   kInputQuadraticCost,
   kTerminalCost,
-  kIcpCost,
   kTaskSpaceFootCost,
   kTaskSpaceTorsoCost,
   kExternalTorqueCost,

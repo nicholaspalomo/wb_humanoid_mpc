@@ -48,6 +48,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "google/protobuf/descriptor.h"
 #include "google/protobuf/message.h"
 
 namespace nproto {
@@ -62,9 +63,26 @@ namespace nproto {
  * The schema answers what it can (tools/nproto/README.md, "Retired fields"): an unknown field that the message lists as
  * an (nproto.retired_field) is "'<name>' is retired: <replacement>"; otherwise the unknown-field error says "Did you
  * mean ..." when the snake-cased name is a field, and ends with the message's (nproto.retired_layout_hint). A `text`
- * whose leading comment block names another message (`# proto-message: pkg.Other`) is refused before it is parsed.
+ * whose leading comment block names another message (`# proto-message: pkg.Other`) is refused before it is parsed. A
+ * `text` without the header parses: it is text from memory (a bus payload, a test); a file must have one
+ * (ParseTextprotoFileInto(), CheckProtoMessageHeader()).
  */
 absl::Status ParseTextprotoInto(absl::string_view text, absl::string_view sourceName, google::protobuf::Message* absl_nonnull message);
+
+/**
+ * Checks that the textproto `text` of a configuration file names its schema: InvalidArgument
+ * "<sourceName>:1:1: <sourceName> names no schema: ..." when its leading comment block has no `# proto-message:` line
+ * (tools/nproto/README.md, "Textproto configuration files"); `descriptor` is the message the error suggests. Whether
+ * the line names `descriptor` is ParseTextprotoInto()'s check. For text that is, or becomes, a file: a file without the
+ * header could be read as any message whose fields it happens to match.
+ */
+absl::Status CheckProtoMessageHeader(absl::string_view text, absl::string_view sourceName, const google::protobuf::Descriptor& descriptor);
+
+/**
+ * Replaces the contents of `message` with the textproto file at `path`: ReadTextFile(), CheckProtoMessageHeader() and
+ * ParseTextprotoInto(), every error naming the path. On error the contents of `message` are unspecified.
+ */
+absl::Status ParseTextprotoFileInto(absl::string_view path, google::protobuf::Message* absl_nonnull message);
 
 /** The contents of the file at `path`. NotFound (or the error the OS reports) names the path. */
 absl::StatusOr<std::string> ReadTextFile(absl::string_view path);
@@ -80,14 +98,15 @@ absl::StatusOr<Message> ParseTextproto(absl::string_view text, absl::string_view
   return message;
 }
 
-/** The textproto file at `path` as a `Message`; errors name the path. */
+/** The textproto file at `path` as a `Message` (ParseTextprotoFileInto(): the file must name its schema); errors name the path. */
 template <typename Message>
 absl::StatusOr<Message> ParseTextprotoFile(absl::string_view path) {
-  absl::StatusOr<std::string> text = ReadTextFile(path);
-  if (!text.ok()) {
-    return text.status();
+  Message message;
+  absl::Status status = ParseTextprotoFileInto(path, &message);
+  if (!status.ok()) {
+    return status;
   }
-  return ParseTextproto<Message>(*text, path);
+  return message;
 }
 
 /**
@@ -115,5 +134,11 @@ absl::StatusOr<Struct> LoadTextprotoFile(absl::string_view path) {
  * which it does not for a message of a generated type.
  */
 std::string WriteTextproto(const google::protobuf::Message& message);
+
+/**
+ * `message` as the text of a configuration file: the `# proto-message: <full name>` line that names its schema
+ * (CheckProtoMessageHeader()), then WriteTextproto(). ParseTextprotoFile() reads a file of it back.
+ */
+std::string WriteTextprotoFile(const google::protobuf::Message& message);
 
 }  // namespace nproto

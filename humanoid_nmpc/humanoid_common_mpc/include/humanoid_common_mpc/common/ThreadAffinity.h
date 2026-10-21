@@ -32,13 +32,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <pthread.h>
 #include <sched.h>
 
-#include <iostream>
-#include <sstream>
 #include <string>
 #include <thread>
 #include <vector>
 
 #include "absl/log/log.h"
+#include "absl/strings/str_cat.h"
+#include "absl/strings/str_join.h"
 
 namespace ocs2::humanoid {
 
@@ -68,24 +68,20 @@ inline bool setThreadCpuAffinity(const std::vector<int>& cpuCores, pthread_t thr
     }
   }
 
+  const std::string onThread = threadName.empty() ? std::string() : absl::StrCat(" on ", threadName);
   if (validCores.empty()) {
-    LOG(WARNING) << "No valid CPU cores specified for thread affinity" << (threadName.empty() ? "" : " on " + threadName) << ".";
+    LOG(WARNING) << "No valid CPU cores specified for thread affinity" << onThread << ".";
     return false;
   }
 
   int rc = pthread_setaffinity_np(thread, sizeof(cpu_set_t), &cpuset);
   if (rc != 0) {
-    LOG(WARNING) << "Failed to set thread CPU affinity" << (threadName.empty() ? "" : " on " + threadName) << " (error code: " << rc
-                 << ").";
+    LOG(WARNING) << "Failed to set thread CPU affinity" << onThread << " (error code: " << rc << ").";
     return false;
   }
 
-  std::ostringstream oss;
-  for (size_t i = 0; i < validCores.size(); ++i) {
-    oss << validCores[i] << (i + 1 < validCores.size() ? "," : "");
-  }
-  LOG(INFO) << "[ThreadAffinity] Successfully pinned " << (threadName.empty() ? "thread" : threadName) << " to CPU core(s): [" << oss.str()
-            << "]";
+  LOG(INFO) << "[ThreadAffinity] Successfully pinned " << (threadName.empty() ? "thread" : threadName) << " to CPU core(s): ["
+            << absl::StrJoin(validCores, ",") << "]";
 
   return true;
 }
@@ -143,19 +139,31 @@ inline SystemCoreAllocation coreAllocationFor(const std::vector<int>& cores) {
   const size_t numCores = cores.size();
   SystemCoreAllocation alloc;
   // LINT.IfChange(viewer_cores)
-  if (numCores >= 16) {
-    appendCores(cores, /*first=*/0, /*last=*/4, alloc.simCores);
-    appendCores(cores, /*first=*/4, /*last=*/6, alloc.mrtCores);
-    appendCores(cores, /*first=*/6, /*last=*/16, alloc.mpcCores);
-    appendCores(cores, /*first=*/16, numCores, alloc.viewerCores);
-  } else if (numCores >= 8) {
-    appendCores(cores, /*first=*/0, /*last=*/2, alloc.simCores);
-    appendCores(cores, /*first=*/2, /*last=*/3, alloc.mrtCores);
-    appendCores(cores, /*first=*/3, numCores, alloc.mpcCores);
-  } else if (numCores >= 4) {
-    appendCores(cores, /*first=*/0, /*last=*/1, alloc.simCores);
-    appendCores(cores, /*first=*/1, /*last=*/2, alloc.mrtCores);
-    appendCores(cores, /*first=*/2, numCores, alloc.mpcCores);
+  // The tiers by the number of cores, and where each partition ends in them: the simulation's cores come first, then
+  // the MRT's, then the MPC's (and on the largest tier the viewer's).
+  constexpr int kLargeTierMinCores = 16;
+  constexpr int kLargeTierSimEnd = 4;
+  constexpr int kLargeTierMrtEnd = 6;
+  constexpr int kLargeTierMpcEnd = 16;
+  constexpr int kMediumTierMinCores = 8;
+  constexpr int kMediumTierSimEnd = 2;
+  constexpr int kMediumTierMrtEnd = 3;
+  constexpr int kSmallTierMinCores = 4;
+  constexpr int kSmallTierSimEnd = 1;
+  constexpr int kSmallTierMrtEnd = 2;
+  if (numCores >= kLargeTierMinCores) {
+    appendCores(cores, /*first=*/0, kLargeTierSimEnd, alloc.simCores);
+    appendCores(cores, kLargeTierSimEnd, kLargeTierMrtEnd, alloc.mrtCores);
+    appendCores(cores, kLargeTierMrtEnd, kLargeTierMpcEnd, alloc.mpcCores);
+    appendCores(cores, kLargeTierMpcEnd, numCores, alloc.viewerCores);
+  } else if (numCores >= kMediumTierMinCores) {
+    appendCores(cores, /*first=*/0, kMediumTierSimEnd, alloc.simCores);
+    appendCores(cores, kMediumTierSimEnd, kMediumTierMrtEnd, alloc.mrtCores);
+    appendCores(cores, kMediumTierMrtEnd, numCores, alloc.mpcCores);
+  } else if (numCores >= kSmallTierMinCores) {
+    appendCores(cores, /*first=*/0, kSmallTierSimEnd, alloc.simCores);
+    appendCores(cores, kSmallTierSimEnd, kSmallTierMrtEnd, alloc.mrtCores);
+    appendCores(cores, kSmallTierMrtEnd, numCores, alloc.mpcCores);
   } else {
     // Under 4 cores: do not restrict
     alloc.simCores = cores;

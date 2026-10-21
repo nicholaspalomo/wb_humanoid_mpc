@@ -67,10 +67,10 @@ namespace {
 
 constexpr scalar_t kInitTime = 1.5;
 constexpr scalar_t kHorizon = 1.0;
-// The share of the horizon of the first segment, and the share of the command the filter lets through on the first call
-// after construction (1 - 0.8).
+// The share of the horizon of the first segment, and the share of the command that reaches the knots: all of it, since
+// the calculator does not filter the command (ProceduralMpcMotionManager does, on the solver time).
 constexpr scalar_t kFirstSegmentShare = 0.7;
-constexpr scalar_t kFirstCommandFactor = 0.2;
+constexpr scalar_t kFirstCommandFactor = 1.0;
 
 /** The G1 whole-body model and target calculator of the shipped files, and the task file's initial state. */
 struct WholeBodyCalculator {
@@ -156,7 +156,8 @@ TEST(WBIntermediateKnotMeasuredRate, TheKnotsLieOnTheArcOfTheirTwistAndMoveAtThe
   ASSERT_TRUE(g1.ok()) << g1.status();
   const PlanarPose start{.position = vector2_t(-1.0, 2.0), .heading = 2.5};
   const BasePlanarMotion measured{.velocityInHeadingFrame = vector2_t(0.25, -0.05), .headingRate = 0.6};
-  const vector4_t command(0.5, 0.2, 0.0, 0.9);
+  // The command the calculator used to see after its per-call filter (1 - 0.8 of it), so that the knots stay unsubdivided.
+  const vector4_t command(0.1, 0.04, 0.0, 0.18);
   const TargetTrajectories targets =
       g1->calculator->commandedVelocityToTargetTrajectories(command, kInitTime, standingAt(*g1, start), measured);
   ASSERT_EQ(targets.stateTrajectory.size(), 3);
@@ -197,7 +198,7 @@ TEST(WBIntermediateKnotMeasuredRate, OnAStraightLineTheFirstSegmentIsTheTrapezoi
 TEST(WBIntermediateKnotMeasuredRate, AFastMeasuredTurnIsCutIntoKnotsAtMostAQuarterTurnApart) {
   absl::StatusOr<WholeBodyCalculator> g1 = loadG1();
   ASSERT_TRUE(g1.ok()) << g1.status();
-  // A spin of 9 rad/s: the first segment turns by 0.7 T (9 + 0.2) / 2 = 3.22 rad, past pi. Cut into at least the three
+  // A spin of 9 rad/s: the first segment turns by 0.7 T (9 + 1) / 2 = 3.5 rad, past pi. Cut into at least the three
   // parts of the yaw spacing, more for the chord of the turning velocity target (knotSubdivisionCount()).
   const PlanarPose start{.position = vector2_t(0.2, 0.1), .heading = 0.3};
   const BasePlanarMotion measured{.velocityInHeadingFrame = vector2_t(0.3, 0.1), .headingRate = 9.0};

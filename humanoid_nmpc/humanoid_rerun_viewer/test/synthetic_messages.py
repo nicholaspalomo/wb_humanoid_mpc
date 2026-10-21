@@ -82,6 +82,10 @@ def robot_dependent_names(
         return tuple(f"x{index}" for index in range(state_dim))
     if group.names_rule == telemetry_contract.INPUT_NAMES_RULE:
         return tuple(f"u{index}" for index in range(input_dim))
+    if group.names_rule == telemetry_contract.COST_TERM_NAMES_RULE:
+        return ("intermediate/tracking", "final/terminal")
+    if group.names_rule == telemetry_contract.CONSTRAINT_TERM_NAMES_RULE:
+        return ("equality/eq", "inequality/friction")
     raise ValueError(f"no names for the rule of '{group.path}'")
 
 

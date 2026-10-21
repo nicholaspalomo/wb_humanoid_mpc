@@ -29,15 +29,19 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/contact_planning/constraint/ZmpSupportRegionConstraint.h"
 
+#include <array>
 #include <cmath>
 #include <functional>
 #include <string>
 
 #include "absl/strings/str_cat.h"
+#include "ocs2_core/Dimensions.h"
+
+#include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
 
 namespace ocs2::humanoid {
 
-static_assert(kNumContacts == 2, "the support region rows are written for a biped");
+static_assert(kNumContacts == kBipedFootCount, "the support region rows are written for a biped");
 
 std::string ZmpSupportRegionConstraint::describe() const {
   return absl::StrCat("zmp in the support region, box half-widths (", halfWidthX_, ", ", halfWidthY_,
@@ -52,35 +56,46 @@ void ZmpSupportRegionConstraint::configure(const ContactPlanningConfig& config) 
 
 void ZmpSupportRegionConstraint::addRows(const ContactPlanningContext& ctx, int node, RowBuilder& rows) const {
   const scalar_t M = ctx.bigM;
-  const std::array<vector2_t, 2>& axes = ctx.axesAt(node);
-  const std::array<scalar_t, 2> halfWidth{halfWidthX_, halfWidthY_};
-  // +-e_j'(zmp - p_i), with the sign folded in.
-  const std::function<void(size_t, int, scalar_t, Coefficients&, Coefficients&)> zmpMinusFoot = [&](size_t foot, int axis, scalar_t sign,
-                                                                                                    Coefficients& xc, Coefficients& uc) {
-    for (int w = 0; w < 2; ++w) {
-      xc.emplace_back(idx_.foot[foot][w], -sign * axes[static_cast<size_t>(axis)](w));
-      uc.emplace_back(idx_.zmp[w], sign * axes[static_cast<size_t>(axis)](w));
-    }
-  };
-  // Single-support boxes: +-e_j'(zmp - p_i) <= r_j + M (1 - c_i) + M c_other.
+  const std::array<vector2_t, kHorizontalPositionDim>& axes = ctx.axesAt(node);
+  const std::array<scalar_t, kHorizontalPositionDim> halfWidth{halfWidthX_, halfWidthY_};
+  // +-e_j'(zmp - p_i) in the frame `frame`, with the sign folded in.
+  const std::function<void(const std::array<vector2_t, kHorizontalPositionDim>&, size_t, int, scalar_t, Coefficients&, Coefficients&)>
+      zmpMinusFoot = [&](const std::array<vector2_t, kHorizontalPositionDim>& frame, size_t foot, int axis, scalar_t sign, Coefficients& xc,
+                         Coefficients& uc) {
+        for (int w = 0; w < kHorizontalPositionDim; ++w) {
+          xc.emplace_back(idx_.foot[foot][w], -sign * frame[static_cast<size_t>(axis)](w));
+          uc.emplace_back(idx_.zmp[w], sign * frame[static_cast<size_t>(axis)](w));
+        }
+      };
+  // Single-support boxes, in the stance foot's own footprint frame: +-e_j(psi_i)'(zmp - p_i) <= r_j + M (1 - c_i) +
+  // M c_other. The box is the footprint, so it turns with the foot and not with the heading: the heading model lets a
+  // stance foot sit up to the hip yaw range away from the heading, and a box aligned with the heading then admitted
+  // ZMPs past the footprint's corners and refused ones inside it. psi_i is a decision variable, so the frame is the
+  // foot's NOMINAL yaw psi_n (ContactPlanningContext::footAxes), the linearization of e_j(psi)'(zmp - p_i) about
+  // (psi_n, zmp - p_i = 0): its first-order heading term (e_j'(psi_n) . 0) (psi - psi_n) vanishes, and what is left out
+  // is the product |zmp - p_i| |psi_i - psi_n| <= |r| |psi_i - psi_n|, which the heading re-linearization drives to zero.
+  // A stance foot's yaw is pinned while it is down (foot_yaw_pinned_in_contact), so for the foot standing at planning
+  // time the nominal is its measured yaw and the box is exact.
   for (size_t foot = 0; foot < kNumContacts; ++foot) {
     const size_t other = 1 - foot;
-    for (int axis = 0; axis < 2; ++axis) {
+    const std::array<vector2_t, kHorizontalPositionDim>& footprint = ctx.footAxesAt(node, foot);
+    for (int axis = 0; axis < kHorizontalPositionDim; ++axis) {
       for (const scalar_t sign : {1.0, -1.0}) {
         Coefficients xc;
         Coefficients uc;
-        zmpMinusFoot(foot, axis, sign, xc, uc);
+        zmpMinusFoot(footprint, foot, axis, sign, xc, uc);
         uc.emplace_back(idx_.contact[foot], M);
         uc.emplace_back(idx_.contact[other], -M);
         rows.addSoft(xc, uc, -kLipLooseBound, halfWidth[static_cast<size_t>(axis)] + M, penalty_);
       }
     }
   }
-  // Double support, heading axis: +-e_x'(zmp - (p_L + p_R) / 2) <= r_x + M (1 - c_L) + M (1 - c_R).
+  // Double support, in the heading frame (the region is the bounding box of the two feet, see the class comment, and no
+  // single foot's frame is the right one for it): +-e_x'(zmp - (p_L + p_R) / 2) <= r_x + M (1 - c_L) + M (1 - c_R).
   for (const scalar_t sign : {1.0, -1.0}) {
     Coefficients xc;
     Coefficients uc;
-    for (int w = 0; w < 2; ++w) {
+    for (int w = 0; w < kHorizontalPositionDim; ++w) {
       xc.emplace_back(idx_.foot[0][w], -0.5 * sign * axes[0](w));
       xc.emplace_back(idx_.foot[1][w], -0.5 * sign * axes[0](w));
       uc.emplace_back(idx_.zmp[w], sign * axes[0](w));
@@ -102,7 +117,7 @@ void ZmpSupportRegionConstraint::addRows(const ContactPlanningContext& ctx, int 
   {
     Coefficients xc;
     Coefficients uc;  // e_y'(zmp - p_L) <= r + M (1 - c_L) + M (1 - c_R)
-    zmpMinusFoot(/*foot=*/0, /*axis=*/1, /*sign=*/1.0, xc, uc);
+    zmpMinusFoot(axes, /*foot=*/0, /*axis=*/1, /*sign=*/1.0, xc, uc);
     uc.emplace_back(idx_.contact[0], M);
     uc.emplace_back(idx_.contact[1], M);
     rows.addSoft(xc, uc, -kLipLooseBound, halfWidth[1] + 2.0 * M, penalty_);
@@ -110,7 +125,7 @@ void ZmpSupportRegionConstraint::addRows(const ContactPlanningContext& ctx, int 
   {
     Coefficients xc;
     Coefficients uc;  // -e_y'(zmp - p_R) <= r + M (1 - c_L) + M (1 - c_R)
-    zmpMinusFoot(/*foot=*/1, /*axis=*/1, /*sign=*/-1.0, xc, uc);
+    zmpMinusFoot(axes, /*foot=*/1, /*axis=*/1, /*sign=*/-1.0, xc, uc);
     uc.emplace_back(idx_.contact[0], M);
     uc.emplace_back(idx_.contact[1], M);
     rows.addSoft(xc, uc, -kLipLooseBound, halfWidth[1] + 2.0 * M, penalty_);

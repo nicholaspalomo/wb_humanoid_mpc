@@ -36,20 +36,22 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 #include "absl/base/nullability.h"
+#include "ocs2_core/Dimensions.h"
 
 #include "humanoid_common_mpc/mrt/ControlMode.h"
 
 namespace ocs2::humanoid {
 
 SimFallRecovery::SimFallRecovery(const Config& config,
-                                 const robot::mujoco_sim_interface::MujocoSimInterface& robotInterface,
+                                 robot::mujoco_sim_interface::MujocoSimInterface* absl_nonnull simulator,
                                  std::vector<size_t> restJointIndices,
                                  RealtimeEventLog* absl_nullable eventLog)
     : config_(config),
+      simulator_(simulator),
       restJointIndices_(std::move(restJointIndices)),
       eventLog_(eventLog),
-      lastResetEpoch_(robotInterface.resetEpoch()),
-      lastGantryLocked_(robotInterface.isGantryLocked()) {}
+      lastResetEpoch_(simulator->resetEpoch()),
+      lastGantryLocked_(simulator->isGantryLocked()) {}
 
 scalar_t SimFallRecovery::baseTiltAngle(const quaternion_t& baseRotationLocalToWorld) {
   // The base's own vertical, expressed in the world: the third column of its rotation matrix. Its angle to the world
@@ -57,7 +59,7 @@ scalar_t SimFallRecovery::baseTiltAngle(const quaternion_t& baseRotationLocalToW
   // on the spot reads zero tilt exactly like one that has not. The clamp keeps a matrix entry that rounds just past
   // one from producing a NaN, which would compare false against the threshold and silently disable the recovery.
   const matrix3_t baseRotation = baseRotationLocalToWorld.toRotationMatrix();
-  return std::acos(std::clamp<scalar_t>(baseRotation(2, 2), -1.0, 1.0));
+  return std::acos(std::clamp<scalar_t>(baseRotation(kZAxisIndex, kZAxisIndex), -1.0, 1.0));
 }
 
 bool SimFallRecovery::isAtRest(const robot::model::RobotState& robotState,
@@ -104,8 +106,8 @@ void SimFallRecovery::enterPhase(Phase phase, scalar_t time) {
 
 SimFallRecovery::Cycle SimFallRecovery::update(const robot::model::RobotState& robotState,
                                                const std::vector<scalar_t>& nominalJointPositions,
-                                               robot::mujoco_sim_interface::MujocoSimInterface& robotInterface,
                                                std::string& currentModeName) {
+  robot::mujoco_sim_interface::MujocoSimInterface& robotInterface = *simulator_;
   Cycle cycle;
   // The lock is read before the epoch. The simulator counts a reset in the epoch before it locks the gantry
   // (MujocoSimInterface::resetAndCatch()), so a reset that lands between the two reads is always seen as the reset it is:
@@ -143,6 +145,8 @@ SimFallRecovery::Cycle SimFallRecovery::update(const robot::model::RobotState& r
   }
 
   if (cycle.discontinuity) {
+    // The simulator put the base back, or the gantry took it: nothing the robot's sensors would have seen.
+    cycle.baseRelocated = true;
     // JOINT_PD is the only mode that is safe on the gantry: the whole-body MPC is overconstrained against a pinned base.
     if (robotInterface.isZeroTorqueMode()) robotInterface.enableTorques();
     currentModeName.assign(control_mode::kJointPd.data(), control_mode::kJointPd.size());
@@ -165,7 +169,7 @@ SimFallRecovery::Cycle SimFallRecovery::update(const robot::model::RobotState& r
   }
 
   if (phase_ != Phase::kIdle) {
-    stepSettleSequence(robotState, nominalJointPositions, robotInterface);
+    stepSettleSequence(robotState, nominalJointPositions);
     if (phase_ != Phase::kIdle && control_mode::isMpc(currentModeName)) {
       if (!refusalReported_) {
         report(RealtimeEventCode::kMpcModeRefusedWhileSettling, static_cast<int32_t>(phase_), currentModeName);
@@ -181,9 +185,8 @@ SimFallRecovery::Cycle SimFallRecovery::update(const robot::model::RobotState& r
   return cycle;
 }
 
-void SimFallRecovery::stepSettleSequence(const robot::model::RobotState& robotState,
-                                         const std::vector<scalar_t>& nominalJointPositions,
-                                         robot::mujoco_sim_interface::MujocoSimInterface& robotInterface) {
+void SimFallRecovery::stepSettleSequence(const robot::model::RobotState& robotState, const std::vector<scalar_t>& nominalJointPositions) {
+  robot::mujoco_sim_interface::MujocoSimInterface& robotInterface = *simulator_;
   const scalar_t time = robotState.getTime();
   const scalar_t elapsed = std::max<scalar_t>(0.0, time - phaseStartTime_);
   const scalar_t liftedHeight = standingGantryHeight_ + config_.catchLift;

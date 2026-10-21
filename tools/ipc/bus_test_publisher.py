@@ -25,13 +25,13 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-"""Test helpers: a raw pyzmq PUB socket on an ephemeral loopback port, and a network file that names it.
+"""Test helpers: publishers of raw bus messages on the test process's own DDS domain, and its network file.
 
-The publisher frames its messages exactly as the bus does ([topic][full type name][payload], see
-humanoid_nmpc/docs/distributed_runtime/README.md) without using any bus library, so the tests check the tool against
-the documented contract rather than against another implementation of it. It publishes repeatedly from a thread until
-stopped, which makes the tests independent of ZeroMQ's subscription latency (a SUB socket that has just connected
-misses what was sent before its subscription arrived).
+Every test process has a DDS domain and tag of its own (robot_ipc.isolated_test_network()), so that the tests Bazel
+runs at once never see each other's samples; the network file this module writes names it, and the tool under test
+joins it from that file. A publisher writes its messages repeatedly from a thread until stopped, which makes the tests
+independent of DDS discovery (a listener of every topic discovers a topic from its writer, and gets only what is written
+after that). raw_envelope_writer() writes envelopes a bus would never write (another wire protocol version).
 """
 
 from collections.abc import Sequence
@@ -39,43 +39,59 @@ import os
 import threading
 import uuid
 
-import zmq
+import cyclonedds.domain
+import cyclonedds.pub
+import cyclonedds.qos
+import cyclonedds.topic
 
-LOOPBACK = "127.0.0.1"
+import robot_ipc
+
 DEFAULT_PERIOD_S = 0.01
+# The nodes of the test network, which the publishers publish as.
+NODES = ("robot", "mpc")
+# A reliable raw write waits this long for acknowledgments at most [ns].
+_RAW_WRITE_BLOCKING_NS = 1_000_000_000
+_RAW_WRITER_HISTORY_DEPTH = 64
 
 
 def unique_topic(name: str) -> str:
-    """A topic no other test publishes, so that tests sharing the loopback interface never see each other."""
+    """A topic no other test of this process publishes, so that tests never see each other's messages."""
     return f"test/{name}_{uuid.uuid4().hex[:8]}"
 
 
-def frames(topic: str, type_name: str, payload: bytes) -> list[bytes]:
-    """The three frames of a bus message: its topic, its full type name and its payload."""
-    return [topic.encode("utf-8"), type_name.encode("utf-8"), payload]
+def network() -> robot_ipc.NetworkConfig:
+    """The network of this test process: its own domain and tag, NODES on 127.0.0.1."""
+    return robot_ipc.isolated_test_network(list(NODES))
 
 
-class FramePublisher:
-    """A PUB socket bound to tcp://127.0.0.1:<ephemeral port> that publishes its messages round-robin."""
+def message(topic: str, type_name: str, payload: bytes) -> tuple[str, str, bytes]:
+    """A message of `topic` carrying `payload` as the type `type_name` names."""
+    return (topic, type_name, payload)
 
-    def __init__(self, context: zmq.Context | None = None) -> None:
-        self._context = context if context is not None else zmq.Context.instance()
-        self._socket = self._context.socket(zmq.PUB)
-        self._socket.setsockopt(zmq.LINGER, 0)
-        self._socket.bind(f"tcp://{LOOPBACK}:*")
-        endpoint = self._socket.getsockopt(zmq.LAST_ENDPOINT).decode("ascii")
-        self.port = int(endpoint.rsplit(":", 1)[1])
+
+class MessagePublisher:
+    """A bus publishing as one node of the test network, writing its messages round-robin from a thread.
+
+    Args:
+        node: the node of NODES to publish as.
+    """
+
+    def __init__(self, node: str = "mpc") -> None:
+        self._bus = robot_ipc.Bus(node, network())
+        self._bus.start()
         self.published = 0
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
 
     def start(
-        self, messages: Sequence[list[bytes]], period_s: float = DEFAULT_PERIOD_S
-    ) -> "FramePublisher":
-        """Publishes `messages` in turn every `period_s` seconds, on a thread that owns the socket from now on.
+        self,
+        messages: Sequence[tuple[str, str, bytes]],
+        period_s: float = DEFAULT_PERIOD_S,
+    ) -> "MessagePublisher":
+        """Publishes `messages` in turn every `period_s` seconds, on a thread of its own.
 
         Args:
-          messages: The messages to publish round-robin, each a list of frames (frames()).
+          messages: The messages to publish round-robin (message()).
           period_s: The time between two messages, in seconds.
 
         Returns:
@@ -87,62 +103,80 @@ class FramePublisher:
         self._thread.start()
         return self
 
-    def _publish(self, messages: list[list[bytes]], period_s: float) -> None:
+    def _publish(self, messages: list[tuple[str, str, bytes]], period_s: float) -> None:
         index = 0
-        try:
-            while not self._stop.is_set():
-                self._socket.send_multipart(messages[index % len(messages)])
-                self.published += 1
-                index += 1
-                self._stop.wait(period_s)
-        finally:
-            self._socket.close()
+        while not self._stop.is_set():
+            topic, type_name, payload = messages[index % len(messages)]
+            self._bus.publish_raw(topic, type_name, payload)
+            self.published += 1
+            index += 1
+            self._stop.wait(period_s)
 
     def stop(self) -> None:
-        """Stops publishing and closes the socket; waits up to 5 s for the thread."""
+        """Stops publishing and closes the bus; waits up to 5 s for the thread."""
         self._stop.set()
         if self._thread is not None:
             self._thread.join(timeout=5.0)
-        else:
-            self._socket.close()
+        self._bus.close()
 
-    def __enter__(self) -> "FramePublisher":
+    def __enter__(self) -> "MessagePublisher":
         return self
 
     def __exit__(self, *exc_info: object) -> None:
         self.stop()
 
 
-def write_network_file(directory: str, ports: dict[str, int]) -> str:
-    """A network file in `directory` with one loopback node per entry of `ports`.
+class RawEnvelopeWriter:
+    """A DDS writer of robot_ipc::Envelope samples on one topic of the test domain, outside any bus.
 
-    The file is a textproto of robot_ipc_proto.NetworkConfig (robot_runtime/robot_ipc/proto/network_config.proto),
-    written by hand rather than by the bus library, as a user would write it.
+    The domain must exist in this process already (a bus of the test network holds it), so that the writer joins it
+    with the test network's configuration.
+
+    Args:
+        topic: the topic to write.
+    """
+
+    def __init__(self, topic: str) -> None:
+        self._participant = cyclonedds.domain.DomainParticipant(network().domain_id)
+        self._writer = cyclonedds.pub.DataWriter(
+            self._participant,
+            cyclonedds.topic.Topic(self._participant, topic, robot_ipc.Envelope),
+            qos=cyclonedds.qos.Qos(
+                cyclonedds.qos.Policy.Reliability.Reliable(
+                    max_blocking_time=_RAW_WRITE_BLOCKING_NS
+                ),
+                cyclonedds.qos.Policy.History.KeepLast(_RAW_WRITER_HISTORY_DEPTH),
+            ),
+        )
+        self._sequence = 0
+
+    def write(self, protocol_version: int, type_name: str, payload: bytes) -> None:
+        """Writes one envelope with the next sequence number."""
+        self._sequence += 1
+        self._writer.write(
+            robot_ipc.Envelope(
+                protocol_version,
+                self._sequence,
+                type_name,
+                payload,
+            )
+        )
+
+    def matched(self) -> bool:
+        """Whether a reader has matched the writer."""
+        return self._writer.get_publication_matched_status().current_count > 0
+
+
+def write_network_file(directory: str) -> str:
+    """The test network's file in `directory`, as robot_ipc.format_network_config() writes it.
 
     Args:
       directory: Where to write the file, network.textproto.
-      ports: The port of each node, by node name.
 
     Returns:
       The path of the file.
     """
     path = os.path.join(directory, "network.textproto")
     with open(path, "w", encoding="utf-8") as stream:
-        for name, port in ports.items():
-            stream.write(
-                f'nodes {{ name: "{name}" host: "{LOOPBACK}" port: {port} }}\n'
-            )
+        stream.write(robot_ipc.format_network_config(network()))
     return path
-
-
-def unused_port() -> int:
-    """A loopback port nothing listens on right now: bound once by ZeroMQ, then released."""
-    socket = zmq.Context.instance().socket(zmq.PUB)
-    try:
-        socket.setsockopt(zmq.LINGER, 0)
-        socket.bind(f"tcp://{LOOPBACK}:*")
-        return int(
-            socket.getsockopt(zmq.LAST_ENDPOINT).decode("ascii").rsplit(":", 1)[1]
-        )
-    finally:
-        socket.close()

@@ -3,9 +3,10 @@
 # Unitree G1 (29-DoF) Joint Proportional and Derivative (PD) Controller Gains
 # Units: Kp in [N*m/rad], Kd in [N*m*s/rad]
 
-# torque_limit is read by the MRT joint controller, which clamps the commanded joint torque against it and
-# falls back to a hard-coded 500 N*m for any joint that does not carry one. These values are the model's own
-# actuatorfrcrange, so the controller and the simulator now agree on what each actuator can deliver.
+# torque_limit is read by the MRT joint controller, which clamps the commanded feedforward torque of every joint against
+# it, in every mode; a joint this file does not name gets default_gains' limit, which default_gains must set (the
+# controller has no gains of its own). These values are the model's own actuatorfrcrange, so the controller and the
+# simulator agree on what each actuator can deliver.
 default_gains {
   kp: 150.0
   kd: 8.0

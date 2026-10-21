@@ -40,7 +40,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
+#include "absl/strings/numbers.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
 #include "gtest/gtest.h"
@@ -244,13 +246,126 @@ TEST(WebViewerServerTest, APageComingBackToAnIdleRendererGetsAFreshFrame) {
   renderer.join();
   EXPECT_EQ(fresh.status, 200);
   EXPECT_EQ(fresh.header("X-Frame-Sequence"), "2");
-  // With no fresh frame within 2 s, the stale one is still newer than what the page shows.
-  absl::SleepFor(absl::Milliseconds(200));
+  // The page comes back after the lease lapsed (the renderer idled): with no fresh frame within 2 s, the stale one is
+  // still newer than what the page shows.
+  absl::SleepFor(ViewerFrameMailbox::kDemandLease + absl::Milliseconds(200));
   const absl::Time start = absl::Now();
   const HttpReply stale = get(test->server->port(), "/frame.jpg?after=1");
   EXPECT_EQ(stale.status, 200);
   EXPECT_EQ(stale.header("X-Frame-Sequence"), "2");
   EXPECT_GE(absl::Now() - start, absl::Milliseconds(1900));
+}
+
+// A frame published while the page's lease keeps the renderer busy is fresh, however old in frame periods: a renderer
+// below half its target rate (llvmpipe at 60 fps) never idled. This used to wait 2 s for a next frame.
+TEST(WebViewerServerTest, AFrameOfABusyRendererIsFreshWhateverItsAge) {
+  absl::StatusOr<TestServer> test = test_support::startTestServer(test_support::testServerOptions());
+  ASSERT_TRUE(test.ok()) << test.status();
+  ViewerFrameMailbox* absl_nonnull mailbox = test->mailbox.get();
+  ViewerStatus status;
+  status.render.targetFps = 60;
+  mailbox->publishStatus(status);
+  std::thread renderer([mailbox] {
+    absl::SleepFor(absl::Milliseconds(100));
+    mailbox->publish(test_support::opaqueFrame(/*bytes=*/100));
+  });
+  EXPECT_EQ(get(test->server->port(), "/frame.jpg?after=0").header("X-Frame-Sequence"), "1");
+  renderer.join();
+  mailbox->publish(test_support::opaqueFrame(/*bytes=*/200));
+  absl::SleepFor(absl::Milliseconds(100));  // six frame periods at 60 fps, inside the lease
+  const absl::Time start = absl::Now();
+  const HttpReply next = get(test->server->port(), "/frame.jpg?after=1");
+  EXPECT_EQ(next.status, 200);
+  EXPECT_EQ(next.header("X-Frame-Sequence"), "2");
+  EXPECT_LT(absl::Now() - start, absl::Milliseconds(500)) << "a frame of a busy renderer was taken for an idle one's";
+}
+
+// GET /frame.jpg without after= on an idle renderer's frame: the next frame within 2 s, else 503.
+TEST(WebViewerServerTest, ASnapshotOfAStaleFrameWaitsForTheNext) {
+  absl::StatusOr<TestServer> test = test_support::startTestServer(test_support::testServerOptions());
+  ASSERT_TRUE(test.ok()) << test.status();
+  ViewerFrameMailbox* absl_nonnull mailbox = test->mailbox.get();
+  ViewerStatus status;
+  status.render.targetFps = 30;
+  mailbox->publishStatus(status);
+  mailbox->publish(test_support::opaqueFrame(/*bytes=*/100));
+  absl::SleepFor(absl::Milliseconds(200));
+  std::thread renderer([mailbox] {
+    absl::SleepFor(absl::Milliseconds(100));
+    mailbox->publish(test_support::opaqueFrame(/*bytes=*/200));
+  });
+  const HttpReply fresh = get(test->server->port(), "/frame.jpg");
+  renderer.join();
+  EXPECT_EQ(fresh.status, 200);
+  EXPECT_EQ(fresh.header("X-Frame-Sequence"), "2");
+
+  absl::SleepFor(ViewerFrameMailbox::kDemandLease + absl::Milliseconds(200));
+  const absl::Time start = absl::Now();
+  const HttpReply none = get(test->server->port(), "/frame.jpg");
+  EXPECT_EQ(none.status, 503);
+  EXPECT_TRUE(absl::StrContains(none.body, "no frame")) << none.body;
+  EXPECT_GE(absl::Now() - start, absl::Milliseconds(1900));
+  EXPECT_EQ(mailbox->activeClients(), 0);
+}
+
+// X-Frame-Age-Ms and /state's ageMs are the time since the frame was published.
+TEST(WebViewerServerTest, TheFrameAgeIsTheTimeSinceItWasPublished) {
+  absl::StatusOr<TestServer> test = test_support::startTestServer(test_support::testServerOptions());
+  ASSERT_TRUE(test.ok()) << test.status();
+  ViewerFrameMailbox* absl_nonnull mailbox = test->mailbox.get();
+  // A page's request keeps the renderer busy, so the frame published after it is fresh.
+  ASSERT_TRUE(mailbox->tryAcquireClient());
+  mailbox->noteFrameRequest();
+  mailbox->releaseClient();
+  mailbox->publish(test_support::opaqueFrame(/*bytes=*/100));
+  absl::SleepFor(absl::Milliseconds(300));
+  const HttpReply frame = get(test->server->port(), "/frame.jpg?after=0");
+  ASSERT_EQ(frame.status, 200);
+  int64_t ageMs = 0;
+  ASSERT_TRUE(absl::SimpleAtoi(frame.header("X-Frame-Age-Ms").value_or(""), &ageMs)) << frame.header("X-Frame-Age-Ms").value_or("");
+  EXPECT_GE(ageMs, 250);
+  EXPECT_LT(ageMs, 2000);
+  const std::string state = get(test->server->port(), "/state").body;
+  constexpr absl::string_view kAgeField = R"("ageMs":)";
+  const size_t field = state.find(kAgeField);
+  ASSERT_NE(field, std::string::npos) << state;
+  int64_t stateAgeMs = 0;
+  const absl::string_view digits = absl::string_view(state).substr(field + kAgeField.size());
+  ASSERT_TRUE(absl::SimpleAtoi(digits.substr(0, digits.find_first_not_of("0123456789")), &stateAgeMs)) << state;
+  EXPECT_GE(stateAgeMs, ageMs);
+}
+
+// /state's `viewers`: the pages (by the id each sends with its frame requests) that pulled a frame within the demand
+// lease, and the open streams. `clients` counts only the requests waiting at that instant, 0 for a page between two
+// pulls.
+TEST(WebViewerServerTest, CountsTheViewersByTheirPagesAndStreams) {
+  absl::StatusOr<TestServer> test = test_support::startTestServer(test_support::testServerOptions());
+  ASSERT_TRUE(test.ok()) << test.status();
+  const int port = test->server->port();
+  test->mailbox->publish(test_support::opaqueFrame(/*bytes=*/10));
+  EXPECT_EQ(get(port, "/frame.jpg?after=0&viewer=0a1b").status, 200);
+  EXPECT_TRUE(absl::StrContains(get(port, "/state").body, R"("viewers":1,)")) << get(port, "/state").body;
+  EXPECT_EQ(get(port, "/frame.jpg?after=0&viewer=0a1b").status, 200);
+  EXPECT_TRUE(absl::StrContains(get(port, "/state").body, R"("viewers":1,)"));
+  EXPECT_EQ(get(port, "/frame.jpg?after=0&viewer=ff").status, 200);
+  EXPECT_TRUE(absl::StrContains(get(port, "/state").body, R"("viewers":2,)")) << get(port, "/state").body;
+  // curl or an old page: demand, but no viewer.
+  EXPECT_EQ(get(port, "/frame.jpg?after=0").status, 200);
+  EXPECT_TRUE(absl::StrContains(get(port, "/state").body, R"("viewers":2,)"));
+  for (const char* absl_nonnull const id : {"", "XYZ", "0123456789abcdef0123456789abcdef0"}) {
+    EXPECT_EQ(get(port, absl::StrCat("/frame.jpg?after=0&viewer=", id)).status, 400) << id;
+  }
+  absl::SleepFor(ViewerFrameMailbox::kDemandLease + absl::Milliseconds(200));
+  EXPECT_TRUE(absl::StrContains(get(port, "/state").body, R"("viewers":0,)")) << get(port, "/state").body;
+  {
+    absl::StatusOr<OpenStream> stream = openStream(port);
+    ASSERT_TRUE(stream.ok()) << stream.status();
+    ASSERT_EQ(stream->head.status, 200);
+    EXPECT_TRUE(absl::StrContains(get(port, "/state").body, R"("viewers":1,)")) << get(port, "/state").body;
+  }
+  EXPECT_TRUE(test_support::waitUntil([&test] { return test->mailbox->activeClients() == 0; }, absl::Seconds(2)));
+  absl::SleepFor(ViewerFrameMailbox::kDemandLease + absl::Milliseconds(200));
+  EXPECT_TRUE(absl::StrContains(get(port, "/state").body, R"("viewers":0,)")) << get(port, "/state").body;
 }
 
 TEST(WebViewerServerTest, ASnapshotWithoutFramesFails) {
@@ -357,11 +472,15 @@ void checkTrust(const std::string& address) {
   test->mailbox->publish(test_support::opaqueFrame(/*bytes=*/100));
 
   // Host: the name decides, never the port (a tunnel may use another local port).
-  for (const char* absl_nonnull const host : {"localhost:8080", "LOCALHOST", "127.0.0.1:1", "[::1]:7000", "robot.lan:6090"}) {
+  // An IPv6 Host in any spelling: "[0:0:0:0:0:0:0:1]" is "[::1]".
+  for (const char* absl_nonnull const host :
+       {"localhost:8080", "LOCALHOST", "127.0.0.1:1", "[::1]:7000", "robot.lan:6090", "[0:0:0:0:0:0:0:1]:1"}) {
     const HttpReply reply = fetchOrFail(port, HttpRequest{.method = "GET", .target = "/state", .host = host});
     EXPECT_EQ(reply.status, 200) << host;
   }
-  for (const char* absl_nonnull const host : {"evil.example", "evil.example:6090", "0.0.0.0:6090", "localhost.evil.example", "::1"}) {
+  // Only the loopback names of README.md: not the rest of 127.0.0.0/8, nor ::1 mapped to IPv4.
+  for (const char* absl_nonnull const host : {"evil.example", "evil.example:6090", "0.0.0.0:6090", "localhost.evil.example", "::1",
+                                              "127.0.0.2:6090", "[::ffff:127.0.0.1]:6090"}) {
     const HttpReply reply = fetchOrFail(port, HttpRequest{.method = "GET", .target = "/", .host = host});
     EXPECT_EQ(reply.status, 403) << host;
     expectSecurityHeaders(reply);
@@ -379,7 +498,8 @@ void checkTrust(const std::string& address) {
         << site;
   }
 
-  // POST: the custom header, and an Origin equal to http://<Host> when there is one.
+  // POST: the custom header, and an Origin equal to http:// or https:// and the Host when there is one (https: behind an
+  // HTTPS-terminating forward that keeps the Host).
   EXPECT_EQ(fetchOrFail(port, HttpRequest{.method = "POST", .target = "/input?type=reset_camera"}).status, 403);
   EXPECT_EQ(postFromPage(port, "/input?type=reset_camera").status, 204);
   EXPECT_EQ(fetchOrFail(port, HttpRequest{.method = "POST",
@@ -398,6 +518,24 @@ void checkTrust(const std::string& address) {
                                           .headers = {{"X-MuJoCo-Viewer", "1"}, {"Origin", "null"}}})
                 .status,
             403);
+  struct HostAndOrigin {
+    std::string host;
+    std::string origin;
+    int status = 0;
+  };
+  for (const HostAndOrigin& post : {HostAndOrigin{.host = "localhost:9000", .origin = "https://localhost:9000", .status = 204},
+                                    HostAndOrigin{.host = "robot.lan", .origin = "https://Robot.LAN", .status = 204},
+                                    HostAndOrigin{.host = "localhost:9000", .origin = "https://localhost:9001", .status = 403},
+                                    HostAndOrigin{.host = "localhost:9000", .origin = "https://evil.example", .status = 403},
+                                    HostAndOrigin{.host = "localhost:9000", .origin = "ftp://localhost:9000", .status = 403}}) {
+    EXPECT_EQ(fetchOrFail(port, HttpRequest{.method = "POST",
+                                            .target = "/input?type=reset_camera",
+                                            .host = post.host,
+                                            .headers = {{"X-MuJoCo-Viewer", "1"}, {"Origin", post.origin}}})
+                  .status,
+              post.status)
+        << post.host << " " << post.origin;
+  }
 
   // Bodies are capped at 1 KiB.
   const HttpReply large = fetchOrFail(
@@ -462,6 +600,27 @@ TEST(WebViewerServerTest, QueuesInputAndSettings) {
   EXPECT_TRUE(absl::StrContains(badKey.body, "'key'")) << badKey.body;
   EXPECT_EQ(postFromPage(port, "/input?type=drag&button=left&shift=0&dx=nan&dy=0").status, 400);
   EXPECT_EQ(postFromPage(port, "/input?type=key&key=a&key=b").status, 400);
+  // A repeat with the same value, or the same name spelled otherwise, is a repeat too, and the routes take no body.
+  for (const char* absl_nonnull const target :
+       {"/input?type=key&key=a&key=a", "/input?type=reset_camera&type=reset_camera", "/settings?fps=20&fps=20",
+        "/input?type=key&key=a&key=%61", "/input?type=key&%6Bey=a&key=a"}) {
+    const HttpReply repeated = postFromPage(port, target);
+    EXPECT_EQ(repeated.status, 400) << target;
+    EXPECT_TRUE(absl::StrContains(repeated.body, "more than once")) << target << ": " << repeated.body;
+  }
+  const HttpReply form =
+      fetchOrFail(port, HttpRequest{.method = "POST",
+                                    .target = "/input",
+                                    .headers = {{"X-MuJoCo-Viewer", "1"}, {"Content-Type", "application/x-www-form-urlencoded"}},
+                                    .body = "type=key&key=z"});
+  EXPECT_EQ(form.status, 400);
+  EXPECT_TRUE(absl::StrContains(form.body, "query parameters only")) << form.body;
+  EXPECT_EQ(fetchOrFail(port, HttpRequest{.method = "POST",
+                                          .target = "/settings?fps=7",
+                                          .headers = {{"X-MuJoCo-Viewer", "1"}, {"Content-Type", "text/plain"}},
+                                          .body = "x"})
+                .status,
+            400);
   const HttpReply badSetting = postFromPage(port, "/settings?quality=high");
   EXPECT_EQ(badSetting.status, 400);
   EXPECT_TRUE(absl::StrContains(badSetting.body, "'quality'")) << badSetting.body;
@@ -493,7 +652,8 @@ TEST(WebViewerServerTest, AnswersTheState) {
   test->mailbox->publish(test_support::opaqueFrame(/*bytes=*/10));
   const HttpReply after = get(port, "/state");
   EXPECT_EQ(after.header("Content-Type"), "application/json");
-  EXPECT_TRUE(absl::StrContains(after.body, R"({"clients":0,"maxClients":4,"droppedInputs":0,"frame":{"sequence":1,)")) << after.body;
+  EXPECT_TRUE(absl::StrContains(after.body, R"({"clients":0,"viewers":0,"maxClients":4,"droppedInputs":0,"frame":{"sequence":1,)"))
+      << after.body;
   EXPECT_TRUE(absl::StrContains(after.body, R"("viewer":{"camera":)")) << after.body;
   EXPECT_TRUE(absl::StrContains(after.body, R"("name":"zmp","hotkey":"z","enabled":true)")) << after.body;
 }
@@ -580,14 +740,17 @@ TEST(WebViewerServerTest, CreateRefusesAnAllowedHostWithAPort) {
 // An IPv6 allowed host matches with or without the brackets a Host header puts around it, in any case.
 TEST(WebViewerServerTest, AnIpv6AllowedHostMatchesWithOrWithoutBrackets) {
   WebViewerServerOptions options = test_support::testServerOptions();
-  options.allowedHosts = {"[FE80::1]", "fd00::2"};
+  options.allowedHosts = {"[FE80::1]", "fd00::2", "2001:0DB8:0:0::1", "[FD00:0:0:0:0:0:0:3]", "::ffff:192.168.1.5"};
   absl::StatusOr<TestServer> test = test_support::startTestServer(std::move(options));
   ASSERT_TRUE(test.ok()) << test.status();
   const int port = test->server->port();
-  for (const char* absl_nonnull const host : {"[fe80::1]:6090", "[FE80::1]", "[fd00::2]:80", "[fd00::2]"}) {
+  // A browser sends the RFC 5952 form ("[2001:db8::1]", an IPv4-mapped address in hex); either side may spell it
+  // otherwise.
+  for (const char* absl_nonnull const host : {"[fe80::1]:6090", "[FE80::1]", "[fd00::2]:80", "[fd00::2]", "[2001:db8::1]:6090", "[fd00::3]",
+                                              "[::ffff:c0a8:105]", "[::ffff:192.168.1.5]"}) {
     EXPECT_EQ(fetchOrFail(port, HttpRequest{.method = "GET", .target = "/state", .host = host}).status, 200) << host;
   }
-  for (const char* absl_nonnull const host : {"[fe80::2]:6090", "fe80::1", "[fd00::2]x"}) {
+  for (const char* absl_nonnull const host : {"[fe80::2]:6090", "fe80::1", "[fd00::2]x", "[2001:db8::2]"}) {
     EXPECT_EQ(fetchOrFail(port, HttpRequest{.method = "GET", .target = "/state", .host = host}).status, 403) << host;
   }
 }

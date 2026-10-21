@@ -36,6 +36,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "pinocchio/multibody/joint/joint-generic.hpp"
 #include "pinocchio/multibody/model.hpp"
 
+#include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningModelParameters.h"
 
 /**
@@ -137,4 +138,18 @@ TEST(DeriveHipYawRange, AJointTheModelDoesNotHaveGivesTheFallback) {
 }
 
 }  // namespace
+
+TEST(ContactPlanningModelParameters, TheDoubleSupportCoupleFollowsTheStepWidthOfTheConfigurationItIsAppliedTo) {
+  // The couple of two stance feet is mu * (W / 2) * w for a separation w: applyTo() takes w from the configuration, so
+  // that a reload that moves stepWidth.nominalStepWidth moves the couple as a fresh start with it would.
+  ContactPlanningModelParameters parameters;
+  parameters.doubleSupportYawCouplePerStepWidth = 120.0;  // [N]
+  for (const scalar_t width : {0.18, 0.25, 0.4}) {
+    ContactPlanningConfig config;
+    config.stepWidth.nominalStepWidth = width;
+    parameters.applyTo(config);
+    EXPECT_DOUBLE_EQ(config.yawTorqueBudget.doubleSupportYawCouple, 120.0 * width) << width;
+  }
+}
+
 }  // namespace ocs2::humanoid

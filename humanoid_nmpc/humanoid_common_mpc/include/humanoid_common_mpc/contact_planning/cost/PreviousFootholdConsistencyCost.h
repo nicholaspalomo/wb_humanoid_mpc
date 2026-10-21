@@ -36,7 +36,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-/** `previous_foothold_consistency`: w sum_i ||p_{i,k} - p_{i,prev}(k + shift)||^2 at every node, when a previous plan is usable. */
+/**
+ * `previous_foothold_consistency`: w sum_i ||p_{i,k} - p_{i,prev}(k + shift)||^2 at every node, when a previous plan is usable.
+ *
+ * Not thread-safe, like every ContactPlanningTerm: the planner that owns it configures and evaluates it from one thread at a time.
+ */
 class PreviousFootholdConsistencyCost final : public LipWeightedCost {
  public:
   std::string describe() const override;

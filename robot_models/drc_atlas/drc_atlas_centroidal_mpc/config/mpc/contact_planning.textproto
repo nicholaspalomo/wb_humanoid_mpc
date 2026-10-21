@@ -83,17 +83,17 @@ shared {  # parameters read by more than one term
   }
 # The file is one configuration split into blocks, because ifttt-lint cannot nest the small cross-file pairs below (the
 # pendulum against task.textproto's DCM cost, the two cadences against task.textproto's swing_time_scale) in a file-wide block.
-  # The pendulum, omega = sqrt(gravity / com_height). com_height left out is the robot's own: the model's center of mass
-  # above the mean height of its soles at task.textproto initial_state (computeComHeightAboveFeet), 1.0805 m for this
-  # URDF, so omega = 3.013 rad/s; the planner logs both at start-up. task.textproto dcm_terminal_cost resolves its own
-  # absent com_height with the same function, so the two pendulums agree by construction, and a plan carries the omega it
-  # was made on, which the terminal cost takes the planned DCM with. A positive com_height is an explicit override of the
-  # model; give dcm_terminal_cost.com_height and gravity the same values then.
+  # The pendulum, omega = sqrt(g / com_height), g the robot model's gravity (the one its dynamics use). com_height
+  # left out is the robot's own: the model's center of mass above the mean height of its soles at task.textproto
+  # initial_state (computeComHeightAboveFeet), 1.0805 m for this URDF, so omega = 3.013 rad/s; the planner logs both
+  # at start-up. task.textproto dcm_terminal_cost resolves its own absent com_height with the same function, so the
+  # two pendulums agree by construction, and a plan carries the omega it was made on, which the terminal cost takes
+  # the planned DCM with. A positive com_height is an explicit override of the model; give
+  # dcm_terminal_cost.com_height the same value then. gravity is the robot model's in both.
   # (Until the height was derived both keys were hand-set to 0.85 m, 23 cm below the model's center of mass: omega
   # 3.40 rad/s instead of 3.01, and a deadbeat gain K[1] of 0.476 instead of 0.571 at the cadence below, so the step
   # law was not deadbeat for the robot it ran on.)
   # LINT.IfChange(atlas_pendulum)
-  gravity: 9.81  # [m/s^2]
   # com_height [m], the LIP height: left out, the model's center of mass above its feet at initial_state (1.0805 m).
   # LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.textproto:atlas_dcm_pendulum)
   # Cadence. The stride period the planner can emit is bounded below by
@@ -348,7 +348,8 @@ foot_separation {
   max_step_width: 0.45  # [m]
 }
 # hip_yaw_range and yaw_torque_budget take their values from the robot model: the yaw inertia, the yaw torque limits
-# (torsional friction coefficient * weight, friction coefficient * half the weight * nominal_step_width, both from
+# (torsional friction coefficient, capped at the wrench cone's torsion limit, * weight; the inscribed pyramid's
+# friction coefficient * cos(pi / N) * half the weight * nominal_step_width; both from
 # contact_wrench_cone_soft_constraint) and the per-leg hip yaw range are not keys here.
 contact_switch {
   cost: 0.02  # per lift-off / touch-down event. A faster cadence puts more events in the horizon,

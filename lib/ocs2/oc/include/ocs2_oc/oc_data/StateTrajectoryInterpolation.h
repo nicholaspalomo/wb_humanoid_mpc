@@ -62,7 +62,7 @@ inline vector_t interpolateStateTrajectory(const StateManifold* absl_nullable st
   // LinearInterpolation's alpha is the weight of the left node: 1 at its time, 0 at the right node's. Nodes of different
   // sizes snap to the closer one, as in LinearInterpolation.
   if (lhs.size() != rhs.size()) {
-    return (indexAlpha.second > 0.5) ? lhs : rhs;
+    return (indexAlpha.second > LinearInterpolation::kMidpointWeight) ? lhs : rhs;
   }
   if (indexAlpha.second >= 1.0) {
     return lhs;

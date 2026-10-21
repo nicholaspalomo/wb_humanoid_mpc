@@ -122,6 +122,7 @@ TEST(ModeSequenceTemplateTest, TheDocumentedLayoutsLoad) {
   // The layouts of a gait (gait.textproto's gaits) and of a mode schedule (reference.textproto's
   // initial_mode_schedule), read back by their conversions: the schema describes files the MPC accepts.
   const std::string gaitPath = writeGaitFile("documented_gait_layout.textproto",
+                                             "# proto-message: humanoid_mpc_config.GaitFile\n"
                                              "gait_list: \"walk\"\n"
                                              "gaits {\n"
                                              "  name: \"walk\"\n"
@@ -137,6 +138,7 @@ TEST(ModeSequenceTemplateTest, TheDocumentedLayoutsLoad) {
   EXPECT_EQ(gaits->at("walk").switchingTimes, (std::vector<scalar_t>{0.0, 0.4, 0.8}));
 
   const std::string referencePath = writeGaitFile("documented_schedule_layout.textproto",
+                                                  "# proto-message: humanoid_mpc_config.ReferenceFile\n"
                                                   "initial_mode_schedule {\n"
                                                   "  mode_sequence: [\"STANCE\", \"LF\", \"STANCE\"]\n"
                                                   "  event_times: [0.5, 1.0]\n"
@@ -221,6 +223,13 @@ TEST(ModeSequenceTemplateTest, AMismatchedLengthIsRejected) {
       modeSequenceTemplateFromConfig(gait("short", {"LF", "RF"}, {0.0, 1.0}), "gaits[short]");
   EXPECT_EQ(tooFew.status().code(), absl::StatusCode::kInvalidArgument);
   EXPECT_THAT(tooFew.status().message(), ::testing::HasSubstr("gaits[short].switching_times has 2 times"));
+}
+
+// The log line GaitSchedule writes for its default template: AbslStringify, the same text the stream operator wrote.
+TEST(ModeSequenceTemplateTest, FormatsAsItsSwitchingTimesAndModes) {
+  const ModeSequenceTemplate modeSequenceTemplate(/*switchingTimesInput=*/{0.0, 0.35, 0.7},
+                                                  /*modeSequenceInput=*/{ModeNumber::kStance, ModeNumber::kLf});
+  EXPECT_EQ(absl::StrCat(modeSequenceTemplate), "Template switching times: {0, 0.35, 0.7}\nTemplate mode sequence:   {3, 2}\n");
 }
 
 }  // namespace

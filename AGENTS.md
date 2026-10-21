@@ -103,7 +103,16 @@ a reason to restyle unrelated code in the same change.
   a comment saying why. A `(void)` cast does not count.
 - **Literal arguments** carry `/*parameterName=*/` comments, with the name copied from the callee's declaration
   (`tools/hooks/argument_comments.py`; clang-tidy's `bugprone-argument-comment` checks the names) - not only as a last
-  resort. A literal that the function name already explains (`std::pow(x, 2)`, `v.resize(3)`) needs none.
+  resort. A literal that the function name already explains (`std::pow(x, 2)` or `v.resize(3)` in a test, where
+  literals need no name) needs none.
+- **Magic numbers** are named constants, in production C++ and lib/ocs2: a literal is a
+  `static constexpr T kName = ...;` in its class, a `constexpr` in the .cpp's unnamed namespace or an `inline constexpr`
+  in a shared header, named for what it is (`kPositionDim`, `kDefaultSwingHeight`, never `kThree`) and of the
+  literal's type, so the arithmetic is unchanged, with a short comment when its meaning or unit is not obvious. Exempt:
+  0 and 1, a floating 0.5 or 2.0 as a factor of `*` or `/` (the integer 2 never is), and literals in a constant's
+  definition or an enumerator; tests, test support and test-only libraries, benchmarks, the generated ACoM weight
+  headers, the clang-tidy fixtures and lib/ocs2/thirdparty are not read. A literal that must stay carries
+  `// NOLINT(magic-number): <reason>`. The generic dimensions are in `lib/ocs2/core/include/ocs2_core/Dimensions.h`.
 - **Naming.** Types, constants and enumerators (`kName`), namespaces, macros and the trailing `_` of class data members
   follow the guide. Functions, methods, variables and parameters are camelCase as in OCS2, whose virtual functions we
   override (the guide has PascalCase functions and snake_case variables); match the file you are in. Files are
@@ -115,7 +124,7 @@ a reason to restyle unrelated code in the same change.
   Implementation details may live in a nested `internal` namespace, as `nproto::internal` does.
 - **Exceptions.** First-party code does not throw; it returns `absl::Status` / `absl::StatusOr`. Two boundaries keep
   exceptions, each with a `NOLINT(exceptions): <reason>`: an override of an OCS2 virtual function that has no status
-  channel may throw, and a call into a library that throws (Pinocchio, cppzmq, OCS2's solvers) is wrapped in
+  channel may throw, and a call into a library that throws (Pinocchio, OCS2's solvers) is wrapped in
   one `try` / `catch` that converts the exception to an `absl::Status` at once. Nothing on the realtime thread throws.
 - **`<filesystem>`** is used, although the guide bans it: no Abseil equivalent exists. Use the `std::error_code`
   overloads, which do not throw, and convert failures to `absl::Status`.
@@ -148,6 +157,7 @@ Enforced by:
   (`google-default-arguments`);
 - the checks in `tools/hooks`, which cover:
   - floating-point literals with a radix point (`float-literal`);
+  - named constants instead of magic numbers (`magic-number`);
   - prefix `++` (`postfix-increment`), and `int64_t` / `size_t` without `std::` (`std-integer-type`);
   - no `auto` and no class template argument deduction (`no-auto`, `ctad`);
   - argument comments on literal arguments, `{}`, `""` and `std::nullopt` included (`argument-comment`);
@@ -189,9 +199,12 @@ The base orientation is a unit quaternion (humanoid_nmpc/docs/quaternion_base_or
   `lib/ocs2/pinocchio/centroidal_model/` (`spherical-zyx`);
 - no Euler API - an identifier containing `EulerZyx`, `EulerAnglesZyx` or `ZyxEulerAngles` in any capitalization, or an
   `#include` of `RotationDerivativesTransforms.h` or `orientation/EulerBoundary.h` - in the formulation directories of
-  `humanoid_nmpc/` (`dynamics`, `cost`, `constraint`, `end_effector`, `acom` and `parameter_update` below `src/` and
-  `include/<package>/`) and in the robot-model headers, whose Euler boundary accessors carry
-  `NOLINT(euler-boundary): Euler boundary accessor (design section 4.2)` (`euler-boundary`);
+  `humanoid_nmpc/` (`dynamics`, `cost`, `constraint`, `end_effector`, `acom`, `parameter_update`, `pinocchio_model` and
+  `contact` below `src/` and `include/<package>/`), in the formulation files (`HumanoidPreComputation`,
+  `WBMpcPreComputation`, `orientation/BaseOrientation` and lib/ocs2's `PinocchioEndEffectorKinematicsCppAd`), in
+  `lib/ocs2/pinocchio/centroidal_model/` and in the robot-model headers, whose Euler boundary accessors carry
+  `NOLINT(euler-boundary): Euler boundary accessor (design section 4.2)` (`euler-boundary`; the full list is in
+  `tools/hooks/euler_boundary.py`);
 - no linear interpolation of a state trajectory under `humanoid_nmpc/` outside the robot models: no one-argument
   `getDesiredState(t)` and no `LinearInterpolation::interpolate` of anything but inputs (`state-interpolation`);
 - no quaternion built from four scalars under `humanoid_nmpc/` outside `orientation/`, since Eigen's constructor takes
@@ -343,7 +356,8 @@ Agent rules:
   than sharing an init helper (#74).
 - Define operators, `AbslHashValue` and `AbslStringify` next to their type, never in tests or on generated protos (#49,
   #99, #215).
-- Take read-only sequences as `absl::Span<const T>` (Eigen: `Eigen::Ref<const ...>`) by value (#93).
+- Take read-only sequences as `absl::Span<const T>` by value (#93). Eigen's counterpart is `const Eigen::Ref<const ...>&`:
+  a const `Ref` may own a temporary copy of its argument, so copying it is not cheap (`performance-unnecessary-value-param`).
 - Replace a `bool` parameter with an `enum class` or a registry name (#94).
 - A function that keeps a pointer or reference to an argument takes it as `T* absl_nonnull` and documents how long it
   must live (#116). Pass sink parameters by value and move them (#117).

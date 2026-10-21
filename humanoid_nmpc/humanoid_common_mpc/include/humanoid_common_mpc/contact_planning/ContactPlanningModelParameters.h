@@ -36,14 +36,18 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc/constraint/ContactWrenchConeConstraint.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
 
 namespace ocs2::humanoid {
 
-/** Ground and sole parameters the whole-body wrench cone is built from; the planner's limits are derived from the same. */
+/**
+ * Ground and sole parameters the whole-body wrench cone is built from; the planner's limits are derived from the same,
+ * and the friction coefficients default to the wrench cone's.
+ */
 struct ContactPlanningGroundParameters {
-  scalar_t frictionCoefficient = 0.7;
-  scalar_t torsionalFrictionCoefficient = 0.05;
+  scalar_t frictionCoefficient = ContactWrenchConeConstraint::Config::kDefaultFrictionCoefficient;
+  scalar_t torsionalFrictionCoefficient = ContactWrenchConeConstraint::Config::kDefaultTorsionalFrictionCoefficient;
   scalar_t footprintHalfLengthX = 0.0;  // [m] half extent of the sole along x; 0: unknown
   scalar_t footprintHalfWidthY = 0.0;   // [m] half extent of the sole along y; 0: unknown
 };
@@ -54,19 +58,24 @@ struct ContactPlanningGroundParameters {
  * are never task-file keys and the planner never assumes more than the whole-body constraints allow.
  */
 struct ContactPlanningModelParameters {
-  scalar_t totalMass = 0.0;      // [kg]
+  scalar_t totalMass = 0.0;  // [kg]
+  // [m/s^2] the magnitude of the model's gravity, the one its dynamics use: shared.gravity of every configuration.
+  scalar_t gravity = kGravitationalAcceleration;
   scalar_t comHeight = 0.0;      // [m] center of mass above the mean foot height at the nominal state
   scalar_t zmpHalfWidthX = 0.0;  // [m] sole footprint half extents (0: unknown)
   scalar_t zmpHalfWidthY = 0.0;
-  scalar_t torsionalFrictionTorque = 0.0;                          // [N m] torsional friction coefficient * weight
-  scalar_t doubleSupportYawCouple = 0.0;                           // [N m] friction coefficient * half the weight * nominal step width
+  scalar_t torsionalFrictionTorque = 0.0;  // [N m] torsional friction coefficient * weight
+  // [N] friction coefficient * half the weight: the yaw couple of two stance feet per meter of their separation.
+  // applyTo() multiplies it by the configuration's own stepWidth.nominalStepWidth, so that a reloaded step width moves
+  // the couple as a fresh start with it would.
+  scalar_t doubleSupportYawCouplePerStepWidth = 0.0;
   feet_array_t<scalar_t> footYawOffsetLower = makeFeetArray(0.0);  // [rad] hip yaw joint limits per foot
   feet_array_t<scalar_t> footYawOffsetUpper = makeFeetArray(0.0);
   std::vector<std::string> hipYawJoints;  // per foot, empty where none was found (fallback bounds then)
 
   /**
-   * Writes the derived values into the term blocks of `config`: yaw_torque_budget and hip_yaw_range always; shared.comHeight
-   * only where the file left it unset, and the zmp_support_region box only where the file left it at 0 ("from the model").
+   * Writes the derived values into the term blocks of `config`: shared.gravity, yaw_torque_budget and hip_yaw_range always;
+   * shared.comHeight only where the file left it unset, and the zmp_support_region box only where the file left it at 0 ("from the model").
    */
   void applyTo(ContactPlanningConfig& config) const;
   std::string summary() const;
@@ -98,10 +107,12 @@ HipYawRange deriveHipYawRange(const PinocchioInterface::Model& model, const std:
 
 /**
  * Derives the planner's model parameters from the robot model and the ground parameters of the wrench cone:
+ *  - gravity: the magnitude of the model's gravity (pinocchio::Model::gravity), which the weights below are made with;
  *  - comHeight: the center of mass height above the mean foot height at `nominalState`;
  *  - zmpHalfWidthX / zmpHalfWidthY: the sole's footprint half extents (the center of pressure region);
  *  - torsionalFrictionTorque: torsional friction coefficient * total weight (one stance foot carrying the robot);
- *  - doubleSupportYawCouple: friction coefficient * half the weight * `nominalStepWidth` (the couple of two stance feet);
+ *  - doubleSupportYawCouplePerStepWidth: friction coefficient * half the weight (the couple of two stance feet per
+ *    meter of their separation; applyTo() makes the couple with the configuration's nominal step width);
  *  - foot yaw bounds: the position limits of the hip yaw joint of every leg, as a range of foot yaw (deriveHipYawRange);
  *    a symmetric fallback of ContactPlanningConfig::kDefaultFootYawOffset where no such joint exists.
  * The heading model's yaw inertia is taken from the model at every plan and is not part of this.
@@ -110,8 +121,6 @@ ContactPlanningModelParameters deriveContactPlanningModelParameters(PinocchioInt
                                                                     const MpcRobotModelBase<scalar_t>& mpcRobotModel,
                                                                     const vector_t& nominalState,
                                                                     const std::vector<std::string>& contactParentJointNames,
-                                                                    const ContactPlanningGroundParameters& ground,
-                                                                    scalar_t gravity,
-                                                                    scalar_t nominalStepWidth);
+                                                                    const ContactPlanningGroundParameters& ground);
 
 }  // namespace ocs2::humanoid

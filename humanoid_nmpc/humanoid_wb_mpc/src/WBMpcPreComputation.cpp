@@ -35,6 +35,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <utility>
 
 #include "absl/base/nullability.h"
+#include "ocs2_core/Dimensions.h"
 #include "ocs2_core/misc/Numerics.h"
 #include "pinocchio/algorithm/kinematics.hpp"
 
@@ -69,16 +70,16 @@ WBMpcPreComputation* absl_nonnull WBMpcPreComputation::clone() const {
 /******************************************************************************************************/
 /******************************************************************************************************/
 EndEffectorDynamicsLinearAccConstraint::Config WBMpcPreComputation::normalAccelerationConstraintConfig(size_t footIndex, scalar_t t) const {
-  // v_z - zdot_ref + k_a (a_z - zddot_ref) + k_p (z - z_ref), the position term left out when its gain is 0.
+  // [m/s^2] k_v (v_z - zdot_ref) + k_a (a_z - zddot_ref) + k_p (z - z_ref), the position term left out when its gain is 0.
   EndEffectorDynamicsLinearAccConstraint::Config config;
   config.b = (vector_t(1) << -swingFootGains_.linearVelocityErrorGainZ * swingTrajectoryPlannerPtr_->getZvelocityConstraint(footIndex, t))
                  .finished();
-  config.Av = (matrix_t(1, 3) << 0.0, 0.0, swingFootGains_.linearVelocityErrorGainZ).finished();
+  config.Av = (matrix_t(1, kPositionDim) << 0.0, 0.0, swingFootGains_.linearVelocityErrorGainZ).finished();
   config.b(0) -= swingFootGains_.linearAccelerationErrorGainZ * swingTrajectoryPlannerPtr_->getZaccelerationConstraint(footIndex, t);
-  config.Aa = (matrix_t(1, 3) << 0.0, 0.0, swingFootGains_.linearAccelerationErrorGainZ).finished();
+  config.Aa = (matrix_t(1, kPositionDim) << 0.0, 0.0, swingFootGains_.linearAccelerationErrorGainZ).finished();
   if (!numerics::almost_eq(positionErrorGainZ_, /*y=*/0.0)) {
     config.b(0) -= positionErrorGainZ_ * swingTrajectoryPlannerPtr_->getZpositionConstraint(footIndex, t);
-    config.Ax = (matrix_t(1, 3) << 0.0, 0.0, positionErrorGainZ_).finished();
+    config.Ax = (matrix_t(1, kPositionDim) << 0.0, 0.0, positionErrorGainZ_).finished();
   }
   return config;
 }

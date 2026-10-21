@@ -47,6 +47,8 @@ namespace ocs2::humanoid {
  * It complements velocity_tracking, which alone is indifferent between a few long steps and many short ones at the
  * same average speed and, from rest, favors the short quick steps that accelerate the pendulum fastest: this term ties
  * the step length to the commanded speed, so a ramped command lengthens the steps progressively.
+ *
+ * Not thread-safe, like every ContactPlanningTerm: the planner that owns it configures and evaluates it from one thread at a time.
  */
 class StepLengthCost final : public LipWeightedCost {
  public:

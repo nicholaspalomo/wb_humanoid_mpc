@@ -102,9 +102,9 @@ constexpr std::array<DynamicsWeightField, 18> kDynamicsWeightFields = {{
 
 // LINT.IfChange(inert_foot_cost_weights)
 // The weights of task_space_weights that EndEffectorDynamicsFootCost multiplies by an error that is zero by construction:
-// its position error is zero (the swing height is the swing constraint's). Its orientation error is the shortest arc from
-// the foot's z axis to the plane's normal, which has a component about the world z axis once the normal is tilted (a
-// swing pitch), so orientation_z is not among them.
+// its position error is zero (the swing height is the swing constraint's). Its orientation error is the tilt of the
+// foot's z axis from the plane's normal as a rotation vector (tiltAngleToPlane()), orthogonal to the normal: it has a
+// component about the world z axis once the normal is tilted (a swing pitch), so orientation_z is not among them.
 constexpr std::array<DynamicsWeightField, 3> kInertFootCostWeightFields = {{
     kDynamicsWeightFields[0],
     kDynamicsWeightFields[1],
@@ -123,6 +123,10 @@ absl::StatusOr<EndEffectorDynamicsWeights> endEffectorDynamicsWeightsFromConfig(
     const double value = weights.*entry.field;
     if (!std::isfinite(value)) {
       return absl::InvalidArgumentError(absl::StrCat(path, ".", entry.name, " is ", value, ", but a weight must be finite."));
+    }
+    // The cost weighs each error by the square root of its weight: a negative one is a NaN in the cost.
+    if (value < 0.0) {
+      return absl::InvalidArgumentError(absl::StrCat(path, ".", entry.name, " is ", value, ", but a weight must be non-negative."));
     }
     (result.*entry.weight)(entry.axis) = value;
   }

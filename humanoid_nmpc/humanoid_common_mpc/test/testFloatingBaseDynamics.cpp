@@ -49,6 +49,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
 #include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
+#include "humanoid_nmpc/humanoid_common_mpc/test/support/StatusTestMacros.h"
 
 /**
  * The floating-base inverse dynamics the MPCs share (pinocchio_model/DynamicsHelperFunctions.h), checked against
@@ -194,8 +195,8 @@ class FloatingBaseInverseDynamicsTest : public ::testing::Test {
     const std::string taskFile = runfilePath("robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.textproto");
     const std::string urdfFile = runfilePath("robot_models/unitree_g1/g1_description/urdf/g1_29dof.urdf");
     ASSERT_FALSE(taskFile.empty() || urdfFile.empty()) << "the G1 whole-body files are not in the runfiles";
-    settings_ = std::make_unique<ModelSettings>(ModelSettings::Create(taskFile, urdfFile, "wb_mpc_", /*verbose=*/false).value());
-    pinocchioInterface_ = std::make_unique<PinocchioInterface>(loadCustomPinocchioInterface(taskFile, urdfFile, *settings_).value());
+    settings_ = std::make_unique<ModelSettings>(checkedValue(ModelSettings::Create(taskFile, urdfFile, "wb_mpc_", /*verbose=*/false)));
+    pinocchioInterface_ = std::make_unique<PinocchioInterface>(checkedValue(loadCustomPinocchioInterface(taskFile, urdfFile, *settings_)));
     const pinocchio::Model& model = pinocchioInterface_->getModel();
     // The quaternion root Composite(Translation, Spherical): q = [p_W, xi = (x, y, z, w), q_j], v = [v_W, w_B, dq_j].
     ASSERT_EQ(model.nq, model.nv + 1);

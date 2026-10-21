@@ -375,6 +375,7 @@ def make_row(
             initial_value=low if unset else float(spec.value),
             min_val=low,
             max_val=high,
+            hard_min=spec.tuning.minimum,
             on_change=None,
             label_width=label_width,
             log_scale=spec.tuning.log_scale,

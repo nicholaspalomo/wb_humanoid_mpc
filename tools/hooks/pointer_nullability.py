@@ -177,7 +177,7 @@ def _enclosing_owner(code: tuple[cpp_source.Token, ...], index: int) -> str | No
         elif text == "(":
             if paren == 0:
                 if k > 0 and code[k - 1].text in _TYPE_EXPRESSIONS:
-                    return "(" + code[k - 1].text
+                    return f"({code[k - 1].text}"
             else:
                 paren -= 1
         elif text == ">":

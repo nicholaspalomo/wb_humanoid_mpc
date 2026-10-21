@@ -27,7 +27,7 @@
 
 """Pins what the ROS-free dev container, its image and CI's copy of its setup provide.
 
-The processes talk over ZeroMQ + Protocol Buffers and draw with Rerun (humanoid_nmpc/docs/distributed_runtime), so the
+The processes talk over Cyclone DDS + Protocol Buffers and draw with Rerun (humanoid_nmpc/docs/distributed_runtime), so the
 image is plain Ubuntu with Pinocchio from robotpkg and one VNC display for the MuJoCo viewer and the operator GUI. These
 tests keep ROS from coming back through the image, CI or the container definition; keep the image, CI and the local CI
 emulator on one base, one Pinocchio and one environment; and keep the ports the processes listen on published. They
@@ -124,8 +124,8 @@ _ROS_TRACES = re.compile(
     r"|\bros2 (?:launch|run)\b"
 )
 
-# The second VNC display that only PlotJuggler used, and the DDS discovery ports of ROS 2.
-_REMOVED_PORTS = {5903, 6082, 7400, 7410, 7447}
+# The second VNC display that only PlotJuggler used, and the PUB ports of the ZeroMQ bus that came before DDS.
+_REMOVED_PORTS = {5903, 6082, 5600, 5610, 5620}
 _PLOTJUGGLER_DISPLAY_TRACES = re.compile(
     r"PLOTJUGGLER_DISPLAY|\bPJ_[A-Z_]+|Xvfb[^\n]*:100\b|DISPLAY=:100\b"
 )
@@ -459,15 +459,20 @@ class PortsTest(unittest.TestCase):
     def setUp(self):
         self.published = _published_ports(_read("docker-compose.bridge.yaml"))
 
-    def test_every_node_of_the_network_file_is_published(self):
-        ports = [
-            int(p)
-            for p in re.findall(
-                r"\bport:\s*(\d+)", _read("config/ipc/network.textproto")
-            )
-        ]
-        self.assertTrue(ports, "the network file names no node")
+    def test_the_dds_ports_of_the_network_files_domain_are_published_over_udp(self):
+        # 7400 + 250 * domain_id + 10 + 2 * index and the port after it, for the 20 process indices of one machine
+        # (robot_ipc/DomainConfig.h unicastPortRange()).
+        domain = re.search(
+            r"(?m)^domain_id:\s*(\d+)", _read("config/ipc/network.textproto")
+        )
+        domain_id = int(domain.group(1)) if domain else 0
+        first = 7400 + 250 * domain_id + 10
+        ports = range(first, first + 2 * 20)
         self.assertEqual([p for p in ports if p not in self.published], [])
+        self.assertRegex(
+            _read("docker-compose.bridge.yaml"),
+            rf'"{first}-{first + 39}:{first}-{first + 39}/udp"',
+        )
 
     def test_rerun_vnc_and_jupyter_are_published(self):
         # Rerun's gRPC server and web viewer, noVNC and VNC, Jupyter.
@@ -484,7 +489,7 @@ class PortsTest(unittest.TestCase):
         )
         self.assertIn(6090, _devcontainer()["forwardPorts"])
 
-    def test_the_ports_of_the_plotjuggler_display_and_of_dds_are_gone(self):
+    def test_the_ports_of_the_plotjuggler_display_and_of_zeromq_are_gone(self):
         self.assertEqual(_REMOVED_PORTS & set(self.published), set())
         self.assertEqual(_REMOVED_PORTS & set(_devcontainer()["forwardPorts"]), set())
 
@@ -497,6 +502,20 @@ class PortsTest(unittest.TestCase):
         forwarded = set(devcontainer["forwardPorts"])
         self.assertEqual(forwarded - set(self.published), set())
         self.assertEqual({int(p) for p in devcontainer["portsAttributes"]}, forwarded)
+
+    def test_the_mujoco_ports_say_where_the_viewer_shows(self):
+        # The MuJoCo viewer is on noVNC only with VIEWER=glfw, and the web viewer refuses an editor preview, which frames
+        # it: the label and the README send the user to a browser tab.
+        labels = {
+            port: attributes["label"]
+            for port, attributes in _devcontainer()["portsAttributes"].items()
+        }
+        self.assertIn("VIEWER=glfw", labels["6080"])
+        self.assertIn("Open in Browser", labels["6090"])
+        readme = _read(".devcontainer/README.md")
+        self.assertIn('"Open in Browser"', readme)
+        self.assertIn("Preview in Editor", readme)
+        self.assertNotIn("a loopback address", readme)
 
 
 class DisplayTest(unittest.TestCase):

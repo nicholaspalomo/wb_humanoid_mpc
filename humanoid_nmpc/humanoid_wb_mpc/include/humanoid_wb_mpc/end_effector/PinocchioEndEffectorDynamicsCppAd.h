@@ -30,7 +30,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -39,7 +38,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_core/Types.h"
 #include "ocs2_core/automatic_differentiation/CppAdInterface.h"
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
-#include "ocs2_pinocchio_interface/PinocchioStateInputMapping.h"
 
 #include "humanoid_wb_mpc/common/WBAccelMpcRobotModel.h"
 #include "humanoid_wb_mpc/end_effector/EndEffectorDynamics.h"
@@ -47,56 +45,33 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * This class provides the CppAD implementation the end-effector Kinematics based on pinocchio. No pre-computation
- * is required. The class has two constructors. The constructor with an additional argument, "updateCallback", is meant
- * for cases where PinocchioStateInputMapping requires some extra update calls on PinocchioInterface, such as the
- * centroidal model mapping (refer to CentroidalModelPinocchioMapping).
+ * EndEffectorDynamics on Pinocchio, taped with CppAD for the whole-body MPC's state and input (WBAccelMpcRobotModel), the
+ * accelerations those of the whole-body dynamics' generalized acceleration (computeGeneralizedAccelerations()). Each
+ * function is a generated library of its own in the model folder, which its value and its linear approximation both
+ * read: `<modelName>_position`, `_velocity`, `_linear_acceleration`, `_orientation_wrt_plane` (the plane normals its
+ * parameters), `_pose_wrt_plane_rate` and `_pose_wrt_plane_acceleration` (the same). The swing foot's normal-motion
+ * constraint reads the first three, the stance foot's constraint the position and the last three.
+ *
+ * The taped functions hold copies of what they read - the end-effector frames, a Pinocchio interface on AD scalars that
+ * the functions of one object and of all its copies share, and a pointer to the robot model - so that a copy, and a
+ * taping after construction (CppAdInterface::getTapeOperationCount()), never reads the object it was copied from. Not
+ * thread-safe; the terms clone it.
  */
 class PinocchioEndEffectorDynamicsCppAd final : public EndEffectorDynamics<scalar_t> {
  public:
-  using EndEffectorKinematics<scalar_t>::vector3_t;
-  using EndEffectorKinematics<scalar_t>::matrix3x_t;
-  using EndEffectorKinematics<scalar_t>::vector6_t;
-  using EndEffectorKinematics<scalar_t>::matrix6x_t;
-  using EndEffectorKinematics<scalar_t>::quaternion_t;
-  using EndEffectorKinematics<scalar_t>::vector_t;
-  using UpdatePinocchioInterfaceCallback =
-      std::function<void(const ad_vector_t& state, PinocchioInterfaceTpl<ad_scalar_t>& pinocchioInterface)>;
+  using EndEffectorDynamics<scalar_t>::vector3_t;
+  using EndEffectorDynamics<scalar_t>::vector6_t;
+  using EndEffectorDynamics<scalar_t>::vector_t;
 
-  /** Constructor
-   * @param [in] pinocchioInterface pinocchio interface.
-   * @param [in] mpcRobotModel mapping from OCS2 to pinocchio state.
-   * @param [in] endEffectorIds array of end effector names.
-   * @param [in] modelName : name of the generate model library
-   * @param [in] modelFolder : folder to save the model library files to
-   * @param [in] recompileLibraries : If true, the model library will be newly compiled. If false, an existing library will be loaded if
-   *                                  available.
-   * @param [in] verbose : print information.
+  /**
+   * Generates the libraries of the end effectors `endEffectorIds` (frames of `pinocchioInterface`) under `modelName` in
+   * `modelFolder`, or, unless `recompileLibraries`, loads those of them that are there. `mpcRobotModel` maps the state
+   * and the input to Pinocchio's; the taped functions keep a pointer to it, so it must outlive the object and every copy
+   * of it. `verbose` prints the libraries' compilation.
    */
   PinocchioEndEffectorDynamicsCppAd(const PinocchioInterface& pinocchioInterface,
                                     WBAccelMpcRobotModel<ad_scalar_t>& mpcRobotModel,
                                     std::vector<std::string> endEffectorIds,
-                                    const std::string& modelName,
-                                    const std::string& modelFolder = "/tmp/ocs2",
-                                    bool recompileLibraries = true,
-                                    bool verbose = false);
-
-  /** Constructor
-   * @param [in] pinocchioInterface pinocchio interface.
-   * @param [in] mpcRobotModel mapping from OCS2 to pinocchio state.
-   * @param [in] endEffectorIds array of end effector names.
-   * @param [in] updateCallback : In the cases that PinocchioStateInputMapping requires some additional update calls on PinocchioInterface,
-   *                              use this callback.
-   * @param [in] modelName : name of the generate model library
-   * @param [in] modelFolder : folder to save the model library files to
-   * @param [in] recompileLibraries : If true, the model library will be newly compiled. If false, an existing library will be loaded if
-   *                                  available.
-   * @param [in] verbose : print information.
-   */
-  PinocchioEndEffectorDynamicsCppAd(const PinocchioInterface& pinocchioInterface,
-                                    WBAccelMpcRobotModel<ad_scalar_t>& mpcRobotModel,
-                                    std::vector<std::string> endEffectorIds,
-                                    UpdatePinocchioInterfaceCallback updateCallback,
                                     const std::string& modelName,
                                     const std::string& modelFolder = "/tmp/ocs2",
                                     bool recompileLibraries = true,
@@ -112,66 +87,38 @@ class PinocchioEndEffectorDynamicsCppAd final : public EndEffectorDynamics<scala
 
   std::vector<vector3_t> getPosition(const vector_t& state) const override;
   std::vector<vector3_t> getVelocity(const vector_t& state, const vector_t& input) const override;
-
-  // This function contains no linear approximation due to the non-minimal quaternion representation of SO(3)
-  // Use getOrientationErrorLinearApproximation or getOrientationErrorWrtPlaneLinearApproximation is a linear approximation is needed.
-  std::vector<quaternion_t> getOrientation(const vector_t& state) const override;
-  std::vector<vector3_t> getOrientationError(const vector_t& state, const std::vector<quaternion_t>& referenceOrientations) const override;
-  std::vector<vector3_t> getOrientationErrorWrtPlane(const vector_t& state, const std::vector<vector3_t>& planeNormals) const override;
-  std::vector<vector3_t> getAngularVelocity(const vector_t& state, const vector_t& input) const override;
-  std::vector<vector6_t> getTwist(const vector_t& state, const vector_t& input) const override;
   std::vector<vector3_t> getLinearAcceleration(const vector_t& state, const vector_t& input) const override;
-  std::vector<vector3_t> getAngularAcceleration(const vector_t& state, const vector_t& input) const override;
-  std::vector<vector6_t> getAccelerations(const vector_t& state, const vector_t& input) const override;
+  std::vector<vector3_t> getOrientationErrorWrtPlane(const vector_t& state, const std::vector<vector3_t>& planeNormals) const override;
+  std::vector<vector6_t> getPoseWrtPlaneRate(const vector_t& state,
+                                             const vector_t& input,
+                                             const std::vector<vector3_t>& planeNormals) const override;
+  std::vector<vector6_t> getPoseWrtPlaneAcceleration(const vector_t& state,
+                                                     const vector_t& input,
+                                                     const std::vector<vector3_t>& planeNormals) const override;
 
   std::vector<VectorFunctionLinearApproximation> getPositionLinearApproximation(const vector_t& state) const override;
   std::vector<VectorFunctionLinearApproximation> getVelocityLinearApproximation(const vector_t& state,
                                                                                 const vector_t& input) const override;
-  std::vector<VectorFunctionLinearApproximation> getOrientationErrorLinearApproximation(
-      const vector_t& state, const std::vector<quaternion_t>& referenceOrientations) const override;
-  std::vector<VectorFunctionLinearApproximation> getOrientationErrorWrtPlaneLinearApproximation(
-      const vector_t& state, const std::vector<vector3_t>& planeNormals) const override;
-  std::vector<VectorFunctionLinearApproximation> getAngularVelocityLinearApproximation(const vector_t& state,
-                                                                                       const vector_t& input) const override;
-  std::vector<VectorFunctionLinearApproximation> getTwistLinearApproximation(const vector_t& state, const vector_t& input) const override;
   std::vector<VectorFunctionLinearApproximation> getLinearAccelerationLinearApproximation(const vector_t& state,
                                                                                           const vector_t& input) const override;
-  std::vector<VectorFunctionLinearApproximation> getAngularAccelerationLinearApproximation(const vector_t& state,
-                                                                                           const vector_t& input) const override;
-  std::vector<VectorFunctionLinearApproximation> getAccelerationsLinearApproximation(const vector_t& state,
-                                                                                     const vector_t& input) const override;
-
-  // Expose auto differentiation functions publicly to allow for inclusion in gauss-newton costs
-  ad_vector_t getPositionCppAd(const ad_vector_t& state);
-  ad_vector_t getVelocityCppAd(const ad_vector_t& state, const ad_vector_t& input);
-  ad_vector_t getOrientationCppAd(const ad_vector_t& state);
-  ad_vector_t getOrientationErrorCppAd(const ad_vector_t& state, const ad_vector_t& params);
-  ad_vector_t getOrientationErrorWrtPlaneCppAd(const ad_vector_t& state, const ad_vector_t& params);
-  ad_vector_t getAngularVelocityCppAd(const ad_vector_t& state, const ad_vector_t& input);
-  ad_vector_t getTwistCppAd(const ad_vector_t& state, const ad_vector_t& input);
-  ad_vector_t getLinearAccelerationCppAd(const ad_vector_t& state, const ad_vector_t& input);
-  ad_vector_t getAngularAccelerationCppAd(const ad_vector_t& state, const ad_vector_t& input);
-  ad_vector_t getAccelerationsCppAd(const ad_vector_t& state, const ad_vector_t& input);
+  std::vector<VectorFunctionLinearApproximation> getOrientationErrorWrtPlaneLinearApproximation(
+      const vector_t& state, const std::vector<vector3_t>& planeNormals) const override;
+  std::vector<VectorFunctionLinearApproximation> getPoseWrtPlaneRateLinearApproximation(
+      const vector_t& state, const vector_t& input, const std::vector<vector3_t>& planeNormals) const override;
+  std::vector<VectorFunctionLinearApproximation> getPoseWrtPlaneAccelerationLinearApproximation(
+      const vector_t& state, const vector_t& input, const std::vector<vector3_t>& planeNormals) const override;
 
  private:
   PinocchioEndEffectorDynamicsCppAd(const PinocchioEndEffectorDynamicsCppAd& rhs);
 
   std::unique_ptr<CppAdInterface> positionCppAdInterfacePtr_;
   std::unique_ptr<CppAdInterface> velocityCppAdInterfacePtr_;
-  std::unique_ptr<CppAdInterface> orientationCppAdInterfacePtr_;
-  std::unique_ptr<CppAdInterface> orientationErrorCppAdInterfacePtr_;
-  std::unique_ptr<CppAdInterface> orientationErrorWrtPlaneCppAdInterfacePtr_;
-  std::unique_ptr<CppAdInterface> angularVelocityCppAdInterfacePtr_;
-  std::unique_ptr<CppAdInterface> twistCppAdInterfacePtr_;
   std::unique_ptr<CppAdInterface> linearAccelerationCppAdInterfacePtr_;
-  std::unique_ptr<CppAdInterface> angularAccelerationCppAdInterfacePtr_;
-  std::unique_ptr<CppAdInterface> accelerationsCppAdInterfacePtr_;
+  std::unique_ptr<CppAdInterface> orientationErrorWrtPlaneCppAdInterfacePtr_;
+  std::unique_ptr<CppAdInterface> poseWrtPlaneRateCppAdInterfacePtr_;
+  std::unique_ptr<CppAdInterface> poseWrtPlaneAccelerationCppAdInterfacePtr_;
 
   const std::vector<std::string> endEffectorIds_;
-  std::vector<size_t> endEffectorFrameIds_;
-
-  PinocchioInterfaceCppAd pinocchioInterfaceCppAd_;
-  WBAccelMpcRobotModel<ad_scalar_t>* absl_nonnull mappingPtr_;
 };
 
 }  // namespace ocs2::humanoid

@@ -146,7 +146,7 @@ def format_dry_run(
         environment = " ".join(f"{key}={shlex.quote(value)}" for key, value in spec.env)
         command = shlex.join(process_supervisor.process_argv(spec, terminal_command))
         lines.append(f"{environment} {command}" if environment else command)
-    return "\n".join(lines) + "\n"
+    return "".join(f"{line}\n" for line in lines)
 
 
 def _non_negative_seconds(text: str) -> float:

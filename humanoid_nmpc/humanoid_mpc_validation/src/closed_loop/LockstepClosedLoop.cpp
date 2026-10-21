@@ -50,7 +50,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/orientation/BaseOrientation.h"
 #include "humanoid_common_mpc_app/robot/RobotController.h"
 #include "humanoid_mpc_validation/closed_loop/LockstepSolveSchedule.h"
+#include "humanoid_mpc_validation/closed_loop/LockstepStateEstimator.h"
 #include "humanoid_mpc_validation/closed_loop/TimeSeriesLabels.h"
+#include "humanoid_state_estimator/StateEstimator.h"
 #include "mujoco_sim_interface/MujocoSimInterface.h"
 
 namespace ocs2::humanoid::validation {
@@ -88,6 +90,20 @@ class RowCollector {
   std::vector<Eigen::VectorXd> rows_;
 };
 
+/** The code of `kind` in the time series (time_series::kSolveSqpStep). */
+double stepKindCode(SqpStepKind kind) {
+  return static_cast<double>(static_cast<int>(kind));
+}
+
+/** The rows of a solve at `time` with the SQP step `step`: one of kSolveSqpStep, and one of the swing residual if any. */
+void appendSqpStepRows(double time, const SqpStepSample& step, RowCollector& sqpSteps, RowCollector& swingResiduals) {
+  Eigen::VectorXd row(time_series::kSolveSqpStepColumns);
+  row << time, step.stepSize, stepKindCode(step.stepKind), stepKindCode(step.fullStepKind), step.fullStepConstraintViolation,
+      step.constraintViolation;
+  sqpSteps.append(row);
+  if (step.swingNormalVelocityResidual.has_value()) swingResiduals.append(Eigen::Vector2d(time, *step.swingNormalVelocityResidual));
+}
+
 }  // namespace
 
 LockstepClosedLoop::LockstepClosedLoop(RobotConfiguration configuration, LockstepOptions options)
@@ -101,13 +117,20 @@ absl::StatusOr<LockstepResult> LockstepClosedLoop::run(const ClosedLoopScenario&
   robot::mujoco_sim_interface::MujocoSimInterface& sim = *simulator;
   RETURN_IF_ERROR(driver->connectSimulator(sim));
   RobotController& controller = driver->robotController();
+  // The state the controller is handed, as RobotProcess::Create() builds its source: the simulator's state itself
+  // (ground_truth), or the task file's state estimator's estimate from it (kalman).
+  ASSIGN_OR_RETURN(const std::unique_ptr<estimation::StateEstimator> stateEstimator,
+                   createRobotProcessStateEstimator(driver->settings(), driver->modelSettings(), configuration_.urdfFile,
+                                                    configuration_.taskFile, &sim.getRobotDescription()));
 
-  // As RobotProcess::start() starts: the backend initialized (one step), the first observation and the MPC's start-up
-  // reset from it; then, standing in for the MPC node, the first policy before the simulation runs.
+  // As RobotProcess::start() starts: the backend initialized (one step), the estimator reset on the first observation
+  // and the MPC's start-up reset from its estimate; then, standing in for the MPC node, the first policy before the
+  // simulation runs.
   sim.initSim();
   sim.updateInterfaceStateFromRobot();
   const robot::model::RobotState initialState = sim.getRobotState();
-  driver->startMpc(initialState);
+  stateEstimator->reset(sim.getRobotState());
+  driver->startMpc(stateEstimator->estimate(sim.getRobotState()));
   const DriverSolveOutcome firstSolve = driver->solve();
   if (!firstSolve.status.ok()) return firstSolve.status;
   // The JOINT_PD posture is the posture the robot is spawned in, as the robot process's FSM bridge takes it from
@@ -154,6 +177,8 @@ absl::StatusOr<LockstepResult> LockstepClosedLoop::run(const ClosedLoopScenario&
   RowCollector seriesVelocity(/*cols=*/3);
   RowCollector seriesReference(/*cols=*/3);
   RowCollector seriesSolveRotationGap(/*cols=*/2);
+  RowCollector seriesSolveSqpStep(time_series::kSolveSqpStepColumns);
+  RowCollector seriesSolveSwingResidual(time_series::kSolveSwingResidualColumns);
   double nextSeriesTime = -std::numeric_limits<double>::infinity();
   const double seriesPeriod = options_.timeSeriesRate > 0.0 ? 1.0 / options_.timeSeriesRate : std::numeric_limits<double>::infinity();
 
@@ -198,12 +223,15 @@ absl::StatusOr<LockstepResult> LockstepClosedLoop::run(const ClosedLoopScenario&
     if (inCommands) commandSaturated = commandSaturated || gui.saturated;
     driver->setGuiVelocityCommand(gui.message);
 
-    // The control cycle in the order of RobotProcess::cycle(): the mode and the posture the operator's commands of the
-    // previous cycle set, the action, the controller-side settings, then this cycle's commands, and the action last.
+    // The control cycle in the order of RobotProcess::cycle(): the state estimate, the mode and the posture the
+    // operator's commands of the previous cycle set, the action, the controller-side settings, then this cycle's
+    // commands, and the action last. The controller sees the estimate; the fall check above, the metrics and the
+    // joints' feedback torques below read the simulator's true state, as the plant's own joint loops do.
     // LINT.IfChange(robot_process_cycle)
+    const robot::model::RobotState& estimatedState = stateEstimator->estimate(state);
     robot::model::RobotJointAction& action = sim.getRobotJointAction();
     controller.prepareCycle(mode, nominalPosture);
-    controller.computeJointControlAction(state, action);
+    controller.computeJointControlAction(estimatedState, action);
 
     // The solve due in this cycle, on its observation: what the MPC node's solver thread does meanwhile, paced and backed
     // off as that thread is (LockstepSolveSchedule).
@@ -226,10 +254,13 @@ absl::StatusOr<LockstepResult> LockstepClosedLoop::run(const ClosedLoopScenario&
           seriesSolveRotationGap.append(Eigen::Vector2d(time, gap->rotation));
         }
         solve.quaternionNormDeviation = driver->maxQuaternionNormDeviation();
+        solve.sqpStep = outcome.sqpStep;
+        if (outcome.sqpStep.has_value()) appendSqpStepRows(time, *outcome.sqpStep, seriesSolveSqpStep, seriesSolveSwingResidual);
         metrics.addSolve(solve);
         if (options_.recordRobotStates && time - *commandStartTime >= options_.recordingDelay - kTimeTolerance &&
             result.recordedStates.records.size() < options_.maxRecordedStates) {
-          result.recordedStates.records.push_back(recordRobotState(state, description, gui.message));
+          // The state the solve's observation was made from: the controller's, the estimate.
+          result.recordedStates.records.push_back(recordRobotState(estimatedState, description, gui.message));
         }
       }
     }
@@ -345,7 +376,9 @@ absl::StatusOr<LockstepResult> LockstepClosedLoop::run(const ClosedLoopScenario&
                                {time_series::kBaseQuaternion, seriesQuaternion.matrix()},
                                {time_series::kBaseVelocity, seriesVelocity.matrix()},
                                {time_series::kReferenceVelocity, seriesReference.matrix()},
-                               {time_series::kSolveRotationGap, seriesSolveRotationGap.matrix()}};
+                               {time_series::kSolveRotationGap, seriesSolveRotationGap.matrix()},
+                               {time_series::kSolveSqpStep, seriesSolveSqpStep.matrix()},
+                               {time_series::kSolveSwingNormalVelocityResidual, seriesSolveSwingResidual.matrix()}};
   result.finalObservationState = driver->currentObservation().state;
   return result;
 }

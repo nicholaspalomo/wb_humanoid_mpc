@@ -31,6 +31,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include "absl/log/absl_check.h"
+#include "ocs2_core/Dimensions.h"
 
 #include "humanoid_common_mpc/contact/ContactPolygon.h"
 
@@ -46,17 +47,23 @@ namespace ocs2::humanoid {
 template <int N_POLYGON_POINTS>
 class ContactWrenchMapper {
  public:
+  ContactWrenchMapper(const ContactWrenchMapper&) = default;
+  ContactWrenchMapper& operator=(const ContactWrenchMapper&) = default;
+  ContactWrenchMapper(ContactWrenchMapper&&) = default;
+  ContactWrenchMapper& operator=(ContactWrenchMapper&&) = default;
+  ~ContactWrenchMapper() = default;
+
   explicit ContactWrenchMapper(const ContactPolygon& contactPolygon) {
     ABSL_CHECK_EQ(static_cast<size_t>(N_POLYGON_POINTS), static_cast<size_t>(contactPolygon.getNumberOfContactPoints()))
         << "ContactWrenchMapper: the contact polygon has another number of points than the template";
 
-    // The wrench of the corner forces: A f.
-    Eigen::Matrix<scalar_t, 6, 3 * N_POLYGON_POINTS> A = Eigen::Matrix<scalar_t, 6, 3 * N_POLYGON_POINTS>::Zero();
+    // The wrench [force, moment] of the corner forces: A f.
+    Eigen::Matrix<scalar_t, kWrenchDim, kCornerForcesDim> A = Eigen::Matrix<scalar_t, kWrenchDim, kCornerForcesDim>::Zero();
     for (int i = 0; i < N_POLYGON_POINTS; ++i) {
-      A.block(0, 3 * i, 3, 3) = matrix3_t::Identity();
-      A.block(3, 3 * i, 3, 3) = contactPolygon.getContactPointTranslationCrossProductMatrix(i);
+      A.block(0, kForceDim * i, kForceDim, kForceDim) = matrix3_t::Identity();
+      A.block(kForceDim, kForceDim * i, kTorqueDim, kForceDim) = contactPolygon.getContactPointTranslationCrossProductMatrix(i);
     }
-    mapWrenchToVisualiazationForces_ = A.transpose() * (A * A.transpose()).inverse();
+    mapWrenchToVisualizationForces_ = A.transpose() * (A * A.transpose()).inverse();
   }
 
   /// \brief Converts a contact wrench into an a set of equivalent contact forces at the corner of the contact polygon
@@ -67,15 +74,18 @@ class ContactWrenchMapper {
 
   std::array<vector3_t, N_POLYGON_POINTS> computeVisualizationForceArray(const vector6_t& contactWrench) const {
     std::array<vector3_t, N_POLYGON_POINTS> contactPointForceVec;
-    Eigen::Matrix<scalar_t, 3 * N_POLYGON_POINTS, 1> visualizationForces = mapWrenchToVisualiazationForces_ * contactWrench;
+    Eigen::Matrix<scalar_t, kCornerForcesDim, 1> visualizationForces = mapWrenchToVisualizationForces_ * contactWrench;
     for (int i = 0; i < N_POLYGON_POINTS; ++i) {
-      contactPointForceVec[i] << (visualizationForces.segment(3 * i, 3));
+      contactPointForceVec[i] << (visualizationForces.segment(kForceDim * i, kForceDim));
     }
     return contactPointForceVec;
   }
 
  private:
-  Eigen::Matrix<scalar_t, 3 * N_POLYGON_POINTS, 6> mapWrenchToVisualiazationForces_;
+  /** The entries of the stacked corner forces f, one force per corner. */
+  static constexpr int kCornerForcesDim = kForceDim * N_POLYGON_POINTS;
+
+  Eigen::Matrix<scalar_t, kCornerForcesDim, kWrenchDim> mapWrenchToVisualizationForces_;
 };
 
 }  // namespace ocs2::humanoid

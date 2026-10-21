@@ -44,9 +44,12 @@ namespace ocs2::humanoid {
 
 namespace {
 
-/** Rejects a parameter that is outside the range its formula is defined on. */
+/**
+ * Rejects a parameter that is outside the range its formula is defined on. The comparisons are negated so that a NaN,
+ * for which every comparison is false, is rejected rather than accepted: `NaN <= 0` is false, `!(NaN > 0)` is true.
+ */
 absl::Status requirePositive(scalar_t value, absl::string_view key) {
-  if (value <= 0.0) {
+  if (!(value > 0.0)) {
     return absl::InvalidArgumentError(
         absl::StrCat("[LocomotionHeuristicConfig] locomotion_heuristics.", key, " must be positive, got ", value, "."));
   }
@@ -54,7 +57,7 @@ absl::Status requirePositive(scalar_t value, absl::string_view key) {
 }
 
 absl::Status requireNonNegative(scalar_t value, absl::string_view key) {
-  if (value < 0.0) {
+  if (!(value >= 0.0)) {
     return absl::InvalidArgumentError(
         absl::StrCat("[LocomotionHeuristicConfig] locomotion_heuristics.", key, " must not be negative, got ", value, "."));
   }
@@ -73,7 +76,6 @@ absl::Status LocomotionHeuristicConfig::validate() const {
   RETURN_IF_ERROR(requirePositive(orientationCompensation.maximumTilt, "orientation_compensation.maximum_tilt"));
   RETURN_IF_ERROR(requireNonNegative(heightCompensation.maximumHeightOffset, "height_compensation.maximum_height_offset"));
   RETURN_IF_ERROR(requireNonNegative(capturePoint.comHeightOverride, "capture_point.com_height_override"));
-  RETURN_IF_ERROR(requirePositive(capturePoint.gravity, "capture_point.gravity"));
   // Positive, not merely non-negative: this is the clamp that stops a bad velocity estimate throwing the landing
   // target out of the leg's reach, and a value of zero would remove it rather than tighten it.
   RETURN_IF_ERROR(requirePositive(capturePoint.maximumOffset, "capture_point.maximum_offset"));
@@ -92,14 +94,14 @@ absl::Status LocomotionHeuristicConfig::validate() const {
 
   // beta is a fraction of a gait cycle, so a clamp outside (0, 1] cannot be reached, and one at 0 lets 1/beta run
   // away at the onset of a flight phase - which is the failure this clamp exists to prevent.
-  if (impulseScaling.minimumDutyFactor <= 0.0 || impulseScaling.minimumDutyFactor > 1.0) {
+  if (!(impulseScaling.minimumDutyFactor > 0.0 && impulseScaling.minimumDutyFactor <= 1.0)) {
     return absl::InvalidArgumentError(
         absl::StrCat("[LocomotionHeuristicConfig] locomotion_heuristics.impulse_scaling.minimum_duty_factor must lie in (0, 1], got ",
                      impulseScaling.minimumDutyFactor,
                      ". It is the floor the stance duty factor is clamped to before W / (F beta) is formed, and that is unbounded "
                      "as a flight phase opens."));
   }
-  if (impulseScaling.maximumForceRatio < 1.0) {
+  if (!(impulseScaling.maximumForceRatio >= 1.0)) {
     return absl::InvalidArgumentError(
         absl::StrCat("[LocomotionHeuristicConfig] locomotion_heuristics.impulse_scaling.maximum_force_ratio must be at least 1, got ",
                      impulseScaling.maximumForceRatio,
@@ -108,7 +110,7 @@ absl::Status LocomotionHeuristicConfig::validate() const {
   }
   // `maximum_force: 0` is the documented way to say "use the ratio instead", so exactly one of the two has to be
   // positive; both at zero would remove the clamp entirely rather than select a default.
-  if (centripetalAcceleration.maximumForce <= 0.0 && centripetalAcceleration.maximumForceRatioOfWeight <= 0.0) {
+  if (!(centripetalAcceleration.maximumForce > 0.0) && !(centripetalAcceleration.maximumForceRatioOfWeight > 0.0)) {
     return absl::InvalidArgumentError(
         "[LocomotionHeuristicConfig] locomotion_heuristics.centripetal_acceleration needs a force clamp: set "
         "maximum_force to a positive value in newtons, or leave it at 0 and set maximum_force_ratio_of_weight to a "

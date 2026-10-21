@@ -32,11 +32,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <array>
 #include <string>
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/contact_planning/logic/ContactLogicHelpers.h"
 
 namespace ocs2::humanoid {
 
-static_assert(kNumContacts == 2, "the alternation rule is written for a biped");
+static_assert(kNumContacts == kBipedFootCount, "the alternation rule is written for a biped");
 
 std::string AlternatingFeetRule::describe() const {
   return "a foot may not swing twice without the other foot swinging in between";

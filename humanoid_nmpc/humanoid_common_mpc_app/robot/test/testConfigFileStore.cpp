@@ -85,10 +85,14 @@ constexpr char kPdGainsIdentity[] = "robot_models/unitree_g1/g1_wb_mpc/config/co
 constexpr char kReferenceIdentity[] = "robot_models/unitree_g1/g1_wb_mpc/config/command/reference.textproto";
 constexpr char kRobotName[] = "g1";
 
-constexpr char kStoredTask[] = "model_settings { robot_name: \"g1\" }\ncontact_estimator: \"robot_state\"\n";
-constexpr char kSavedTask[] = "model_settings { robot_name: \"g1\" }\ncontact_estimator: \"always_in_contact\"\n";
-constexpr char kStoredGains[] = "default_gains { kp: 100.0 kd: 2.0 }\n";
-constexpr char kStoredReference[] = "target_displacement_velocity: 0.5\n";
+// The header of a task file, which names its schema; a saved text must carry it, as a file must.
+constexpr char kTaskHeader[] = "# proto-message: humanoid_mpc_config.TaskFile\n";
+constexpr char kStoredTask[] =
+    "# proto-message: humanoid_mpc_config.TaskFile\nmodel_settings { robot_name: \"g1\" }\ncontact_estimator: \"robot_state\"\n";
+constexpr char kSavedTask[] =
+    "# proto-message: humanoid_mpc_config.TaskFile\nmodel_settings { robot_name: \"g1\" }\ncontact_estimator: \"always_in_contact\"\n";
+constexpr char kStoredGains[] = "# proto-message: humanoid_mpc_config.JointPdGainsFile\ndefault_gains { kp: 100.0 kd: 2.0 }\n";
+constexpr char kStoredReference[] = "# proto-message: humanoid_mpc_config.ReferenceFile\ntarget_displacement_velocity: 0.5\n";
 
 /** The test's scratch directory `name`, empty. */
 std::string scratchDirectory(absl::string_view name) {
@@ -277,8 +281,10 @@ struct Refusal {
 
 std::vector<Refusal> refusals() {
   std::vector<Refusal> cases;
-  cases.push_back({"malformed text", taskSave("model_settings {\n", /*sequence=*/10), "operator/config_save"});
-  cases.push_back({"an unknown field in the text", taskSave("no_such_field: 1\n", /*sequence=*/11), "no_such_field"});
+  cases.push_back({"malformed text", taskSave(absl::StrCat(kTaskHeader, "model_settings {\n"), /*sequence=*/10), "operator/config_save"});
+  cases.push_back(
+      {"an unknown field in the text", taskSave(absl::StrCat(kTaskHeader, "no_such_field: 1\n"), /*sequence=*/11), "no_such_field"});
+  cases.push_back({"a text that names no schema", taskSave("model_settings { robot_name: \"g1\" }\n", /*sequence=*/22), "names no schema"});
   humanoid_mpc_msgs::ConfigFileSave unknownField;
   // A varint field 103: a GUI built from a newer schema.
   EXPECT_TRUE(unknownField.ParseFromString(taskSave(kSavedTask, /*sequence=*/12).SerializeAsString() + std::string("\xb8\x06\x01", 3)));
@@ -287,7 +293,8 @@ std::vector<Refusal> refusals() {
   otherRobot.set_robot_name("atlas");
   cases.push_back({"another robot_name in the message", otherRobot, "atlas"});
   cases.push_back({"another robot_name in the text",
-                   taskSave("model_settings { robot_name: \"atlas\" }\ncontact_estimator: \"robot_state\"\n", /*sequence=*/14),
+                   taskSave(absl::StrCat(kTaskHeader, "model_settings { robot_name: \"atlas\" }\ncontact_estimator: \"robot_state\"\n"),
+                            /*sequence=*/14),
                    "model_settings.robot_name"});
   humanoid_mpc_msgs::ConfigFileSave otherConfiguration = taskSave(kSavedTask, /*sequence=*/15);
   otherConfiguration.set_config_path("robot_models/unitree_g1/g1_centroidal_mpc/config/mpc/task.textproto");
@@ -296,17 +303,22 @@ std::vector<Refusal> refusals() {
   otherFingerprint.set_schema_fingerprint("0123456789abcdef");
   cases.push_back({"another schema fingerprint", otherFingerprint, "0123456789abcdef"});
   cases.push_back({"an oversize text", taskSave(std::string(5000, '#') + "\n" + kSavedTask, /*sequence=*/17), "4096"});
-  cases.push_back({"a contact estimator the robot's backend did not register",
-                   taskSave("model_settings { robot_name: \"g1\" }\ncontact_estimator: \"cheater_sim\"\n", /*sequence=*/18),
-                   "contact_estimator"});
+  cases.push_back(
+      {"a contact estimator the robot's backend did not register",
+       taskSave(absl::StrCat(kTaskHeader, "model_settings { robot_name: \"g1\" }\ncontact_estimator: \"cheater_sim\"\n"), /*sequence=*/18),
+       "contact_estimator"});
   cases.push_back(
       {"an unknown telemetry sink",
-       taskSave("model_settings { robot_name: \"g1\" }\ncontact_estimator: \"robot_state\"\ntelemetry_sinks: \"carrier_pigeon\"\n",
-                /*sequence=*/19),
+       taskSave(
+           absl::StrCat(kTaskHeader,
+                        "model_settings { robot_name: \"g1\" }\ncontact_estimator: \"robot_state\"\ntelemetry_sinks: \"carrier_pigeon\"\n"),
+           /*sequence=*/19),
        "telemetry_sinks"});
   cases.push_back(
       {"a simulator option the backend refuses",
-       taskSave("model_settings { robot_name: \"g1\" }\ncontact_estimator: \"robot_state\"\ngantry_hold: \"rope\"\n", /*sequence=*/20),
+       taskSave(
+           absl::StrCat(kTaskHeader, "model_settings { robot_name: \"g1\" }\ncontact_estimator: \"robot_state\"\ngantry_hold: \"rope\"\n"),
+           /*sequence=*/20),
        "gantry_hold"});
   humanoid_mpc_msgs::ConfigFileSave noKind = taskSave(kSavedTask, /*sequence=*/21);
   noKind.set_kind(humanoid_mpc_msgs::CONFIG_FILE_KIND_UNSPECIFIED);

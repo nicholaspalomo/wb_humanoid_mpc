@@ -67,7 +67,7 @@ scalar_t MultidimensionalPenalty::getValue(scalar_t t, const vector_t& h) const 
   assert(penaltyPtrArray_.size() == 1 || penaltyPtrArray_.size() == numConstraints);
 
   scalar_t penalty = 0;
-  for (size_t i = 0; i < numConstraints; i++) {
+  for (size_t i = 0; i < static_cast<size_t>(numConstraints); i++) {
     const auto& penaltyTerm = (penaltyPtrArray_.size() == 1) ? penaltyPtrArray_[0] : penaltyPtrArray_[i];
     penalty += penaltyTerm->getValue(t, h(i));
   }
@@ -123,7 +123,7 @@ ScalarFunctionQuadraticApproximation MultidimensionalPenalty::getQuadraticApprox
   penaltyApproximation.f = penaltyValue;
   penaltyApproximation.dfdx.noalias() = h.dfdx.transpose() * penaltyDerivative;
   penaltyApproximation.dfdxx.noalias() = h.dfdx.transpose() * penaltySecondDev_dhdx;
-  for (size_t i = 0; i < numConstraints; i++) {
+  for (size_t i = 0; i < static_cast<size_t>(numConstraints); i++) {
     penaltyApproximation.dfdxx.noalias() += penaltyDerivative(i) * h.dfdxx[i];
   }
 
@@ -131,7 +131,7 @@ ScalarFunctionQuadraticApproximation MultidimensionalPenalty::getQuadraticApprox
     penaltyApproximation.dfdu.noalias() = h.dfdu.transpose() * penaltyDerivative;
     penaltyApproximation.dfdux.noalias() = h.dfdu.transpose() * penaltySecondDev_dhdx;
     penaltyApproximation.dfduu.noalias() = h.dfdu.transpose() * penaltySecondDerivative.asDiagonal() * h.dfdu;
-    for (size_t i = 0; i < numConstraints; i++) {
+    for (size_t i = 0; i < static_cast<size_t>(numConstraints); i++) {
       penaltyApproximation.dfduu.noalias() += penaltyDerivative(i) * h.dfduu[i];
       penaltyApproximation.dfdux.noalias() += penaltyDerivative(i) * h.dfdux[i];
     }
@@ -150,7 +150,7 @@ std::tuple<scalar_t, vector_t, vector_t> MultidimensionalPenalty::getPenaltyValu
   scalar_t penaltyValue = 0.0;
   vector_t penaltyDerivative(numConstraints);
   vector_t penaltySecondDerivative(numConstraints);
-  for (size_t i = 0; i < numConstraints; i++) {
+  for (size_t i = 0; i < static_cast<size_t>(numConstraints); i++) {
     const auto& penaltyTerm = (penaltyPtrArray_.size() == 1) ? penaltyPtrArray_[0] : penaltyPtrArray_[i];
     penaltyValue += penaltyTerm->getValue(t, h(i));
     penaltyDerivative(i) = penaltyTerm->getDerivative(t, h(i));

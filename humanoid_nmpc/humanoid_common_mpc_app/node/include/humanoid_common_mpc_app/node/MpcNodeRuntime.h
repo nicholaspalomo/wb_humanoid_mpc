@@ -30,14 +30,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 
 #include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/time/time.h"
 #include "ocs2_mpc/MPC_BASE.h"
 
 #include "humanoid_common_mpc/contact_planning/ContactPlanningReferenceManager.h"
@@ -52,14 +55,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid::node {
 
-/** The modes of a humanoid MPC: the contact combinations of its two feet (MotionPhaseDefinition.h), 0 to STANCE. */
-inline constexpr size_t kNumHumanoidModes = 4;
-
 /**
  * The solver thread of an MPC node: named "mpc_solver", pinned to the MPC cores of ThreadAffinity.h
- * (getDefaultCoreAllocation().mpcCores), SCHED_FIFO at `realtimePriority` when it is positive (the --realtime_priority
- * of the node; 0 keeps it on the time-sharing scheduler), and without locking the memory of the process, which the
- * solver allocates from as it runs (MpcServer::Config::solverThread).
+ * (getDefaultCoreAllocation().mpcCores), SCHED_FIFO at `realtimePriority` when it is positive (the task file's
+ * multiple_shooting.thread_priority, mpcNodeSettingsFromConfig(); 0 keeps it on the time-sharing scheduler), and
+ * without locking the memory of the process, which the solver allocates from as it runs (MpcServer::Config::solverThread).
  */
 robot::realtime::RealtimeThreadConfig defaultSolverThreadConfig(int realtimePriority);
 
@@ -78,7 +78,10 @@ absl::Status applyWalkingVelocityCommand(const humanoid_mpc_msgs::WalkingVelocit
  * robot's observations on it, and the operator inputs the MPC takes from the bus:
  *
  *   - operator/walking_velocity_command (latest delivery) -> Components::motionManager's setAndScaleVelocityCommand(),
- *     on the bus's IO thread; a command with a value that is not finite is rejected, logged and counted;
+ *     on the bus's IO thread; a command with a value that is not finite is rejected, logged and counted. The motion
+ *     manager keeps the last command, so a publisher that is killed or cut off would leave the robot walking: with
+ *     Config::walkingCommandTimeout set, a command older than it is replaced by the stop command (zero velocities,
+ *     the last pelvis height), once, until the next command arrives (off by default);
  *   - operator/mpc_parameters (latest delivery: an edit the solver has not applied yet is replaced by a newer one), the
  *     tuning GUI's whole task file and contact planner's file (humanoid_mpc_config.MpcParameterUpdate) -> converted on
  *     the IO thread and handed to Components::parameterUpdateSink; the MpcParameterUpdaterModule it feeds applies the
@@ -147,6 +150,14 @@ class MpcNodeRuntime {
     MpcResetSupervisor::Config resetSupervisor;
     /** See defaultSolverThreadConfig(). */
     robot::realtime::RealtimeThreadConfig solverThread = defaultSolverThreadConfig(/*realtimePriority=*/0);
+    /**
+     * How long the last walking command stays in force without a newer one; past it the motion manager gets the stop
+     * command (zero velocities, the last command's pelvis height). Zero (the default): off, the last command stays.
+     * Must be zero or positive. The MPC nodes take the task file's interface.walking_command_timeout, which is positive.
+     */
+    absl::Duration walkingCommandTimeout = absl::ZeroDuration();
+    /** ipc::MpcServer::Config::modelFingerprint: the MPC's model layout; 0: not stamped or checked. */
+    uint64_t modelFingerprint = 0;
   };
 
   /** What the node has done so far; every counter only grows. */
@@ -160,13 +171,16 @@ class MpcNodeRuntime {
      * or refused by MpcParameterUpdate's FromProto().
      */
     uint64_t parameterUpdatesRejected = 0;
+    /** Times the stop command replaced a walking command older than Config::walkingCommandTimeout. */
+    uint64_t walkingCommandTimeouts = 0;
     ipc::MpcServer::Statistics server;
   };
 
   /**
    * The runtime on `bus`, which must not be running yet and must have a node name to publish the policies as (the MPC
    * node's is "mpc"). Registers the subscriptions and the MpcServer; start() starts them. InvalidArgument for a missing
-   * required component, and the errors of MpcServer::Create() and of the visualization attacher.
+   * required component or a negative walking command timeout, and the errors of MpcServer::Create() and of the
+   * visualization attacher.
    */
   static absl::StatusOr<std::unique_ptr<MpcNodeRuntime>> Create(std::unique_ptr<robot::ipc::Bus> bus, Components components, Config config);
 
@@ -194,6 +208,13 @@ class MpcNodeRuntime {
     std::atomic<uint64_t> velocityCommandsRejected{0};
     std::atomic<uint64_t> parameterUpdatesReceived{0};
     std::atomic<uint64_t> parameterUpdatesRejected{0};
+    std::atomic<uint64_t> walkingCommandTimeouts{0};
+    /** The time of the last accepted walking command; nullopt before the first. IO thread only. */
+    std::optional<std::chrono::steady_clock::time_point> lastWalkingCommandTime;
+    /** [m] The pelvis height of the last accepted walking command, which the stop command keeps. IO thread only. */
+    double lastPelvisHeight = 0.0;
+    /** Whether the stop command has replaced the last walking command since it arrived. IO thread only. */
+    bool walkingCommandTimedOut = false;
   };
 
   MpcNodeRuntime(std::unique_ptr<robot::ipc::Bus> bus, std::shared_ptr<Counters> counters);
@@ -203,6 +224,9 @@ class MpcNodeRuntime {
    * than `robotName` and `taskFileIdentity` (Config).
    */
   absl::Status subscribeOperatorInputs(const Components& components, const std::string& robotName, const std::string& taskFileIdentity);
+
+  /** Registers the bus callback that replaces a walking command older than `timeout` by the stop command. */
+  absl::Status addWalkingCommandWatchdog(std::shared_ptr<ProceduralMpcMotionManager> motionManager, absl::Duration timeout);
 
   std::unique_ptr<robot::ipc::Bus> bus_;
   std::shared_ptr<Counters> counters_;

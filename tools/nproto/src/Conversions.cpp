@@ -46,6 +46,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace nproto::internal {
 namespace {
 
+// The characters of a backslash and the character it escapes, which the scan of a quoted key steps over together, so
+// that an escaped '"' does not end the key.
+constexpr int kBackslashEscapeLength = 2;
+
 bool isNameCharacter(char character) {
   return absl::ascii_isalnum(static_cast<unsigned char>(character)) || character == '_';
 }
@@ -71,7 +75,7 @@ bool startsWithPath(absl::string_view message) {
       if (position < message.size() && message[position] == '"') {
         ++position;
         while (position < message.size() && message[position] != '"') {
-          position += message[position] == '\\' ? 2 : 1;
+          position += message[position] == '\\' ? kBackslashEscapeLength : 1;
         }
         ++position;
       } else {

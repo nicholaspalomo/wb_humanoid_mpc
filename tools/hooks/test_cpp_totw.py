@@ -37,7 +37,7 @@ from tools.hooks import cpp_totw as totw
 def _count(
     check: check_types.CheckFunction, source: str, path: str = "src/a.cpp"
 ) -> int:
-    return len(check(source + "\n", path))
+    return len(check(f"{source}\n", path))
 
 
 class TotwTest(unittest.TestCase):
@@ -106,7 +106,7 @@ class TotwTest(unittest.TestCase):
     def test_enum_switch_default(self):
         flagged = "switch (mode) {\n  case Mode::kWalk:\n    break;\n  default:\n    break;\n}"
         self.assertEqual(
-            _count(totw.check_enum_switch_default, "void f() {\n" + flagged + "\n}"), 1
+            _count(totw.check_enum_switch_default, f"void f() {{\n{flagged}\n}}"), 1
         )
         for clean in [
             "void f() { switch (mode) { case Mode::kWalk: break; case Mode::kStand: break; } }",

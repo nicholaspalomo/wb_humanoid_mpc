@@ -82,7 +82,14 @@ message ContactPlanningFile {
   // The parameters read by more than one term (SharedParameters).
   // Next ID: 6
   message SharedConfig {
+    option (nproto.retired_field) = {
+      name: "gravity"
+      replacement: "the planner's gravity is the robot model's (ContactPlanningModelParameters), the one its dynamics use; delete the line"
+    };
+
     reserved 6 to max;
+    // 1 was gravity [m/s^2], now taken from the robot model.
+    reserved 1;
 
     // The penalty of the slacks of a soft constraint, 0.5 Z s^2 + z s per slack.
     // Next ID: 3
@@ -107,8 +114,6 @@ message ContactPlanningFile {
       double min_double_support_duration = 5 [default = 0.1, (humanoid_mpc_config.tuning) = { unit: "s" }];
     }
 
-    // [m/s^2]
-    double gravity = 1 [default = 9.81, (humanoid_mpc_config.tuning) = { unit: "m/s^2" slider_min: 1.0 }];
     // [m] The LIP height, positive; absent: the model's center of mass above its feet at the task file's initial state.
     double com_height = 2 [(humanoid_mpc_config.tuning) = { unit: "m" slider_min: 0.1 }];
     // [m] The big-M of the ZMP and foothold disjunctions; it must exceed foot_separation.max_step_length and be at

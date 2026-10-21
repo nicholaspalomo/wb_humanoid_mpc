@@ -28,22 +28,32 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
 // The C++ code generated from the humanoid_mpc_msgs protos compiles, round-trips through the protobuf runtime it links,
-// and travels over ZeroMQ in the bus's three-frame layout (topic, full type name, serialized message; see
+// and travels over the DDS bus in its envelope (wire protocol version, full type name, serialized message; see
 // humanoid_nmpc/docs/distributed_runtime/README.md).
 
 #include <cstddef>
+#include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "absl/base/nullability.h"
+#include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
+#include "absl/synchronization/mutex.h"
+#include "absl/time/clock.h"
+#include "absl/time/time.h"
 #include "gtest/gtest.h"
-#include "zmq.hpp"  // NOLINT(build/include_subdir): cppzmq installs its header in no directory
 
 #include "humanoid_mpc_msgs/controller_type.pb.h"
 #include "humanoid_mpc_msgs/mpc_observation.pb.h"
 #include "humanoid_mpc_msgs/mpc_policy.pb.h"
 #include "humanoid_mpc_msgs/target_contact_patch.pb.h"
 #include "humanoid_mpc_msgs/vector.pb.h"
+#include "robot_ipc/Bus.h"
+#include "robot_ipc/BusOptions.h"
+#include "robot_ipc/Delivery.h"
+#include "robot_runtime/robot_ipc/test/TestNetwork.h"
 
 namespace humanoid_mpc_msgs {
 namespace {
@@ -78,8 +88,8 @@ MpcPolicy makePolicy() {
   policy.set_controller_type(CONTROLLER_TYPE_LINEAR);
   policy.mutable_performance()->set_merit(10.0);
   TargetContactPatch* absl_nonnull patch = policy.mutable_annotations()->add_target_contact_patches();
-  patch->set_valid(true);
   patch->set_kind(TargetContactPatch::KIND_NEXT_SWING);
+  patch->mutable_pose()->set_x(0.25);
   return policy;
 }
 
@@ -110,43 +120,40 @@ TEST(MpcPolicyTest, TypeNameIsTheFullProtobufName) {
   EXPECT_EQ(MpcPolicy().GetTypeName(), "humanoid_mpc_msgs.MpcPolicy");
 }
 
-TEST(ZeroMqTest, CarriesAPolicyInThreeFrames) {
-  constexpr int kLingerMs = 0;
-  constexpr int kTimeoutMs = 5000;
-  const std::string endpoint = "inproc://humanoid_mpc_msgs_test";
+TEST(BusTest, CarriesAPolicyWithItsTypeName) {
+  constexpr absl::Duration kTimeout = absl::Seconds(20);
   const std::string topic = "mpc/policy";
-
-  zmq::context_t context;
-  zmq::socket_t receiver(context, zmq::socket_type::pair);
-  receiver.set(zmq::sockopt::linger, kLingerMs);
-  receiver.set(zmq::sockopt::rcvtimeo, kTimeoutMs);
-  receiver.bind(endpoint);
-  zmq::socket_t sender(context, zmq::socket_type::pair);
-  sender.set(zmq::sockopt::linger, kLingerMs);
-  sender.connect(endpoint);
+  robot::ipc::BusOptions options;
+  options.nodeName = "mpc";
+  options.network = robot::ipc::isolatedTestNetwork({"mpc"});
+  absl::StatusOr<std::unique_ptr<robot::ipc::Bus>> bus = robot::ipc::Bus::Create(std::move(options));
+  ASSERT_TRUE(bus.ok()) << bus.status();
+  absl::Mutex mutex;
+  std::vector<std::pair<std::string, std::string>> received;
+  ASSERT_TRUE((*bus)
+                  ->subscribeRaw(topic, robot::ipc::Delivery::kAll,
+                                 [&mutex, &received](absl::string_view typeName, absl::string_view payload) {
+                                   absl::MutexLock lock(mutex);
+                                   received.emplace_back(std::string(typeName), std::string(payload));
+                                 })
+                  .ok());
+  ASSERT_TRUE((*bus)->start().ok());
 
   const MpcPolicy policy = makePolicy();
-  const std::string typeName(MpcPolicy::descriptor()->full_name());
   const std::string payload = policy.SerializeAsString();
-  ASSERT_TRUE(sender.send(zmq::buffer(topic), zmq::send_flags::sndmore).has_value());
-  ASSERT_TRUE(sender.send(zmq::buffer(typeName), zmq::send_flags::sndmore).has_value());
-  ASSERT_TRUE(sender.send(zmq::buffer(payload), zmq::send_flags::none).has_value());
-
-  std::vector<std::string> frames;
-  bool more = true;
-  while (more) {
-    zmq::message_t frame;
-    const zmq::recv_result_t received = receiver.recv(frame, zmq::recv_flags::none);
-    ASSERT_TRUE(received.has_value()) << "timed out after " << frames.size() << " frames";
-    frames.push_back(frame.to_string());
-    more = frame.more();
+  const absl::Time deadline = absl::Now() + kTimeout;
+  bool arrived = false;
+  while (!arrived && absl::Now() < deadline) {
+    ASSERT_TRUE((*bus)->publish(topic, policy).ok());
+    absl::SleepFor(absl::Milliseconds(10));
+    absl::MutexLock lock(mutex);
+    arrived = !received.empty();
   }
-
-  ASSERT_EQ(frames.size(), 3u);
-  EXPECT_EQ(frames[0], topic);
-  EXPECT_EQ(frames[1], typeName);
+  ASSERT_TRUE(arrived) << "timed out";
+  absl::MutexLock lock(mutex);
+  EXPECT_EQ(received[0].first, MpcPolicy::descriptor()->full_name());
   MpcPolicy parsed;
-  ASSERT_TRUE(parsed.ParseFromString(frames[2]));
+  ASSERT_TRUE(parsed.ParseFromString(received[0].second));
   EXPECT_EQ(parsed.SerializeAsString(), payload);
 }
 

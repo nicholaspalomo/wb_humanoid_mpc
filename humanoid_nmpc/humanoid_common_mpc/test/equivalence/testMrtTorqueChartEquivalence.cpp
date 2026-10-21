@@ -148,6 +148,7 @@ TEST_P(MrtTorqueChartEquivalence, TheFeedforwardTorquesAreTheEulerRootsAndTheBas
   ASSERT_TRUE(interface.ok()) << interface.status();
   const pinocchio::Model model = interface->getModel();
   ASSERT_TRUE(model.existFrame("foot_l_contact") && model.existFrame("foot_r_contact"));
+  const feet_array_t<pinocchio::FrameIndex> soleFrames = {model.getFrameId("foot_l_contact"), model.getFrameId("foot_r_contact")};
   const pinocchio::Model eulerModel = eulerRootTwin(model);
   ASSERT_EQ(eulerModel.nv, model.nv);
   const Eigen::Index joints = model.nv - 6;
@@ -197,8 +198,8 @@ TEST_P(MrtTorqueChartEquivalence, TheFeedforwardTorquesAreTheEulerRootsAndTheBas
         m.bottomLeftCorner(joints, 6) * baseAcceleration + m.bottomRightCorner(joints, joints) * jointAccelerations - residual.tail(joints);
     const vector_t eulerHeldTorques = m.bottomRightCorner(joints, joints) * jointAccelerations - residual.tail(joints);
 
-    const vector_t torques = computeJointTorques<scalar_t>(q, v, jointAccelerations, wrenches, *interface);
-    const vector_t heldTorques = computeBaseHeldJointTorques<scalar_t>(q, v, jointAccelerations, wrenches, *interface);
+    const vector_t torques = computeJointTorques<scalar_t>(q, v, jointAccelerations, wrenches, soleFrames, *interface);
+    const vector_t heldTorques = computeBaseHeldJointTorques<scalar_t>(q, v, jointAccelerations, wrenches, soleFrames, *interface);
     ASSERT_TRUE(isCloseRelative(torques, eulerTorques, kTorqueTolerance)) << "the free base's torques";
 
     // Base held: tau_e - tau_t = M_jw (dT_B/dt) dTheta, with (dT_B/dt) dTheta = sum_k (dT_B / dTheta_k) dTheta_k dTheta by

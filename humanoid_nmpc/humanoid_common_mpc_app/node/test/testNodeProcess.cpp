@@ -35,14 +35,18 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
+#include "absl/strings/string_view.h"
 #include "gtest/gtest.h"
 
 #include "humanoid_common_mpc_app/node/MpcFiles.h"
 #include "humanoid_common_mpc_app/node/NodeBus.h"
 #include "humanoid_common_mpc_app/node/ShutdownSignal.h"
+#include "humanoid_mpc_ipc/Topics.h"
 #include "robot_core/ResourcePaths.h"
 #include "robot_ipc/Bus.h"
+#include "robot_ipc/BusOptions.h"
 #include "robot_ipc/NetworkConfig.h"
+#include "robot_ipc/QosProfile.h"
 
 /*
  * The process plumbing of the laptop-side binaries: SIGTERM asks for a clean shutdown instead of killing the process,
@@ -81,6 +85,23 @@ TEST(NodeBus, RefusesANodeTheNetworkDoesNotHave) {
   const absl::StatusOr<std::unique_ptr<robot::ipc::Bus>> bus = createNodeBus(/*networkConfigPath=*/"", "planner");
   EXPECT_EQ(bus.status().code(), absl::StatusCode::kInvalidArgument);
   EXPECT_TRUE(absl::StrContains(bus.status().message(), "planner")) << bus.status();
+}
+
+TEST(NodeBus, TheStreamsANodeLagsBehindOnAreLatestValuesInTheShippedNetwork) {
+  // After a stall, a subscriber is handed the newest observation or policy, not a backlog: their topics keep one sample
+  // (KEEP_LAST 1) at the writer and the reader's few, whichever node publishes them. The bound is robot_ipc's
+  // BusDeliveryTest.AStalledSubscriberGetsTheNewestLatestValueNotABacklog.
+  const absl::StatusOr<robot::ipc::BusOptions> mpc = nodeBusOptions(/*networkConfigPath=*/"", "mpc");
+  ASSERT_TRUE(mpc.ok()) << mpc.status();
+  EXPECT_EQ(mpc->nodeName, "mpc");
+  for (const absl::string_view topic : {ipc::topics::kMpcPolicy, ipc::topics::kMpcStatus, ipc::topics::kRobotMpcObservation}) {
+    const robot::ipc::QosProfile profile = mpc->network.qosProfileOf(topic);
+    EXPECT_NE(profile, robot::ipc::QosProfile::kReliableEvents) << topic;
+    EXPECT_EQ(robot::ipc::qosPolicy(profile).writerHistoryDepth, 1) << topic;
+  }
+  const absl::StatusOr<robot::ipc::BusOptions> robot = nodeBusOptions(/*networkConfigPath=*/"", "robot");
+  ASSERT_TRUE(robot.ok()) << robot.status();
+  EXPECT_EQ(robot->network.topicsPublishedBy("robot").size(), 5u);
 }
 
 TEST(NodeBus, ReportsANetworkFileThatDoesNotExist) {

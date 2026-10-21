@@ -40,7 +40,10 @@ interpolations of a state under humanoid_nmpc/ that bypass them:
                          flagged;
                        - a call `LinearInterpolation::interpolate(...)` none of whose arguments names an input (an
                          identifier containing `input`, as in `plan.input` or `target.inputTrajectory`): inputs live in
-                         a vector space and are interpolated linearly, PolicySnapshot's included.
+                         a vector space and are interpolated linearly, PolicySnapshot's included;
+                       - a using-declaration of `LinearInterpolation::interpolate` and a namespace alias of
+                         `LinearInterpolation`, which hide the qualified call and with it the input exemption: write
+                         the qualified call.
                        The robot-model headers (euler_boundary.ROBOT_MODEL_HEADERS), which implement the manifold
                        interpolation from its linear Euclidean part, are not read. Comments and string literals are not
                        read either.
@@ -79,6 +82,35 @@ def _finding(path: str, token: cpp_source.Token, message: str) -> check_types.Fi
     return check_types.Finding(path, token.line, token.col, NAME, message)
 
 
+def _statement_end(tokens: tuple[cpp_source.Token, ...], k: int) -> int:
+    """The index of the first `;` at or after tokens[k], or len(tokens) when there is none."""
+    for end in range(k, len(tokens)):
+        if tokens[end].text == ";":
+            return end
+    return len(tokens)
+
+
+def _hides_the_qualified_call(tokens: tuple[cpp_source.Token, ...], k: int) -> bool:
+    """Tells whether the statement at tokens[k] hides the qualified `LinearInterpolation::interpolate` call.
+
+    Args:
+      tokens: The code tokens of the file.
+      k: The index of the statement's `using` or `namespace` token.
+
+    Returns:
+      True for `using ...LinearInterpolation::interpolate;` and `namespace X = ...LinearInterpolation;`.
+    """
+    texts = [token.text for token in tokens[k : _statement_end(tokens, k)]]
+    if texts[:1] == ["using"]:
+        return texts[-3:] == ["LinearInterpolation", "::", "interpolate"]
+    return (
+        texts[:1] == ["namespace"]
+        and len(texts) >= 4
+        and texts[2] == "="
+        and texts[-1] == "LinearInterpolation"
+    )
+
+
 def _findings(source: str, path: str) -> list[check_types.Finding]:
     """The linear interpolations of a state in the code of `source`, the file at `path`, when it is in scope."""
     if not in_scope(path):
@@ -86,6 +118,18 @@ def _findings(source: str, path: str) -> list[check_types.Finding]:
     tokens = cpp_source.code_tokens(source)
     findings = []
     for k, token in enumerate(tokens):
+        if token.text in ("using", "namespace") and _hides_the_qualified_call(
+            tokens, k
+        ):
+            findings.append(
+                _finding(
+                    path,
+                    token,
+                    "a using-declaration or alias of LinearInterpolation hides which calls interpolate states; write "
+                    "the qualified `LinearInterpolation::interpolate` call.",
+                )
+            )
+            continue
         if k + 1 >= len(tokens) or tokens[k + 1].text != "(":
             continue
         if (
@@ -131,7 +175,8 @@ CHECKS = [
         scope=lint_files.Scope.FIRST_PARTY,
         check_source=_findings,
         description="no linear interpolation of a state trajectory under humanoid_nmpc/ outside the robot models: no "
-        "one-argument getDesiredState(t), no LinearInterpolation::interpolate of anything but inputs "
+        "one-argument getDesiredState(t), no LinearInterpolation::interpolate of anything but inputs, and no "
+        "using-declaration or alias that hides that call "
         "(humanoid_nmpc/docs/quaternion_base_orientation/README.md, section 2.9).",
         hint="Interpolate states with MpcRobotModelBase::getDesiredState(targets, t) / interpolateStateTrajectory(), or "
         "oc_data/StateTrajectoryInterpolation.h with the problem's StateManifold.",

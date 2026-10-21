@@ -52,8 +52,10 @@ namespace ocs2::humanoid {
 namespace {
 
 // LINT.IfChange(whole_body_cost_weights_fields)
-constexpr std::array<absl::string_view, 2> kFields = {
-    "task_space_foot_cost",
+// The foot cost's weights and phases: its swing_velocity_reference_weight is the centroidal foot cost's alone.
+constexpr std::array<absl::string_view, 3> kFields = {
+    "task_space_foot_cost.weights",
+    "task_space_foot_cost.active_phases",
     "joint_torque_weights",
 };
 // LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_config/task_file.proto)
@@ -85,8 +87,15 @@ void WholeBodyCostWeightsApplier::applyFootCostWeights(HotUpdateTarget& target) 
   }
   for (OptimalControlProblem& problem : target.problems()) {
     for (const std::string& footName : target.contactNames()) {
-      updateTermIfPresent<EndEffectorDynamicsFootCost>(*problem.costPtr, EndEffectorDynamicsFootCost::termName(footName),
-                                                       [&weights](EndEffectorDynamicsFootCost& cost) { cost.setWeights(*weights); });
+      absl::Status written;
+      updateTermIfPresent<EndEffectorDynamicsFootCost>(
+          *problem.costPtr, EndEffectorDynamicsFootCost::termName(footName),
+          [&weights, &written](EndEffectorDynamicsFootCost& cost) { written = cost.setWeights(*weights); });
+      // Every foot cost checks the same weights: a refusal refuses them all, before any was written.
+      if (!written.ok()) {
+        target.reportNotApplied(kFootCostField, written);
+        return;
+      }
     }
   }
 }

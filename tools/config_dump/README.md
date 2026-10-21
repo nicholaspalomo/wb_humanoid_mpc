@@ -37,7 +37,8 @@ start-up. In order:
 The weights are shown through the problem rather than through accessors: a weight is the Hessian of its term, whose
 diagonal is dumped element by element. A double is written `%a (%.17g)`, so that equal lines are equal bits; a matrix
 too large to read is written as its fingerprint, its size, nonzeros, sum and a hash of its elements' bits
-(`ValueDump.h`), which a change of any bit changes.
+(`ValueDump.h`), which a change of any bit of a nonzero element changes. The hash takes -0.0 as +0.0 and every NaN as
+one: a flipped sign of a zero, which the fingerprint could not show, is no difference of value.
 
 The contact planner's configuration is not dumped: no shipped robot plans its contacts, so its file is not part of
 what any stack builds (its conversion's own tests, humanoid_common_mpc/test/config/contact_planning/, check it).

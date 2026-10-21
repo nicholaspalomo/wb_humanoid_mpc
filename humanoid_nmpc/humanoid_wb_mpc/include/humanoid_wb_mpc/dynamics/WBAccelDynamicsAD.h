@@ -43,14 +43,20 @@ namespace ocs2::humanoid {
 
 /**
  * The floating-base dynamics of the whole-body MPC, taped with CppAD: the joint accelerations are inputs, the base
- * acceleration follows from the Newton-Euler equations of the base under the contact wrenches. Holds a reference to the
- * robot model, which must outlive it and its clones. Not thread-safe; the solver clones one per worker thread.
+ * acceleration follows from the Newton-Euler equations of the base under the contact wrenches.
+ *
+ * Keeps a pointer to the robot model, which must outlive it and every clone; the clones share it, and only read it
+ * (the model is const here and its accessors are pure functions of their arguments). Not thread-safe: the CppAD
+ * library its base class generates keeps evaluation buffers, so the solver clones one per worker thread.
  */
 class WBAccelDynamicsAD final : public SystemDynamicsBaseAD {
  public:
   using Base = SystemDynamicsBaseAD;
+  /**
+   * Tapes (or loads) the flow map. `mpcRobotModel` is retained: it must outlive this object and its clones.
+   */
   WBAccelDynamicsAD(const PinocchioInterface& pinocchioInterface,
-                    WBAccelMpcRobotModel<ad_scalar_t>& mpcRobotModel,
+                    const WBAccelMpcRobotModel<ad_scalar_t>* absl_nonnull mpcRobotModel,
                     const std::string& modelName,
                     const ModelSettings& modelSettings);
 
@@ -70,7 +76,7 @@ class WBAccelDynamicsAD final : public SystemDynamicsBaseAD {
 
  private:
   PinocchioInterfaceCppAd pinInterfaceCppAd_;
-  WBAccelMpcRobotModel<ad_scalar_t>& mpcRobotModel_;
+  const WBAccelMpcRobotModel<ad_scalar_t>* absl_nonnull mpcRobotModel_;  // not owned; outlives this object and its clones
 };
 
 }  // namespace ocs2::humanoid

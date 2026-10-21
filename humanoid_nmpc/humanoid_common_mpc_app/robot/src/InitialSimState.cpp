@@ -37,7 +37,7 @@ robot::model::RobotState createInitialSimState(const robot::model::RobotDescript
                                                const ModelSettings& modelSettings,
                                                const MpcRobotModelBase<scalar_t>& mpcRobotModel,
                                                const vector_t& initMpcState) {
-  robot::model::RobotState initState(robotDescription, /*contactSize=*/2);
+  robot::model::RobotState initState(robotDescription, /*contactSize=*/kNumContacts);
   initState.setConfigurationToZero();
 
   initState.setRootPositionInWorldFrame(mpcRobotModel.getBasePosition(initMpcState));

@@ -86,7 +86,7 @@ class MpcParamsTab(ttk.Frame):
         task_file: the task file to load (one that does not exist is reported, and nothing is loaded); None: the first
             preset, when it exists.
         on_params_updated: called with the task file's path after every save; None: nothing is called.
-        enable_online_tuning: whether the rows and saving are enabled; None: as the task file's enable_online_tuning
+        enable_online_tuning: whether the rows and saving are enabled; False: locked; True or None: as each loaded file
             says.
         param_publisher: the publisher of operator/mpc_parameters; None: nothing is published.
         robot_saver: the GUI's saver of the robot's copies (robot_config_save.RobotConfigSaver); None: Save writes
@@ -101,13 +101,6 @@ class MpcParamsTab(ttk.Frame):
         "Unitree G1 (Centroidal)": "robot_models/unitree_g1/g1_centroidal_mpc/config/mpc/task.textproto",
         "EngineAI SA01 (Centroidal)": "robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/task.textproto",
     }
-
-    # The measured contact state of the controller, selected by name in the task file (robot_model/ContactEstimatorRegistry.h)
-    # and hot-reloaded from the parameter topic. The Base Controller tab's drop-down (set_contact_estimator) offers the
-    # names of the contact_estimator registry (config_registries.textproto).
-    # LINT.IfChange(contact_estimator_gui)
-    CONTACT_ESTIMATOR_KEY = "contact_estimator"
-    # LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_config/task_file.proto:contact_estimator)
 
     # The task file's field that selects the contact inputs, which the labels of the contact blocks depend on.
     # LINT.IfChange(contact_input_parameterization_gui)
@@ -148,9 +141,10 @@ class MpcParamsTab(ttk.Frame):
         self._debounce_publish_id: str | None = None
         # The publisher of operator/mpc_parameters (operator_bus.TopicPublisher): publish(MpcParameterUpdate).
         self.param_publisher = param_publisher
-        # Called (no arguments) whenever the contact estimator selection changes: file loaded, reset, or set through
-        # set_contact_estimator. The Base Controller tab keeps its drop-down in sync with it.
-        self.on_contact_estimator_changed: Callable[[], None] | None = None
+        # Called (no arguments) whenever a field the Base Controller tab offers (base_controller_fields()) may have
+        # changed: file loaded, reset, saved, or set through set_base_controller_value. That tab keeps its drop-downs
+        # in sync with it.
+        self.on_base_controller_fields_changed: Callable[[], None] | None = None
         # The tkinter after() ID that clears a passing status; None when none is pending.
         self._status_clear_id: str | None = None
         # The robot's copy of the task file after a Save.
@@ -245,54 +239,77 @@ class MpcParamsTab(ttk.Frame):
         self.reset_btn.configure(state=state)
         for row in self.slider_rows.values():
             row.set_state(state)
-        self._notify_contact_estimator_changed()
+        self._notify_base_controller_fields_changed()
 
-    # ── Contact estimator selection (the drop-down on the Base Controller tab) ─────────────────────────────────
-    def has_contact_estimator_selection(self) -> bool:
-        """True when the loaded task file selects a contact estimator by name (`contact_estimator`)."""
-        return self.task is not None and self.task.message.HasField(
-            self.CONTACT_ESTIMATOR_KEY
+    # ── The fields the Base Controller tab offers (TuningOptions.base_controller_label) ───────────────────────────
+    def base_controller_fields(self) -> tuple[config_schema.ParameterSpec, ...]:
+        """The choices of the task file the schema offers on the Base Controller tab, in schema order.
+
+        Returns:
+          Every rendered choice whose tuning names a base_controller_label, whether the file sets it or leaves it at
+          its default; none without a task file.
+        """
+        if self.task is None:
+            return ()
+        return tuple(
+            spec
+            for spec in self.task.rendered()
+            if spec.tuning.base_controller_label
+            and spec.kind == config_schema.Kind.CHOICE
         )
 
-    def selected_contact_estimator(self) -> str | None:
-        """The live contact estimator name, or None without a selection in the file."""
-        if not self.has_contact_estimator_selection() or self.task is None:
-            return None
-        return str(self.task.value(self.CONTACT_ESTIMATOR_KEY))
+    def can_set_base_controller_fields(self) -> bool:
+        """Whether set_base_controller_value() applies: online tuning is on and a task file is loaded."""
+        return self.enable_online_tuning and self.task is not None
 
-    def contact_estimator_names(self) -> tuple[str, ...]:
-        """The names the contact estimator can be selected among: its registry's, and the live one if it is not."""
-        names: tuple[str, ...] = ()
-        if self.task is not None and self.task.has(self.CONTACT_ESTIMATOR_KEY):
-            names = self.task.spec(self.CONTACT_ESTIMATOR_KEY).choices or ()
-        selected = self.selected_contact_estimator()
+    def base_controller_value(self, path: str) -> str | None:
+        """The live value of the task file's field `path` (the default where the file leaves it out); None without one."""
+        if self.task is None or not self.task.has(path):
+            return None
+        value = self.task.value(path)
+        return None if value is None else str(value)
+
+    def base_controller_choices(self, path: str) -> tuple[str, ...]:
+        """The names the field `path` can be set to: its spec's choices, and the live value if it is not among them."""
+        if self.task is None or not self.task.has(path):
+            return ()
+        names = self.task.spec(path).choices or ()
+        selected = self.base_controller_value(path)
         if selected is not None and selected not in names:
             names += (selected,)
         return names
 
-    def set_contact_estimator(self, name: str) -> None:
-        """Selects the contact estimator `name` and publishes it like a slider change.
+    def set_base_controller_value(self, path: str, name: str) -> None:
+        """Sets the task file's field `path` to `name` and publishes it like a slider change.
 
-        The name reaches the simulator through the parameter topic; "Save" writes it into the file. Ignored while
-        online tuning is off or the file has no selection.
+        The value reaches its consumer through the parameter topic; "Save" writes it into the file. Ignored while
+        online tuning is off, without a task file, or for a path the file has no parameter at.
 
         Args:
-            name: a name of the contact_estimator registry (contact_estimator_names()).
+            path: the path of one of base_controller_fields().
+            name: one of its base_controller_choices().
         """
-        if not self.enable_online_tuning or not self.has_contact_estimator_selection():
-            self._notify_contact_estimator_changed()
+        if (
+            not self.can_set_base_controller_fields()
+            or self.task is None
+            or not self.task.has(path)
+        ):
+            self._notify_base_controller_fields_changed()
             return
-        row = self.slider_rows.get(self.CONTACT_ESTIMATOR_KEY)
+        row = self.slider_rows.get(path)
         if isinstance(row, parameter_rows.ChoiceRow):
             row.on_change, callback = None, row.on_change
             row.set_value(name)
             row.on_change = callback
-        self._on_any_change(self.CONTACT_ESTIMATOR_KEY, name)
-        self._notify_contact_estimator_changed()
+        self._on_any_change(path, name)
+        self._notify_base_controller_fields_changed()
 
-    def _notify_contact_estimator_changed(self) -> None:
-        if self.on_contact_estimator_changed is not None:
-            self.on_contact_estimator_changed()
+    def _is_base_controller_field(self, key: str) -> bool:
+        return any(spec.path == key for spec in self.base_controller_fields())
+
+    def _notify_base_controller_fields_changed(self) -> None:
+        if self.on_base_controller_fields_changed is not None:
+            self.on_base_controller_fields_changed()
 
     def _build_category_nav_ui(self) -> None:
         """The frame the block selector goes into; the selector is built when a file is loaded."""
@@ -353,13 +370,12 @@ class MpcParamsTab(ttk.Frame):
             self._refresh_categories()
             self._clear_rows()
             self._show_status(f"Cannot load {self.task_file}: {error}", error=True)
-            self._notify_contact_estimator_changed()
+            self._notify_base_controller_fields_changed()
             return
 
-        if self._explicit_online_tuning is not None:
-            self.enable_online_tuning = self._explicit_online_tuning
-        else:
-            self.enable_online_tuning = bool(self.task.message.enable_online_tuning)
+        self.enable_online_tuning = self._explicit_online_tuning is not False and bool(
+            self.task.message.enable_online_tuning
+        )
         self._refresh_categories()
         self._render_active_category()
         self.set_online_tuning_enabled(self.enable_online_tuning)
@@ -377,7 +393,7 @@ class MpcParamsTab(ttk.Frame):
         if self.task is not None:
             files.append(("", self.task))
         if self.contact_planning is not None:
-            files.append((CONTACT_PLANNING_BLOCK + ".", self.contact_planning))
+            files.append((f"{CONTACT_PLANNING_BLOCK}.", self.contact_planning))
         return files
 
     def _locate(self, key: str) -> tuple[tuned_file.TunedFile, str]:
@@ -475,7 +491,7 @@ class MpcParamsTab(ttk.Frame):
                 if frame is None:
                     frame = ttk.LabelFrame(
                         self.scroll_container.scrollable_content,
-                        text="• " + (prefix + group if prefix else group),
+                        text=f"• {prefix}{group}",
                     )
                     frame.pack(fill="x", padx=6, pady=4)
                     frames[group] = frame
@@ -510,7 +526,7 @@ class MpcParamsTab(ttk.Frame):
             callback, row.on_change = row.on_change, None
             row.reset_to_default()
             row.on_change = callback
-        self._notify_contact_estimator_changed()
+        self._notify_base_controller_fields_changed()
         self._publish_to_topic()
         self._show_status("All parameters reset to the saved files")
 
@@ -532,8 +548,8 @@ class MpcParamsTab(ttk.Frame):
         except (KeyError, ValueError) as error:
             self._show_status(f"Cannot change {key}: {error}", error=True)
             return
-        if key == self.CONTACT_ESTIMATOR_KEY:
-            self._notify_contact_estimator_changed()
+        if self._is_base_controller_field(key):
+            self._notify_base_controller_fields_changed()
         self._schedule_publish()
 
     def _schedule_publish(self) -> None:
@@ -555,6 +571,7 @@ class MpcParamsTab(ttk.Frame):
         """
         if self.task is None:
             return None
+        self._take_disk_changes()
         planner = (
             self.contact_planning.edited().message
             if self.contact_planning is not None
@@ -565,6 +582,41 @@ class MpcParamsTab(ttk.Frame):
             planner,
             config_path=robot_config_save.config_path_of(self.task.path),
         )
+
+    def poll_files(self) -> None:
+        """Takes an edit of the task or contact-planning file made on disk (an editor's, push_robot_config's), for the tick.
+
+        The rows are rendered again from the files, and while the operator holds changes the files with them are
+        published again: the MPC and the robot apply the file on disk alone by their watchers, which would drop the
+        changes, and an update that arrives after a file was written is applied over it.
+        """
+        if not self._take_disk_changes():
+            return
+        holds_changes = any(
+            file is not None and file.changes()
+            for file in (self.task, self.contact_planning)
+        )
+        if holds_changes:
+            self._publish_to_topic()
+
+    def _take_disk_changes(self) -> bool:
+        """Rebases both files on what is on disk now (tuned_file.TunedFile.refresh()), rendering the rows again if either changed.
+
+        Returns:
+            Whether either file changed on disk since it was loaded, saved or last taken.
+        """
+        changed = False
+        for file in (self.task, self.contact_planning):
+            if file is not None and file.refresh() is not None:
+                changed = True
+        if changed:
+            self._refresh_categories()
+            self._render_active_category()
+            self._notify_base_controller_fields_changed()
+            self._show_status(
+                "A file changed on disk: its values were taken, and your changes kept."
+            )
+        return changed
 
     def _publish_to_topic(self) -> None:
         """Publishes the two files with the current values, as an MpcParameterUpdate on operator/mpc_parameters."""
@@ -616,6 +668,8 @@ class MpcParamsTab(ttk.Frame):
                     error=True,
                 )
                 return False
+            # Its rows show and reset to the file as saved, also when the task file's save fails below.
+            self._render_active_category()
         try:
             task_text = self.task.save().text
         except (OSError, tuned_file.TunedFileError) as error:
@@ -626,8 +680,9 @@ class MpcParamsTab(ttk.Frame):
             )
             self._show_status(f"Error saving: {error}{planner}", error=True)
             return False
-        for row in self.slider_rows.values():
-            row.mark_saved()
+        self._refresh_categories()
+        self._render_active_category()
+        self._notify_base_controller_fields_changed()
         self.robot_save.send(robot_config_save.KIND_TASK, self.task.path, task_text)
         if self.on_params_updated:
             self.on_params_updated(self.task_file)

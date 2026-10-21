@@ -51,7 +51,7 @@ filegroup(
     output_group = "nproto_files",
 )
 
-# The generated code compiles, links next to libzmq and round-trips through the C++ runtime.
+# The generated code compiles, round-trips through the C++ runtime and travels over the DDS bus.
 cc_test(
     name = "messages_cc_test",
     size = "small",
@@ -59,11 +59,14 @@ cc_test(
     copts = FIRST_PARTY_COPTS,
     deps = [
         ":messages_cc_proto",
+        "//robot_runtime/robot_ipc",
+        "//robot_runtime/robot_ipc:test_network",
         "@abseil-cpp//absl/base:nullability",
-        # cppzmq's target carries only the headers of libzmq; @libzmq is the library itself.
-        "@cppzmq",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/synchronization",
+        "@abseil-cpp//absl/time",
         "@googletest//:gtest_main",
-        "@libzmq",
     ],
 )
 
@@ -77,9 +80,9 @@ py_test(
     main = "test/test_messages.py",
     deps = [
         ":messages_py_proto",
+        "//robot_runtime/robot_ipc:robot_ipc_py",
         "//tools/nproto:options_py_proto",
         requirement("protobuf"),
-        requirement("pyzmq"),
         # Not requirement("rerun-sdk"): see the rerun_sdk whl_mods in MODULE.bazel.
         "@operator_deps//rerun_sdk:rerun",
     ],

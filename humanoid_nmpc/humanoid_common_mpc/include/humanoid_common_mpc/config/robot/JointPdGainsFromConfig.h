@@ -41,27 +41,28 @@ namespace ocs2::humanoid {
 
 /**
  * The joint PD gains of an MRT joint controller from a joint PD gains file (config/controller/joint_pd_gains.textproto,
- * or the GUI's live gains on operator/pd_gains):
+ * or the GUI's live gains on operator/pd_gains), every gain from the file - a controller has none of its own:
  *
- *   - default_gains, each gain over `defaults` (the controller's own);
+ *   - default_gains, which sets kp, kd and torque_limit;
  *   - an MPC joint (`mpcJointNames`, in the order of ModelSettings::mpcModelJointNames) the file names gets its own
  *     gains, each over default_gains; one it does not name gets default_gains;
  *   - another joint (`otherJointNames`, ModelSettings::fixedJointNames) the file names gets its own gains; one it does
  *     not name gets kOtherJointDefaultGainScale times the default kp and kd, and the default torque limit;
- *   - the torque limits are ignored when `defaults` has none (a controller that commands no torque limit, whose limits
- *     are then +infinity).
+ *   - the controller constants gravity_comp_damping_fraction, max_policy_joint_error and
+ *     diverged_policy_joint_target_bound, at the schema's defaults when the file leaves them out.
  *
  * A file that names a joint of neither list is another robot's (or a typo): it is refused, so that another robot's
  * default_gains never reach this robot's joints.
  *
  * Does no I/O and keeps no state; allocates, so it runs on the communication thread, never the realtime one.
  *
- * @return InvalidArgument naming the field when a gain it reads is not a finite non-negative number, when an entry of
- *         joint_gains names no joint, when two entries name the same joint (a joint is named at most once), or when
+ * @return InvalidArgument naming the field when default_gains leaves out kp, kd or torque_limit, when a gain is not a
+ *         finite non-negative number, when gravity_comp_damping_fraction is not in [0, 1], max_policy_joint_error not
+ *         a finite positive number or diverged_policy_joint_target_bound not a finite non-negative one, when an entry
+ *         of joint_gains names no joint, when two entries name the same joint (a joint is named at most once), or when
  *         entries name joints this robot does not have (listing them, in the file's order).
  */
 absl::StatusOr<JointPdGains> jointPdGainsFromConfig(const mpc_config::JointPdGainsFile& file,
-                                                    const JointPdGainsDefaults& defaults,
                                                     const std::vector<std::string>& mpcJointNames,
                                                     const std::vector<std::string>& otherJointNames);
 

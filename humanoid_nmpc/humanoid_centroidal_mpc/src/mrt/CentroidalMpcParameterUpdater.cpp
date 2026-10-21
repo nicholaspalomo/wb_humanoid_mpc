@@ -32,6 +32,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_centroidal_mpc/mrt/CentroidalMpcParameterUpdater.h"
 
 #include <array>
+#include <filesystem>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -41,6 +43,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/base/nullability.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
+#include "absl/time/time.h"
 #include "absl/types/span.h"
 
 #include "humanoid_centroidal_mpc/parameter_update/BasisInputsCostApplier.h"
@@ -129,12 +132,22 @@ absl::StatusOr<std::shared_ptr<MpcParameterUpdaterModule>> makeCentroidalMpcPara
     const CentroidalMpcInterface& interface,
     const std::string& taskFile,
     const std::string& referenceFile,
-    std::vector<ReferenceFileReloader> referenceFileReloaders) {
+    std::vector<ReferenceFileReloader> referenceFileReloaders,
+    std::optional<std::filesystem::file_time_type> taskFileReadAt,
+    std::optional<std::filesystem::file_time_type> referenceFileReadAt,
+    std::optional<std::filesystem::file_time_type> contactPlanningFileReadAt,
+    absl::Duration fileCheckPeriod,
+    std::function<absl::Time()> clock) {
   // A reload is compared with the configuration the interface was built from.
   MpcParameterUpdaterModule::Options options;
   options.taskFile = taskFile;
   options.referenceFile = referenceFile;
   options.contactPlanningFile = contactPlanningFileBeside(taskFile);
+  options.taskFileReadAt = taskFileReadAt;
+  options.referenceFileReadAt = referenceFileReadAt;
+  options.contactPlanningFileReadAt = contactPlanningFileReadAt;
+  options.fileCheckPeriod = fileCheckPeriod;
+  options.clock = std::move(clock);
   options.runningTask = interface.config().task;
   options.layout = stateInputLayout(interface.modelSettings(), StateInputLayout::Mpc::kCentroidal);
   options.inputDim = interface.getEffectiveMpcRobotModel().getInputDim();

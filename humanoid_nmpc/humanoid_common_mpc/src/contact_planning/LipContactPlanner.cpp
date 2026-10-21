@@ -33,6 +33,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <chrono>
 #include <cmath>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -54,6 +55,15 @@ namespace {
 
 using Clock = std::chrono::steady_clock;
 
+// The HPIPM settings of the branch-and-bound relaxations that differ from the solver's defaults.
+constexpr scalar_t kRelaxationInitialBarrier = 1.0e1;
+constexpr scalar_t kRelaxationStationarityTolerance = 1.0e-5;
+constexpr scalar_t kRelaxationEqualityTolerance = 1.0e-6;
+constexpr scalar_t kRelaxationInequalityTolerance = 1.0e-6;
+constexpr scalar_t kRelaxationComplementarityTolerance = 1.0e-6;
+// [s] node durations closer than this are the same grid.
+constexpr scalar_t kSameNodeDurationTolerance = 1.0e-12;
+
 scalar_t elapsedSeconds(const Clock::time_point& start) {
   return std::chrono::duration<scalar_t>(Clock::now() - start).count();
 }
@@ -62,12 +72,12 @@ scalar_t elapsedSeconds(const Clock::time_point& start) {
 OcpQpHpipmSolver::Settings relaxationQpSettings(const ContactPlanningConfig& config) {
   OcpQpHpipmSolver::Settings qpSettings;
   qpSettings.iterMax = config.planner.maxQpIterations;
-  qpSettings.hpipmMode = 2;  // BALANCE
-  qpSettings.mu0 = 1.0e1;
-  qpSettings.tolStat = 1.0e-5;
-  qpSettings.tolEq = 1.0e-6;
-  qpSettings.tolIneq = 1.0e-6;
-  qpSettings.tolComp = 1.0e-6;
+  qpSettings.hpipmMode = OcpQpHpipmSolver::Settings::kHpipmModeBalance;
+  qpSettings.mu0 = kRelaxationInitialBarrier;
+  qpSettings.tolStat = kRelaxationStationarityTolerance;
+  qpSettings.tolEq = kRelaxationEqualityTolerance;
+  qpSettings.tolIneq = kRelaxationInequalityTolerance;
+  qpSettings.tolComp = kRelaxationComplementarityTolerance;
   return qpSettings;
 }
 
@@ -118,8 +128,9 @@ absl::Status LipContactPlanner::setConfig(const ContactPlanningConfig& config) {
   // limits or term lists that keep the layout.
   const Layout& layout = problem.layout();
   const bool sameProblem = config.planner.numNodes == config_.planner.numNodes &&
-                           std::abs(config.planner.dt - config_.planner.dt) <= 1.0e-12 && layout.nx == problem_.layout().nx &&
-                           layout.nu == problem_.layout().nu && layout.hasHeading == problem_.layout().hasHeading;
+                           std::abs(config.planner.dt - config_.planner.dt) <= kSameNodeDurationTolerance &&
+                           layout.nx == problem_.layout().nx && layout.nu == problem_.layout().nu &&
+                           layout.hasHeading == problem_.layout().hasHeading;
   config_ = config;
   problem_ = std::move(problem);
   searchStages_ = std::move(stages);
@@ -151,8 +162,8 @@ absl::StatusOr<std::string> LipContactPlanner::formulationSummary(const ContactP
   return planner->getFormulationSummary();
 }
 
-int LipContactPlanner::previousPlanShift(const ContactPlannerInput& input) const {
-  if (!previousPlan_ || !previousPlan_->valid || previousAssignment_.empty()) return -1;
+std::optional<int> LipContactPlanner::previousPlanShift(const ContactPlannerInput& input) const {
+  if (!previousPlan_ || !previousPlan_->valid || previousAssignment_.empty()) return std::nullopt;
   const ContactPlan& prev = *previousPlan_;
   // The node count still has to match, because the shift indexes the previous plan's per-node arrays and the previous
   // assignment with the SAME node count the current problem has. A node duration is not that kind of mismatch: the
@@ -174,9 +185,9 @@ int LipContactPlanner::previousPlanShift(const ContactPlannerInput& input) const
   // over the same node count, and the foothold and heading lookups in defaultNominal() are per-node geometry, none of
   // which is a function of how long a node lasts. Measuring the shift on prev.dt is what makes "the node of the
   // previous plan that is live now" mean the same thing on both grids.
-  if (prev.numIntervals() != config_.planner.numNodes || !(prev.dt > 0.0)) return -1;
+  if (prev.numIntervals() != config_.planner.numNodes || !(prev.dt > 0.0)) return std::nullopt;
   const int shift = static_cast<int>(std::lround((input.time - prev.startTime) / prev.dt));
-  if (shift < 0 || shift >= config_.planner.numNodes) return -1;
+  if (shift < 0 || shift >= config_.planner.numNodes) return std::nullopt;
   return shift;
 }
 
@@ -197,8 +208,8 @@ MiqpAssignment LipContactPlanner::initialAssignment(const ContactPlannerInput& i
 }
 
 ContactLogicState LipContactPlanner::makeLogicState(const ContactPlannerInput& input) const {
-  const int shift = previousPlanShift(input);
-  return ContactLogicState::make(input, config_, shift, shift >= 0 ? &previousAssignment_ : nullptr);
+  const std::optional<int> shift = previousPlanShift(input);
+  return ContactLogicState::make(input, config_, shift, shift.has_value() ? &previousAssignment_ : nullptr);
 }
 
 bool LipContactPlanner::propagate(const ContactPlannerInput& input, MiqpAssignment& assignment) const {
@@ -222,32 +233,39 @@ HeadingNominal LipContactPlanner::defaultNominal(const ContactPlannerInput& inpu
   nominal.heading.resize(static_cast<size_t>(N) + 1);
   nominal.com.resize(static_cast<size_t>(N) + 1);
   nominal.feet.resize(static_cast<size_t>(N) + 1);
-  const int shift = previousPlanShift(input);
+  nominal.footYaws.resize(static_cast<size_t>(N) + 1);
+  const std::optional<int> shift = previousPlanShift(input);
   const bool fromPrevious =
-      shift >= 0 && previousPlan_ && previousPlan_->hasHeading() && previousPlan_->heading.size() == static_cast<size_t>(N + 1) &&
+      shift.has_value() && previousPlan_ && previousPlan_->hasHeading() && previousPlan_->heading.size() == static_cast<size_t>(N + 1) &&
       previousPlan_->comPosition.size() == static_cast<size_t>(N + 1) && previousPlan_->footholds.size() == static_cast<size_t>(N + 1);
   // The measured heading arrives wrapped to [-pi, pi] (an atan2 of the base quaternion), the previous plan's heading is
   // whatever branch that plan started on. Across a crossing of +-pi the two differ by 2 pi, and a nominal on the old
   // branch made every first-order frame term g (theta - theta_n) worth g 2 pi (over a meter on the step width) and
   // aimed the foot yaw tracking a full turn away. One offset moves the whole previous heading trajectory onto the branch
   // of the measurement, which keeps it continuous whatever the plan turns through.
+  const int previousShift = shift.value_or(0);  // read only when fromPrevious, which requires a shift
   scalar_t branchOffset = 0.0;
+  const bool previousYaws = fromPrevious && previousPlan_->footYaws.size() == static_cast<size_t>(N + 1);
   if (fromPrevious) {
-    const scalar_t previousNow = previousPlan_->heading[static_cast<size_t>(std::min(shift, N))];
+    const scalar_t previousNow = previousPlan_->heading[static_cast<size_t>(std::min(previousShift, N))];
     branchOffset = moduloAngleWithReference(previousNow, input.heading) - previousNow;
   }
   for (int k = 0; k <= N; ++k) {
     const size_t i = static_cast<size_t>(k);
     if (fromPrevious) {
-      const size_t source = static_cast<size_t>(std::min(k + shift, N));
+      const size_t source = static_cast<size_t>(std::min(k + previousShift, N));
       nominal.heading[i] = previousPlan_->heading[source] + branchOffset;
       nominal.com[i] = previousPlan_->comPosition[source];
       nominal.feet[i] = previousPlan_->footholds[source];
+      for (size_t foot = 0; foot < kNumContacts; ++foot) {
+        nominal.footYaws[i][foot] = previousYaws ? previousPlan_->footYaws[source][foot] + branchOffset : input.footYaws[foot];
+      }
     } else {
       const scalar_t t = static_cast<scalar_t>(k) * dt;
       nominal.heading[i] = input.heading + input.headingRateCommand * t;
       nominal.com[i] = input.comPosition + input.comVelocity * t;
       nominal.feet[i] = input.footPositions;
+      nominal.footYaws[i] = input.footYaws;
     }
   }
   return nominal;
@@ -281,7 +299,7 @@ absl::StatusOr<ContactPlanningContext> LipContactPlanner::makeContext(const Cont
   ctx.nominal = &nominal;
   ctx.config = &config_;
   ctx.previousPlanShift = previousPlanShift(input);
-  ctx.previousPlan = ctx.previousPlanShift >= 0 && previousPlan_.has_value() ? &*previousPlan_ : nullptr;
+  ctx.previousPlan = ctx.previousPlanShift.has_value() && previousPlan_.has_value() ? &*previousPlan_ : nullptr;
   ctx.yawInertia = headingYawInertia;
   ctx.dt = dtOverride > 0.0 ? dtOverride : config_.planner.dt;
   ctx.numNodes = N;
@@ -351,7 +369,7 @@ ContactPlan LipContactPlanner::plan(const ContactPlannerInput& input) {
   // Stages before the search: the warm start and the solver's own heuristics.
   SearchSetup setup;
   setup.previousPlan = ctx.previousPlan;
-  setup.previousAssignment = ctx.previousPlanShift >= 0 ? &previousAssignment_ : nullptr;
+  setup.previousAssignment = ctx.previousPlanShift.has_value() ? &previousAssignment_ : nullptr;
   setup.previousPlanShift = ctx.previousPlanShift;
   setup.numNodes = config_.planner.numNodes;
   setup.miqpSettings = miqp_->getSettings();

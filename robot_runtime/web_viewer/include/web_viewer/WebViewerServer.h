@@ -48,8 +48,9 @@ namespace robot::web_viewer {
  * thread. It never touches the simulation: everything it can change is in the ViewerInputQueue.
  *
  * Threads: a listen thread and a pool of 3 x maxClients + 2 request threads, all placed on `cores` at `threadPriority`
- * (placeCurrentThread()). A request thread blocks only on its own socket (2 s write timeout, 5 s read timeout) and on
- * the mailbox, never the render thread.
+ * (placeCurrentThread()). A request thread blocks only on its own socket and on the mailbox, never the render thread;
+ * the 2 s write and 5 s read timeouts bound each write and read, not a request, so a peer that trickles its bytes holds
+ * its thread for as long as it likes (README.md, "Limits").
  *
  * Every request passes the checks of README.md's trust model before it is routed or counted: the Host header, the
  * Fetch-Metadata header and, for a POST, the X-MuJoCo-Viewer and Origin headers.

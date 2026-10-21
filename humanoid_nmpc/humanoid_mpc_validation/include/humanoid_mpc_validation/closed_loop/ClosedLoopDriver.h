@@ -39,6 +39,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "Eigen/Core"
 #include "absl/base/nullability.h"
+#include "absl/log/check.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
@@ -59,6 +60,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc_app/robot/RobotController.h"
 #include "humanoid_common_mpc_app/robot/RobotProcessSettings.h"
 #include "humanoid_common_mpc_app/robot/TaskFileWatcher.h"
+#include "humanoid_mpc_validation/closed_loop/ClosedLoopMetrics.h"
 #include "humanoid_mpc_validation/closed_loop/DriverSettingsFromConfig.h"
 #include "humanoid_mpc_validation/closed_loop/RobotConfiguration.h"
 #include "mujoco_sim_interface/MujocoSimInterface.h"
@@ -87,6 +89,8 @@ struct DriverSolveOutcome {
   double solveQpMs = 0.0;
   double linesearchMs = 0.0;
   double computeControllerMs = 0.0;
+  /// The SQP's step of the iteration's solve, its last SQP iteration (sqpStepSampleOf()); empty when it failed.
+  std::optional<SqpStepSample> sqpStep;
 };
 
 /**
@@ -130,7 +134,8 @@ std::optional<double> maxQuaternionNormDeviationOf(const vector_array_t& states,
  *    node::applyWalkingVelocityCommand(), which clamps it and scales it (ProceduralMpcMotionManager::setAndScaleVelocityCommand());
  *  - the measurements of the formulation the metrics need (contact positions, the initial-state gap).
  * Left out: the bus, the FSM bridge and the fall recovery (the runner drives the modes and the gantry itself), the
- * visualization, telemetry, the operator's parameter and PD-gain messages.
+ * visualization, telemetry, the operator's parameter and PD-gain messages. The robot process's state estimator is the
+ * runner's (LockstepClosedLoop, createRobotProcessStateEstimator()), which hands the controller its estimate.
  *
  * This base class holds what both formulations share; CentroidalClosedLoopDriver and WholeBodyClosedLoopDriver add
  * their controller.
@@ -146,6 +151,11 @@ class ClosedLoopDriver {
   /** The robot process's settings of the task file (loadRobotProcessSettings()), as the robot binaries read them. */
   const RobotProcessSettings& settings() const { return settings_; }
   const robot::model::RobotDescription& robotDescription() const { return *robotDescription_; }
+  /** The MPC interface's model settings (its contact frames and their parent joints); set once the driver is built. */
+  const ModelSettings& modelSettings() const {
+    ABSL_CHECK(modelSettings_ != nullptr) << "ClosedLoopDriver::modelSettings() before initializeShared()";
+    return *modelSettings_;
+  }
   /** The joints of the MPC model, as indices of robotDescription(). */
   const std::vector<robot::joint_index_t>& mpcJointIndices() const { return mpcJointIndices_; }
 
@@ -189,8 +199,9 @@ class ClosedLoopDriver {
   // ---------------------------------------------------------------- the solver
 
   /**
-   * One solver iteration of the MPC link (InProcessMpcLink::runSolverIteration()), timed, with the SQP's phase times:
-   * what the solver thread of the MPC node runs between its waits.
+   * One solver iteration of the MPC link (InProcessMpcLink::runSolverIteration()), timed, with the SQP's phase times
+   * and, when it succeeded, the step of its SQP's last iteration and the largest residual of the hard swing-foot
+   * normal-velocity rows over the new solution's nodes: what the solver thread of the MPC node runs between its waits.
    */
   DriverSolveOutcome solve();
 
@@ -301,6 +312,9 @@ class ClosedLoopDriver {
   std::unique_ptr<TargetTrajectoriesCalculatorBase> calculator_;
   std::shared_ptr<ProceduralMpcMotionManager> motionManager_;
   GuiCommandScaling guiCommandScaling_;
+
+  /// The problem's hard swing-foot normal-velocity terms (normalVelocityTermIndices()), whose residual solve() samples.
+  std::vector<size_t> normalVelocityTerms_;
 
   std::unique_ptr<MpcRobotModelBase<scalar_t>> measurementModel_;
   std::unique_ptr<PinocchioInterface> measurementPinocchio_;

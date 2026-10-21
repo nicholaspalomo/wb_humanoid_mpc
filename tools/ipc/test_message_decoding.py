@@ -36,10 +36,12 @@ from google.protobuf import json_format
 from google.protobuf import message
 from google.protobuf import message_factory
 from google.protobuf import text_format
+from humanoid_mpc_config import joint_pd_gains_file_pb2
 from humanoid_mpc_config import mpc_parameter_update_pb2
 from humanoid_mpc_msgs import config_file_kind_pb2
 from humanoid_mpc_msgs import config_file_save_pb2
 from humanoid_mpc_msgs import controller_type_pb2
+from humanoid_mpc_msgs import dodgeball_throw_pb2
 from humanoid_mpc_msgs import joint_targets_pb2
 from humanoid_mpc_msgs import mpc_policy_pb2
 from humanoid_mpc_msgs import mpc_solver_status_pb2
@@ -60,7 +62,7 @@ def make_policy() -> mpc_policy_pb2.MpcPolicy:
 
 
 def make_choice_class() -> type[message.Message]:
-    """A message with a oneof and a proto3 `optional` field, which humanoid_mpc_msgs does not have (yet)."""
+    """A message with a oneof and a proto3 `optional` field, built here so that the test owns its layout."""
     file_proto = descriptor_pb2.FileDescriptorProto(
         name="test_choice.proto", package="test_choice", syntax="proto3"
     )
@@ -122,7 +124,7 @@ class ImportMessageModulesTest(unittest.TestCase):
 
 class DecodeTest(unittest.TestCase):
 
-    def test_a_payload_decodes_as_the_type_its_frame_names(self) -> None:
+    def test_a_payload_decodes_as_the_type_its_envelope_names(self) -> None:
         status = mpc_status_pb2.MpcStatus(observation_time=1.5, resets_served=2)
         decoded = message_decoding.decode(
             "humanoid_mpc_msgs.MpcStatus", status.SerializeToString()
@@ -339,6 +341,43 @@ class TextFormatTest(unittest.TestCase):
         self.assertEqual(parsed, choice)
         self.assertEqual(parsed.WhichOneof("kind"), "value")
         self.assertFalse(parsed.HasField("count"))
+
+    def test_an_absent_edition_2023_field_prints_as_not_set_and_round_trips(
+        self,
+    ) -> None:
+        # A gain the file leaves out is the controller's default (joint_pd_gains_file.proto): printing kp: 0.0 for it
+        # would show, and set when parsed back, a gain nobody gave.
+        gains = joint_pd_gains_file_pb2.JointPdGainsFile()
+        gains.joint_gains.add(joint="left_knee", kd=2.0)
+        text = message_decoding.message_to_text(gains)
+        lines = [line.strip() for line in text.splitlines()]
+        self.assertIn("# default_gains: not set", lines)
+        self.assertIn("# kp: not set", lines)
+        self.assertIn("kd: 2.0", lines)
+        self.assertNotIn("kp: 0.0", lines)
+        self.assertEqual(
+            parse_text(text, joint_pd_gains_file_pb2.JointPdGainsFile), gains
+        )
+        as_json = message_decoding.format_fields(gains, [], "json")
+        self.assertEqual(
+            json_format.ParseDict(
+                json.loads(as_json), joint_pd_gains_file_pb2.JointPdGainsFile()
+            ),
+            gains,
+        )
+        self.assertIsNone(message_decoding.select_field(gains, "joint_gains.0.kp"))
+        self.assertEqual(message_decoding.select_field(gains, "joint_gains.0.kd"), 2.0)
+
+    def test_unset_proto3_optional_fields_round_trip_through_json(self) -> None:
+        throw = dodgeball_throw_pb2.DodgeballThrow(azimuth_deg=10.0)
+        as_json = message_decoding.format_fields(throw, [], "json")
+        self.assertIsNone(json.loads(as_json)["mass"])
+        parsed = json_format.ParseDict(
+            json.loads(as_json), dodgeball_throw_pb2.DodgeballThrow()
+        )
+        self.assertEqual(parsed, throw)
+        self.assertFalse(parsed.HasField("mass"))
+        self.assertFalse(parsed.HasField("spawn_offset"))
 
     def test_selected_fields_print_as_a_pruned_textproto(self) -> None:
         text = message_decoding.format_fields(

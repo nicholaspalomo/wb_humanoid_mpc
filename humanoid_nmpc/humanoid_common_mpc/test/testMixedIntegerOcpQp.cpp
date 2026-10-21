@@ -50,6 +50,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/OcpQpHpipm.h"
 #include "humanoid_common_mpc/contact_planning/logic/ContactLogicState.h"
 #include "humanoid_common_mpc/contact_planning/problem/Layout.h"
+#include "humanoid_nmpc/humanoid_common_mpc/test/support/StatusTestMacros.h"
 
 namespace ocs2::humanoid {
 
@@ -110,7 +111,7 @@ OcpQpProblem makeProblem(scalar_t target) {
   for (int k = 0; k <= kNumStages; ++k) {
     const bool terminal = (k == kNumStages);
     OcpQpStage& s = problem.stages[k];
-    s = OcpQpStage::Zero(1, terminal ? 0 : 2, !terminal);
+    s = OcpQpStage::Zero(1, terminal ? 0 : 2, terminal ? OcpQpStageKind::kTerminal : OcpQpStageKind::kIntermediate);
     s.Q = matrix_t::Constant(1, 1, 1.0);
     if (!terminal) {
       s.R = (matrix_t(2, 2) << 1.0, 0.0, 0.0, 1.0e-6).finished();
@@ -209,7 +210,7 @@ OcpQpProblem makeDecoupledBinaryProblem(scalar_t target) {
   for (int k = 0; k <= kNumStages; ++k) {
     const bool terminal = (k == kNumStages);
     OcpQpStage& s = problem.stages[k];
-    s = OcpQpStage::Zero(1, terminal ? 0 : 2, !terminal);
+    s = OcpQpStage::Zero(1, terminal ? 0 : 2, terminal ? OcpQpStageKind::kTerminal : OcpQpStageKind::kIntermediate);
     s.Q = matrix_t::Constant(1, 1, 1.0);
     if (!terminal) {
       s.R = (matrix_t(2, 2) << 1.0, 0.0, 0.0, 1.0e-6).finished();
@@ -337,7 +338,7 @@ int footOfContactInput(const Layout& layout, int inputIndex) {
  * node laid out in the feet's order. Nothing in the code connects the two, so this states the connection.
  */
 void expectBinaryLayoutAgreesWithContactBinaryIndex(const ContactPlanningConfig& config) {
-  const std::unique_ptr<const LipContactPlanner> planner = LipContactPlanner::Create(config).value();
+  HUMANOID_ASSERT_OK_AND_ASSIGN(const std::unique_ptr<const LipContactPlanner> planner, LipContactPlanner::Create(config));
   const Layout& layout = planner->getLayout();
   const std::vector<MiqpBinaryVariable> binaries = planner->binaryVariables();
   const int numNodes = config.planner.numNodes;
@@ -369,7 +370,7 @@ void expectBinaryLayoutAgreesWithContactBinaryIndex(const ContactPlanningConfig&
   // Every listed binary must also carry an input box constraint at its stage, which is what MixedIntegerOcpQp needs to
   // fix it (locateBinaries returns an InvalidArgument otherwise, and the plan is then lost for that frame).
   const ContactPlannerInput input = makeStandingInput();
-  const OcpQpProblem qp = planner->buildProblem(input).value();
+  HUMANOID_ASSERT_OK_AND_ASSIGN(const OcpQpProblem qp, planner->buildProblem(input));
   ASSERT_EQ(qp.numStages(), numNodes);
   for (const MiqpBinaryVariable& binary : binaries) {
     const OcpQpStage& stage = qp.stages[static_cast<size_t>(binary.stage)];
@@ -880,7 +881,7 @@ TEST(ContactPlannerBinaryLayoutTest, BinaryVariablesAgreeWithContactBinaryIndex)
  */
 TEST(ContactPlannerBinaryLayoutTest, TheCommittedPrefixLandsOnTheBinariesOfItsOwnNodeAndFoot) {
   const ContactPlanningConfig config = makePlannerConfig();
-  const std::unique_ptr<const LipContactPlanner> planner = LipContactPlanner::Create(config).value();
+  HUMANOID_ASSERT_OK_AND_ASSIGN(const std::unique_ptr<const LipContactPlanner> planner, LipContactPlanner::Create(config));
   const Layout& layout = planner->getLayout();
 
   // An asymmetric prefix: without it a wrong foot or a wrong node cannot be told from the right one.

@@ -51,6 +51,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
 #include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
+#include "humanoid_nmpc/humanoid_common_mpc/test/support/StatusTestMacros.h"
 #include "support/TypedConfigFiles.h"
 
 namespace ocs2::humanoid {
@@ -70,11 +71,11 @@ DrcAtlasContactTestModel::DrcAtlasContactTestModel(const std::string& modelNameP
   config_ = *std::move(config);
 
   modelSettings_ =
-      std::make_unique<ModelSettings>(ModelSettings::Create(config_.task, urdfFile_, modelNamePrefix_, /*verbose=*/false).value());
+      std::make_unique<ModelSettings>(checkedValue(ModelSettings::Create(config_.task, urdfFile_, modelNamePrefix_, /*verbose=*/false)));
   modelSettings_->recompileLibrariesCppAd = false;
   pinocchioInterface_ = std::make_unique<PinocchioInterface>(
-      loadCustomPinocchioInterface(config_.task, urdfFile_, *modelSettings_, /*scaleTotalMass=*/false).value());
-  info_ = centroidalModelInfoOf(config_, *pinocchioInterface_, *modelSettings_).value();
+      checkedValue(loadCustomPinocchioInterface(config_.task, urdfFile_, *modelSettings_, /*scaleTotalMass=*/false)));
+  info_ = checkedValue(centroidalModelInfoOf(config_, *pinocchioInterface_, *modelSettings_));
   wrenchModel_ = std::make_unique<CentroidalMpcRobotModel<scalar_t>>(*modelSettings_, *pinocchioInterface_, info_);
   adWrenchModel_ = std::make_unique<CentroidalMpcRobotModel<ad_scalar_t>>(*modelSettings_, pinocchioInterface_->toCppAd(), info_.toCppAd());
 
@@ -90,12 +91,12 @@ DrcAtlasContactTestModel::DrcAtlasContactTestModel(const std::string& modelNameP
   mappingCppAd_ = std::make_unique<CentroidalModelPinocchioMappingCppAd>(infoCppAd);
 
   std::unique_ptr<SwingTrajectoryPlanner> swingTrajectoryPlanner(
-      new SwingTrajectoryPlanner(swingTrajectorySettingsFromConfig(config_.task.swing_trajectory_config).value(), kNumContacts));
-  referenceManager_ =
-      std::make_unique<SwitchedModelReferenceManager>(GaitSchedule::Create(config_.reference, *modelSettings_, /*verbose=*/false).value(),
-                                                      std::move(swingTrajectoryPlanner), *pinocchioInterface_, *wrenchModel_);
+      new SwingTrajectoryPlanner(checkedValue(swingTrajectorySettingsFromConfig(config_.task.swing_trajectory_config)), kNumContacts));
+  referenceManager_ = std::make_unique<SwitchedModelReferenceManager>(
+      checkedValue(GaitSchedule::Create(config_.reference, *modelSettings_, /*verbose=*/false)), std::move(swingTrajectoryPlanner),
+      *pinocchioInterface_, *wrenchModel_);
   // Loaded before the first setContactFlags(): that call drives preSolverRun(), which needs a valid state.
-  nominalState_ = initialStateOnModel(config_.task, *wrenchModel_).value();
+  nominalState_ = checkedValue(initialStateOnModel(config_.task, *wrenchModel_));
   setStance();
 }
 
@@ -162,7 +163,7 @@ Eigen::Index DrcAtlasContactTestModel::anklePitchStateIndex(size_t contactIndex)
 }
 
 ContactRectangle DrcAtlasContactTestModel::contactRectangle(size_t contactIndex) const {
-  return contactRectangleFromConfig(config_.task.contacts, *modelSettings_, static_cast<int>(contactIndex)).value();
+  return checkedValue(contactRectangleFromConfig(config_.task.contacts, *modelSettings_, static_cast<int>(contactIndex)));
 }
 
 vector_t DrcAtlasContactTestModel::makeInput(const MpcRobotModelBase<scalar_t>& model, size_t loadedFoot, scalar_t normalForce) const {

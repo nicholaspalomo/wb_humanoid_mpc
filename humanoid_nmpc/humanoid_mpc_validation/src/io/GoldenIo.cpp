@@ -60,7 +60,13 @@ constexpr absl::string_view kGitCommitPrefix = "# git_commit: ";
 constexpr absl::string_view kWorktreePrefix = "# worktree: ";
 constexpr absl::string_view kConfigPrefix = "# config_sha256: ";
 constexpr absl::string_view kNotePrefix = "# note ";
+constexpr absl::string_view kNoteSeparator = ": ";  // between a note's key and its value
 constexpr absl::string_view kMatrixPrefix = "matrix ";
+// The fields of a matrix line after kMatrixPrefix: `<label> <rows> <cols>`.
+constexpr int kMatrixLabelField = 0;
+constexpr int kMatrixRowsField = 1;
+constexpr int kMatrixColsField = 2;
+constexpr int kMatrixHeaderFields = 3;
 // LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_validation/include/humanoid_mpc_validation/io/GoldenIo.h)
 
 bool hasWhitespace(absl::string_view text) {
@@ -126,7 +132,7 @@ absl::StatusOr<std::string> formatGoldenFile(const GoldenFile& golden) {
     if (note.first.empty() || hasWhitespace(note.first) || absl::StrContains(note.first, ':') || hasLineBreak(note.second)) {
       return absl::InvalidArgumentError(absl::StrCat("[formatGoldenFile] invalid note '", note.first, "'"));
     }
-    absl::StrAppend(&text, kNotePrefix, note.first, ": ", note.second, "\n");
+    absl::StrAppend(&text, kNotePrefix, note.first, kNoteSeparator, note.second, "\n");
   }
   absl::flat_hash_set<std::string> labels;
   for (const GoldenEntry& entry : golden.entries) {
@@ -171,20 +177,21 @@ absl::StatusOr<GoldenFile> parseGoldenFile(absl::string_view text) {
       if (space == absl::string_view::npos) return lineError(lineNumber, "a configuration hash without a path");
       golden.provenance.configurationHashes.emplace_back(std::string(rest.substr(space + 1)), std::string(rest.substr(0, space)));
     } else if (absl::ConsumePrefix(&rest, kNotePrefix)) {
-      const size_t colon = rest.find(": ");
+      const size_t colon = rest.find(kNoteSeparator);
       if (colon == absl::string_view::npos) return lineError(lineNumber, "a note without ': '");
-      golden.provenance.notes.emplace_back(std::string(rest.substr(0, colon)), std::string(rest.substr(colon + 2)));
+      golden.provenance.notes.emplace_back(std::string(rest.substr(0, colon)), std::string(rest.substr(colon + kNoteSeparator.size())));
     } else if (absl::StartsWith(line, "#")) {
       continue;  // a comment of a later version
     } else if (absl::ConsumePrefix(&rest, kMatrixPrefix)) {
       const std::vector<absl::string_view> fields = absl::StrSplit(rest, ' ');
       int64_t rows = 0;
       int64_t cols = 0;
-      if (fields.size() != 3 || !absl::SimpleAtoi(fields[1], &rows) || !absl::SimpleAtoi(fields[2], &cols) || rows < 0 || cols < 0) {
+      if (fields.size() != kMatrixHeaderFields || !absl::SimpleAtoi(fields[kMatrixRowsField], &rows) ||
+          !absl::SimpleAtoi(fields[kMatrixColsField], &cols) || rows < 0 || cols < 0) {
         return lineError(lineNumber, "expected 'matrix <label> <rows> <cols>'");
       }
       GoldenEntry entry;
-      entry.label = std::string(fields[0]);
+      entry.label = std::string(fields[kMatrixLabelField]);
       if (!labels.insert(entry.label).second) return lineError(lineNumber, absl::StrCat("the label '", entry.label, "' is used twice"));
       entry.value.resize(rows, cols);
       if (cols > 0) {

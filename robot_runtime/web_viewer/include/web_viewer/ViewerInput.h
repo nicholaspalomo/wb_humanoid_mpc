@@ -63,16 +63,23 @@ enum class ViewerMouseButton {
  * checked and clamped them, so the render thread applies them as they are.
  */
 struct ViewerInput {
+  /** The bound of a drag's motion: dx and dy are each in [-kMaxDragFraction, kMaxDragFraction], also once merged. */
+  // LINT.IfChange(drag_range)
+  static constexpr double kMaxDragFraction = 2.0;
+  // LINT.ThenChange(//robot_runtime/web_viewer/README.md:web_viewer_routes, //robot_runtime/web_viewer/page/index.html:drag_range)
+
   ViewerInputType type = ViewerInputType::kResetCamera;
 
   // kDrag: the button, whether shift was held (the horizontal variants of rotate and move, as in GLFW), and the
-  // motion as fractions of the displayed width and height (GLFW's dx / width and dy / height), each in [-2, 2].
+  // motion on both axes as fractions of the displayed height, as mjv_moveCamera takes it (the GLFW viewer's
+  // cameraDragFractions()), each in [-2, 2].
   ViewerMouseButton button = ViewerMouseButton::kLeft;
   bool shift = false;
   double dx = 0.0;
   double dy = 0.0;
 
-  // kScroll: wheel notches with GLFW's sign (positive zooms in), in [-10, 10].
+  // kScroll: wheel notches with GLFW's sign, in [-10, 10]: positive is the wheel turned away from the user (GLFW's
+  // yoffset > 0) and zooms out, as in MuJoCo's own viewers.
   double notches = 0.0;
 
   // kKey: '0' to '5' (geom groups) or 'a' to 'z' (camera tracking and the visualizations' hotkeys).

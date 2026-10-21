@@ -253,7 +253,7 @@ def export_script(
     if process.delay > 0.0:
         lines += ["", f"sleep {process.delay:g}"]
     words = [template_as_word(argument, env_prefix) for argument in entry.command]
-    lines += ["", "exec " + " ".join(words), ""]
+    lines += ["", f'exec {" ".join(words)}', ""]
     return "\n".join(lines)
 
 

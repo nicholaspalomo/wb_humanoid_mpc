@@ -44,7 +44,7 @@ namespace ocs2::humanoid {
  *
  * @param weights The weights block.
  * @param path The block's path in the task file, for the errors (e.g. "task_space_foot_cost.weights").
- * @return The weights; InvalidArgument naming the field when a weight is not finite (inf or nan).
+ * @return The weights; InvalidArgument naming the field when a weight is not finite (inf or nan) or is negative.
  */
 absl::StatusOr<EndEffectorDynamicsWeights> endEffectorDynamicsWeightsFromConfig(const mpc_config::TaskSpaceWeights& weights,
                                                                                 absl::string_view path);

@@ -36,7 +36,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-/** `velocity_tracking`: w ||v_k - v_cmd||^2 at every node. */
+/**
+ * `velocity_tracking`: w ||v_k - v_cmd||^2 at every node.
+ *
+ * Not thread-safe, like every ContactPlanningTerm: the planner that owns it configures and evaluates it from one thread at a time.
+ */
 class VelocityTrackingCost final : public LipWeightedCost {
  public:
   std::string describe() const override;

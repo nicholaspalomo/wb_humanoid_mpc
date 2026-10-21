@@ -35,7 +35,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstddef>
 #include <functional>
 #include <map>
-#include <memory>
 #include <optional>
 #include <string>
 #include <utility>
@@ -57,7 +56,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_core/cost/StateInputCostCollection.h"
 #include "ocs2_core/dynamics/SystemDynamicsBase.h"
 #include "ocs2_core/manifold/StateManifold.h"
-#include "ocs2_core/penalties/penalties/QuadraticPenalty.h"
 #include "ocs2_core/soft_constraint/StateInputSoftConstraint.h"
 #include "ocs2_oc/oc_problem/OptimalControlProblem.h"
 
@@ -88,14 +86,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * the joint limits and the basis scalings at the initial point, the foot collision at the right foot's mid-swing point
  * with the feet or the knees moved together). Every term of every collection, the pre-jump ones included, must be
  * checked at one point at least (coverageFindings()) and at one where its reported first derivative is not zero, so that
- * its check is not of zeros (nonZeroFindings()); a term no point can reach is exempted by name with the reason. The ICP
- * cost, unweighted (icp_error_weight 0) on every shipped robot, is weighed in the test's copy of the problem for the same
- * reason. The points are TermProbePoints.h's; testQuaternionRootTermHessians.cpp, in the same binary, holds every
- * cost's and soft constraint's second order there.
+ * its check is not of zeros (nonZeroFindings()); a term no point can reach is exempted by name with the reason. The points are
+ * TermProbePoints.h's; testQuaternionRootTermHessians.cpp, in the same binary, holds every cost's and soft constraint's second order there.
  *
  * One term reports a state Jacobian that is not its derivative, by design: the stance feet's twist constraint
  * (EndEffectorKinematicsTwistConstraint, which the centroidal MPC's zero-velocity constraint ZeroVelocityConstraintCppAd
- * evaluates; the whole body's ZeroAccelerationConstraintCppAd has no such map and is held as every term). Its value is
+ * evaluates; the whole body's ZeroAccelerationConstraintCppAd maps the foot's angular velocity and acceleration to the
+ * rates of the same error through CppAD libraries of their own, map included, so that its linearization is exact, and is
+ * held as every term). Its value is
  *   f(x, u) = b + Ax [p(x); e(x)] + Av_lin v(x, u) + Av_ang M(x) w(x, u),
  * p, v and w the foot's position and world-frame (LOCAL_WORLD_ALIGNED) linear and angular velocity, e its orientation
  * error to the ground plane, e = -(v_n x n) / sqrt(2 (1 + v_n.n)) for the foot normal v_n and the plane normal n, and
@@ -110,7 +108,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * No shipped robot lists the soft form, so the test adds it to its copy of the problem (addSoftStanceFootConstraint()):
  * the first stance foot's hard constraint wrapped as CentroidalMpcInterface wraps it under zero_velocity, a
  * StateInputSoftConstraint with a QuadraticPenalty of the foot constraint's soft_constraint_weight, held as the hard one
- * with D contracted with p'(f).
+ * with D contracted with p'(f). On the whole body the same wrapper of ZeroAccelerationConstraintCppAd is held as every
+ * term.
  * The test computes D independently of f - M differenced along the same retraction, contracted with w, the angular part
  * of the foot's twist at the point, its own value - and holds, at every point of the twist constraint:
  *   (a) J E + D to the differences of f (those of (b)) within kDerivativeTolerance, as every term (at the points at
@@ -145,6 +144,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * then D = -w_n Av_ang M (dv_n/dx) (from M(x) v_n(x) = 0), first order in w_n; a tilted foot turns at about
  * (Kp / Kd) times its tilt. The summary prints, per foot, the largest D relative to max(1, max |J E + D|), and the foot's
  * angular speed and D at every point (humanoid_nmpc/docs/quaternion_base_orientation/README.md, section 2.8.5).
+ *
+ * A second state Jacobian omits a dependence by design, and the points do not exercise it (design README section 6,
+ * risk 3): where the arm swing is active, SwitchedModelReferenceManager::getDesiredState shifts the shoulder and elbow
+ * references by -/+0.15 sin(2 pi (phase - 0.15)) (cos h v_x + sin h v_y), h = getBaseHeading() of the node's state, and
+ * StateInputQuadraticCost reports a Jacobian that holds that reference constant: it lacks
+ * -sum_j Q_jj (q_j - ref_j) (d ref_j / dh) (dh / dx), d ref_j / dh = -/+0.15 sin(2 pi (phase - 0.15)) v_lat with
+ * v_lat = -sin h v_x + cos h v_y. The walking reference these points use (MpcEquivalenceFixture::walkingReference())
+ * commands no velocity, so that term is zero at every point and the check holds the rest of the cost.
  */
 
 namespace ocs2::humanoid {
@@ -439,32 +446,6 @@ std::vector<ProbedFunction> probedFunctions(OptimalControlProblem& problem, scal
       .secondOrder = nullptr,
       .droppedStateTerm = nullptr});
   return functions;
-}
-
-/**
- * Adds to `problem` the soft form of the first stance foot's twist constraint it holds as a hard equality constraint
- * (`<foot>_zeroVelocity`), wrapped as CentroidalMpcInterface wraps it under the zero_velocity soft constraint: a
- * StateInputSoftConstraint of a copy of the constraint with a QuadraticPenalty of `softConstraintWeight` (the foot
- * constraint's soft_constraint_weight). No shipped robot lists the soft form, which would leave the soft branch of the
- * dropped-term check unexercised. Returns the soft term's label, or nullopt when `problem` holds no hard twist
- * constraint (the whole body's) or already holds the soft form.
- */
-std::optional<std::string> addSoftStanceFootConstraint(OptimalControlProblem& problem,
-                                                       const std::vector<std::string>& contactNames,
-                                                       scalar_t softConstraintWeight) {
-  for (const std::string& contact : contactNames) {
-    const std::string name = zeroVelocityTermName(contact);
-    size_t index = 0;
-    if (!problem.equalityConstraintPtr->getTermIndex(name, index)) continue;
-    StateInputConstraint& hard = problem.equalityConstraintPtr->get(name);
-    if (twistConstraintOf(hard) == nullptr) continue;
-    if (problem.softConstraintPtr->getTermIndex(name, index)) return std::nullopt;
-    problem.softConstraintPtr->add(name,
-                                   std::make_unique<StateInputSoftConstraint>(std::unique_ptr<StateInputConstraint>(hard.clone()),
-                                                                              std::make_unique<QuadraticPenalty>(softConstraintWeight)));
-    return absl::StrCat("softConstraint.", name);
-  }
-  return std::nullopt;
 }
 
 /** The value of `function` at (x, u), its precomputation requested first. */
@@ -864,9 +845,11 @@ TEST_P(QuaternionRootTermDerivatives, EveryTermsDerivativesAreThoseOfItsDoublePr
   mpc.installReference(reference);
   problem.targetTrajectoriesPtr = &mpc.referenceManager().getTargetTrajectories();
   const std::vector<TargetedProbePoint> bands = barrierBandPoints(problem, mpc, points);
-  const bool icpWeighed = weighUnweightedIcpCost(problem);
-  const std::optional<std::string> softTwist =
+  // The soft form of a stance foot's constraint (TermProbePoints.h): on the centroidal MPC a twist constraint, whose
+  // dropped term is checked contracted with p'(f); on the whole body held as every term.
+  const std::optional<std::string> softStance =
       addSoftStanceFootConstraint(problem, mpc.modelSettings().contactNames, mpc.modelSettings().footConstraintConfig.softConstraintWeight);
+  const std::optional<std::string> softTwist = softStance.has_value() && !mpc.isWholeBody() ? softStance : std::nullopt;
 
   DerivativeTally tally;
   for (const TermProbePoint& point : points) {
@@ -899,10 +882,11 @@ TEST_P(QuaternionRootTermDerivatives, EveryTermsDerivativesAreThoseOfItsDoublePr
   }
   absl::PrintF(
       "[derivatives] %s | %d of the problem's %d terms checked, %d where their reported first derivative is not zero | "
-      "ICP cost weighed: %s | soft twist constraint: %s\n",
-      GetParam(), checkedTerms, expected.size(), nonZeroTerms, icpWeighed ? "yes" : "no",
-      softTwist.has_value() ? absl::StrCat(*softTwist, " (the test's wrapper of the hard one)")
-                            : std::string("none (no twist constraint)"));
+      "soft stance constraint: %s\n",
+      GetParam(), checkedTerms, expected.size(), nonZeroTerms,
+      softStance.has_value()
+          ? absl::StrCat(*softStance, " (the test's wrapper of the hard one", softTwist.has_value() ? ", a twist constraint)" : ")")
+          : std::string("none (no hard stance constraint)"));
   testing::Test::RecordProperty("probed_functions", static_cast<int>(tally.probed));
   testing::Test::RecordProperty("second_order_functions", static_cast<int>(tally.secondOrder));
   testing::Test::RecordProperty("collection_terms", static_cast<int>(expected.size()));
@@ -913,7 +897,9 @@ TEST_P(QuaternionRootTermDerivatives, EveryTermsDerivativesAreThoseOfItsDoublePr
   EXPECT_GT(tally.probed, points.size());
   EXPECT_FALSE(expected.empty());
   EXPECT_EQ(mutationsRejected, droppedTermPoints);
-  // The soft branch of the dropped-term check ran wherever there is a twist constraint to wrap.
+  // Every shipped configuration has a hard stance constraint to wrap; the soft branch of the dropped-term check ran
+  // wherever it is a twist constraint.
+  EXPECT_TRUE(softStance.has_value()) << "no hard stance constraint to wrap";
   if (softTwist.has_value()) {
     EXPECT_TRUE(tally.droppedTerms.contains(*softTwist)) << *softTwist << ": the soft twist constraint was checked at no point";
   }

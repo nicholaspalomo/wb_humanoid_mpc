@@ -48,6 +48,8 @@ namespace ocs2::humanoid::validation {
  * The whole-body MPC as its MPC node builds it (WBMpcNode::Create()): the interface and the SQP MPC with the motion
  * manager and the parameter updater as its synchronized modules. And WBMpcMrtJointController as its robot binary builds it
  * (WBMpcRobotMain.cpp), with the task file's controller settings, behind MrtRobotController with the binary's CycleInputOrder.
+ *
+ * Not thread-safe: one thread drives a run.
  */
 class WholeBodyClosedLoopDriver final : public ClosedLoopDriver {
  public:

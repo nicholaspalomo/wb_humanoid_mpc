@@ -30,6 +30,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/cost/EndEffectorKinematicCostHelpers.h"
 
+#include "ocs2_core/manifold/UnitQuaternionMath.h"
+
 namespace ocs2::humanoid {
 
 vector12_t EndEffectorKinematicsWeights::toVector() const {
@@ -46,7 +48,12 @@ vector12_t EndEffectorKinematicsWeights::toVector() const {
 template <typename SCALAR_T>
 VECTOR12_T<SCALAR_T> computeTaskSpaceErrors(const EndEffectorKinematicsCostElement<SCALAR_T>& current,
                                             const EndEffectorKinematicsCostElement<SCALAR_T>& reference) {
-  const VECTOR3_T<SCALAR_T> orientationError = quaternionDistance<SCALAR_T>(current.getOrientation(), reference.getOrientation());
+  // The rotation vector theta n of the rotation that takes the current orientation to the reference, in world axes:
+  // Log(q_ref (x) q^-1), on the shortest path (|theta| <= pi). It replaces the vector part of that error quaternion,
+  // sin(theta / 2) n, which is half the angle to first order and saturates at a half turn.
+  const quaternion_coeffs_t<SCALAR_T> errorQuaternion =
+      quaternionProduct<SCALAR_T>(reference.getOrientation().coeffs(), quaternionConjugate<SCALAR_T>(current.getOrientation().coeffs()));
+  const VECTOR3_T<SCALAR_T> orientationError = quaternionLog<SCALAR_T>(errorQuaternion);
 
   VECTOR12_T<SCALAR_T> errors;
   errors << (current.getPosition() - reference.getPosition()), orientationError,
@@ -57,5 +64,20 @@ template VECTOR12_T<scalar_t> computeTaskSpaceErrors(const EndEffectorKinematics
                                                      const EndEffectorKinematicsCostElement<scalar_t>& reference);
 template VECTOR12_T<ad_scalar_t> computeTaskSpaceErrors(const EndEffectorKinematicsCostElement<ad_scalar_t>& current,
                                                         const EndEffectorKinematicsCostElement<ad_scalar_t>& reference);
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+
+template <typename SCALAR_T>
+VECTOR3_T<SCALAR_T> tiltAngleToPlane(const MATRIX3_T<SCALAR_T>& rotation, const VECTOR3_T<SCALAR_T>& planeNormal) {
+  const VECTOR3_T<SCALAR_T> endEffectorNormal = rotation.col(kZAxisIndex);
+  // The shortest arc from v to n has the vector part (v x n) / sqrt(2 (1 + v . n)), finite at v = -n (its clamp); Log
+  // takes it to theta (v x n) / |v x n|, and the tilt turns n into v, the other way.
+  const Eigen::Quaternion<SCALAR_T> shortestArc = getQuaternionFromUnitVectors<SCALAR_T>(endEffectorNormal, planeNormal);
+  return -quaternionLog<SCALAR_T>(shortestArc.coeffs());
+}
+template VECTOR3_T<scalar_t> tiltAngleToPlane(const MATRIX3_T<scalar_t>& rotation, const VECTOR3_T<scalar_t>& planeNormal);
+template VECTOR3_T<ad_scalar_t> tiltAngleToPlane(const MATRIX3_T<ad_scalar_t>& rotation, const VECTOR3_T<ad_scalar_t>& planeNormal);
 
 }  // namespace ocs2::humanoid

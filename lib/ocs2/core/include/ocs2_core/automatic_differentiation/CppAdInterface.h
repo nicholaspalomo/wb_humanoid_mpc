@@ -102,6 +102,18 @@ class CppAdInterface {
    */
   CppAdInterface(const CppAdInterface& rhs);
 
+  /**
+   * Copies of rhs, its library reloaded as the copy constructor reloads it, that tape `adFunction` from then on instead
+   * of the function of rhs: for an owner whose function refers to the owner itself (a lambda over `this` that calls a
+   * virtual function of it), so that the copy of the owner hands its copy a function of its own and the copy never tapes
+   * the object it was copied from, which may be destroyed first (getTapeOperationCount(), createModels()). `adFunction`
+   * must tape what the function of rhs tapes. While the constructor runs, the function of rhs is the one evaluated (by
+   * the observer of setLibraryObserver(), or to find the range): the new owner, still under construction, may not be
+   * able to evaluate its own yet.
+   */
+  CppAdInterface(const CppAdInterface& rhs, ad_parameterized_function_t adFunction);
+  CppAdInterface(const CppAdInterface& rhs, ad_function_t adFunction);
+
   //! Not implemented
   CppAdInterface& operator=(const CppAdInterface& rhs) = delete;
   CppAdInterface(CppAdInterface&& rhs) = delete;

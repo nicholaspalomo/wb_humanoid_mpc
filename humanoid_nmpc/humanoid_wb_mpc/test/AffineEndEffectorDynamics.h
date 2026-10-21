@@ -29,7 +29,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <stdexcept>
 #include <string>
 #include <utility>
 #include <vector>
@@ -46,9 +45,11 @@ inline constexpr Eigen::Index kAffineStateDim = 4;
 inline constexpr Eigen::Index kAffineInputDim = 5;
 
 /**
- * End-effector dynamics whose position, orientation error wrt the plane, twist and accelerations are fixed affine maps
- * of the state and the input, with exact linear approximations. The orientation error ignores the plane normal: only
- * the composition the constraint performs is under test.
+ * End-effector dynamics whose position, linear velocity and acceleration, orientation error wrt the plane and
+ * pose-wrt-plane rate and acceleration are fixed affine maps of the state and the input, with exact linear
+ * approximations. The pose rates are maps of their own, other than the linear velocity's and acceleration's: only the
+ * composition a constraint performs is under test, and so it shows which of them a constraint reads. The orientation
+ * error and the pose rates ignore the plane normal.
  */
 class AffineEndEffectorDynamics final : public EndEffectorDynamics<scalar_t> {
  public:
@@ -60,18 +61,30 @@ class AffineEndEffectorDynamics final : public EndEffectorDynamics<scalar_t> {
     positionOffset_ = vector3_t(0.1, -0.2, 0.05);
     orientationDx_ = matrix_t::Zero(3, kAffineStateDim);
     orientationDx_ << 0.3, -0.1, 0.8, 0.2, 0.6, 0.4, -0.5, 0.1, -0.2, 0.7, 0.3, -0.9;
-    twistDx_ = matrix_t::Zero(6, kAffineStateDim);
-    twistDu_ = matrix_t::Zero(6, kAffineInputDim);
-    accelerationDx_ = matrix_t::Zero(6, kAffineStateDim);
-    accelerationDu_ = matrix_t::Zero(6, kAffineInputDim);
+    velocityDx_ = matrix_t::Zero(3, kAffineStateDim);
+    velocityDu_ = matrix_t::Zero(3, kAffineInputDim);
+    linearAccelerationDx_ = matrix_t::Zero(3, kAffineStateDim);
+    linearAccelerationDu_ = matrix_t::Zero(3, kAffineInputDim);
+    poseRateDx_ = matrix_t::Zero(6, kAffineStateDim);
+    poseRateDu_ = matrix_t::Zero(6, kAffineInputDim);
+    poseAccelerationDx_ = matrix_t::Zero(6, kAffineStateDim);
+    poseAccelerationDu_ = matrix_t::Zero(6, kAffineInputDim);
     for (Eigen::Index row = 0; row < 6; ++row) {
       for (Eigen::Index col = 0; col < kAffineStateDim; ++col) {
-        twistDx_(row, col) = 0.1 * static_cast<scalar_t>((row + 2 * col) % 5) - 0.2;
-        accelerationDx_(row, col) = 0.05 * static_cast<scalar_t>((3 * row + col) % 7) - 0.15;
+        if (row < 3) {
+          velocityDx_(row, col) = 0.1 * static_cast<scalar_t>((row + 2 * col) % 5) - 0.2;
+          linearAccelerationDx_(row, col) = 0.05 * static_cast<scalar_t>((3 * row + col) % 7) - 0.15;
+        }
+        poseRateDx_(row, col) = 0.07 * static_cast<scalar_t>((2 * row + 3 * col) % 6) - 0.13;
+        poseAccelerationDx_(row, col) = 0.11 * static_cast<scalar_t>((row + 5 * col) % 4) - 0.17;
       }
       for (Eigen::Index col = 0; col < kAffineInputDim; ++col) {
-        twistDu_(row, col) = 0.2 * static_cast<scalar_t>((2 * row + col) % 3) - 0.1;
-        accelerationDu_(row, col) = 0.3 * static_cast<scalar_t>((row + 3 * col) % 4) - 0.4;
+        if (row < 3) {
+          velocityDu_(row, col) = 0.2 * static_cast<scalar_t>((2 * row + col) % 3) - 0.1;
+          linearAccelerationDu_(row, col) = 0.3 * static_cast<scalar_t>((row + 3 * col) % 4) - 0.4;
+        }
+        poseRateDu_(row, col) = 0.15 * static_cast<scalar_t>((3 * row + 2 * col) % 5) - 0.25;
+        poseAccelerationDu_(row, col) = 0.09 * static_cast<scalar_t>((4 * row + col) % 7) - 0.3;
       }
     }
   }
@@ -83,29 +96,33 @@ class AffineEndEffectorDynamics final : public EndEffectorDynamics<scalar_t> {
   const std::vector<std::string>& getIds() const override { return ids_; }
 
   vector3_t position(const vector_t& state) const { return positionDx_ * state + positionOffset_; }
+  vector3_t velocity(const vector_t& state, const vector_t& input) const { return velocityDx_ * state + velocityDu_ * input; }
+  vector3_t linearAcceleration(const vector_t& state, const vector_t& input) const {
+    return linearAccelerationDx_ * state + linearAccelerationDu_ * input;
+  }
   vector3_t orientationErrorWrtPlane(const vector_t& state) const { return orientationDx_ * state; }
-  vector6_t twist(const vector_t& state, const vector_t& input) const { return twistDx_ * state + twistDu_ * input; }
-  vector6_t accelerations(const vector_t& state, const vector_t& input) const { return accelerationDx_ * state + accelerationDu_ * input; }
+  vector6_t poseWrtPlaneRate(const vector_t& state, const vector_t& input) const { return poseRateDx_ * state + poseRateDu_ * input; }
+  vector6_t poseWrtPlaneAcceleration(const vector_t& state, const vector_t& input) const {
+    return poseAccelerationDx_ * state + poseAccelerationDu_ * input;
+  }
 
   std::vector<vector3_t> getPosition(const vector_t& state) const override { return {position(state)}; }
+  std::vector<vector3_t> getVelocity(const vector_t& state, const vector_t& input) const override { return {velocity(state, input)}; }
+  std::vector<vector3_t> getLinearAcceleration(const vector_t& state, const vector_t& input) const override {
+    return {linearAcceleration(state, input)};
+  }
   std::vector<vector3_t> getOrientationErrorWrtPlane(const vector_t& state, const std::vector<vector3_t>& /*planeNormals*/) const override {
     return {orientationErrorWrtPlane(state)};
   }
-  std::vector<vector6_t> getTwist(const vector_t& state, const vector_t& input) const override { return {twist(state, input)}; }
-  std::vector<vector3_t> getVelocity(const vector_t& state, const vector_t& input) const override {
-    return {twist(state, input).head<3>()};
+  std::vector<vector6_t> getPoseWrtPlaneRate(const vector_t& state,
+                                             const vector_t& input,
+                                             const std::vector<vector3_t>& /*planeNormals*/) const override {
+    return {poseWrtPlaneRate(state, input)};
   }
-  std::vector<vector3_t> getAngularVelocity(const vector_t& state, const vector_t& input) const override {
-    return {twist(state, input).tail<3>()};
-  }
-  std::vector<vector6_t> getAccelerations(const vector_t& state, const vector_t& input) const override {
-    return {accelerations(state, input)};
-  }
-  std::vector<vector3_t> getLinearAcceleration(const vector_t& state, const vector_t& input) const override {
-    return {accelerations(state, input).head<3>()};
-  }
-  std::vector<vector3_t> getAngularAcceleration(const vector_t& state, const vector_t& input) const override {
-    return {accelerations(state, input).tail<3>()};
+  std::vector<vector6_t> getPoseWrtPlaneAcceleration(const vector_t& state,
+                                                     const vector_t& input,
+                                                     const std::vector<vector3_t>& /*planeNormals*/) const override {
+    return {poseWrtPlaneAcceleration(state, input)};
   }
 
   std::vector<VectorFunctionLinearApproximation> getPositionLinearApproximation(const vector_t& state) const override {
@@ -114,6 +131,14 @@ class AffineEndEffectorDynamics final : public EndEffectorDynamics<scalar_t> {
     approximation.dfdx = positionDx_;
     return {approximation};
   }
+  std::vector<VectorFunctionLinearApproximation> getVelocityLinearApproximation(const vector_t& state,
+                                                                                const vector_t& input) const override {
+    return {affine(velocity(state, input), velocityDx_, velocityDu_)};
+  }
+  std::vector<VectorFunctionLinearApproximation> getLinearAccelerationLinearApproximation(const vector_t& state,
+                                                                                          const vector_t& input) const override {
+    return {affine(linearAcceleration(state, input), linearAccelerationDx_, linearAccelerationDu_)};
+  }
   std::vector<VectorFunctionLinearApproximation> getOrientationErrorWrtPlaneLinearApproximation(
       const vector_t& state, const std::vector<vector3_t>& /*planeNormals*/) const override {
     VectorFunctionLinearApproximation approximation;
@@ -121,39 +146,13 @@ class AffineEndEffectorDynamics final : public EndEffectorDynamics<scalar_t> {
     approximation.dfdx = orientationDx_;
     return {approximation};
   }
-  std::vector<VectorFunctionLinearApproximation> getTwistLinearApproximation(const vector_t& state, const vector_t& input) const override {
-    return {affine(twist(state, input), twistDx_, twistDu_)};
+  std::vector<VectorFunctionLinearApproximation> getPoseWrtPlaneRateLinearApproximation(
+      const vector_t& state, const vector_t& input, const std::vector<vector3_t>& /*planeNormals*/) const override {
+    return {affine(poseWrtPlaneRate(state, input), poseRateDx_, poseRateDu_)};
   }
-  std::vector<VectorFunctionLinearApproximation> getVelocityLinearApproximation(const vector_t& state,
-                                                                                const vector_t& input) const override {
-    return {affine(twist(state, input).head<3>(), twistDx_.topRows(3), twistDu_.topRows(3))};
-  }
-  std::vector<VectorFunctionLinearApproximation> getAngularVelocityLinearApproximation(const vector_t& state,
-                                                                                       const vector_t& input) const override {
-    return {affine(twist(state, input).tail<3>(), twistDx_.bottomRows(3), twistDu_.bottomRows(3))};
-  }
-  std::vector<VectorFunctionLinearApproximation> getAccelerationsLinearApproximation(const vector_t& state,
-                                                                                     const vector_t& input) const override {
-    return {affine(accelerations(state, input), accelerationDx_, accelerationDu_)};
-  }
-  std::vector<VectorFunctionLinearApproximation> getLinearAccelerationLinearApproximation(const vector_t& state,
-                                                                                          const vector_t& input) const override {
-    return {affine(accelerations(state, input).head<3>(), accelerationDx_.topRows(3), accelerationDu_.topRows(3))};
-  }
-  std::vector<VectorFunctionLinearApproximation> getAngularAccelerationLinearApproximation(const vector_t& state,
-                                                                                           const vector_t& input) const override {
-    return {affine(accelerations(state, input).tail<3>(), accelerationDx_.bottomRows(3), accelerationDu_.bottomRows(3))};
-  }
-
-  // The constraint never asks for an orientation, only for its error with respect to a plane.
-  std::vector<quaternion_t> getOrientation(const vector_t& /*state*/) const override { throw std::logic_error("not used"); }
-  std::vector<vector3_t> getOrientationError(const vector_t& /*state*/,
-                                             const std::vector<quaternion_t>& /*referenceOrientations*/) const override {
-    throw std::logic_error("not used");
-  }
-  std::vector<VectorFunctionLinearApproximation> getOrientationErrorLinearApproximation(
-      const vector_t& /*state*/, const std::vector<quaternion_t>& /*referenceOrientations*/) const override {
-    throw std::logic_error("not used");
+  std::vector<VectorFunctionLinearApproximation> getPoseWrtPlaneAccelerationLinearApproximation(
+      const vector_t& state, const vector_t& input, const std::vector<vector3_t>& /*planeNormals*/) const override {
+    return {affine(poseWrtPlaneAcceleration(state, input), poseAccelerationDx_, poseAccelerationDu_)};
   }
 
  private:
@@ -171,10 +170,14 @@ class AffineEndEffectorDynamics final : public EndEffectorDynamics<scalar_t> {
   matrix_t positionDx_;
   vector3_t positionOffset_;
   matrix_t orientationDx_;
-  matrix_t twistDx_;
-  matrix_t twistDu_;
-  matrix_t accelerationDx_;
-  matrix_t accelerationDu_;
+  matrix_t velocityDx_;
+  matrix_t velocityDu_;
+  matrix_t linearAccelerationDx_;
+  matrix_t linearAccelerationDu_;
+  matrix_t poseRateDx_;
+  matrix_t poseRateDu_;
+  matrix_t poseAccelerationDx_;
+  matrix_t poseAccelerationDu_;
 };
 
 }  // namespace ocs2::humanoid::test_support

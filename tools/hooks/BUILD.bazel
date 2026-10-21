@@ -13,10 +13,12 @@ py_library(
     name = "lint_files",
     srcs = ["lint_files.py"],
     # The clang-tidy collector groups findings by Bazel package, and its tests check the aspect's file lists against
-    # this one; the editor's Python import roots are its python_import_roots().
+    # this one; the editor's Python import roots are its python_import_roots(); the generated-code test tells the
+    # generated test code from the production code with it.
     visibility = [
         "//tools/clang_tidy:__pkg__",
         "//tools/ide:__pkg__",
+        "//tools/nproto/test:__pkg__",
     ],
 )
 
@@ -58,6 +60,7 @@ py_library(
         ":inclusive_language",
         ":license_header",
         ":lint_files",
+        ":magic_number",
         ":no_auto",
         ":nolint",
         ":pointer_nullability",
@@ -557,6 +560,30 @@ py_test(
         ":check_types",
         ":checks",
         ":cpp_totw",
+    ],
+)
+
+# Magic numbers in production C++ are named constants (AGENTS.md). Its test checks the test-only sources it skips
+# against the BUILD files, through MODULE.bazel's runfiles link to the checkout.
+py_library(
+    name = "magic_number",
+    srcs = ["magic_number.py"],
+    deps = [
+        ":check_types",
+        ":cpp_source",
+        ":lint_files",
+    ],
+)
+
+py_test(
+    name = "test_magic_number",
+    size = "small",
+    srcs = ["test_magic_number.py"],
+    data = ["//:MODULE.bazel"],
+    deps = [
+        ":check_test_support",
+        ":lint_files",
+        ":magic_number",
     ],
 )
 

@@ -39,9 +39,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/base/nullability.h"
 #include "absl/status/status.h"
+#include "absl/status/status_matchers.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
 #include "absl/strings/string_view.h"
+#include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/PreComputation.h"
 
@@ -113,8 +115,8 @@ TEST_F(JointMimicKinematicConstraintTest, ResolvesTheJointsByName) {
       JointMimicKinematicConstraint::Create(*model_, jointName(0), jointName(1), /*multiplier=*/0.5, /*positionGain=*/20.0);
   ASSERT_TRUE(constraint.ok()) << constraint.status();
   const JointMimicKinematicConstraint::Config& config = (*constraint)->getConfig();
-  EXPECT_EQ(config.parentJointIndex, model_->findJointIndex(jointName(0)).value());
-  EXPECT_EQ(config.childJointIndex, model_->findJointIndex(jointName(1)).value());
+  EXPECT_THAT(model_->findJointIndex(jointName(0)), absl_testing::IsOkAndHolds(config.parentJointIndex));
+  EXPECT_THAT(model_->findJointIndex(jointName(1)), absl_testing::IsOkAndHolds(config.childJointIndex));
 
   // The child joint at half the parent's angle and velocity: the constraint is met.
   vector_t state = vector_t::Zero(model_->getStateDim());

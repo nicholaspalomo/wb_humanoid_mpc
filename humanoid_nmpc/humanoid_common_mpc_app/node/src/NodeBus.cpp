@@ -44,10 +44,15 @@ absl::StatusOr<robot::ipc::NetworkConfig> loadNodeNetwork(const std::string& net
   return robot::ipc::loadNetworkConfig(networkConfigPath);
 }
 
-absl::StatusOr<std::unique_ptr<robot::ipc::Bus>> createNodeBus(const std::string& networkConfigPath, const std::string& nodeName) {
+absl::StatusOr<robot::ipc::BusOptions> nodeBusOptions(const std::string& networkConfigPath, const std::string& nodeName) {
   robot::ipc::BusOptions options;
   options.nodeName = nodeName;
   ASSIGN_OR_RETURN(options.network, loadNodeNetwork(networkConfigPath));
+  return options;
+}
+
+absl::StatusOr<std::unique_ptr<robot::ipc::Bus>> createNodeBus(const std::string& networkConfigPath, const std::string& nodeName) {
+  ASSIGN_OR_RETURN(robot::ipc::BusOptions options, nodeBusOptions(networkConfigPath, nodeName));
   return robot::ipc::Bus::Create(std::move(options));
 }
 

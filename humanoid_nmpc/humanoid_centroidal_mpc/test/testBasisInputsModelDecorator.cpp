@@ -64,6 +64,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact/ContactWrenchConeBasisMatrix.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
 #include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
+#include "humanoid_nmpc/humanoid_common_mpc/test/support/StatusTestMacros.h"
 #include "support/TypedConfigFiles.h"
 
 namespace ocs2::humanoid {
@@ -145,12 +146,12 @@ class BasisInputsModelDecoratorTest : public ::testing::Test {
 
     // Create model settings and pinocchio interface — stored as members to avoid dangling references.
     // MpcRobotModelBase stores modelSettings as `const ModelSettings&`, so the object must outlive the model.
-    modelSettings_ =
-        std::make_unique<ModelSettings>(ModelSettings::Create(atlas_.task, urdfFile_, "basis_decorator_test", /*verbose=*/false).value());
+    modelSettings_ = std::make_unique<ModelSettings>(
+        checkedValue(ModelSettings::Create(atlas_.task, urdfFile_, "basis_decorator_test", /*verbose=*/false)));
     pinocchioInterface_ = std::make_unique<PinocchioInterface>(
-        loadCustomPinocchioInterface(atlas_.task, urdfFile_, *modelSettings_, /*scaleTotalMass=*/false).value());
+        checkedValue(loadCustomPinocchioInterface(atlas_.task, urdfFile_, *modelSettings_, /*scaleTotalMass=*/false)));
     centroidalModelInfo_ =
-        std::make_unique<CentroidalModelInfo>(centroidalModelInfoOf(atlas_, *pinocchioInterface_, *modelSettings_).value());
+        std::make_unique<CentroidalModelInfo>(checkedValue(centroidalModelInfoOf(atlas_, *pinocchioInterface_, *modelSettings_)));
 
     // Create the wrapped model
     std::unique_ptr<CentroidalMpcRobotModel<scalar_t>> wrappedModel =
@@ -343,7 +344,7 @@ TEST_F(BasisInputsModelDecoratorTest, ExactGeneratorSetDecoratesTheSameModel) {
   BasisInputsModelDecorator<scalar_t> exact(
       std::make_unique<CentroidalMpcRobotModel<scalar_t>>(*modelSettings_, *pinocchioInterface_, *centroidalModelInfo_), exactBases,
       *pinocchioInterface_);
-  const size_t numBasisPerFoot = 8 * makeTestConeConfig().numBasisVectors;
+  const size_t numBasisPerFoot = 4 * makeTestConeConfig().numBasisVectors;  // corner forces along the pyramid edges
   EXPECT_EQ(exact.getNumBasisPerFoot(), numBasisPerFoot);
   EXPECT_EQ(exact.getInputDim(), numBasisPerFoot * kNumContacts + jointDim_);
   EXPECT_EQ(exact.getJointVelocitiesStartindex(), numBasisPerFoot * kNumContacts);
@@ -550,6 +551,9 @@ TEST_F(BasisInputsModelDecoratorTest, WorldFrameAccessorsRotateLocalWrenchWithCo
         << "World-frame wrench must equal blkdiag(w_R_l, w_R_l) * B * lambda for contact " << i << ":\n  got      = " << W_world.transpose()
         << "\n  expected = " << W_world_expected.transpose();
     EXPECT_TRUE(W_world.isApprox(decorator_->rotateWrenchLocalToWorld(state, W_local, i), kTol));
+    // The realtime accessor, with the contact frame's orientation handed in, is the same wrench, through the base class.
+    const MpcRobotModelBase<scalar_t>& base = *decorator_;
+    EXPECT_TRUE(base.getContactWrenchInWorldFrameGivenRotation(input, w_R_l, i).isApprox(W_world_expected, kTol)) << "contact " << i;
     EXPECT_TRUE(decorator_->getContactForceInWorldFrame(state, input, i).isApprox(W_world_expected.head<3>(), kTol));
     EXPECT_TRUE(decorator_->getContactMomentInWorldFrame(state, input, i).isApprox(W_world_expected.tail<3>(), kTol));
 
@@ -692,6 +696,9 @@ TEST_F(BasisInputsModelDecoratorTest, WrenchSpaceModelWorldFrameAccessorsEqualIn
       EXPECT_TRUE((model.getContactWrenchInWorldFrame(state, input, i) - model.getContactWrench(input, i)).isZero(0.0));
       EXPECT_TRUE((model.getContactForceInWorldFrame(state, input, i) - model.getContactForce(input, i)).isZero(0.0));
       EXPECT_TRUE((model.getContactMomentInWorldFrame(state, input, i) - model.getContactMoment(input, i)).isZero(0.0));
+      // The realtime accessor ignores the contact frame's orientation as well.
+      const matrix3_t anyRotation = Eigen::AngleAxisd(0.7, vector3_t(1.0, -2.0, 0.5).normalized()).toRotationMatrix();
+      EXPECT_TRUE((model.getContactWrenchInWorldFrameGivenRotation(input, anyRotation, i) - model.getContactWrench(input, i)).isZero(0.0));
 
       vector6_t wrench;
       wrench << 10.0, 5.0, 100.0, 1.0, -1.0, 0.5;
@@ -757,7 +764,8 @@ TEST_F(BasisInputsModelDecoratorTest, BasisDynamicsValidationNamesTheKeyToChange
   EXPECT_TRUE(CentroidalDynamicsBasisInputsAD::validate(*pinocchioInterface_, *centroidalModelInfo_, *modelSettings_, bases).ok());
 
   // A contact frame the URDF does not have. Create() must report it instead of compiling a tape around a bad index.
-  ModelSettings brokenSettings = ModelSettings::Create(atlas_.task, urdfFile_, "basis_decorator_test", /*verbose=*/false).value();
+  HUMANOID_ASSERT_OK_AND_ASSIGN(ModelSettings brokenSettings,
+                                ModelSettings::Create(atlas_.task, urdfFile_, "basis_decorator_test", /*verbose=*/false));
   brokenSettings.contactNames[1] = "no_such_frame";
   const absl::StatusOr<std::unique_ptr<CentroidalDynamicsBasisInputsAD>> missingFrame =
       CentroidalDynamicsBasisInputsAD::Create(*pinocchioInterface_, *centroidalModelInfo_, "dynamics", brokenSettings, bases);

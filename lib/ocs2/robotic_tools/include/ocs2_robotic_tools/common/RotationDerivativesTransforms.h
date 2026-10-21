@@ -29,9 +29,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <Eigen/Core>
 #include <array>
 #include <cmath>
+
+#include "ocs2_core/Dimensions.h"
+#include "ocs2_robotic_tools/common/RotationTransforms.h"
+
+#include <Eigen/Core>
 
 namespace ocs2 {
 
@@ -46,15 +50,16 @@ namespace ocs2 {
  * @return derivatives of ZYX-Euler angles
  */
 template <typename SCALAR_T>
-Eigen::Matrix<SCALAR_T, 3, 1> getEulerAnglesZyxDerivativesFromGlobalAngularVelocity(const Eigen::Matrix<SCALAR_T, 3, 1>& eulerAngles,
-                                                                                    const Eigen::Matrix<SCALAR_T, 3, 1>& angularVelocity) {
-  const SCALAR_T sz = sin(eulerAngles(0));
-  const SCALAR_T cz = cos(eulerAngles(0));
-  const SCALAR_T sy = sin(eulerAngles(1));
-  const SCALAR_T cy = cos(eulerAngles(1));
-  const SCALAR_T wx = angularVelocity(0);
-  const SCALAR_T wy = angularVelocity(1);
-  const SCALAR_T wz = angularVelocity(2);
+Eigen::Matrix<SCALAR_T, kEulerAnglesZyxDim, 1> getEulerAnglesZyxDerivativesFromGlobalAngularVelocity(
+    const Eigen::Matrix<SCALAR_T, kEulerAnglesZyxDim, 1>& eulerAngles,
+    const Eigen::Matrix<SCALAR_T, kRotationTangentDim, 1>& angularVelocity) {
+  const SCALAR_T sz = sin(eulerAngles(kEulerAnglesZyxZIndex));
+  const SCALAR_T cz = cos(eulerAngles(kEulerAnglesZyxZIndex));
+  const SCALAR_T sy = sin(eulerAngles(kEulerAnglesZyxYIndex));
+  const SCALAR_T cy = cos(eulerAngles(kEulerAnglesZyxYIndex));
+  const SCALAR_T wx = angularVelocity(kXAxisIndex);
+  const SCALAR_T wy = angularVelocity(kYAxisIndex);
+  const SCALAR_T wz = angularVelocity(kZAxisIndex);
   const SCALAR_T tmp = cz * wx / cy + sz * wy / cy;
   return {sy * tmp + wz, -sz * wx + cz * wy, tmp};
 }
@@ -66,13 +71,13 @@ Eigen::Matrix<SCALAR_T, 3, 1> getEulerAnglesZyxDerivativesFromGlobalAngularVeloc
  * @return 3x3 matrix mapping
  */
 template <typename SCALAR_T>
-Eigen::Matrix<SCALAR_T, 3, 3> getMappingFromEulerAnglesZyxDerivativeToLocalAngularVelocity(
-    const Eigen::Matrix<SCALAR_T, 3, 1>& eulerAngles) {
-  const SCALAR_T sy = sin(eulerAngles(1));
-  const SCALAR_T cy = cos(eulerAngles(1));
-  const SCALAR_T sx = sin(eulerAngles(2));
-  const SCALAR_T cx = cos(eulerAngles(2));
-  Eigen::Matrix<SCALAR_T, 3, 3> transformationMatrix;
+Eigen::Matrix<SCALAR_T, kRotationTangentDim, kEulerAnglesZyxDim> getMappingFromEulerAnglesZyxDerivativeToLocalAngularVelocity(
+    const Eigen::Matrix<SCALAR_T, kEulerAnglesZyxDim, 1>& eulerAngles) {
+  const SCALAR_T sy = sin(eulerAngles(kEulerAnglesZyxYIndex));
+  const SCALAR_T cy = cos(eulerAngles(kEulerAnglesZyxYIndex));
+  const SCALAR_T sx = sin(eulerAngles(kEulerAnglesZyxXIndex));
+  const SCALAR_T cx = cos(eulerAngles(kEulerAnglesZyxXIndex));
+  Eigen::Matrix<SCALAR_T, kRotationTangentDim, kEulerAnglesZyxDim> transformationMatrix;
   // clang-format off
   transformationMatrix <<     -sy,  SCALAR_T(0.0),    SCALAR_T(1.0),
                           cy * sx,             cx,    SCALAR_T(0.0),
@@ -89,15 +94,16 @@ Eigen::Matrix<SCALAR_T, 3, 3> getMappingFromEulerAnglesZyxDerivativeToLocalAngul
  * @return angular velocity expressed in local frame
  */
 template <typename SCALAR_T>
-Eigen::Matrix<SCALAR_T, 3, 1> getLocalAngularVelocityFromEulerAnglesZyxDerivatives(
-    const Eigen::Matrix<SCALAR_T, 3, 1>& eulerAngles, const Eigen::Matrix<SCALAR_T, 3, 1>& derivativesEulerAngles) {
-  const SCALAR_T sy = sin(eulerAngles(1));
-  const SCALAR_T cy = cos(eulerAngles(1));
-  const SCALAR_T sx = sin(eulerAngles(2));
-  const SCALAR_T cx = cos(eulerAngles(2));
-  const SCALAR_T dz = derivativesEulerAngles(0);
-  const SCALAR_T dy = derivativesEulerAngles(1);
-  const SCALAR_T dx = derivativesEulerAngles(2);
+Eigen::Matrix<SCALAR_T, kRotationTangentDim, 1> getLocalAngularVelocityFromEulerAnglesZyxDerivatives(
+    const Eigen::Matrix<SCALAR_T, kEulerAnglesZyxDim, 1>& eulerAngles,
+    const Eigen::Matrix<SCALAR_T, kEulerAnglesZyxDim, 1>& derivativesEulerAngles) {
+  const SCALAR_T sy = sin(eulerAngles(kEulerAnglesZyxYIndex));
+  const SCALAR_T cy = cos(eulerAngles(kEulerAnglesZyxYIndex));
+  const SCALAR_T sx = sin(eulerAngles(kEulerAnglesZyxXIndex));
+  const SCALAR_T cx = cos(eulerAngles(kEulerAnglesZyxXIndex));
+  const SCALAR_T dz = derivativesEulerAngles(kEulerAnglesZyxZIndex);
+  const SCALAR_T dy = derivativesEulerAngles(kEulerAnglesZyxYIndex);
+  const SCALAR_T dx = derivativesEulerAngles(kEulerAnglesZyxXIndex);
   return {-sy * dz + dx, cy * sx * dz + cx * dy, cx * cy * dz - sx * dy};
 }
 
@@ -112,15 +118,16 @@ Eigen::Matrix<SCALAR_T, 3, 1> getLocalAngularVelocityFromEulerAnglesZyxDerivativ
  * @return derivatives of ZYX-Euler angles
  */
 template <typename SCALAR_T>
-Eigen::Matrix<SCALAR_T, 3, 1> getEulerAnglesZyxDerivativesFromLocalAngularVelocity(const Eigen::Matrix<SCALAR_T, 3, 1>& eulerAngles,
-                                                                                   const Eigen::Matrix<SCALAR_T, 3, 1>& angularVelocity) {
-  const SCALAR_T sy = sin(eulerAngles(1));
-  const SCALAR_T cy = cos(eulerAngles(1));
-  const SCALAR_T sx = sin(eulerAngles(2));
-  const SCALAR_T cx = cos(eulerAngles(2));
-  const SCALAR_T wx = angularVelocity(0);
-  const SCALAR_T wy = angularVelocity(1);
-  const SCALAR_T wz = angularVelocity(2);
+Eigen::Matrix<SCALAR_T, kEulerAnglesZyxDim, 1> getEulerAnglesZyxDerivativesFromLocalAngularVelocity(
+    const Eigen::Matrix<SCALAR_T, kEulerAnglesZyxDim, 1>& eulerAngles,
+    const Eigen::Matrix<SCALAR_T, kRotationTangentDim, 1>& angularVelocity) {
+  const SCALAR_T sy = sin(eulerAngles(kEulerAnglesZyxYIndex));
+  const SCALAR_T cy = cos(eulerAngles(kEulerAnglesZyxYIndex));
+  const SCALAR_T sx = sin(eulerAngles(kEulerAnglesZyxXIndex));
+  const SCALAR_T cx = cos(eulerAngles(kEulerAnglesZyxXIndex));
+  const SCALAR_T wx = angularVelocity(kXAxisIndex);
+  const SCALAR_T wy = angularVelocity(kYAxisIndex);
+  const SCALAR_T wz = angularVelocity(kZAxisIndex);
   const SCALAR_T tmp = sx * wy / cy + cx * wz / cy;
   return {tmp, cx * wy - sx * wz, wx + sy * tmp};
 }

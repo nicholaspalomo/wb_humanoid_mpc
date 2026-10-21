@@ -39,6 +39,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "mujoco_sim_interface/MujocoContactPatch.h"
 #include "mujoco_sim_interface/MujocoUtils.h"
 #include "mujoco_sim_interface/visualization/ContactTimelineVisualization.h"
+#include "mujoco_sim_interface/visualization/ExternalForceVisualization.h"
 #include "mujoco_sim_interface/visualization/MetricsOverlay.h"
 #include "mujoco_sim_interface/visualization/MujocoOptionFlagVisualization.h"
 #include "mujoco_sim_interface/visualization/TargetContactPatchVisualization.h"
@@ -155,11 +156,96 @@ TEST(MujocoOptionFlagVisualization, FlagFollowsTheEnabledStateEveryFrame) {
   com->beforeSceneUpdate(frame);
   EXPECT_EQ(options.flags[mjVIS_COM], 0);
 
-  // Without options (or a simulator, for the transparency) the hook is a no-op.
+  // Without options the hook is a no-op.
   VisualizationFrame empty;
   com->beforeSceneUpdate(empty);
   MujocoOptionFlagVisualization::transparency()->beforeSceneUpdate(empty);
-  EXPECT_EQ(MujocoOptionFlagVisualization::transparency()->flag(), MujocoOptionFlagVisualization::kTransparency);
+}
+
+// Two geoms of their own transparency: an opaque box and a translucent collision shell, as Atlas's collision class.
+constexpr char kTwoAlphas[] = R"(
+<mujoco>
+  <worldbody>
+    <body name="robot">
+      <freejoint/>
+      <geom type="box" size="0.1 0.1 0.1" rgba="1 0 0 1"/>
+      <geom type="sphere" size="0.2" rgba="0.5 0.5 0.5 0.3"/>
+    </body>
+  </worldbody>
+</mujoco>
+)";
+
+// The x-ray is MuJoCo's own mjVIS_TRANSPARENT flag, which leaves the model alone. It used to write one alpha into every
+// geom of the model (0.3, then 1.0), so switching it off turned the translucent collision shells opaque for good.
+TEST(MujocoOptionFlagVisualization, TransparencyLeavesTheModelsAlphasAlone) {
+  char error[1000] = "";
+  const MjSpecPtr spec(mj_parseXMLString(kTwoAlphas, /*vfs=*/nullptr, error, sizeof(error)));
+  ASSERT_NE(spec, nullptr) << "mj_parseXMLString: " << error;
+  const MjModelPtr model(mj_compile(spec.get(), /*vfs=*/nullptr));
+  ASSERT_NE(model, nullptr);
+  ASSERT_EQ(model->ngeom, 2);
+  std::unique_ptr<MujocoOptionFlagVisualization> transparency = MujocoOptionFlagVisualization::transparency();
+  EXPECT_EQ(transparency->flag(), mjVIS_TRANSPARENT);
+  mjvOption options;
+  mjv_defaultOption(&options);
+  VisualizationFrame frame;
+  frame.model = model.get();
+  frame.options = &options;
+  for (const bool enabled : {true, false, true, false}) {
+    transparency->setEnabled(enabled);
+    transparency->beforeSceneUpdate(frame);
+    EXPECT_EQ(options.flags[mjVIS_TRANSPARENT], enabled ? 1 : 0);
+    EXPECT_FLOAT_EQ(model->geom_rgba[kMjRgbaChannels * 0 + kAlphaChannel], 1.0f);
+    EXPECT_FLOAT_EQ(model->geom_rgba[kMjRgbaChannels * 1 + kAlphaChannel], 0.3f);
+  }
+}
+
+// A free body whose center of mass is 0.2 m ahead of its frame origin, as a pelvis's is off its frame.
+constexpr char kOffsetInertia[] = R"(
+<mujoco>
+  <worldbody>
+    <body name="base" pos="0 0 1">
+      <freejoint/>
+      <inertial pos="0.2 0 0" mass="10" diaginertia="1 1 1"/>
+      <geom type="box" size="0.1 0.1 0.1" contype="0" conaffinity="0"/>
+    </body>
+  </worldbody>
+</mujoco>
+)";
+
+// The push is held for kPushHoldTime after the step it was applied at, starts at the body's center of mass (where
+// MuJoCo applies xfrc_applied), and stays on screen: a 0.45 kg ball at 25 m/s used to draw an arrow of the one-step
+// force, 0.05 m/N x 22.5 kN, a kilometer long, from the frame origin, and only in the one frame that held it.
+TEST(ExternalForceVisualization, AHeldPushIsDrawnAtTheCenterOfMassAndClamped) {
+  char error[1000] = "";
+  const MjSpecPtr spec(mj_parseXMLString(kOffsetInertia, /*vfs=*/nullptr, error, sizeof(error)));
+  ASSERT_NE(spec, nullptr) << "mj_parseXMLString: " << error;
+  const MjModelPtr model(mj_compile(spec.get(), /*vfs=*/nullptr));
+  ASSERT_NE(model, nullptr);
+  MjState state(model.get());
+  mj_forward(model.get(), state.data);
+  const int base = 1;
+  state.push = AppliedPush{.bodyId = base, .impulseWorld = {-11.25, 0.0, 0.0}, .simTimeApplied = 0.0};
+  mjvScene scene;
+  mjv_defaultScene(&scene);
+  mjv_makeScene(model.get(), &scene, /*maxgeom=*/16);
+
+  state.data->time = 0.25 * ExternalForceVisualization::kPushHoldTime;
+  ExternalForceVisualization::addArrows(model.get(), state, scene);
+  ASSERT_EQ(scene.ngeom, 1);
+  const mjvGeom& arrow = scene.geoms[0];
+  // mjvGeom stores single-precision floats.
+  EXPECT_NEAR(arrow.pos[0], state.data->xipos[3 * base + 0], 1.0e-6);
+  EXPECT_NEAR(arrow.pos[2], state.data->xipos[3 * base + 2], 1.0e-6);
+  EXPECT_NEAR(state.data->xipos[3 * base] - state.data->xpos[3 * base], 0.2, 1.0e-9);
+  EXPECT_LT(arrow.mat[2], -0.9) << "the arrow does not point along the push, -x";
+  EXPECT_LE(arrow.size[2], 1.5 + 1.0e-9) << "an arrow of " << arrow.size[2] << " m";
+
+  scene.ngeom = 0;
+  state.data->time = 1.5 * ExternalForceVisualization::kPushHoldTime;
+  ExternalForceVisualization::addArrows(model.get(), state, scene);
+  EXPECT_EQ(scene.ngeom, 0) << "the push outlived its hold time";
+  mjv_freeScene(&scene);
 }
 
 TEST(MetricsOverlay, TextShowsTheRatesAsIntegersAndTheRestToAMillisecond) {

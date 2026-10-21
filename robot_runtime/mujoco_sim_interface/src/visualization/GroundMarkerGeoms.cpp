@@ -32,10 +32,20 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstring>
 
 #include "absl/base/nullability.h"
+#include "ocs2_core/Dimensions.h"
+
+#include "mujoco_sim_interface/MujocoUtils.h"
 
 namespace robot::mujoco_sim_interface {
 
+using ::ocs2::kPositionDim;
+using ::ocs2::kXAxisIndex;
+using ::ocs2::kYAxisIndex;
+using ::ocs2::kZAxisIndex;
+
 namespace {
+
+constexpr float kMarkerEmission = 0.6f;
 
 mjvGeom* absl_nullable nextGeom(mjvScene* absl_nullable scene) {
   if (scene == nullptr || scene->ngeom >= scene->maxgeom) return nullptr;
@@ -45,12 +55,12 @@ mjvGeom* absl_nullable nextGeom(mjvScene* absl_nullable scene) {
 }
 
 void paint(mjvGeom* absl_nonnull geom, const MarkerColor& color) {
-  geom->rgba[0] = color.r;
-  geom->rgba[1] = color.g;
-  geom->rgba[2] = color.b;
-  geom->rgba[3] = color.a;
+  geom->rgba[kRedChannel] = color.r;
+  geom->rgba[kGreenChannel] = color.g;
+  geom->rgba[kBlueChannel] = color.b;
+  geom->rgba[kAlphaChannel] = color.a;
   geom->category = mjCAT_DECOR;
-  geom->emission = 0.6f;
+  geom->emission = kMarkerEmission;
 }
 
 }  // namespace
@@ -59,31 +69,37 @@ bool addGroundDiscGeom(mjvScene* absl_nullable scene, double x, double y, double
   mjvGeom* absl_nullable geom = nextGeom(scene);
   if (geom == nullptr) return false;
   constexpr double kHalfHeight = 0.002;  // a thin cylinder just above the ground plane, so it is not z-fighting the floor
-  const mjtNum size[3] = {radius, kHalfHeight, 0.0};
-  const mjtNum position[3] = {x, y, kHalfHeight};
-  const mjtNum identity[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
+  const mjtNum size[kMjGeomSizeParameters] = {radius, kHalfHeight, 0.0};
+  const mjtNum position[kPositionDim] = {x, y, kHalfHeight};
+  const mjtNum identity[kMjMatrixSize] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
   mjv_initGeom(geom, mjGEOM_CYLINDER, size, position, identity, /*rgba=*/nullptr);
   paint(geom, color);
   return true;
 }
 
-bool addSphereGeom(mjvScene* absl_nullable scene, const double position[absl_nonnull 3], double radius, const MarkerColor& color) {
+bool addSphereGeom(mjvScene* absl_nullable scene,
+                   const double position[absl_nonnull kPositionDim],
+                   double radius,
+                   const MarkerColor& color) {
   mjvGeom* absl_nullable geom = nextGeom(scene);
   if (geom == nullptr) return false;
-  const mjtNum size[3] = {radius, 0.0, 0.0};
-  const mjtNum at[3] = {position[0], position[1], position[2]};
-  const mjtNum identity[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
+  const mjtNum size[kMjGeomSizeParameters] = {radius, 0.0, 0.0};
+  const mjtNum at[kPositionDim] = {position[kXAxisIndex], position[kYAxisIndex], position[kZAxisIndex]};
+  const mjtNum identity[kMjMatrixSize] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
   mjv_initGeom(geom, mjGEOM_SPHERE, size, at, identity, /*rgba=*/nullptr);
   paint(geom, color);
   return true;
 }
 
-bool addVerticalLineGeom(
-    mjvScene* absl_nullable scene, const double position[absl_nonnull 3], double groundHeight, double width, const MarkerColor& color) {
+bool addVerticalLineGeom(mjvScene* absl_nullable scene,
+                         const double position[absl_nonnull kPositionDim],
+                         double groundHeight,
+                         double width,
+                         const MarkerColor& color) {
   mjvGeom* absl_nullable geom = nextGeom(scene);
   if (geom == nullptr) return false;
-  const mjtNum from[3] = {position[0], position[1], position[2]};
-  const mjtNum to[3] = {position[0], position[1], groundHeight};
+  const mjtNum from[kPositionDim] = {position[kXAxisIndex], position[kYAxisIndex], position[kZAxisIndex]};
+  const mjtNum to[kPositionDim] = {position[0], position[1], groundHeight};
   mjv_connector(geom, mjGEOM_CAPSULE, width, from, to);
   paint(geom, color);
   return true;

@@ -32,6 +32,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <algorithm>
 #include <cstddef>
 
+#include "Eigen/Eigenvalues"
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
@@ -113,6 +114,14 @@ absl::Status validateQuadraticWeights(const matrix_t& weights, size_t dimension,
   if (asymmetry > kQuadraticWeightsSymmetryTolerance * scale) {
     return absl::InvalidArgumentError(absl::StrCat(name, " is not symmetric: max |W - W'| is ", asymmetry, ", more than ",
                                                    kQuadraticWeightsSymmetryTolerance, " times max(1, max |W|) = ", scale, "."));
+  }
+  // A weight below 0 makes the cost, and the Gauss-Newton Hessian J' W J the solver builds from it, indefinite. The
+  // eigenvalues of the symmetric part, to the round-off a basis-space R carries.
+  const Eigen::SelfAdjointEigenSolver<matrix_t> eigen(0.5 * (weights + weights.transpose()), Eigen::EigenvaluesOnly);
+  const scalar_t smallest = eigen.eigenvalues().minCoeff();
+  if (eigen.info() != Eigen::Success || !(smallest >= -kQuadraticWeightsSymmetryTolerance * scale)) {
+    return absl::InvalidArgumentError(absl::StrCat(name, " is not positive semidefinite: its smallest eigenvalue is ", smallest,
+                                                   " (a weight below 0 makes the cost indefinite)."));
   }
   return absl::OkStatus();
 }

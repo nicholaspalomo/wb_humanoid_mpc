@@ -188,17 +188,16 @@ absl::StatusOr<std::unique_ptr<OffscreenTestRenderer>> OffscreenTestRenderer::Cr
   }
   absl::StatusOr<MjModelPtr> model = copyModelForOffscreenRendering(sim->getModel(), options);
   if (!model.ok()) return model.status();
-  std::unique_ptr<OffscreenTestRenderer> renderer =
-      absl::WrapUnique(new OffscreenTestRenderer(sim, *std::move(context), *std::move(model)));
-  renderer->frameRenderer_.initializeWithPrivateModel(renderer->model_.get());
-  renderer->frameRenderer_.useOffscreenBuffer();
+  std::unique_ptr<OffscreenTestRenderer> renderer = absl::WrapUnique(new OffscreenTestRenderer(*std::move(context), *std::move(model)));
+  absl::StatusOr<std::unique_ptr<MujocoFrameRenderer>> frameRenderer = MujocoFrameRenderer::Create(sim, renderer->model_.get());
+  if (!frameRenderer.ok()) return frameRenderer.status();
+  renderer->frameRenderer_ = *std::move(frameRenderer);
+  renderer->frameRenderer_->useOffscreenBuffer();
   return renderer;
 }
 
-OffscreenTestRenderer::OffscreenTestRenderer(const MujocoSimInterface* absl_nonnull sim,
-                                             std::unique_ptr<EglContext> context,
-                                             MjModelPtr model)
-    : context_(std::move(context)), model_(std::move(model)), frameRenderer_(sim) {}
+OffscreenTestRenderer::OffscreenTestRenderer(std::unique_ptr<EglContext> context, MjModelPtr model)
+    : context_(std::move(context)), model_(std::move(model)) {}
 
 OffscreenTestRenderer::~OffscreenTestRenderer() {
   // MuJoCo frees its GPU objects in whichever context is current, which another renderer may have made its own.
@@ -206,7 +205,7 @@ OffscreenTestRenderer::~OffscreenTestRenderer() {
     ADD_FAILURE() << "the renderer's EGL context could not be made current to free it: " << current;
     return;
   }
-  frameRenderer_.release();
+  if (frameRenderer_ != nullptr) frameRenderer_->release();
   EXPECT_TRUE(context_->release().ok());
 }
 
@@ -214,11 +213,11 @@ absl::StatusOr<std::vector<uint8_t>> OffscreenTestRenderer::render(int width, in
   if (absl::Status current = context_->makeCurrent(); !current.ok()) {
     return current;
   }
-  frameRenderer_.resizeOffscreen(width, height);
+  frameRenderer_->resizeOffscreen(width, height);
   const mjrRect viewport = {.left = 0, .bottom = 0, .width = width, .height = height};
-  frameRenderer_.drawFrame(viewport, /*elapsedRealTime=*/0.0);
+  frameRenderer_->drawFrame(viewport, /*elapsedRealTime=*/0.0);
   std::vector<uint8_t> rgb(static_cast<size_t>(width) * height * 3);
-  if (absl::Status read = frameRenderer_.readPixels(viewport, absl::MakeSpan(rgb)); !read.ok()) {
+  if (absl::Status read = frameRenderer_->readPixels(viewport, absl::MakeSpan(rgb)); !read.ok()) {
     return read;
   }
   return rgb;

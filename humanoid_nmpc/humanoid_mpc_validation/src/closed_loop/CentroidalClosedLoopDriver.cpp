@@ -31,7 +31,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_mpc_validation/closed_loop/CentroidalClosedLoopDriver.h"
 
+#include <filesystem>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 
@@ -45,6 +47,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_centroidal_mpc/command/CentroidalMpcTargetTrajectoriesCalculator.h"
 #include "humanoid_centroidal_mpc/mrt/CentroidalMpcParameterUpdater.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
+#include "humanoid_common_mpc/config/ConfigFiles.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlannerModule.h"
 #include "humanoid_common_mpc/parameter_update/CommandLimitsReloaders.h"
 
@@ -69,6 +72,11 @@ CentroidalClosedLoopDriver::~CentroidalClosedLoopDriver() {
 }
 
 absl::Status CentroidalClosedLoopDriver::initialize(const RobotConfiguration& configuration, const ClosedLoopDriverOptions& options) {
+  const std::optional<std::filesystem::file_time_type> taskFileReadAt = lastWriteTime(configuration.taskFile);
+  const std::optional<std::filesystem::file_time_type> referenceFileReadAt = lastWriteTime(configuration.referenceFile);
+  const std::optional<std::filesystem::file_time_type> contactPlanningFileReadAt =
+      lastWriteTime(contactPlanningFileBeside(configuration.taskFile));
+
   ASSIGN_OR_RETURN(interface_, CentroidalMpcInterface::Create(configuration.taskFile, configuration.urdfFile, configuration.referenceFile));
   CentroidalMpcInterface& interface = *interface_;
   RETURN_IF_ERROR(initializeShared(configuration, options, interface.modelSettings(), interface.mpcSettings(), interface.sqpSettings(),
@@ -94,7 +102,8 @@ absl::Status CentroidalClosedLoopDriver::initialize(const RobotConfiguration& co
   TargetTrajectoriesCalculatorBase* absl_nonnull calculatorPtr = calculator_.get();
   ASSIGN_OR_RETURN(parameterUpdater_,
                    makeCentroidalMpcParameterUpdater(mpc_.get(), interface, configuration.taskFile, configuration.referenceFile,
-                                                     makeCommandLimitsReloaders(calculatorPtr, motionManager_)));
+                                                     makeCommandLimitsReloaders(calculatorPtr, motionManager_), taskFileReadAt,
+                                                     referenceFileReadAt, contactPlanningFileReadAt));
   mpc_->getSolverPtr()->addSynchronizedModule(parameterUpdater_);
   // clang-format off
   // LINT.ThenChange(//humanoid_nmpc/humanoid_centroidal_mpc_app/src/CentroidalMpcNode.cpp:mpc_wiring)

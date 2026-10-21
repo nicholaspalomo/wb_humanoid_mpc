@@ -35,8 +35,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/base/nullability.h"
 #include "mujoco/mujoco.h"
+#include "ocs2_core/Dimensions.h"
+
+#include "mujoco_sim_interface/MujocoUtils.h"
 
 namespace robot::mujoco_sim_interface {
+
+using ::ocs2::kPositionDim;
 namespace {
 
 /** Returns the first `count` elements of a model array; `count` zeros for a null array (MuJoCo's empty one). */
@@ -71,8 +76,8 @@ MjRuntimeModelFields::MjRuntimeModelFields(const mjModel* absl_nonnull model)
       bodyContype_(arrayOf(model->body_contype, model->nbody)),
       bodyConaffinity_(arrayOf(model->body_conaffinity, model->nbody)),
       bodyMass_(arrayOf(model->body_mass, model->nbody)),
-      bodyInertia_(arrayOf(model->body_inertia, 3 * model->nbody)),
-      bodyInvweight0_(arrayOf(model->body_invweight0, 2 * model->nbody)),
+      bodyInertia_(arrayOf(model->body_inertia, kPositionDim * model->nbody)),
+      bodyInvweight0_(arrayOf(model->body_invweight0, kMjBodyInvweightSize * model->nbody)),
       bodySubtreemass_(arrayOf(model->body_subtreemass, model->nbody)),
       bodyGravcomp_(arrayOf(model->body_gravcomp, model->nbody)) {}
 

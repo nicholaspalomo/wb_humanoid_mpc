@@ -57,6 +57,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact/ContactWrenchConeBasisMatrix.h"
 #include "humanoid_mpc_config/task_file.nproto.h"
 #include "humanoid_mpc_config/task_file.pb.h"
+#include "humanoid_nmpc/humanoid_common_mpc/test/support/StatusTestMacros.h"
 #include "nproto/Textproto.h"
 
 /**
@@ -254,7 +255,8 @@ class ContactWrenchConeBasesTest : public ::testing::Test {
     absl::StatusOr<mpc_config::TaskFile> task = loadTaskFile(taskFile);
     ASSERT_TRUE(task.ok()) << task.status();
     task_ = *std::move(task);
-    modelSettings_ = std::make_unique<ModelSettings>(ModelSettings::Create(task_, urdfFile_, "centroidal_mpc_", /*verbose=*/false).value());
+    modelSettings_ =
+        std::make_unique<ModelSettings>(checkedValue(ModelSettings::Create(task_, urdfFile_, "centroidal_mpc_", /*verbose=*/false)));
   }
 
   std::string urdfFile_;
@@ -284,7 +286,7 @@ TEST_F(ContactWrenchConeBasesTest, TheGeneratorSetIsTheOneTheTaskFileNames) {
   ASSERT_TRUE(cone.ok());
   for (const ContactWrenchConeBasisMatrix& basis : *bases) {
     EXPECT_EQ(basis.generatorSet(), kExactWrenchConeGeneratorSet);
-    EXPECT_EQ(basis.numBasis(), 8 * cone->numBasisVectors);
+    EXPECT_EQ(basis.numBasis(), 4 * cone->numBasisVectors);
   }
 
   // Without the field the default is used, which is the shipped set.

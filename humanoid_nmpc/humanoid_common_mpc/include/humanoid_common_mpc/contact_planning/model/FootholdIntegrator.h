@@ -40,6 +40,8 @@ namespace ocs2::humanoid {
 /**
  * `foothold_integrator`: the foot positions p_i, their displacements dp_i (inputs, |dp| <= bigM) and the contact
  * binaries c_i in {0, 1}: p_{i,k+1} = p_{i,k} + dp_{i,k}. Owns the binaries the mixed-integer solver branches on.
+ *
+ * Not thread-safe, like every ContactPlanningTerm: the planner that owns it configures and evaluates it from one thread at a time.
  */
 class FootholdIntegrator final : public LipModelBlock {
  public:

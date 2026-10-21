@@ -37,7 +37,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-/** Base of the planner's constraint terms: the bound LIP indices and the slack penalty of a soft term. */
+/**
+ * Base of the planner's constraint terms: the bound LIP indices and the slack penalty of a soft term.
+ *
+ * Not thread-safe, like every ContactPlanningTerm: the planner that owns it configures and evaluates it from one thread at a time.
+ */
 class LipConstraintBase : public LipConstraint {
  public:
   void bind(const Layout& layout) override { idx_.bind(layout); }

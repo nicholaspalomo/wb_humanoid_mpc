@@ -38,6 +38,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "ocs2_centroidal_model/CentroidalModelInfo.h"
+#include "ocs2_core/Dimensions.h"
 #include "ocs2_core/cost/StateInputGaussNewtonCostAd.h"
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
 #include "ocs2_pinocchio_interface/PinocchioStateInputMapping.h"
@@ -45,6 +46,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_centroidal_mpc/common/CentroidalMpcRobotModel.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
+#include "humanoid_common_mpc/config/costs/TaskSpaceCostFromConfig.h"
 #include "humanoid_common_mpc/cost/EndEffectorKinematicCostHelpers.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 
@@ -54,26 +56,53 @@ namespace ocs2::humanoid {
  * The swing-foot tracking cost of the centroidal MPC (task_space_foot_cost): the pose and twist of one foot against the
  * swing trajectory and the landing target the reference manager plans for it, weighted by task_space_foot_cost
  * and, near touch-down, by the swing planner's impact proximity. Every reference is read from the reference manager,
- * not from the solver's target. Not thread-safe; the solver clones it per worker.
+ * not from the solver's target (getParameters()):
+ *
+ *  - the height and the vertical velocity are the swing trajectory planner's (getZpositionConstraint(),
+ *    getZvelocityConstraint()), the references of the normal-velocity constraint too: the planned swing height in
+ *    swing, the ground the planner was built on (the reference manager's terrain height) in stance;
+ *  - the horizontal position and velocity are the swing foot reference's when it has a landing target
+ *    (getSwingFootReference()). Without one the xy position weights are 0, and the xy velocity tracks the commanded base
+ *    velocity (getSwingFootVelocityReference()) with swing_velocity_reference_weight in place of lin_velocity_x / _y;
+ *  - the orientation residual is in radians, so its weights are per rad^2 like those of the end-effector costs
+ *    (computeTaskSpaceErrors()): the tilt of the foot from the reference plane as a rotation vector in world axes
+ *    (tiltAngleToPlane()), whose third entry the planned foot yaw replaces when there is one (footYawError(), the
+ *    wrapped yaw error). Only the contact planner's heading model plans a foot yaw. Without one the third entry is the
+ *    tilt's, 0 on flat ground, and weights.orientation_z weighs next to nothing: CentroidalMpcInterface warns at
+ *    start-up.
+ *
+ * Not thread-safe; the solver clones it per worker.
  */
 class CentroidalMpcEndEffectorFootCost final : public StateInputCostGaussNewtonAd {
  public:
   /**
    * The cost name the interface builds the cost of the contact `footName` with, which names its CppAD library
-   * ("<it>_yawRefHalfAngle"). The same string as its collection name (taskSpaceKinematicsCostName(footName),
+   * ("<it>" kLibraryVersionSuffix). The same string as its collection name (taskSpaceKinematicsCostName(footName),
    * CostTermNames.h) today, defined apart on purpose: a rename of the term must not rename, and regenerate, the library
    * (testCostTermAndLibraryNames).
    */
   static std::string libraryName(absl::string_view footName) { return absl::StrCat(footName, "_TaskSpaceKinematicsCost"); }
 
+  /**
+   * Appended to the cost name to name the CppAD library: the version of the residual, changed with every change of it,
+   * so that a library taped from an earlier residual is never loaded in its place. "_yawRefHalfAngle" was the wrapped
+   * yaw residual with the half-angle tilt -sin(theta / 2) u; "_tiltAngle" is the tilt angle theta u (tiltAngleToPlane()).
+   */
+  static constexpr char kLibraryVersionSuffix[] = "_tiltAngle";
+
+  /**
+   * The cost of the contact `contactIndex` with the task file's `settings` (taskSpaceFootCostFromConfig()): its weights,
+   * active phases and swing velocity reference weight. `referenceManager` is retained and must outlive the cost and
+   * every clone of it; the model and the interface are copied. Builds or loads the CppAD library `costName`
+   * kLibraryVersionSuffix.
+   */
   CentroidalMpcEndEffectorFootCost(const SwitchedModelReferenceManager& referenceManager,
-                                   const EndEffectorKinematicsWeights& weights,
+                                   const TaskSpaceFootCostSettings& settings,
                                    const PinocchioInterface& pinocchioInterface,
                                    const MpcRobotModelBase<ad_scalar_t>& mpcRobotModelAD,
                                    size_t contactIndex,
                                    const std::string& costName,
-                                   const ModelSettings& modelSettings,
-                                   bool activeInStance = false);
+                                   const ModelSettings& modelSettings);
 
   ~CentroidalMpcEndEffectorFootCost() override = default;
   CentroidalMpcEndEffectorFootCost* absl_nonnull clone() const override { return new CentroidalMpcEndEffectorFootCost(*this); }
@@ -99,13 +128,22 @@ class CentroidalMpcEndEffectorFootCost final : public StateInputCostGaussNewtonA
   void getWeights(vector12_t& weights) const { weights = sqrtWeights_.cwiseProduct(sqrtWeights_); }
 
   /**
+   * Sets the weight of the x and y linear velocity errors of a swing without a landing target, against the commanded
+   * base velocity (task_space_foot_cost.swing_velocity_reference_weight; non-negative, as the conversion checks).
+   */
+  void setSwingVelocityReferenceWeight(scalar_t weight) { swingVelocityReferenceSqrtWeight_ = std::sqrt(weight); }
+  scalar_t getSwingVelocityReferenceWeight() const { return swingVelocityReferenceSqrtWeight_ * swingVelocityReferenceSqrtWeight_; }
+
+  /**
    * The yaw error of a foot whose orientation is `orientation` against the planned foot yaw `yawReference`, wrapped to
    * (-pi, pi): the third orientation residual when `hasYawReference` is 1. When it is 0 the reference is replaced by
    * the foot's own heading, and the error is exactly zero.
    *
    * With h the unit heading of the foot, (R00, R10) / |(R00, R10)|, and r the unit reference heading, the error is
-   * 2 atan(s / (1 + c)) with s = h x r and c = h . r, the sine and the cosine of the angle between them: the
-   * half-angle form of atan2(s, c), and the same number for every error short of pi. It replaces
+   * 2 atan(s / (1 + c)) with s = r x h = rx hy - ry hx and c = h . r: for h = (cos yaw, sin yaw) and r = (cos ref,
+   * sin ref) they are sin(yaw - ref) and cos(yaw - ref), so the error is yaw - ref wrapped to (-pi, pi), positive when the
+   * foot has turned past its reference. It is the half-angle form of atan2(s, c), the same number for every error short
+   * of pi. It replaces
    * atan2(sin(yaw - ref), cos(yaw - ref)) with yaw = atan2(R10, R00). CppAD evaluates both branches of an atan2, one of
    * which divides by its first argument, so at a foot yaw of exactly zero - the simulator's reset pose, MuJoCo's own
    * reset pose, any pose built from a zero base yaw - the derivative of the error was 0 * inf = NaN. Multiplying the
@@ -114,7 +152,9 @@ class CentroidalMpcEndEffectorFootCost final : public StateInputCostGaussNewtonA
    * A template, so that the residual the CppAD model is taped from can be evaluated in double precision by the tests.
    */
   template <typename SCALAR>
-  static SCALAR footYawError(const Eigen::Matrix<SCALAR, 3, 3>& orientation, const SCALAR& yawReference, const SCALAR& hasYawReference) {
+  static SCALAR footYawError(const Eigen::Matrix<SCALAR, kPositionDim, kPositionDim>& orientation,
+                             const SCALAR& yawReference,
+                             const SCALAR& hasYawReference) {
     using std::atan;
     using std::cos;
     using std::sin;
@@ -127,10 +167,16 @@ class CentroidalMpcEndEffectorFootCost final : public StateInputCostGaussNewtonA
     const SCALAR referenceY = hasYawReference * sin(yawReference) + (one - hasYawReference) * headingY;
     const SCALAR sine = headingY * referenceX - headingX * referenceY;
     const SCALAR cosine = headingX * referenceX + headingY * referenceY;
-    return SCALAR(2.0) * atan(sine / (one + cosine));
+    return SCALAR(kDoubleAngleFactor) * atan(sine / (one + cosine));
   }
 
  private:
+  /**
+   * The factor of the half-angle form atan2(s, c) = 2 atan(s / (1 + c)) footYawError() evaluates: atan(s / (1 + c)) is
+   * the half angle, which it takes back to the angle.
+   */
+  static constexpr double kDoubleAngleFactor = 2.0;
+
   CentroidalMpcEndEffectorFootCost(const CentroidalMpcEndEffectorFootCost& other);
 
   ad_vector_t costVectorFunction(ad_scalar_t time,
@@ -141,6 +187,8 @@ class CentroidalMpcEndEffectorFootCost final : public StateInputCostGaussNewtonA
   const SwitchedModelReferenceManager* absl_nonnull referenceManagerPtr_;
 
   vector12_t sqrtWeights_;
+  // The square root of the swing velocity reference weight (setSwingVelocityReferenceWeight()).
+  scalar_t swingVelocityReferenceSqrtWeight_;
   bool isActive_ = true;
   bool activeInStance_ = false;
 

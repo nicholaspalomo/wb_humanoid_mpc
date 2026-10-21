@@ -31,13 +31,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_wb_mpc/mrt/WBMpcParameterUpdater.h"
 
+#include <filesystem>
+#include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "absl/base/nullability.h"
 #include "absl/status/statusor.h"
+#include "absl/time/time.h"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/config/weights/StateInputLayout.h"
@@ -50,10 +54,18 @@ absl::StatusOr<std::shared_ptr<MpcParameterUpdaterModule>> makeWholeBodyMpcParam
     const WBMpcInterface& interface,
     const std::string& taskFile,
     const std::string& referenceFile,
-    std::vector<MpcParameterUpdaterModule::ReferenceFileReloader> referenceFileReloaders) {
+    std::vector<MpcParameterUpdaterModule::ReferenceFileReloader> referenceFileReloaders,
+    std::optional<std::filesystem::file_time_type> taskFileReadAt,
+    std::optional<std::filesystem::file_time_type> referenceFileReadAt,
+    absl::Duration fileCheckPeriod,
+    std::function<absl::Time()> clock) {
   MpcParameterUpdaterModule::Options options;
   options.taskFile = taskFile;
   options.referenceFile = referenceFile;
+  options.taskFileReadAt = taskFileReadAt;
+  options.referenceFileReadAt = referenceFileReadAt;
+  options.fileCheckPeriod = fileCheckPeriod;
+  options.clock = std::move(clock);
   options.runningTask = interface.taskFile();
   options.layout = stateInputLayout(interface.modelSettings(), StateInputLayout::Mpc::kWholeBody);
   options.inputDim = interface.getMpcRobotModel().getInputDim();

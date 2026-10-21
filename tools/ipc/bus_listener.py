@@ -25,66 +25,53 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-"""A receive-only client of the IPC bus: reads the network file and connects one SUB socket to every node.
+"""A receive-only client of the IPC bus: a robot_ipc.Bus that only subscribes, on the network file's DDS domain.
 
-The bus (humanoid_nmpc/docs/distributed_runtime/README.md) has no broker: every publishing process binds one PUB
-socket at the endpoint of its node in the network file, and a subscriber connects one SUB socket to EVERY endpoint of
-that file and filters by topic. Each message is three frames: the topic, the full protobuf type name and the
-serialized message.
+The bus (humanoid_nmpc/docs/distributed_runtime/README.md) has no broker: every topic is a DDS topic of the same name
+whose samples are one robot_ipc::Envelope (the wire protocol's version, the writer's sequence number, the full
+protobuf type name and the serialized message). The listener joins the domain of the network file as a subscriber, with
+discovery sent to the host of every node, so it sees every topic whichever process publishes it; listening to every
+topic, it discovers the topics from the DDS writers it sees.
 
 The network file is read with the bus library's loader (robot_ipc.load_network_config), so the tool accepts exactly
-the files the processes of the bus accept and reports their errors alike. The receiving half of the bus contract is
-implemented here on pyzmq directly, so that the tool checks the documented framing rather than reusing robot_ipc.Bus.
-It never publishes and never binds.
+the files the processes of the bus accept and reports their errors alike. It never publishes.
 """
 
-from collections.abc import Sequence
 import os
+import queue
 import time
 from typing import NamedTuple
-
-import zmq
 
 import robot_ipc
 
 # Relative to the repository root (resolve_input_path), as the processes of the bus read it.
 DEFAULT_NETWORK_CONFIG = os.path.join("config", "ipc", "network.textproto")
 
-# The three frames of a bus message.
-FRAME_COUNT = 3
-
-# Messages ZeroMQ queues for this subscriber before it drops the newest; enough for a few seconds of the fastest
-# stream (robot/mpc_observation, one per control cycle) while the tool formats a slow message.
-DEFAULT_RECEIVE_HIGH_WATER_MARK = 10000
-
-# A node of the network file: its name, host and port, and connect_endpoint(), where a SUB socket reaches it.
-Node = robot_ipc.NodeEndpoint
-
 
 class NetworkConfigError(ValueError):
-    """The network file is missing or does not describe the nodes of the bus."""
+    """The network file is missing or does not describe the bus."""
 
 
-def parse_network_config(text: str, source: str) -> list[Node]:
-    """The nodes of the text of a network file, in file order; `source` names it in the error messages.
+def parse_network_config(text: str, source: str) -> robot_ipc.NetworkConfig:
+    """The network of the text of a network file; `source` names it in the error messages.
 
     Raises:
-        NetworkConfigError: the file is not a valid network file; the message names its line and column, or the node.
+        NetworkConfigError: the file is not a valid network file; the message names its line and column, or the entry.
     """
     try:
-        return list(robot_ipc.parse_network_config(text, source).nodes)
+        return robot_ipc.parse_network_config(text, source)
     except robot_ipc.NetworkConfigError as error:
         raise NetworkConfigError(str(error)) from None
 
 
-def load_network_config(path: str) -> list[Node]:
-    """The nodes of the network file at `path`, in file order.
+def load_network_config(path: str) -> robot_ipc.NetworkConfig:
+    """The network of the network file at `path`.
 
     Args:
         path: The network file.
 
     Returns:
-        Its nodes, in file order.
+        Its network.
 
     Raises:
         NetworkConfigError: the file cannot be read or is not a valid network file.
@@ -128,7 +115,7 @@ def resolve_input_path(path: str) -> str:
 
 
 class BusMessage(NamedTuple):
-    """One message as it arrived: its three frames and the local receive time (time.monotonic, seconds)."""
+    """One message as it arrived: its topic, type name, payload and local receive time (time.monotonic, seconds)."""
 
     topic: str
     type_name: str
@@ -137,83 +124,84 @@ class BusMessage(NamedTuple):
 
 
 class BusListener:
-    """One SUB socket connected to every endpoint of the bus, receiving one topic or all of them.
+    """A subscribe-only bus on the network's DDS domain, receiving one topic or all of them, queued for the caller.
 
-    ZeroMQ filters subscriptions by prefix, so the listener subscribes to the topic and then drops every message whose
-    topic is merely longer (`robot/state` must not deliver `robot/state_estimate`). Messages that are not three frames
-    are dropped and counted in `malformed_messages`.
+    The bus's receive thread puts every message into a queue that receive() and receive_pending() take from, so the
+    caller reads at its own pace. Samples of another wire protocol version, another layout or that are not a message
+    of the bus are dropped and counted in `malformed_messages` (for a single topic: the bus's rejected samples).
 
-    Usable as a context manager; the socket has LINGER 0, so closing never blocks.
+    Usable as a context manager; closing stops the bus and deletes its DDS entities.
+
+    Attributes:
+        topic: the topic listened to; None for every topic.
+        endpoints: where the listener listens, for messages: the DDS domain and its discovery peers.
     """
 
     def __init__(
-        self,
-        endpoints: Sequence[str],
-        topic: str | None = None,
-        context: zmq.Context | None = None,
-        receive_high_water_mark: int = DEFAULT_RECEIVE_HIGH_WATER_MARK,
+        self, network: robot_ipc.NetworkConfig, topic: str | None = None
     ) -> None:
-        if not endpoints:
-            raise ValueError("a listener needs at least one endpoint")
-        self.topic = topic
-        self.endpoints = list(endpoints)
-        self.malformed_messages = 0
-        self._context = context if context is not None else zmq.Context.instance()
-        self._socket = self._context.socket(zmq.SUB)
-        self._socket.setsockopt(zmq.LINGER, 0)
-        self._socket.setsockopt(zmq.RCVHWM, receive_high_water_mark)
-        self._socket.setsockopt(
-            zmq.SUBSCRIBE, b"" if topic is None else topic.encode("utf-8")
-        )
-        for endpoint in self.endpoints:
-            self._socket.connect(endpoint)
-        self._poller = zmq.Poller()
-        self._poller.register(self._socket, zmq.POLLIN)
+        """Joins the network's domain and subscribes to `topic` (every topic when None).
 
-    @classmethod
-    def from_nodes(
-        cls, nodes: Sequence[Node], topic: str | None = None
-    ) -> "BusListener":
-        """A listener connected to the endpoint of every node of a network file."""
-        return cls([node.connect_endpoint() for node in nodes], topic=topic)
+        Args:
+            network: The network file's network.
+            topic: The topic to receive, a DDS topic name; None for every topic.
+
+        Raises:
+            ValueError: the topic is not a DDS topic name.
+            robot_ipc.BusError: DDS cannot join the domain.
+        """
+        self.topic = topic
+        self.endpoints = [
+            f"DDS domain {network.domain_id} (peers {', '.join(network.peer_hosts())})"
+        ]
+        self._messages: "queue.Queue[BusMessage]" = queue.Queue()
+        self._bus = robot_ipc.Bus("", network)
+        try:
+            if topic is None:
+                self._bus.subscribe_all_topics(self._on_any_topic)
+            else:
+                self._bus.subscribe_raw(topic, self._on_topic, robot_ipc.Delivery.ALL)
+            self._bus.start()
+        except BaseException:
+            self._bus.close()
+            raise
+
+    def _on_topic(self, type_name: str, payload: bytes) -> None:
+        self._on_any_topic(self.topic or "", type_name, payload)
+
+    def _on_any_topic(self, topic: str, type_name: str, payload: bytes) -> None:
+        self._messages.put(BusMessage(topic, type_name, payload, time.monotonic()))
+
+    @property
+    def malformed_messages(self) -> int:
+        """The samples the bus dropped as not being a message of its wire protocol and layout."""
+        return sum(
+            statistics.rejected for statistics in self._bus.statistics().values()
+        )
 
     def receive(self, timeout_s: float) -> BusMessage | None:
-        """The next message of the subscribed topic, or None when none arrived within `timeout_s` seconds."""
-        deadline = time.monotonic() + max(timeout_s, 0.0)
-        while True:
-            remaining_ms = max(int((deadline - time.monotonic()) * 1000.0), 0)
-            if not self._poller.poll(remaining_ms):
-                return None
-            frames = self._socket.recv_multipart(zmq.NOBLOCK)
-            receive_time = time.monotonic()
-            message = self._parse(frames, receive_time)
-            if message is not None:
-                return message
-            if time.monotonic() >= deadline:
-                return None
-
-    def _parse(self, frames: list[bytes], receive_time: float) -> BusMessage | None:
-        """The message of `frames`, or None for a malformed one (counted) or one of a longer topic (dropped)."""
-        if len(frames) != FRAME_COUNT:
-            self.malformed_messages += 1
-            return None
+        """The next message, or None when none arrived within `timeout_s` seconds."""
         try:
-            topic = frames[0].decode("utf-8")
-            type_name = frames[1].decode("utf-8")
-        except UnicodeDecodeError:
-            self.malformed_messages += 1
+            return self._messages.get(timeout=max(timeout_s, 0.0))
+        except queue.Empty:
             return None
-        if self.topic is not None and topic != self.topic:
-            return None
-        return BusMessage(
-            topic=topic,
-            type_name=type_name,
-            payload=frames[2],
-            receive_time=receive_time,
-        )
+
+    def receive_pending(self) -> list[BusMessage]:
+        """Every message that has already arrived, oldest first, without waiting.
+
+        Returns:
+            The messages the receive thread has queued now.
+        """
+        messages: list[BusMessage] = []
+        while True:
+            try:
+                messages.append(self._messages.get_nowait())
+            except queue.Empty:
+                return messages
 
     def close(self) -> None:
-        self._socket.close()
+        """Stops the bus and deletes its DDS entities."""
+        self._bus.close()
 
     def __enter__(self) -> "BusListener":
         return self

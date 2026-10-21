@@ -36,6 +36,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/time/time.h"
 
 #include "web_viewer/ViewerThreadPriority.h"
+#include "web_viewer/WebViewerServerOptions.h"
 
 namespace robot::mujoco_sim_interface {
 
@@ -60,28 +61,39 @@ inline constexpr int kMaxWebViewerShadowSize = 8192;  // [px]
  * answers only requests whose Host is loopback, the bound address or one of `allowedHosts`.
  */
 struct WebViewerOptions {
-  std::string address = "127.0.0.1";  // interface the server binds; 0.0.0.0 or :: opts in to every interface
-  // LINT.IfChange(web_viewer_port)
-  int port = 6090;  // [0, 65535]; 0 binds an ephemeral port (tests), see webViewerPort()
-  // clang-format off
-  // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_app/robot/src/RobotAppFlags.cpp:web_viewer_port, //robot_runtime/web_viewer/include/web_viewer/WebViewerServerOptions.h:web_viewer_port)
-  // clang-format on
+  // The largest port, and the defaults of the fields below; the port and the client count are the server's.
+  static constexpr int kMaxPort = web_viewer::WebViewerServerOptions::kMaxPort;
+  static constexpr int kDefaultPort = web_viewer::WebViewerServerOptions::kDefaultPort;
+  static constexpr int kDefaultMaxClients = web_viewer::WebViewerServerOptions::kDefaultMaxClients;
+  static constexpr int kDefaultWidth = 1280;      // [px]
+  static constexpr int kDefaultHeight = 720;      // [px]
+  static constexpr int kDefaultMaxWidth = 1920;   // [px]
+  static constexpr int kDefaultMaxHeight = 1080;  // [px]
+  static constexpr int kDefaultFps = 30;
+  static constexpr int kDefaultQuality = 70;
+  static constexpr int kDefaultShadowSize = 2048;  // [px]
+  static constexpr absl::Duration kDefaultStartTimeout = absl::Seconds(10);
+
+  std::string address = "127.0.0.1";      // interface the server binds; 0.0.0.0 or :: opts in to every interface
+  int port = kDefaultPort;                // [0, kMaxPort]; 0 binds an ephemeral port (tests), see webViewerPort()
   std::vector<std::string> allowedHosts;  // extra host names a request's Host may carry (a LAN name, say)
-  int maxClients = 4;                     // concurrent frame requests and streams; more get 503
-  int width = 1280;                       // [px] initial frame size; a page may change it up to maxWidth x maxHeight
-  int height = 720;                       // [px]
-  int maxWidth = 1920;                    // [px] size of the offscreen buffer, checked against the GL limits at start-up
-  int maxHeight = 1080;                   // [px]
-  int fps = 30;                           // target frame rate while a client watches; nothing is rendered without one
-  int quality = 70;                       // JPEG quality
+  int maxClients = kDefaultMaxClients;    // concurrent frame requests and streams; more get 503
+  int width = kDefaultWidth;              // [px] initial frame size; a page may change it up to maxWidth x maxHeight
+  int height = kDefaultHeight;            // [px]
+  int maxWidth = kDefaultMaxWidth;        // [px] size of the offscreen buffer, checked against the GL limits at start-up
+  int maxHeight = kDefaultMaxHeight;      // [px]
+  int fps = kDefaultFps;                  // target frame rate while a client watches; nothing is rendered without one
+  int quality = kDefaultQuality;          // JPEG quality
   int msaaSamples = 0;                    // offscreen multisampling; 0 is fastest on llvmpipe
-  int shadowSize = 2048;                  // [px] shadow map size; 0 turns shadows off
+  int shadowSize = kDefaultShadowSize;    // [px] shadow map size; 0 turns shadows off
   std::vector<int> cores;                 // CPU cores of the viewer's threads; empty leaves them unpinned
   // The scheduling of the viewer's threads: SCHED_IDLE, so that a physics or MPC thread on their cores preempts them.
   web_viewer::ViewerThreadPriority threadPriority = web_viewer::ViewerThreadPriority::kIdle;
-  std::optional<int> eglDeviceId;                   // EGL device index (MUJOCO_EGL_DEVICE_ID); unset picks a GPU, else llvmpipe
-  std::string eglLibrary = "libEGL.so.1";           // the EGL library dlopen()ed; another name only in tests
-  absl::Duration startTimeout = absl::Seconds(10);  // how long start() waits for the render thread's EGL and GL set-up
+  std::optional<int> eglDeviceId;          // EGL device index (MUJOCO_EGL_DEVICE_ID); unset picks a GPU, else llvmpipe
+  std::string eglLibrary = "libEGL.so.1";  // the EGL library dlopen()ed; another name only in tests
+  // How long start() waits for the render thread's EGL and GL set-up to succeed; on the timeout it returns once the
+  // set-up step running then has ended (WebMujocoViewer::start()).
+  absl::Duration startTimeout = kDefaultStartTimeout;
 };
 
 }  // namespace robot::mujoco_sim_interface

@@ -83,6 +83,9 @@ constexpr char kTwoJointUrdf[] = R"(<robot name="two_joints">
 </robot>
 )";
 
+// The header of a task file, which names its schema.
+constexpr char kTaskHeader[] = "# proto-message: humanoid_mpc_config.TaskFile\n";
+
 /** The robot of kTwoJointUrdf, written to the scratch directory. */
 std::string twoJointUrdf() {
   return writeFile("two_joints.urdf", absl::Substitute(kTwoJointUrdf, kInertial));
@@ -90,8 +93,8 @@ std::string twoJointUrdf() {
 
 /** A task file whose model_settings block carries `extra` after its robot name. */
 std::string taskFile(const std::string& name, const std::string& extra) {
-  return writeFile(name,
-                   absl::StrCat("model_settings {\n  robot_name: \"two_joints\"\n  phase_transition_stance_time: 0.25\n", extra, "}\n"));
+  return writeFile(name, absl::StrCat(kTaskHeader, "model_settings {\n  robot_name: \"two_joints\"\n  phase_transition_stance_time: 0.25\n",
+                                      extra, "}\n"));
 }
 
 TEST(ModelSettingsCreate, LoadsTheActiveJointsOfTheUrdf) {
@@ -104,6 +107,23 @@ TEST(ModelSettingsCreate, LoadsTheActiveJointsOfTheUrdf) {
   EXPECT_THAT(settings->mpcModelJointNames, ::testing::UnorderedElementsAre("shoulder", "hip"));
   EXPECT_FALSE(settings->hasArmSwingJoints) << "a file without arm_joint_names disables the arm swing";
   EXPECT_EQ(settings->modelFolderCppAd, absl::StrCat("cppad_code_gen/cppad_test_two_joints/", kStateLayoutTag));
+}
+
+TEST(ModelLayoutFingerprint, TellsLayoutsOfEqualDimensionsApart) {
+  // Fixing one joint or the other leaves one active joint either way: equal dimensions, another state layout.
+  const absl::StatusOr<ModelSettings> shoulderFixed = ModelSettings::Create(
+      taskFile("shoulder_fixed.textproto", "  fixed_joint_names: \"shoulder\"\n"), twoJointUrdf(), "test_", /*verbose=*/false);
+  const absl::StatusOr<ModelSettings> hipFixed =
+      ModelSettings::Create(taskFile("hip_fixed.textproto", "  fixed_joint_names: \"hip\"\n"), twoJointUrdf(), "test_", /*verbose=*/false);
+  const absl::StatusOr<ModelSettings> hipFixedAgain = ModelSettings::Create(
+      taskFile("hip_fixed_again.textproto", "  fixed_joint_names: \"hip\"\n"), twoJointUrdf(), "test_", /*verbose=*/false);
+  ASSERT_TRUE(shoulderFixed.ok()) << shoulderFixed.status();
+  ASSERT_TRUE(hipFixed.ok()) << hipFixed.status();
+  ASSERT_TRUE(hipFixedAgain.ok()) << hipFixedAgain.status();
+  ASSERT_EQ(shoulderFixed->mpc_joint_dim, hipFixed->mpc_joint_dim);
+  EXPECT_NE(modelLayoutFingerprint(*shoulderFixed), modelLayoutFingerprint(*hipFixed));
+  EXPECT_EQ(modelLayoutFingerprint(*hipFixed), modelLayoutFingerprint(*hipFixedAgain));
+  EXPECT_NE(modelLayoutFingerprint(*hipFixed), kUnstampedModelFingerprint);
 }
 
 TEST(ModelSettingsCreate, FixingEveryJointIsRefused) {
@@ -152,15 +172,16 @@ TEST(ModelSettingsCreate, AFileThatCannotBeReadOrAValueThatDoesNotConvertIsRefus
 
   // A value that does not convert is refused by the parser, naming the file, its line and its column.
   const std::string badValueFile =
-      writeFile("bad_value.textproto", "model_settings {\n  robot_name: \"two_joints\"\n  phase_transition_stance_time: soon\n}\n");
+      writeFile("bad_value.textproto",
+                absl::StrCat(kTaskHeader, "model_settings {\n  robot_name: \"two_joints\"\n  phase_transition_stance_time: soon\n}\n"));
   const absl::StatusOr<ModelSettings> badValue = ModelSettings::Create(badValueFile, urdf, "test_", /*verbose=*/false);
   EXPECT_EQ(badValue.status().code(), absl::StatusCode::kInvalidArgument);
-  EXPECT_THAT(badValue.status().message(), HasSubstr(absl::StrCat(badValueFile, ":3:")));
+  EXPECT_THAT(badValue.status().message(), HasSubstr(absl::StrCat(badValueFile, ":4:")));
 
   const std::string badFootGainFile = taskFile("bad_foot_gain.textproto", "  foot_constraint {\n    position_error_gain_z: high\n  }\n");
   const absl::StatusOr<ModelSettings> badFootGain = ModelSettings::Create(badFootGainFile, urdf, "test_", /*verbose=*/false);
   EXPECT_EQ(badFootGain.status().code(), absl::StatusCode::kInvalidArgument);
-  EXPECT_THAT(badFootGain.status().message(), HasSubstr(absl::StrCat(badFootGainFile, ":5:")));
+  EXPECT_THAT(badFootGain.status().message(), HasSubstr(absl::StrCat(badFootGainFile, ":6:")));
 }
 
 TEST(ModelSettingsCreate, TheSettingsMoveWithEveryField) {
@@ -181,6 +202,7 @@ TEST(GaitScheduleCreate, LoadsTheReferenceFileOrReportsWhyNot) {
 
   const std::string reference =
       writeFile("reference.textproto",
+                "# proto-message: humanoid_mpc_config.ReferenceFile\n"
                 "initial_mode_schedule {\n  mode_sequence: [\"STANCE\", \"STANCE\"]\n  event_times: 0.5\n}\n"
                 "default_mode_sequence_template {\n  mode_sequence: \"STANCE\"\n  switching_times: [0.0, 1.0]\n}\n");
   const absl::StatusOr<std::shared_ptr<GaitSchedule>> schedule = GaitSchedule::Create(reference, *settings);
@@ -188,6 +210,7 @@ TEST(GaitScheduleCreate, LoadsTheReferenceFileOrReportsWhyNot) {
   EXPECT_EQ((*schedule)->getCurrentModeSchedule().modeSequence, (std::vector<size_t>{ModeNumber::kStance, ModeNumber::kStance}));
 
   const std::string noTemplate = writeFile("reference_without_template.textproto",
+                                           "# proto-message: humanoid_mpc_config.ReferenceFile\n"
                                            "initial_mode_schedule {\n  mode_sequence: [\"STANCE\", \"STANCE\"]\n  event_times: 0.5\n}\n");
   const absl::StatusOr<std::shared_ptr<GaitSchedule>> refused = GaitSchedule::Create(noTemplate, *settings);
   EXPECT_EQ(refused.status().code(), absl::StatusCode::kInvalidArgument);

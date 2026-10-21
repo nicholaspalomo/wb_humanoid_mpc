@@ -85,7 +85,17 @@ struct AcomAttitudeTangentJacobian {
  */
 class AngularCenterOfMass {
  public:
-  AngularCenterOfMass(size_t inputDim, size_t numLayers, double omega0 = 30.0);
+  /** The frequency omega_0 of the sinusoidal layers that the training code (humanoid_learning/acom) defaults to. */
+  static constexpr double kDefaultOmega0 = 30.0;
+
+  AngularCenterOfMass(size_t inputDim, size_t numLayers, double omega0 = kDefaultOmega0);
+
+  // A value type: copying it copies the network.
+  AngularCenterOfMass(const AngularCenterOfMass&) = default;
+  AngularCenterOfMass& operator=(const AngularCenterOfMass&) = default;
+  AngularCenterOfMass(AngularCenterOfMass&&) = default;
+  AngularCenterOfMass& operator=(AngularCenterOfMass&&) = default;
+  ~AngularCenterOfMass() = default;
 
   /**
    * The values of model_settings.robot_name that have a network compiled into this binary, sorted. This is the

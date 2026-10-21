@@ -7,6 +7,12 @@
 # //tools/config_registries:config_registries_test fails when it and the registries differ.
 
 registries {
+  name: "arm_swing"
+  names: "procedural"
+  names: "none"
+}
+
+registries {
   name: "basis_generator_set"
   names: "conservative_inner_approximation"
   names: "exact_wrench_cone"
@@ -139,7 +145,6 @@ registries {
   names: "state_quadratic_cost"
   names: "input_quadratic_cost"
   names: "terminal_cost"
-  names: "icp_cost"
   names: "task_space_foot_cost"
   names: "task_space_torso_cost"
   names: "external_torque_cost"
@@ -188,6 +193,12 @@ registries {
   names: "position"
   names: "position_and_tilt"
   names: "position_and_orientation"
+}
+
+registries {
+  name: "state_estimator"
+  names: "ground_truth"
+  names: "kalman"
 }
 
 registries {

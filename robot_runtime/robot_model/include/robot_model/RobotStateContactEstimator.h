@@ -29,7 +29,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <string>
 #include <vector>
 
 #include "robot_model/ContactEstimator.h"
@@ -41,6 +40,8 @@ namespace robot::model {
  * interface wrote there (see RobotState::setContactFlag). It is the default estimator of the MRT joint controllers, and
  * reproduces their historical behavior: a simulator that does not report ground-truth contacts fills every flag with
  * true, so every planned contact wrench reaches the inverse dynamics.
+ *
+ * Not thread-safe: the control thread calls it.
  */
 class RobotStateContactEstimator final : public ContactEstimator {
  public:
@@ -49,7 +50,7 @@ class RobotStateContactEstimator final : public ContactEstimator {
     flags.assign(stateFlags.begin(), stateFlags.end());
   }
 
-  std::string getName() const override { return "RobotStateContactEstimator"; }
+  absl::string_view getName() const override { return "RobotStateContactEstimator"; }
 };
 
 }  // namespace robot::model

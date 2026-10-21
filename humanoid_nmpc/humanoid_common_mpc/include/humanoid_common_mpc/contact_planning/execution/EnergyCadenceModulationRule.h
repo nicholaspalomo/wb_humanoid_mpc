@@ -40,6 +40,8 @@ namespace ocs2::humanoid {
  * the measured center of mass and the NMPC's prediction, relative to its nominal touch-down and within the swing
  * duration limits; later events move with it. Must be listed after `phase_resetting` when both are on: an early
  * touch-down ends a swing before the cadence rule may re-time it.
+ *
+ * Not thread-safe, like every ContactPlanningTerm: the planner that owns it configures and evaluates it from one thread at a time.
  */
 class EnergyCadenceModulationRule final : public ExecutionRule {
  public:

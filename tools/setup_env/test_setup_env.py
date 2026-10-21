@@ -91,7 +91,7 @@ class SetupEnvTest(unittest.TestCase):
         }
         environment.update(extra_environment or {})
         return subprocess.run(
-            ["bash", "-c", 'source "$0" >/dev/null; ' + commands, self.script],
+            ["bash", "-c", f'source "$0" >/dev/null; {commands}', self.script],
             env=environment,
             capture_output=True,
             text=True,

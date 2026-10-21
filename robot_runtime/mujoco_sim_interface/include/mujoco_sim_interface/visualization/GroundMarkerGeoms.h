@@ -31,6 +31,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/base/nullability.h"
 #include "mujoco/mujoco.h"
+#include "ocs2_core/Dimensions.h"
 
 namespace robot::mujoco_sim_interface {
 
@@ -48,8 +49,14 @@ struct MarkerColor {
  * appends one geom to the scene and returns false when the scene is full or null.
  */
 bool addGroundDiscGeom(mjvScene* absl_nullable scene, double x, double y, double radius, const MarkerColor& color);
-bool addSphereGeom(mjvScene* absl_nullable scene, const double position[absl_nonnull 3], double radius, const MarkerColor& color);
-bool addVerticalLineGeom(
-    mjvScene* absl_nullable scene, const double position[absl_nonnull 3], double groundHeight, double width, const MarkerColor& color);
+bool addSphereGeom(mjvScene* absl_nullable scene,
+                   const double position[absl_nonnull ocs2::kPositionDim],
+                   double radius,
+                   const MarkerColor& color);
+bool addVerticalLineGeom(mjvScene* absl_nullable scene,
+                         const double position[absl_nonnull ocs2::kPositionDim],
+                         double groundHeight,
+                         double width,
+                         const MarkerColor& color);
 
 }  // namespace robot::mujoco_sim_interface

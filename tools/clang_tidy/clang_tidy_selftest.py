@@ -215,7 +215,7 @@ def check_rename(
                         golden,
                         fixed,
                         golden_prefix + relative,
-                        source + " (fixed)",
+                        f"{source} (fixed)",
                         lineterm="",
                     )
                 )

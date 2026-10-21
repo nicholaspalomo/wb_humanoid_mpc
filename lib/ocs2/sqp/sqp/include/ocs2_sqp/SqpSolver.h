@@ -29,6 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <vector>
+
 #include "absl/base/nullability.h"
 
 #include <ocs2_core/initialization/Initializer.h>
@@ -41,7 +43,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ocs2_oc/oc_solver/SolverBase.h>
 #include <ocs2_oc/search_strategy/FilterLinesearch.h>
 
-#include <hpipm_catkin/HpipmInterface.h>
+#include <hpipm_interface/HpipmInterface.h>
 
 #include "ocs2_sqp/SqpLogging.h"
 #include "ocs2_sqp/SqpSettings.h"
@@ -122,6 +124,14 @@ class SqpSolver : public SolverBase {
    * nothing in the solve reads it.
    */
   const vector_t& getInitialStateGap() const { return initialStateGap_; }
+
+  /**
+   * Every iteration of the last solve, in order: the line search's baseline, the step it took (its size and type, the
+   * full step's type and constraint metric, the performance after it) and the convergence test after it. Empty before
+   * the first solve and after reset(). Recorded only; nothing in the solve reads them, and the storage is reused from
+   * one solve to the next.
+   */
+  const std::vector<sqp::IterationRecord>& getIterationRecords() const { return iterationRecords_; }
 
  private:
   void runImpl(scalar_t initTime, const vector_t& initState, scalar_t finalTime) override;
@@ -219,6 +229,9 @@ class SqpSolver : public SolverBase {
 
   // delta_x0 of the first iteration of the last solve (getInitialStateGap())
   vector_t initialStateGap_;
+
+  // The iterations of the last solve (getIterationRecords())
+  std::vector<sqp::IterationRecord> iterationRecords_;
 
   // Benchmarking
   size_t numProblems_{0};

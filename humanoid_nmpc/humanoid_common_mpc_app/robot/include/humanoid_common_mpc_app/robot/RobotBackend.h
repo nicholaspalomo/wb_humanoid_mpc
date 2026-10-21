@@ -47,9 +47,16 @@ namespace ocs2::humanoid {
  * The robot the robot process controls: a robot::model::RobotHWInterfaceBase, which the realtime loop reads the state
  * from and writes the joint action to, and what the backend adds around it. Selected by name with --backend
  * (RobotBackendRegistry): `mujoco` is the MuJoCo simulator (MujocoRobotBackend), so that simulation runs the hardware
- * topology. A hardware backend is registered next to it, but the robot process's FSM bridge and fall recovery drive the
- * simulator's gantry and torque switch (simulator()), and RobotProcess::Create() refuses a backend without a simulator:
- * a hardware backend brings an FSM bridge of its own, for the torque switch of its drives.
+ * topology. A hardware backend is registered next to it under its own name; it names the supervisor that drives it
+ * (supervisorName(): the FSM bridge and the fall recovery of RobotSupervisorRegistry): `sim` drives the simulator's
+ * gantry, torque switch and resets (simulator()), `hardware` the backend's torque switch only (enableTorques(),
+ * enterSafeState()). See humanoid_nmpc/humanoid_common_mpc_app/robot/README.md, "A hardware backend".
+ *
+ * WHAT THE STATE CARRIES. hardware().getRobotState() is what the backend measures: the joints, the contact flags, the
+ * base's orientation and angular velocity (the IMU's on hardware), the IMU's linear acceleration
+ * (RobotState::getImuLinearAccelerationInLocalFrame()), and the base's position and linear velocity, which a simulator
+ * knows and a robot does not: a hardware backend reports its best guess (the initial pose, or a motion capture's), and
+ * the task file's state_estimator replaces them for the controller (`kalman`).
  *
  * THREADS. initialize() and start() run on the main thread before the realtime loop; hardware(), acceptsJointAction()
  * and readMeasuredContactForces() are called by the realtime thread every cycle and must be realtime-safe: no lock the
@@ -59,6 +66,10 @@ namespace ocs2::humanoid {
  */
 class RobotBackend {
  public:
+  RobotBackend() = default;
+  /** An interface: implementations are used through a pointer or reference, never copied or moved. */
+  RobotBackend(const RobotBackend&) = delete;
+  RobotBackend& operator=(const RobotBackend&) = delete;
   virtual ~RobotBackend() = default;
 
   /** The registry name of this backend. */
@@ -68,7 +79,13 @@ class RobotBackend {
   virtual robot::model::RobotHWInterfaceBase& hardware() = 0;
   virtual const robot::model::RobotHWInterfaceBase& hardware() const = 0;
 
-  /** Brings the robot up before the loop starts (MuJoCo: compiles the scene and puts the robot in its initial state). */
+  /**
+   * Brings the robot up before the loop starts (MuJoCo: takes the first physics step and starts the viewer). A step of
+   * the process's lifecycle, not the second half of construction: a backend is complete when its registry factory
+   * returns it (hardware() and the realtime-thread methods are valid from then on), and this connects it to what is
+   * outside the process. RobotProcess::start() calls it once, on the main thread, before reading the first state and
+   * before start(); a backend whose initialize() fails is destroyed without start().
+   */
   virtual absl::Status initialize() = 0;
 
   /**
@@ -81,8 +98,15 @@ class RobotBackend {
   virtual bool acceptsJointAction() const = 0;
 
   /**
-   * The forces the feet measure [N], as their force sensors read them, in contact order (left, right); zero where the
-   * robot has no sensor.
+   * Switches the torques on (leaves the safe state): the joint action applied from now on reaches the actuators, and
+   * none applied before (RobotHWInterfaceBase::discardAppliedJointAction()). The FSM bridge's switch for an FSM command
+   * into an active mode. Realtime-safe; idempotent.
+   */
+  virtual void enableTorques() = 0;
+
+  /**
+   * The forces the feet measure [N], in contact order (left, right): the force each foot carries in the world frame,
+   * +z up while it stands (robot_state_sample.proto, measured_contact_wrenches); zero where the robot has no sensor.
    * Realtime thread.
    */
   virtual void readMeasuredContactForces(std::array<vector3_t, kNumContacts>& forces) = 0;
@@ -98,9 +122,12 @@ class RobotBackend {
   /** Adds the contact estimators only this backend can provide (MuJoCo: cheater_sim) to `registry`. */
   virtual void registerContactEstimators(robot::model::ContactEstimatorRegistry& registry) const = 0;
 
+  /** The RobotSupervisorRegistry name of the FSM bridge and fall recovery that drive this backend (`sim`, `hardware`). */
+  virtual absl::string_view supervisorName() const = 0;
+
   /**
    * The simulator, when this backend is one: its gantry, its torque switch, its dodgeballs and its viewer, which the
-   * FSM bridge, the fall recovery and the viewer annotations drive. nullptr on hardware.
+   * `sim` supervisor and the viewer annotations drive. nullptr on hardware.
    */
   virtual robot::mujoco_sim_interface::MujocoSimInterface* absl_nullable simulator() { return nullptr; }
 };

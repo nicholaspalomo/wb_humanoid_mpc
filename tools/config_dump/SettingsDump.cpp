@@ -214,7 +214,10 @@ void dumpJointPdGains(ValueDump& dump, absl::string_view path, const JointPdGain
   dump.addMatrix(joinPath(path, "otherJointTorqueLimit"), gains.otherJointTorqueLimit);
   dump.addDouble(joinPath(path, "defaults.kp"), gains.defaults.kp);
   dump.addDouble(joinPath(path, "defaults.kd"), gains.defaults.kd);
-  dumpOptionalDouble(dump, joinPath(path, "defaults.torqueLimit"), gains.defaults.torqueLimit);
+  dump.addDouble(joinPath(path, "defaults.torqueLimit"), gains.defaults.torqueLimit);
+  dump.addDouble(joinPath(path, "gravityCompDampingFraction"), gains.gravityCompDampingFraction);
+  dump.addDouble(joinPath(path, "maxPolicyJointError"), gains.maxPolicyJointError);
+  dump.addDouble(joinPath(path, "divergedPolicyJointTargetBound"), gains.divergedPolicyJointTargetBound);
 }
 
 void dumpRobotProcessSettings(ValueDump& dump, absl::string_view path, const RobotProcessSettings& settings) {
@@ -228,6 +231,8 @@ void dumpRobotProcessSettings(ValueDump& dump, absl::string_view path, const Rob
   }
   dump.addString(joinPath(simulatorPath, "gantryHold"), settings.simulator.gantryHold);
   dump.addString(joinPath(simulatorPath, "projectile"), settings.simulator.projectile);
+  dump.addDouble(joinPath(simulatorPath, "ragdollJointDamping"), settings.simulator.ragdollJointDamping);
+  dump.addDouble(joinPath(simulatorPath, "autoResetBaseHeight"), settings.simulator.autoResetBaseHeight);
   const SimFallRecovery::Config& fall = settings.fallRecovery;
   const std::string fallPath = joinPath(path, "fallRecovery");
   dump.addDouble(joinPath(fallPath, "maxBaseTiltAngle"), fall.maxBaseTiltAngle);
@@ -250,6 +255,18 @@ void dumpRobotProcessSettings(ValueDump& dump, absl::string_view path, const Rob
   dump.addStrings(joinPath(path, "telemetrySinks"), settings.telemetrySinks);
   dumpOptionalDouble(dump, joinPath(path, "telemetryFrequency"), settings.telemetryFrequency);
   dump.addDouble(joinPath(path, "mpcLinkPolicyTimeout"), settings.mpcLinkPolicyTimeout);
+  dump.addString(joinPath(path, "stateEstimator"), settings.stateEstimator);
+  const estimation::KalmanBaseEstimator::Config& kalman = settings.kalmanStateEstimator;
+  const std::string kalmanPath = joinPath(path, "kalmanStateEstimator");
+  dump.addDouble(joinPath(kalmanPath, "imuAccelerationNoise"), kalman.imuAccelerationNoise);
+  dump.addDouble(joinPath(kalmanPath, "baseVelocityRandomWalk"), kalman.baseVelocityRandomWalk);
+  dump.addDouble(joinPath(kalmanPath, "basePositionRandomWalk"), kalman.basePositionRandomWalk);
+  dump.addDouble(joinPath(kalmanPath, "stanceContactRandomWalk"), kalman.stanceContactRandomWalk);
+  dump.addDouble(joinPath(kalmanPath, "swingContactRandomWalk"), kalman.swingContactRandomWalk);
+  dump.addDouble(joinPath(kalmanPath, "kinematicPositionNoise"), kalman.kinematicPositionNoise);
+  dump.addDouble(joinPath(kalmanPath, "kinematicVelocityNoise"), kalman.kinematicVelocityNoise);
+  dump.addDouble(joinPath(kalmanPath, "contactHeightNoise"), kalman.contactHeightNoise);
+  dump.addDouble(joinPath(kalmanPath, "contactHeight"), kalman.contactHeight);
 }
 
 void dumpVisualizationConfig(ValueDump& dump, absl::string_view path, const visualization::VisualizationConfig& config) {

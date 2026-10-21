@@ -509,6 +509,14 @@ TEST(ContactPlanningFileTest, TheWrapperBlockOfTheOldFileIsRetired) {
       << wrapped.status();
 }
 
+TEST(ContactPlanningFileTest, TheSharedGravityIsRetiredForTheModels) {
+  const absl::StatusOr<FileProto> withGravity =
+      nproto::ParseTextproto<FileProto>("shared {\n  gravity: 9.81\n}\n", "contact_planning.textproto");
+  EXPECT_EQ(withGravity.status().code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_TRUE(absl::StrContains(withGravity.status().message(), "'gravity' is retired: the planner's gravity is the robot model's"))
+      << withGravity.status();
+}
+
 TEST(ContactPlanningFileTest, AKeyOfTheFlatLayoutGetsTheLayoutHint) {
   const absl::StatusOr<FileProto> flat = nproto::ParseTextproto<FileProto>("useAcomDynamics: true\n", "contact_planning.textproto");
   EXPECT_EQ(flat.status().code(), absl::StatusCode::kInvalidArgument);

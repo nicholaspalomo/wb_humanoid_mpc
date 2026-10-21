@@ -16,19 +16,23 @@ max_rotation_velocity: 1.0
 velocity_command_filter_break_frequency: 0.0  # [Hz] command low-pass filter, 0 = off
 target_joint_state_interpolation_time_constant: 0.5
 
-default_base_height: 0.7405
+# The base height of the default posture standing on flat ground: the contact frames of both soles on the ground at the
+# hip, knee and ankle pitch below, with the ankles leveling the soles: the URDF rolls the hip pitch joint's frame by 25
+# degrees, so ankle pitch = hip pitch = -knee / 2 left each sole pitched by 0.79 and rolled by 0.30 degrees and its
+# contact frame 6.2 mm above the ground (robot_models/tests/test_default_stance.py).
+default_base_height: 0.7337
 default_joint_state { joint: "left_hip_pitch_joint" value: -0.15 }
 default_joint_state { joint: "left_hip_roll_joint" value: 0.0 }
 default_joint_state { joint: "left_hip_yaw_joint" value: 0.0 }
 default_joint_state { joint: "left_knee_joint" value: 0.30 }
-default_joint_state { joint: "left_ankle_pitch_joint" value: -0.15 }
-default_joint_state { joint: "left_ankle_roll_joint" value: 0.0 }
+default_joint_state { joint: "left_ankle_pitch_joint" value: -0.1641 }
+default_joint_state { joint: "left_ankle_roll_joint" value: 0.0043 }
 default_joint_state { joint: "right_hip_pitch_joint" value: -0.15 }
 default_joint_state { joint: "right_hip_roll_joint" value: 0.0 }
 default_joint_state { joint: "right_hip_yaw_joint" value: 0.0 }
 default_joint_state { joint: "right_knee_joint" value: 0.30 }
-default_joint_state { joint: "right_ankle_pitch_joint" value: -0.15 }
-default_joint_state { joint: "right_ankle_roll_joint" value: 0.0 }
+default_joint_state { joint: "right_ankle_pitch_joint" value: -0.1641 }
+default_joint_state { joint: "right_ankle_roll_joint" value: -0.0043 }
 default_joint_state { joint: "waist_roll_joint" value: 0.0 }
 default_joint_state { joint: "waist_yaw_joint" value: 0.0 }
 default_joint_state { joint: "left_shoulder_pitch_joint" value: 0.12 }

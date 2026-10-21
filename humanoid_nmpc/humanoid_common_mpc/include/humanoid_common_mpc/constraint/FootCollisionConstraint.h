@@ -100,12 +100,17 @@ class FootCollisionConstraint final : public StateConstraintCppAd {
   size_t getNumConstraints(scalar_t /*time*/) const override { return numConstraints_; };
 
   vector_t getParameters(scalar_t /*time*/, const PreComputation& /*preComputation*/) const override {
-    vector_t parameters(2);
+    vector_t parameters(kNumParameters);
     parameters << cfg_.footCollisionSphereRadius, cfg_.kneeCollisionSphereRadius;
     return parameters;
   };
 
  private:
+  /** The parameters of the taped function: the foot's and the knee's collision sphere radius. */
+  static constexpr int kNumParameters = 2;
+  /** The distances kept apart: nine between the feet, one between the knees and six between a foot and an ankle. */
+  static constexpr size_t kNumConstraints = 16;
+
   ad_vector_t constraintFunction(ad_scalar_t time, const ad_vector_t& state, const ad_vector_t& parameters) const override;
 
   FootCollisionConstraint(const FootCollisionConstraint& other);
@@ -115,7 +120,7 @@ class FootCollisionConstraint final : public StateConstraintCppAd {
   const MpcRobotModelBase<ad_scalar_t>* absl_nonnull const mpcRobotModelPtr_;
   Config cfg_;
 
-  const size_t numConstraints_ = 16;
+  const size_t numConstraints_ = kNumConstraints;
   bool isActive_ = true;
 };
 

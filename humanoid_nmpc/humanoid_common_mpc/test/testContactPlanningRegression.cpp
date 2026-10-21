@@ -59,6 +59,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 #include "absl/base/nullability.h"
+#include "absl/log/absl_check.h"
 #include "absl/log/log.h"
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
@@ -66,6 +67,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "gtest/gtest.h"
 
 #include "humanoid_common_mpc/contact_planning/LipContactPlanner.h"
+#include "humanoid_nmpc/humanoid_common_mpc/test/support/StatusTestMacros.h"
 
 namespace ocs2::humanoid {
 
@@ -304,12 +306,12 @@ std::vector<scalar_t> parseNumbers(const std::string& text) {
 TEST(ContactPlanningRegression, AssembledProblemsMatchTheRecordedFormulation) {
   Fixture fixture;
   for (const bool heading : {false, true}) {
-    const std::unique_ptr<LipContactPlanner> planner = LipContactPlanner::Create(makeConfig(heading)).value();
+    HUMANOID_ASSERT_OK_AND_ASSIGN(const std::unique_ptr<LipContactPlanner> planner, LipContactPlanner::Create(makeConfig(heading)));
     for (const std::pair<std::string, ContactPlannerInput>& named : corpus()) {
       const std::string& name = named.first;
       const ContactPlannerInput& input = named.second;
       const std::string prefix = name + (heading ? ".heading" : ".lip");
-      const OcpQpProblem problem = planner->buildProblem(input).value();
+      HUMANOID_ASSERT_OK_AND_ASSIGN(const OcpQpProblem problem, planner->buildProblem(input));
       fixture.emplace_back(
           prefix + ".x0", formatNumbers(std::vector<scalar_t>(problem.x0.data(), problem.x0.data() + problem.x0.size()), /*precision=*/12));
       for (size_t k = 0; k < problem.stages.size(); ++k) {
@@ -383,7 +385,7 @@ TEST(ContactPlanningRegression, FeasibleAssignmentsMatchTheRecordedRules) {
     config.shared.gaitLimits.minDoubleSupportDuration = cases[c].minDoubleSupportDuration;
     config.formulation.setLogicRule(term::kAlternatingFeet, cases[c].alternation);
     EXPECT_EQ(config.validateStatus(), absl::OkStatus());
-    const std::unique_ptr<LipContactPlanner> planner = LipContactPlanner::Create(config).value();
+    HUMANOID_ASSERT_OK_AND_ASSIGN(const std::unique_ptr<LipContactPlanner> planner, LipContactPlanner::Create(config));
     const int numBinaries = 2 * config.planner.numNodes;
     for (const std::pair<std::string, ContactPlannerInput>& named : logicInputs()) {
       const std::string& inputName = named.first;
@@ -621,7 +623,7 @@ const std::vector<std::pair<std::string, SearchTreeAudit>>& searchTreeAudits() {
       config.formulation.setLogicRule(term::kAlternatingFeet, soundnessCase.alternation);
       config.formulation.setLogicRule(term::kNoFlight, soundnessCase.noFlight);
       EXPECT_EQ(config.validateStatus(), absl::OkStatus());
-      const std::unique_ptr<const LipContactPlanner> planner = LipContactPlanner::Create(config).value();
+      const std::unique_ptr<const LipContactPlanner> planner = checkedValue(LipContactPlanner::Create(config));
       const int numBinaries = LipContactPlanner::kBinariesPerNode * config.planner.numNodes;
       for (const std::pair<std::string, ContactPlannerInput>& named : soundnessInputs()) {
         result.emplace_back(absl::StrCat(soundnessCase.name, " / ", named.first), auditSearchTree(*planner, named.second, numBinaries));
@@ -667,7 +669,7 @@ TEST(ContactPlanningRegression, RecedingHorizonPlansMatchTheRecordedWalks) {
   Fixture fixture;
   for (const bool heading : {false, true}) {
     const ContactPlanningConfig config = makeConfig(heading);
-    const std::unique_ptr<LipContactPlanner> planner = LipContactPlanner::Create(config).value();
+    HUMANOID_ASSERT_OK_AND_ASSIGN(const std::unique_ptr<LipContactPlanner> planner, LipContactPlanner::Create(config));
     ContactPlannerInput input = walking();
     for (int step = 0; step < 8; ++step) {
       const std::string prefix = std::string(heading ? "heading" : "lip") + ".step" + std::to_string(step);

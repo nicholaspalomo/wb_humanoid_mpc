@@ -81,6 +81,12 @@ class TunedFile:
     Raises:
       OSError: The file cannot be read.
       TunedFileError: It does not parse strictly into `message_class`; the message names the line and column.
+
+    Attributes:
+      path: The file, a textproto of `message_class`.
+      message_class: The generated class of the file's schema.
+      message: The file as loaded or last saved (the checkpoint), parsed; a save or a reload replaces it.
+      document: The text of the file as loaded or last saved; a save or a reload replaces it.
     """
 
     def __init__(
@@ -89,33 +95,16 @@ class TunedFile:
         message_class: type[message_module.Message],
         registries: Mapping[str, Sequence[str]] | None = None,
     ) -> None:
-        self._path = os.path.abspath(path)
-        self._message_class = message_class
+        self.path = os.path.abspath(path)
+        self.message_class = message_class
         self._registries = registries
         self._changes: dict[str, Any] = {}
-        self._message: Any = message_class()
-        self._document = textproto_document.parse("", self._path)
+        self.message: Any = message_class()
+        self.document = textproto_document.parse("", self.path)
         self._parameters: list[config_schema.ParameterSpec] = []
         self._by_path: dict[str, config_schema.ParameterSpec] = {}
+        self._fingerprint: tuple[int, int, int] | None = None
         self.reload()
-
-    @property
-    def path(self) -> str:
-        return self._path
-
-    @property
-    def message_class(self) -> type[message_module.Message]:
-        return self._message_class
-
-    @property
-    def message(self) -> Any:
-        """The file as loaded or last saved (the checkpoint), parsed."""
-        return self._message
-
-    @property
-    def document(self) -> textproto_document.TextprotoDocument:
-        """The text of the file as loaded or last saved."""
-        return self._document
 
     def reload(self) -> None:
         """Reads the file again: it becomes the checkpoint, and every change is dropped.
@@ -124,24 +113,26 @@ class TunedFile:
           OSError: The file cannot be read.
           TunedFileError: It does not parse strictly into its schema.
         """
-        with open(self._path, encoding="utf-8", newline="") as file:
-            text = file.read()
-        message = self._message_class()
+        stat = os.stat(self.path)
+        message = self.message_class()
         try:
-            nproto_textproto.parse_textproto(text, message, self._path)
-            document = textproto_document.parse(text, self._path)
+            text = nproto_textproto.read_textproto_file(self.path)
+            nproto_textproto.check_proto_message_header(text, message, self.path)
+            nproto_textproto.parse_textproto(text, message, self.path)
+            document = textproto_document.parse(text, self.path)
         except (
             nproto_textproto.TextprotoError,
             textproto_document.DocumentError,
         ) as error:
             raise TunedFileError(str(error)) from error
         self._checkpoint(message, document)
+        self._fingerprint = (stat.st_ino, stat.st_mtime_ns, stat.st_size)
 
     def _checkpoint(
         self, message: Any, document: textproto_document.TextprotoDocument
     ) -> None:
-        self._message = message
-        self._document = document
+        self.message = message
+        self.document = document
         self._changes = {}
         self._parameters = config_schema.parameters(message, document, self._registries)
         self._by_path = {spec.path: spec for spec in self._parameters}
@@ -182,7 +173,8 @@ class TunedFile:
 
         Raises:
           KeyError: The file has no parameter at `path`.
-          ValueError: The parameter is not one a widget edits (a name list or text).
+          ValueError: The parameter is not one a widget edits (a name list or text), or the value is below the
+            parameter's (inherited) minimum or is NaN.
         """
         spec = self.spec(path)
         if spec.kind not in EDITABLE_KINDS:
@@ -193,6 +185,15 @@ class TunedFile:
             self.discard(path)
             return
         converted = _converted(spec, value)
+        # Negated, so that NaN is refused too.
+        if (
+            spec.tuning.minimum is not None
+            and spec.kind in (config_schema.Kind.NUMBER, config_schema.Kind.INTEGER)
+            and not converted >= spec.tuning.minimum
+        ):
+            raise ValueError(
+                f"{path} is {converted}, which is below its minimum of {spec.tuning.minimum}"
+            )
         if spec.value is not None and _same(spec.value, converted):
             # Back to the file's value, or a default left at the default: nothing to write into the file.
             self._changes.pop(path, None)
@@ -225,7 +226,7 @@ class TunedFile:
           TunedFileError: The edited text would not parse into the edited message (textproto_save.SaveError).
         """
         try:
-            return textproto_save.edit(self._document, self._message, self.edits())
+            return textproto_save.edit(self.document, self.message, self.edits())
         except textproto_save.SaveError as error:
             raise TunedFileError(str(error)) from error
 
@@ -246,15 +247,73 @@ class TunedFile:
           TunedFileError: The changes do not fit the file (a parameter it no longer has, say); nothing is written.
         """
         if self._changes:
-            textproto_save.ensure_backup(self._path)
+            textproto_save.ensure_backup(self.path)
         try:
-            result = textproto_save.save(self._path, self._message_class, self.edits())
+            result = textproto_save.save(self.path, self.message_class, self.edits())
         except textproto_save.SaveError as error:
             raise TunedFileError(str(error)) from error
         self._checkpoint(
-            result.message, textproto_document.parse(result.text, self._path)
+            result.message, textproto_document.parse(result.text, self.path)
         )
+        stat = os.stat(self.path)
+        self._fingerprint = (stat.st_ino, stat.st_mtime_ns, stat.st_size)
         return result
+
+    def refresh(self) -> dict[str, Any] | None:
+        """Re-reads the file when its disk state changed since last read or save.
+
+        Operator changes are kept where the parameter still exists and differs from the new file value. If any changes
+        could not be kept (the parameter was removed, or now matches the file), they are returned.
+
+        Returns:
+          A dict of {path: dropped_value} for changes that were dropped, or {} if all were kept (or there were none),
+          when the file changed on disk; None when the file has not changed or could not be read or parsed.
+        """
+        try:
+            stat = os.stat(self.path)
+        except OSError:
+            return None
+        current_fingerprint = (stat.st_ino, stat.st_mtime_ns, stat.st_size)
+        if current_fingerprint == self._fingerprint:
+            return None
+
+        try:
+            text = nproto_textproto.read_textproto_file(self.path)
+            message = self.message_class()
+            nproto_textproto.check_proto_message_header(text, message, self.path)
+            nproto_textproto.parse_textproto(text, message, self.path)
+            document = textproto_document.parse(text, self.path)
+            new_parameters = config_schema.parameters(
+                message, document, self._registries
+            )
+        except (
+            OSError,
+            nproto_textproto.TextprotoError,
+            textproto_document.DocumentError,
+        ):
+            return None
+
+        new_by_path = {spec.path: spec for spec in new_parameters}
+        kept_changes: dict[str, Any] = {}
+        dropped_changes: dict[str, Any] = {}
+
+        for path, change_value in self._changes.items():
+            if path in new_by_path:
+                spec = new_by_path[path]
+                if spec.value is not None and _same(spec.value, change_value):
+                    dropped_changes[path] = change_value
+                else:
+                    kept_changes[path] = change_value
+            else:
+                dropped_changes[path] = change_value
+
+        self.message = message
+        self.document = document
+        self._parameters = new_parameters
+        self._by_path = new_by_path
+        self._changes = kept_changes
+        self._fingerprint = current_fingerprint
+        return dropped_changes
 
 
 def _converted(spec: config_schema.ParameterSpec, value: Any) -> Any:
@@ -299,7 +358,7 @@ def group_of(spec: config_schema.ParameterSpec) -> str:
     if (
         selects
         and element is not None
-        and not spec.label.endswith("." + spec.field.name)
+        and not spec.label.endswith(f".{spec.field.name}")
     ):
         segments = (*segments[:-1], textproto_document.PathSegment(element.name))
     return textproto_document.format_path(segments)

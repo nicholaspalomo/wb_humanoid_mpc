@@ -97,8 +97,6 @@ TEST(RungeKuttaDormandPrince5Test, IntegrateAdaptiveCompareWithOde45) {
 }
 
 TEST(RungeKuttaDormandPrince5Test, IntegrateTimesCompareWithOde45) {
-  const ocs2::scalar_t t0 = 0.0;
-  const ocs2::scalar_t t1 = 10.0;
   const ocs2::scalar_t dt = 0.05;
   const ocs2::vector_t x0 = ocs2::vector_t::Zero(2);
 

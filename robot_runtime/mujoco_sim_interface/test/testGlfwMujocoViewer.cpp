@@ -97,6 +97,9 @@ class GlfwMujocoViewerTestPeer {
     return Capture{.width = viewer.capture_->width, .height = viewer.capture_->height, .rgb = std::move(viewer.capture_->rgb)};
   }
 
+  /** The model the viewer draws with. */
+  static const mjModel* absl_nonnull model(const GlfwMujocoViewer& viewer) { return viewer.model_.get(); }
+
  private:
   static bool hasCapture(std::optional<GlfwMujocoViewer::WindowCapture>* absl_nonnull capture) { return capture->has_value(); }
 };
@@ -113,7 +116,9 @@ TEST(GlfwMujocoViewer, WithoutADisplayTheViewerStopsAndSaysSo) {
   absl::StatusOr<std::unique_ptr<MujocoSimInterface>> sim = MujocoSimInterface::Create(hingeSimConfig({kNoViewerName}), hingeUrdfPath());
   ASSERT_TRUE(sim.ok()) << sim.status();
   {
-    GlfwMujocoViewer viewer(sim->get());
+    absl::StatusOr<std::unique_ptr<GlfwMujocoViewer>> created = GlfwMujocoViewer::Create(sim->get());
+    ASSERT_TRUE(created.ok()) << created.status();
+    GlfwMujocoViewer& viewer = **created;
     EXPECT_TRUE(viewer.ok());
     EXPECT_TRUE(viewer.start().ok()) << "the GLFW viewer does not wait for its window";
     viewer.waitForInit();
@@ -135,6 +140,19 @@ TEST(GlfwMujocoViewer, ASimulatorWithAViewerButNoDisplayRunsOn) {
   EXPECT_GT((*sim)->getRobotState().getTime(), 0.0) << "the simulation clock advanced";
 }
 
+// The window draws with a copy of the simulator's model: the physics thread writes its own model while it runs (the
+// gantry weld every step, the torque switch, the ball), which the render thread used to read in mj_forward every frame.
+TEST(GlfwMujocoViewer, DrawsWithAModelOfItsOwn) {
+  absl::StatusOr<std::unique_ptr<MujocoSimInterface>> sim = MujocoSimInterface::Create(hingeSimConfig({kNoViewerName}), hingeUrdfPath());
+  ASSERT_TRUE(sim.ok()) << sim.status();
+  absl::StatusOr<std::unique_ptr<GlfwMujocoViewer>> viewer = GlfwMujocoViewer::Create(sim->get());
+  ASSERT_TRUE(viewer.ok()) << viewer.status();
+  const mjModel* absl_nonnull model = GlfwMujocoViewerTestPeer::model(**viewer);
+  EXPECT_NE(model, (*sim)->getModel());
+  EXPECT_EQ(model->nbody, (*sim)->getModel()->nbody);
+  EXPECT_EQ(model->ngeom, (*sim)->getModel()->ngeom);
+}
+
 TEST(GlfwMujocoViewer, MapsTheKeysOfTheViewerToTheirCharacters) {
   for (int group = 0; group < kNumToggledGeomGroups; ++group) {
     EXPECT_EQ(viewerKeyFromGlfwKey(GLFW_KEY_0 + group), static_cast<char>('0' + group));
@@ -147,6 +165,20 @@ TEST(GlfwMujocoViewer, MapsTheKeysOfTheViewerToTheirCharacters) {
   EXPECT_EQ(viewerKeyFromGlfwKey(GLFW_KEY_SPACE), std::nullopt);
   EXPECT_EQ(viewerKeyFromGlfwKey(GLFW_KEY_LEFT_SHIFT), std::nullopt);
   EXPECT_EQ(viewerKeyFromGlfwKey(GLFW_KEY_F1), std::nullopt);
+}
+
+TEST(GlfwMujocoViewer, MeasuresBothAxesOfADragInWindowHeights) {
+  // mjv_moveCamera turns 18 degrees for 0.1 on either axis, so equal pixels must give equal fractions.
+  const CameraDragFractions horizontal = cameraDragFractions(/*dxPixels=*/100.0, /*dyPixels=*/0.0, /*windowHeight=*/720);
+  const CameraDragFractions vertical = cameraDragFractions(/*dxPixels=*/0.0, /*dyPixels=*/100.0, /*windowHeight=*/720);
+  EXPECT_DOUBLE_EQ(horizontal.dx, 100.0 / 720.0);
+  EXPECT_DOUBLE_EQ(horizontal.dy, 0.0);
+  EXPECT_DOUBLE_EQ(vertical.dx, 0.0);
+  EXPECT_DOUBLE_EQ(vertical.dy, horizontal.dx);
+  // A minimized window reports a size of 0.
+  const CameraDragFractions minimized = cameraDragFractions(/*dxPixels=*/3.0, /*dyPixels=*/-2.0, /*windowHeight=*/0);
+  EXPECT_DOUBLE_EQ(minimized.dx, 3.0);
+  EXPECT_DOUBLE_EQ(minimized.dy, -2.0);
 }
 
 /** An Xvfb of the test's own, on the display number it picks itself (-displayfd); stopped by the destructor. */
@@ -252,7 +284,9 @@ TEST(GlfwMujocoViewer, TheWindowShowsWhatTheOffscreenBufferShows) {
   ASSERT_TRUE(sim.ok()) << sim.status();
   GlfwMujocoViewerTestPeer::Capture window;
   {
-    GlfwMujocoViewer viewer(sim->get());
+    absl::StatusOr<std::unique_ptr<GlfwMujocoViewer>> created = GlfwMujocoViewer::Create(sim->get());
+    ASSERT_TRUE(created.ok()) << created.status();
+    GlfwMujocoViewer& viewer = **created;
     ASSERT_TRUE(viewer.start().ok());
     viewer.waitForInit();
     ASSERT_TRUE(viewer.ok()) << "the GLFW viewer did not open its window on " << (*xvfb)->display();

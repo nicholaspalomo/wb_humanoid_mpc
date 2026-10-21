@@ -31,7 +31,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_mpc_validation/closed_loop/WholeBodyClosedLoopDriver.h"
 
+#include <filesystem>
 #include <memory>
+#include <optional>
 #include <utility>
 
 #include "absl/memory/memory.h"
@@ -64,6 +66,9 @@ WholeBodyClosedLoopDriver::~WholeBodyClosedLoopDriver() {
 }
 
 absl::Status WholeBodyClosedLoopDriver::initialize(const RobotConfiguration& configuration, const ClosedLoopDriverOptions& options) {
+  const std::optional<std::filesystem::file_time_type> taskFileReadAt = lastWriteTime(configuration.taskFile);
+  const std::optional<std::filesystem::file_time_type> referenceFileReadAt = lastWriteTime(configuration.referenceFile);
+
   ASSIGN_OR_RETURN(interface_, WBMpcInterface::Create(configuration.taskFile, configuration.urdfFile, configuration.referenceFile));
   WBMpcInterface& interface = *interface_;
   RETURN_IF_ERROR(initializeShared(configuration, options, interface.modelSettings(), interface.mpcSettings(), interface.sqpSettings(),
@@ -84,9 +89,10 @@ absl::Status WholeBodyClosedLoopDriver::initialize(const RobotConfiguration& con
       [referenceManager = interface.getSwitchedModelReferenceManagerPtr()]() { return referenceManager->getAppliedTerrainHeight(); });
   RETURN_IF_ERROR(
       initializeCommandPath(std::move(calculator), interface.getSwitchedModelReferenceManagerPtr(), interface.getMpcRobotModel()));
-  ASSIGN_OR_RETURN(parameterUpdater_,
-                   makeWholeBodyMpcParameterUpdater(mpc_.get(), interface, configuration.taskFile, configuration.referenceFile,
-                                                    makeCommandLimitsReloaders(calculator_.get(), motionManager_)));
+  ASSIGN_OR_RETURN(
+      parameterUpdater_,
+      makeWholeBodyMpcParameterUpdater(mpc_.get(), interface, configuration.taskFile, configuration.referenceFile,
+                                       makeCommandLimitsReloaders(calculator_.get(), motionManager_), taskFileReadAt, referenceFileReadAt));
   mpc_->getSolverPtr()->addSynchronizedModule(parameterUpdater_);
   // LINT.ThenChange(//humanoid_nmpc/humanoid_wb_mpc_app/src/WBMpcNode.cpp:mpc_wiring)
 

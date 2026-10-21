@@ -155,6 +155,7 @@ cc_test(
     copts = FIRST_PARTY_COPTS,
     deps = [
         ":humanoid_mpc_ipc",
+        "//robot_runtime/robot_ipc",
         "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/strings",
         "@abseil-cpp//absl/strings:string_view",
@@ -225,6 +226,7 @@ cc_library(
     hdrs = ["test/MpcLinkTestSupport.h"],
     copts = FIRST_PARTY_COPTS,
     deps = [
+        "//robot_runtime/robot_ipc:test_network",
         ":humanoid_mpc_ipc",
         ":policy_test_data",
         "//humanoid_nmpc/humanoid_mpc_msgs:messages_cc_proto",

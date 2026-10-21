@@ -27,8 +27,10 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
+#include <array>
 #include <cmath>
 #include <limits>
+#include <utility>
 
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
@@ -145,13 +147,13 @@ TEST(FillViewerAnnotations, SendsOnePatchPerFootAndTheScaledCommand) {
 
   ASSERT_EQ(annotations.target_contact_patches_size(), static_cast<int>(kNumContacts));
   const humanoid_mpc_msgs::TargetContactPatch& left = annotations.target_contact_patches(0);
-  EXPECT_TRUE(left.valid());
+  ASSERT_TRUE(left.has_pose());
   EXPECT_EQ(left.kind(), humanoid_mpc_msgs::TargetContactPatch::KIND_SWING_IN_FLIGHT);
-  EXPECT_EQ(left.x(), 0.4);
-  EXPECT_EQ(left.y(), -0.4);
-  EXPECT_EQ(left.z(), 0.02);
-  EXPECT_EQ(left.yaw(), 0.3);
-  EXPECT_TRUE(left.yaw_planned());
+  EXPECT_EQ(left.pose().x(), 0.4);
+  EXPECT_EQ(left.pose().y(), -0.4);
+  EXPECT_EQ(left.pose().z(), 0.02);
+  EXPECT_EQ(left.pose().yaw(), 0.3);
+  EXPECT_TRUE(left.pose().yaw_planned());
   EXPECT_EQ(annotations.target_contact_patches(1).kind(), humanoid_mpc_msgs::TargetContactPatch::KIND_NEXT_SWING);
   EXPECT_EQ(annotations.scaled_velocity_x(), 0.3);
   EXPECT_EQ(annotations.scaled_velocity_y(), -0.1);
@@ -160,24 +162,43 @@ TEST(FillViewerAnnotations, SendsOnePatchPerFootAndTheScaledCommand) {
 
 TEST(FillViewerAnnotations, SendsNoPatchWithoutAContactPlannerAndReplacesWhatTheMessageHeld) {
   humanoid_mpc_msgs::ViewerAnnotations annotations;
-  annotations.add_target_contact_patches()->set_valid(true);
+  annotations.add_target_contact_patches()->mutable_pose()->set_x(1.0);
   fillViewerAnnotations(/*targetContactPoses=*/nullptr, WalkingVelocityCommand(), &annotations);
   EXPECT_EQ(annotations.target_contact_patches_size(), 0);
   EXPECT_EQ(annotations.scaled_velocity_x(), 0.0);
 }
 
-TEST(TargetContactPatchToProto, MarksAPoseWithAValueThatIsNotFiniteInvalid) {
+TEST(TargetContactPatchToProto, SendsNoPoseForAPoseThatIsInvalidOrNotFinite) {
   TargetContactPose broken = pose(TargetContactPose::Kind::kStance, /*x=*/0.0);
   broken.yaw = std::numeric_limits<scalar_t>::quiet_NaN();
   humanoid_mpc_msgs::TargetContactPatch patch;
   targetContactPatchToProto(broken, &patch);
-  EXPECT_FALSE(patch.valid());
+  EXPECT_FALSE(patch.has_pose());
   EXPECT_EQ(patch.kind(), humanoid_mpc_msgs::TargetContactPatch::KIND_STANCE);
 
+  // A patch that had a pose loses it: the message is replaced, not merged.
+  targetContactPatchToProto(pose(TargetContactPose::Kind::kNextSwing, /*x=*/0.2), &patch);
+  ASSERT_TRUE(patch.has_pose());
   TargetContactPose invalid = pose(TargetContactPose::Kind::kStance, /*x=*/0.0);
   invalid.valid = false;
   targetContactPatchToProto(invalid, &patch);
-  EXPECT_FALSE(patch.valid());
+  EXPECT_FALSE(patch.has_pose());
+  EXPECT_EQ(patch.kind(), humanoid_mpc_msgs::TargetContactPatch::KIND_STANCE);
+}
+
+TEST(TargetContactPatchToProto, EveryKindIsSentAsItsOwnEnumeratorNeverUnspecified) {
+  const std::array<std::pair<TargetContactPose::Kind, humanoid_mpc_msgs::TargetContactPatch::Kind>, 3> kinds = {{
+      {TargetContactPose::Kind::kStance, humanoid_mpc_msgs::TargetContactPatch::KIND_STANCE},
+      {TargetContactPose::Kind::kSwingInFlight, humanoid_mpc_msgs::TargetContactPatch::KIND_SWING_IN_FLIGHT},
+      {TargetContactPose::Kind::kNextSwing, humanoid_mpc_msgs::TargetContactPatch::KIND_NEXT_SWING},
+  }};
+  for (const std::pair<TargetContactPose::Kind, humanoid_mpc_msgs::TargetContactPatch::Kind>& kind : kinds) {
+    humanoid_mpc_msgs::TargetContactPatch patch;
+    targetContactPatchToProto(pose(kind.first, /*x=*/0.1), &patch);
+    EXPECT_EQ(patch.kind(), kind.second);
+    EXPECT_NE(patch.kind(), humanoid_mpc_msgs::TargetContactPatch::KIND_UNSPECIFIED);
+    EXPECT_TRUE(patch.has_pose());
+  }
 }
 
 }  // namespace

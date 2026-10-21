@@ -46,6 +46,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc_app/robot/RobotProcessSettings.h"
 #include "humanoid_common_mpc_app/robot/TelemetrySinkRegistry.h"
 #include "humanoid_common_mpc_app/robot/config/robot/RobotProcessSettingsFromConfig.h"
+#include "humanoid_state_estimator/KalmanBaseEstimator.h"
+#include "humanoid_state_estimator/StateEstimatorRegistry.h"
 
 namespace ocs2::humanoid {
 namespace {
@@ -79,6 +81,17 @@ absl::Status checkTelemetrySinks(const RobotProcessSettings& settings, const std
   return absl::OkStatus();
 }
 
+/** The task file's state_estimator against the registry, and the noise model of `kalman`. */
+absl::Status checkStateEstimator(const RobotProcessSettings& settings, const std::string& taskSource) {
+  const estimation::StateEstimatorRegistry estimators;
+  if (!estimators.has(settings.stateEstimator)) {
+    return absl::InvalidArgumentError(absl::StrCat(taskSource, ": state_estimator: there is no state estimator '", settings.stateEstimator,
+                                                   "'. Available: ", estimators.availableNames(), "."));
+  }
+  if (settings.stateEstimator != estimation::kKalmanStateEstimatorName) return absl::OkStatus();
+  return withConfigFile(estimation::KalmanBaseEstimator::validateConfig(settings.kalmanStateEstimator), taskSource);
+}
+
 }  // namespace
 
 absl::StatusOr<RobotConfigFiles> loadRobotConfigFiles(const RobotConfigDirectory::Files& paths) {
@@ -104,12 +117,12 @@ absl::Status checkRobotConfiguration(const RobotConfigFiles& files, const RobotC
   if (context.checkFormulation) RETURN_IF_ERROR(context.checkFormulation(files));
   if (!context.mpcJointNames.empty() || !context.otherJointNames.empty()) {
     // As the controller's loader reads it.
-    const absl::StatusOr<JointPdGains> gains =
-        jointPdGainsFromConfig(files.pdGains, context.pdGainsDefaults, context.mpcJointNames, context.otherJointNames);
+    const absl::StatusOr<JointPdGains> gains = jointPdGainsFromConfig(files.pdGains, context.mpcJointNames, context.otherJointNames);
     if (!gains.ok()) return withConfigFile(gains.status(), files.pdGainsSource);
   }
   RETURN_IF_ERROR(checkContactEstimatorName(settings->contactEstimator, files.taskSource, context));
   RETURN_IF_ERROR(checkTelemetrySinks(*settings, files.taskSource));
+  RETURN_IF_ERROR(checkStateEstimator(*settings, files.taskSource));
   if (!context.backendName.empty()) {
     RobotBackendOptions options = context.backendOptions;
     options.simulator = settings->simulator;

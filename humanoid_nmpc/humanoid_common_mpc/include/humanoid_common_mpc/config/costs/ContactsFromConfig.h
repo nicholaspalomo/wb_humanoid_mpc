@@ -131,10 +131,18 @@ absl::StatusOr<BasisRegularizationSettings> basisRegularizationFromConfig(const 
  */
 absl::StatusOr<FrictionForceConeConstraint::Config> frictionForceConeConfigFromConfig(const mpc_config::ContactsConfig& contacts);
 
-/** The relaxed barrier of friction_force_cone, the mu and delta of contacts.friction_force_cone_soft_constraint. */
+/**
+ * The relaxed barrier of friction_force_cone, the mu and delta of contacts.friction_force_cone_soft_constraint.
+ *
+ * @return InvalidArgument for a mu or delta that is not finite and positive.
+ */
 absl::StatusOr<RelaxedBarrierPenalty::Config> frictionForceConeBarrierFromConfig(const mpc_config::ContactsConfig& contacts);
 
-/** The relaxed barrier of contact_moment_xy, the mu and delta of contacts.contact_moment_xy_soft_constraint. */
+/**
+ * The relaxed barrier of contact_moment_xy, the mu and delta of contacts.contact_moment_xy_soft_constraint.
+ *
+ * @return InvalidArgument for a mu or delta that is not finite and positive.
+ */
 absl::StatusOr<RelaxedBarrierPenalty::Config> contactMomentXyBarrierFromConfig(const mpc_config::ContactsConfig& contacts);
 
 }  // namespace ocs2::humanoid

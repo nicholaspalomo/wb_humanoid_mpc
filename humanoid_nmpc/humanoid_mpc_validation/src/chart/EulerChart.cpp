@@ -38,14 +38,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "ocs2_core/Dimensions.h"
 #include "ocs2_core/manifold/UnitQuaternionMath.h"
+#include "ocs2_robotic_tools/common/RotationTransforms.h"
 
 #include "humanoid_common_mpc/orientation/EulerBoundary.h"
 
 namespace ocs2::humanoid::validation {
 namespace {
-
-constexpr size_t kRotationDim = 3;
 
 EulerStateSegment segment(std::string name, EulerStateSegmentKind kind, size_t dim) {
   return EulerStateSegment{.name = std::move(name), .kind = kind, .dim = dim};
@@ -84,7 +84,7 @@ absl::StatusOr<SegmentOffsets> layoutOffsets(const EulerStateLayout& layout) {
   size_t lastAngles = 0;
   for (size_t i = 0; i < layout.segments.size(); ++i) {
     const EulerStateSegment& block = layout.segments[i];
-    if (block.kind != EulerStateSegmentKind::kEuclidean && block.dim != kRotationDim) {
+    if (block.kind != EulerStateSegmentKind::kEuclidean && block.dim != kRotationTuningDim) {
       return absl::InvalidArgumentError(
           absl::StrCat("[EulerChart] the rotation block ", block.name, " of the ", layout.name, " layout has ", block.dim, " rows, not 3"));
     }
@@ -115,7 +115,7 @@ absl::StatusOr<SegmentOffsets> segmentOffsets(const vector_t& eulerState, const 
 }
 
 vector3_t anglesOf(const vector_t& eulerState, const SegmentOffsets& offsets, size_t segmentIndex) {
-  return eulerState.segment<3>(static_cast<Eigen::Index>(offsets.eulerStart[offsets.anglesSegment[segmentIndex]]));
+  return eulerState.segment<kEulerAnglesZyxDim>(static_cast<Eigen::Index>(offsets.eulerStart[offsets.anglesSegment[segmentIndex]]));
 }
 
 /**
@@ -142,23 +142,25 @@ absl::StatusOr<matrix_t> chartJacobian(const vector_t& eulerState, const EulerSt
         row += block.dim;
         break;
       case EulerStateSegmentKind::kEulerZyxAngles: {
-        const vector3_t angles = eulerState.segment<3>(column);
+        const vector3_t angles = eulerState.segment<kEulerAnglesZyxDim>(column);
         const matrix3_t rateMap = eulerZyxRateToLocalAngularVelocityMatrix(angles);
         if (coordinates == ChartCoordinates::kAmbient) {
-          jacobian.block<4, 3>(rowIndex, column) = quaternionTangentMap(quaternionFromEulerZyx(angles)) * rateMap;
-          row += 4;
+          jacobian.block<kQuaternionCoefficients, kEulerAnglesZyxDim>(rowIndex, column) =
+              quaternionTangentMap(quaternionFromEulerZyx(angles)) * rateMap;
+          row += kQuaternionCoefficients;
         } else {
-          jacobian.block<3, 3>(rowIndex, column) = rateMap;
-          row += 3;
+          jacobian.block<kRotationTangentDim, kEulerAnglesZyxDim>(rowIndex, column) = rateMap;
+          row += kRotationTangentDim;
         }
         break;
       }
       case EulerStateSegmentKind::kEulerZyxRates: {
         const vector3_t angles = anglesOf(eulerState, *offsets, i);
         const Eigen::Index anglesColumn = static_cast<Eigen::Index>(offsets->eulerStart[offsets->anglesSegment[i]]);
-        jacobian.block<3, 3>(rowIndex, anglesColumn) = localAngularVelocityEulerAngleDerivative(angles, eulerState.segment<3>(column));
-        jacobian.block<3, 3>(rowIndex, column) = eulerZyxRateToLocalAngularVelocityMatrix(angles);
-        row += 3;
+        jacobian.block<kRotationTangentDim, kEulerAnglesZyxDim>(rowIndex, anglesColumn) =
+            localAngularVelocityEulerAngleDerivative(angles, eulerState.segment<kEulerAnglesZyxDim>(column));
+        jacobian.block<kRotationTangentDim, kEulerAnglesZyxDim>(rowIndex, column) = eulerZyxRateToLocalAngularVelocityMatrix(angles);
+        row += kRotationTangentDim;
         break;
       }
     }
@@ -206,10 +208,11 @@ absl::StatusOr<vector_t> physicalStateFromEulerState(const vector_t& eulerState,
         physical.segment(to, static_cast<Eigen::Index>(block.dim)) = eulerState.segment(from, static_cast<Eigen::Index>(block.dim));
         break;
       case EulerStateSegmentKind::kEulerZyxAngles:
-        physical.segment<4>(to) = quaternionFromEulerZyx(eulerState.segment<3>(from));
+        physical.segment<kQuaternionCoefficients>(to) = quaternionFromEulerZyx(eulerState.segment<kEulerAnglesZyxDim>(from));
         break;
       case EulerStateSegmentKind::kEulerZyxRates:
-        physical.segment<3>(to) = localAngularVelocityFromEulerZyxRates(anglesOf(eulerState, *offsets, i), eulerState.segment<3>(from));
+        physical.segment<kRotationTangentDim>(to) =
+            localAngularVelocityFromEulerZyxRates(anglesOf(eulerState, *offsets, i), eulerState.segment<kEulerAnglesZyxDim>(from));
         break;
     }
   }
@@ -234,17 +237,18 @@ absl::StatusOr<vector_t> eulerStateFromPhysicalState(const vector_t& physicalSta
         euler.segment(to, static_cast<Eigen::Index>(block.dim)) = physicalState.segment(from, static_cast<Eigen::Index>(block.dim));
         break;
       case EulerStateSegmentKind::kEulerZyxAngles: {
-        const vector4_t xi = physicalState.segment<4>(from);
+        const vector4_t xi = physicalState.segment<kQuaternionCoefficients>(from);
         const scalar_t norm = xi.norm();
         if (!std::isfinite(norm) || norm == 0.0) {
           return absl::InvalidArgumentError(absl::StrCat("[EulerChart] the quaternion of the ", block.name, " block of the ", layout.name,
                                                          " state is zero or not finite"));
         }
-        euler.segment<3>(to) = eulerZyxFromQuaternion(vector4_t(xi / norm));
+        euler.segment<kEulerAnglesZyxDim>(to) = eulerZyxFromQuaternion(vector4_t(xi / norm));
         break;
       }
       case EulerStateSegmentKind::kEulerZyxRates:
-        euler.segment<3>(to) = eulerZyxRatesFromLocalAngularVelocity(anglesOf(euler, *offsets, i), physicalState.segment<3>(from));
+        euler.segment<kEulerAnglesZyxDim>(to) =
+            eulerZyxRatesFromLocalAngularVelocity(anglesOf(euler, *offsets, i), physicalState.segment<kRotationTangentDim>(from));
         break;
     }
   }
@@ -260,18 +264,8 @@ absl::StatusOr<matrix_t> physicalTangentJacobian(const vector_t& eulerState, con
 }
 
 matrix3_t localAngularVelocityEulerAngleDerivative(const vector3_t& eulerZyx, const vector3_t& eulerZyxRates) {
-  // w_B = T_B(Theta) dTheta with T_B = [-s_theta, 0, 1; c_theta s_phi, c_phi, 0; c_theta c_phi, -s_phi, 0]
-  // (eulerZyxRateToLocalAngularVelocityMatrix), Theta = (psi, theta, phi); T_B does not depend on the yaw psi.
-  const scalar_t sinPitch = std::sin(eulerZyx(1));
-  const scalar_t cosPitch = std::cos(eulerZyx(1));
-  const scalar_t sinRoll = std::sin(eulerZyx(2));
-  const scalar_t cosRoll = std::cos(eulerZyx(2));
-  const scalar_t yawRate = eulerZyxRates(0);
-  const scalar_t pitchRate = eulerZyxRates(1);
-  matrix3_t derivative = matrix3_t::Zero();
-  derivative.col(1) << -cosPitch * yawRate, -sinPitch * sinRoll * yawRate, -sinPitch * cosRoll * yawRate;
-  derivative.col(2) << 0.0, cosPitch * cosRoll * yawRate - sinRoll * pitchRate, -cosPitch * sinRoll * yawRate - cosRoll * pitchRate;
-  return derivative;
+  // The chart is built through orientation/EulerBoundary.h only (design README section 4.2).
+  return localAngularVelocityEulerZyxJacobian(eulerZyx, eulerZyxRates);
 }
 
 }  // namespace ocs2::humanoid::validation

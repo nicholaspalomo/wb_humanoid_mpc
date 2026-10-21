@@ -33,6 +33,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "ocs2_centroidal_model/AccessHelperFunctions.h"
 
+#include "humanoid_common_mpc/mrt/MpcLink.h"
 #include "humanoid_common_mpc/orientation/BaseOrientation.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
 
@@ -56,7 +57,7 @@ TargetTrajectories centroidalMpcResetTargetTrajectories(const SystemObservation&
   const vector_t targetInput = weightCompensatingInput(pinocchioInterface, {true, true}, effectiveModel, targetState);
 
   const scalar_t startTime = observation.time;
-  const scalar_t endTime = startTime + 2.0;
+  const scalar_t endTime = startTime + kResetTargetDuration;
   return TargetTrajectories({startTime, endTime}, {targetState, targetState}, {targetInput, targetInput});
 }
 

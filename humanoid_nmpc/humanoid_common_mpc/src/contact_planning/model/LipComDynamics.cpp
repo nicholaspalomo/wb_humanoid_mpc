@@ -34,6 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/log/check.h"
 #include "absl/strings/str_cat.h"
+#include "ocs2_core/Dimensions.h"
 
 #include "humanoid_common_mpc/contact_planning/model/LipBlockIndices.h"
 
@@ -68,7 +69,7 @@ void LipComDynamics::addDynamics(const ContactPlanningContext& ctx, int /*node*/
   const scalar_t omega = ctx.omega;
   const scalar_t ch = std::cosh(omega * ctx.dt);
   const scalar_t sh = std::sinh(omega * ctx.dt);
-  for (int axis = 0; axis < 2; ++axis) {
+  for (int axis = 0; axis < kHorizontalPositionDim; ++axis) {
     s.A(idx_.com[axis], idx_.com[axis]) = ch;
     s.A(idx_.com[axis], idx_.vel[axis]) = sh / omega;
     s.A(idx_.vel[axis], idx_.com[axis]) = omega * sh;
@@ -79,7 +80,7 @@ void LipComDynamics::addDynamics(const ContactPlanningContext& ctx, int /*node*/
 }
 
 void LipComDynamics::setInitialState(const ContactPlanningContext& ctx, vector_t& x0) const {
-  for (int axis = 0; axis < 2; ++axis) {
+  for (int axis = 0; axis < kHorizontalPositionDim; ++axis) {
     x0(idx_.com[axis]) = ctx.input->comPosition(axis);
     x0(idx_.vel[axis]) = ctx.input->comVelocity(axis);
   }

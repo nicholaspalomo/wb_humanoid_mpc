@@ -30,6 +30,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <algorithm>
 #include <limits>
 
+#include <ocs2_core/integration/DormandPrince5Tableau.h>
 #include <ocs2_core/integration/RungeKuttaDormandPrince5.h>
 
 namespace ocs2 {
@@ -82,25 +83,12 @@ class Stepper {
    * @return true if the step is taken, false otherwise..
    */
   bool tryStep(system_func_t& system, vector_t& x, vector_t& dxdt, scalar_t& t, scalar_t& dt, scalar_t absTol, scalar_t relTol) {
-    constexpr scalar_t c1 = 35.0 / 384;
-    // c2 = 0
-    constexpr scalar_t c3 = 500.0 / 1113;
-    constexpr scalar_t c4 = 125.0 / 192;
-    constexpr scalar_t c5 = -2187.0 / 6784;
-    constexpr scalar_t c6 = 11.0 / 84;
-
-    constexpr scalar_t dc1 = c1 - 5179.0 / 57600;
-    constexpr scalar_t dc3 = c3 - 7571.0 / 16695;
-    constexpr scalar_t dc4 = c4 - 393.0 / 640;
-    constexpr scalar_t dc5 = c5 - -92097.0 / 339200;
-    constexpr scalar_t dc6 = c6 - 187.0 / 2100;
-    constexpr scalar_t dc7 = -1.0 / 40;
-
     vector_t x_out, dxdt_out;
     doStep(system, x, dxdt, t, dt, x_out, dxdt_out);
 
     // error estimate
-    const vector_t x_err = dt * (dc1 * k1_ + dc3 * k3_ + dc4 * k4_ + dc5 * k5_ + dc6 * k6_ + dc7 * dxdt_out);
+    const vector_t x_err = dt * (dormand_prince5::kDc1 * k1_ + dormand_prince5::kDc3 * k3_ + dormand_prince5::kDc4 * k4_ +
+                                 dormand_prince5::kDc5 * k5_ + dormand_prince5::kDc6 * k6_ + dormand_prince5::kDc7 * dxdt_out);
 
     const scalar_t error = maxError(x, dxdt, x_err, dt, absTol, relTol);
     if (error > 1.0) {
@@ -127,59 +115,32 @@ class Stepper {
    * @param [out] x_out: next state (can be same reference as x0).
    * @param [out] dxdt_out: derivative at next state (can be same reference as dxdt).
    */
-  void doStep(system_func_t& system, const vector_t& x0, const vector_t& dxdt, scalar_t t, scalar_t dt, vector_t& x_out,
-              vector_t& dxdt_out) {
-    /* Runge Kutta Dormand-Prince Butcher tableau constants.
-     * https://en.wikipedia.org/wiki/Dormand%E2%80%93Prince_method */
-    constexpr scalar_t a2 = 1.0 / 5;
-    constexpr scalar_t a3 = 3.0 / 10;
-    constexpr scalar_t a4 = 4.0 / 5;
-    constexpr scalar_t a5 = 8.0 / 9;
-
-    constexpr scalar_t b21 = 1.0 / 5;
-
-    constexpr scalar_t b31 = 3.0 / 40;
-    constexpr scalar_t b32 = 9.0 / 40;
-
-    constexpr scalar_t b41 = 44.0 / 45;
-    constexpr scalar_t b42 = -56.0 / 15;
-    constexpr scalar_t b43 = 32.0 / 9;
-
-    constexpr scalar_t b51 = 19372.0 / 6561;
-    constexpr scalar_t b52 = -25360.0 / 2187;
-    constexpr scalar_t b53 = 64448.0 / 6561;
-    constexpr scalar_t b54 = -212.0 / 729;
-
-    constexpr scalar_t b61 = 9017.0 / 3168;
-    constexpr scalar_t b62 = -355.0 / 33;
-    constexpr scalar_t b63 = 46732.0 / 5247;
-    constexpr scalar_t b64 = 49.0 / 176;
-    constexpr scalar_t b65 = -5103.0 / 18656;
-
-    constexpr scalar_t c1 = 35.0 / 384;
-    // c2 = 0
-    constexpr scalar_t c3 = 500.0 / 1113;
-    constexpr scalar_t c4 = 125.0 / 192;
-    constexpr scalar_t c5 = -2187.0 / 6784;
-    constexpr scalar_t c6 = 11.0 / 84;
-
+  void doStep(
+      system_func_t& system, const vector_t& x0, const vector_t& dxdt, scalar_t t, scalar_t dt, vector_t& x_out, vector_t& dxdt_out) {
     k1_ = dxdt;  // k1 = system(x, t) from previous iteration
-    vector_t x = x0 + dt * b21 * k1_;
-    system(x, k2_, t + dt * a2);
-    x.noalias() = x0 + dt * b31 * k1_ + dt * b32 * k2_;
-    system(x, k3_, t + dt * a3);
-    x.noalias() = x0 + dt * (b41 * k1_ + b42 * k2_ + b43 * k3_);
-    system(x, k4_, t + dt * a4);
-    x.noalias() = x0 + dt * (b51 * k1_ + b52 * k2_ + b53 * k3_ + b54 * k4_);
-    system(x, k5_, t + dt * a5);
-    x.noalias() = x0 + dt * (b61 * k1_ + b62 * k2_ + b63 * k3_ + b64 * k4_ + b65 * k5_);
+    vector_t x = x0 + dt * dormand_prince5::kB21 * k1_;
+    system(x, k2_, t + dt * dormand_prince5::kA2);
+    x.noalias() = x0 + dt * dormand_prince5::kB31 * k1_ + dt * dormand_prince5::kB32 * k2_;
+    system(x, k3_, t + dt * dormand_prince5::kA3);
+    x.noalias() = x0 + dt * (dormand_prince5::kB41 * k1_ + dormand_prince5::kB42 * k2_ + dormand_prince5::kB43 * k3_);
+    system(x, k4_, t + dt * dormand_prince5::kA4);
+    x.noalias() =
+        x0 + dt * (dormand_prince5::kB51 * k1_ + dormand_prince5::kB52 * k2_ + dormand_prince5::kB53 * k3_ + dormand_prince5::kB54 * k4_);
+    system(x, k5_, t + dt * dormand_prince5::kA5);
+    x.noalias() = x0 + dt * (dormand_prince5::kB61 * k1_ + dormand_prince5::kB62 * k2_ + dormand_prince5::kB63 * k3_ +
+                             dormand_prince5::kB64 * k4_ + dormand_prince5::kB65 * k5_);
     system(x, k6_, t + dt);
     // update x_out and dxdt_out (x_out can be x0 and dxdt_out can be dxdt)
-    x_out = x0 + dt * (c1 * k1_ + c3 * k3_ + c4 * k4_ + c5 * k5_ + c6 * k6_);
+    x_out = x0 + dt * (dormand_prince5::kC1 * k1_ + dormand_prince5::kC3 * k3_ + dormand_prince5::kC4 * k4_ + dormand_prince5::kC5 * k5_ +
+                       dormand_prince5::kC6 * k6_);
     system(x_out, dxdt_out, t + dt);
   }
 
  private:
+  /** The orders of the error estimate and of the solution, the exponents of the step-size control. */
+  static constexpr int kErrorOrder = 4;
+  static constexpr int kStepperOrder = 5;
+
   /**
    * Estimate the maximal error value.
    *
@@ -191,8 +152,8 @@ class Stepper {
    * @param [in] relTol: The relative error tolerance.
    * @return maximal error value.
    */
-  static scalar_t maxError(const vector_t& x_old, const vector_t& dxdt_old, const vector_t& x_err, scalar_t dt, scalar_t absTol,
-                           scalar_t relTol) {
+  static scalar_t maxError(
+      const vector_t& x_old, const vector_t& dxdt_old, const vector_t& x_err, scalar_t dt, scalar_t absTol, scalar_t relTol) {
     const vector_t err = x_err.array() / (absTol + relTol * (x_old.array().abs() + std::abs(dt) * dxdt_old.array().abs()));
     return err.lpNorm<Eigen::Infinity>();
   }
@@ -205,8 +166,8 @@ class Stepper {
    * @return new step size dt.
    */
   static scalar_t decreaseStep(scalar_t dt, scalar_t error) {
-    constexpr int ERROR_ORDER = 4;
-    dt *= std::max(0.9 * std::pow(error, -1.0 / (ERROR_ORDER - 1)), 0.2);
+    dt *= std::max(dormand_prince5::kStepSizeSafetyFactor * std::pow(error, -1.0 / (kErrorOrder - 1)),
+                   dormand_prince5::kMinStepDecreaseFactor);
     return dt;
   }
 
@@ -218,10 +179,9 @@ class Stepper {
    * @return new step size dt.
    */
   static scalar_t increaseStep(scalar_t dt, scalar_t error) {
-    constexpr int STEPPER_ORDER = 5;
-    if (error < 0.5) {
-      error = std::max(std::pow(scalar_t(5.0), -STEPPER_ORDER), error);
-      dt *= 0.9 * std::pow(error, -1.0 / STEPPER_ORDER);
+    if (error < dormand_prince5::kStepIncreaseErrorThreshold) {
+      error = std::max(std::pow(dormand_prince5::kStepIncreaseLimit, -kStepperOrder), error);
+      dt *= dormand_prince5::kStepSizeSafetyFactor * std::pow(error, -1.0 / kStepperOrder);
     }
     return dt;
   }
@@ -235,12 +195,12 @@ class Stepper {
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-void RungeKuttaDormandPrince5::runIntegrateConst(system_func_t system, observer_func_t observer, const vector_t& initialState,
-                                                 scalar_t startTime, scalar_t finalTime, scalar_t dt) {
+void RungeKuttaDormandPrince5::runIntegrateConst(
+    system_func_t system, observer_func_t observer, const vector_t& initialState, scalar_t startTime, scalar_t finalTime, scalar_t dt) {
   // TODO(mspieler): This does one redundant system() evaluation at the end.
 
   // Ensure that finalTime is included by adding a fraction of dt such that: N * dt <= finalTime < (N + 1) * dt.
-  finalTime += 0.1 * dt;
+  finalTime += kFinalTimeSlackStepFraction * dt;
 
   Stepper stepper;
   scalar_t t = startTime;
@@ -260,8 +220,13 @@ void RungeKuttaDormandPrince5::runIntegrateConst(system_func_t system, observer_
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-void RungeKuttaDormandPrince5::runIntegrateAdaptive(system_func_t system, observer_func_t observer, const vector_t& initialState,
-                                                    scalar_t startTime, scalar_t finalTime, scalar_t dtInitial, scalar_t absTol,
+void RungeKuttaDormandPrince5::runIntegrateAdaptive(system_func_t system,
+                                                    observer_func_t observer,
+                                                    const vector_t& initialState,
+                                                    scalar_t startTime,
+                                                    scalar_t finalTime,
+                                                    scalar_t dtInitial,
+                                                    scalar_t absTol,
                                                     scalar_t relTol) {
   Stepper stepper;
   scalar_t t = startTime;
@@ -280,20 +245,24 @@ void RungeKuttaDormandPrince5::runIntegrateAdaptive(system_func_t system, observ
     size_t tries = 0;
     while (!stepper.tryStep(system, x, dxdt, t, dt, absTol, relTol)) {
       tries++;
-      if (tries > maxNumStepsRetries_) {
+      if (tries > kMaxStepRetries) {
         throw std::runtime_error("[RungeKuttaDormandPrince5] Max number of iterations exceeded");
       }
     }  // end of while loop
-  }    // end of while loop
+  }  // end of while loop
   observer(x, t);
 }
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-void RungeKuttaDormandPrince5::runIntegrateTimes(system_func_t system, observer_func_t observer, const vector_t& initialState,
+void RungeKuttaDormandPrince5::runIntegrateTimes(system_func_t system,
+                                                 observer_func_t observer,
+                                                 const vector_t& initialState,
                                                  typename scalar_array_t::const_iterator beginTimeItr,
-                                                 typename scalar_array_t::const_iterator endTimeItr, scalar_t dtInitial, scalar_t absTol,
+                                                 typename scalar_array_t::const_iterator endTimeItr,
+                                                 scalar_t dtInitial,
+                                                 scalar_t absTol,
                                                  scalar_t relTol) {
   Stepper stepper;
   scalar_t dt = dtInitial;
@@ -320,17 +289,12 @@ void RungeKuttaDormandPrince5::runIntegrateTimes(system_func_t system, observer_
       } else {
         tries++;
         dt = dtCurrent;
-        if (tries > maxNumStepsRetries_) {
+        if (tries > kMaxStepRetries) {
           throw std::runtime_error("[RungeKuttaDormandPrince5] Max number of iterations exceeded");
         }
       }
     }  // end of while loop
-  }    // end of while loop
+  }  // end of while loop
 }
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-constexpr size_t RungeKuttaDormandPrince5::maxNumStepsRetries_;
 
 }  // namespace ocs2

@@ -29,24 +29,20 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/config/costs/JointLimitsFromConfig.h"
 
-#include <cmath>
-
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
-#include "absl/strings/str_cat.h"
 #include "ocs2_core/penalties/penalties/PieceWisePolynomialBarrierPenalty.h"
 
+#include "humanoid_common_mpc/common/StatusMacros.h"
+#include "humanoid_common_mpc/config/ConfigValueChecks.h"
 #include "humanoid_mpc_config/joint_limits_config.nproto.h"
 
 namespace ocs2::humanoid {
 
 absl::StatusOr<PieceWisePolynomialBarrierPenalty::Config> jointLimitsBarrierFromConfig(const mpc_config::JointLimitsConfig& jointLimits) {
-  if (!std::isfinite(jointLimits.mu)) {
-    return absl::InvalidArgumentError(absl::StrCat("joint_limits.mu is ", jointLimits.mu, ", but it must be finite."));
-  }
-  if (!std::isfinite(jointLimits.delta)) {
-    return absl::InvalidArgumentError(absl::StrCat("joint_limits.delta is ", jointLimits.delta, ", but it must be finite."));
-  }
+  // A non-positive mu rewards a violation, and the polynomial barrier is discontinuous for a non-positive delta.
+  RETURN_IF_ERROR(requirePositive("joint_limits.mu", jointLimits.mu));
+  RETURN_IF_ERROR(requirePositive("joint_limits.delta", jointLimits.delta));
   return PieceWisePolynomialBarrierPenalty::Config(jointLimits.mu, jointLimits.delta);
 }
 

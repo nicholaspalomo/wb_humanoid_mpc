@@ -39,11 +39,6 @@ template <typename SCALAR_T>
 SCALAR_T scalarMod(SCALAR_T, SCALAR_T);
 
 template <>
-float scalarMod<float>(float x, float y) {
-  return fmodf(x, y);
-}
-
-template <>
 double scalarMod<double>(double x, double y) {
   return fmod(x, y);
 }

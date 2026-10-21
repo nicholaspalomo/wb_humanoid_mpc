@@ -36,6 +36,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace robot::mujoco_sim_interface {
 
+namespace {
+constexpr double kZmpMarkerRadius = 0.025;  // [m]
+}  // namespace
+
 void ZmpVisualization::addSceneGeoms(const VisualizationFrame& frame) {
   if (frame.sim == nullptr || frame.model == nullptr || frame.state == nullptr || frame.scene == nullptr) return;
   const mjModel* absl_nonnull model = frame.model;
@@ -46,8 +50,8 @@ void ZmpVisualization::addSceneGeoms(const VisualizationFrame& frame) {
   const GroundReaction reaction =
       groundReaction(model, frame.state->data, state.rootBodyId, kMinNormalForce, frame.sim->projectileBodyId());
   if (!reaction.valid) return;
-  addGroundDiscGeom(frame.scene, reaction.zmp[0], reaction.zmp[1], /*radius=*/0.025,
-                    MarkerColor{.r = 1.0f, .g = 0.15f, .b = 0.15f, .a = 0.9f});
+  constexpr MarkerColor kZmpColor{.r = 1.0f, .g = 0.15f, .b = 0.15f, .a = 0.9f};  // red
+  addGroundDiscGeom(frame.scene, reaction.zmp[0], reaction.zmp[1], kZmpMarkerRadius, kZmpColor);
 }
 
 }  // namespace robot::mujoco_sim_interface

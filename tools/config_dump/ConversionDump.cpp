@@ -47,12 +47,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "absl/time/time.h"
 #include "ocs2_core/penalties/penalties/PieceWisePolynomialBarrierPenalty.h"
 #include "ocs2_core/penalties/penalties/RelaxedBarrierPenalty.h"
 #include "ocs2_core/reference/ModeSchedule.h"
 
 #include "humanoid_centroidal_mpc/config/costs/DcmTerminalCostFromConfig.h"
-#include "humanoid_centroidal_mpc/config/costs/IcpCostFromConfig.h"
 #include "humanoid_centroidal_mpc/cost/DcmTerminalCost.h"
 #include "humanoid_common_mpc/common/ContactInputParameterization.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
@@ -87,6 +87,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicConfig.h"
 #include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicFormulation.h"
 #include "humanoid_common_mpc/mrt/JointPdGains.h"
+#include "humanoid_common_mpc/reference_manager/ArmSwing.h"
 #include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
 #include "humanoid_common_mpc_app/robot/RobotProcessSettings.h"
 #include "humanoid_common_mpc_app/robot/config/robot/RobotProcessSettingsFromConfig.h"
@@ -101,12 +102,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid::config_dump {
 namespace {
-
-// The PD gain defaults of the conversion of the PD gains file: a controller that commands torque limits, so that the
-// file's torque limits are read too.
-constexpr scalar_t kPdGainsDefaultKp = 100.0;
-constexpr scalar_t kPdGainsDefaultKd = 5.0;
-constexpr scalar_t kPdGainsDefaultTorqueLimit = 150.0;
 
 void addError(ValueDump& dump, absl::string_view path, const absl::Status& status) {
   dump.addString(joinPath(path, "error"), status.ToString());
@@ -178,6 +173,13 @@ void dumpSolver(ValueDump& dump, const mpc_config::TaskFile& task) {
   dumpRolloutSettings(dump, "solver.rollout", solver->rolloutSettings);
   dumpMpcSettings(dump, "solver.mpc", solver->mpcSettings);
   dump.addBool("solver.verbose", solver->verbose);
+  const absl::StatusOr<MpcNodeSettings> node = mpcNodeSettingsFromConfig(task);
+  if (!node.ok()) {
+    addError(dump, "solver.node", node.status());
+    return;
+  }
+  dump.addInteger("solver.node.solverThreadPriority", static_cast<int64_t>(node->solverThreadPriority));
+  dump.addDouble("solver.node.walkingCommandTimeout", absl::ToDoubleSeconds(node->walkingCommandTimeout));
 }
 
 /** The canonical names of the members of `set` that `toString` names, sorted: the set's own order is a hash order. */
@@ -358,6 +360,7 @@ void dumpTaskSpaceCosts(ValueDump& dump, const mpc_config::TaskFile& task, State
   if (foot.ok()) {
     addKinematicsWeights(dump, "task_space_foot_cost.weights", foot->weights);
     dump.addBool("task_space_foot_cost.activeInStance", foot->activeInStance);
+    dump.addDouble("task_space_foot_cost.swingVelocityReferenceWeight", foot->swingVelocityReferenceWeight);
   } else {
     addError(dump, "task_space_foot_cost", foot.status());
   }
@@ -384,12 +387,6 @@ void dumpCentroidalCosts(ValueDump& dump, const mpc_config::TaskFile& task) {
                                           dcm->velocityOffsetFactor, dcm->supportBlendTime});
   } else {
     addError(dump, "dcm_terminal_cost", dcm.status());
-  }
-  const absl::StatusOr<vector2_t> icp = icpCostWeightsFromConfig(task.icp_cost_weights);
-  if (icp.ok()) {
-    dump.addMatrix("icp_cost_weights", *icp);
-  } else {
-    addError(dump, "icp_cost_weights", icp.status());
   }
 }
 
@@ -467,9 +464,7 @@ void dumpReference(ValueDump& dump, const ConversionInputs& inputs, const ModelS
 void dumpRobot(ValueDump& dump, const ConversionInputs& inputs, const ModelSettings* absl_nullable model) {
   dump.addSection("robot");
   if (model != nullptr) {
-    const JointPdGainsDefaults defaults{.kp = kPdGainsDefaultKp, .kd = kPdGainsDefaultKd, .torqueLimit = kPdGainsDefaultTorqueLimit};
-    const absl::StatusOr<JointPdGains> gains =
-        jointPdGainsFromConfig(inputs.pdGains, defaults, model->mpcModelJointNames, model->fixedJointNames);
+    const absl::StatusOr<JointPdGains> gains = jointPdGainsFromConfig(inputs.pdGains, model->mpcModelJointNames, model->fixedJointNames);
     if (gains.ok()) {
       dumpJointPdGains(dump, "pd_gains", *gains);
     } else {
@@ -529,6 +524,14 @@ std::string dumpConversions(const ConversionInputs& inputs, const std::string& u
     dumpSwingSettings(dump, "swing", *swing);
   } else {
     addError(dump, "swing", swing.status());
+  }
+  dump.addSection("arm_swing");
+  const absl::StatusOr<ArmSwingSettings> armSwing = armSwingSettingsFromConfig(inputs.task.arm_swing);
+  if (armSwing.ok()) {
+    dump.addInteger("arm_swing.generator", static_cast<int64_t>(armSwing->generator));
+    dump.addDoubles("arm_swing", {armSwing->shoulderGain, armSwing->elbowGain, armSwing->phaseOffset});
+  } else {
+    addError(dump, "arm_swing", armSwing.status());
   }
   const ModelSettings* absl_nullable modelOrNull = model.ok() ? &*model : nullptr;
   dumpReference(dump, inputs, modelOrNull);

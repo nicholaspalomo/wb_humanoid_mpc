@@ -42,7 +42,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <utility>
 #include <vector>
 
+#include "absl/base/log_severity.h"
 #include "absl/base/nullability.h"
+#include "absl/log/scoped_mock_log.h"
 #include "absl/status/status.h"
 #include "absl/status/status_matchers.h"
 #include "absl/status/statusor.h"
@@ -71,17 +73,23 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 /*
  * The `web` viewer end to end: EGL, the render thread and the HTTP server around a simulator (an ephemeral port). It
  * serves frames of its size, follows the camera input and keys a browser sends, draws nothing without a client, places
- * every thread it starts, stops its render thread on a start-up timeout, refuses what the GL preflight refuses, and is
- * destroyed promptly with a stream open.
+ * every thread it starts, stops its render thread on a start-up timeout (and says it waits for a set-up step that
+ * cannot be interrupted), refuses what the GL preflight refuses, and is destroyed promptly with a stream open.
  */
 
 namespace robot::mujoco_sim_interface {
 
-/** Reaches into a WebMujocoViewer for the tests: the start-up delay hook, its render thread and its newest frame. */
+/** Reaches into a WebMujocoViewer for the tests: the start-up delay hooks, its render thread and its newest frame. */
 class WebMujocoViewerTestPeer {
  public:
   static void setInitDelay(WebMujocoViewer& viewer, absl::Duration delay) { viewer.initDelayForTesting_ = delay; }
+  /** A set-up step that, like an EGL or llvmpipe call, does not look for a stop request while it runs. */
+  static void setUninterruptibleInitDelay(WebMujocoViewer& viewer, absl::Duration delay) {
+    viewer.uninterruptibleInitDelayForTesting_ = delay;
+  }
   static bool renderThreadJoinable(const WebMujocoViewer& viewer) { return viewer.renderThread_.joinable(); }
+  /** Makes the next frame's renderAndPublish() fail, as an internal libjpeg-turbo error would. */
+  static void failNextFrame(WebMujocoViewer& viewer) { viewer.failNextFrameForTesting_.store(true); }
   /** The sequence of the newest frame, 0 before the first; asking does not count as demand. */
   static int64_t latestSequence(const WebMujocoViewer& viewer) {
     const std::optional<web_viewer::EncodedFrame> frame = viewer.mailbox_.latestFrameMetadata();
@@ -93,6 +101,7 @@ namespace {
 
 using ::absl_testing::IsOk;
 using ::absl_testing::StatusIs;
+using ::testing::_;
 using ::testing::HasSubstr;
 
 /** Web viewer options for a test: an ephemeral port, a small frame. */
@@ -132,6 +141,16 @@ std::string awaitState(int port, const std::function<bool(const std::string&)>& 
     absl::SleepFor(absl::Milliseconds(20));
   }
   return body;
+}
+
+/** Polls `condition` every 10 ms until it holds (true) or 3 s pass (false). */
+bool eventually(const std::function<bool()>& condition) {
+  const absl::Time deadline = absl::Now() + absl::Seconds(3);
+  while (absl::Now() < deadline) {
+    if (condition()) return true;
+    absl::SleepFor(absl::Milliseconds(10));
+  }
+  return condition();
 }
 
 web_viewer::JpegDecoder::Image decode(const std::string& jpeg) {
@@ -252,6 +271,29 @@ TEST(WebMujocoViewer, AStartUpTimeoutEndsTheRenderThreadBeforeStartReturns) {
   EXPECT_FALSE(viewer->ok());
 }
 
+// A set-up step that runs past the deadline cannot be cut short: start() says it is stopping the render thread, waits for
+// that step to end and only then returns DeadlineExceeded. It used to wait in silence, up to twice the timeout under
+// load, while its comment promised to wait no longer than options.startTimeout.
+TEST(WebMujocoViewer, AStartUpTimeoutDuringAStepThatCannotBeInterruptedSaysItWaitsForTheStep) {
+  const std::unique_ptr<MujocoSimInterface> sim = makeHingeSim(testOptions());
+  ASSERT_NE(sim, nullptr);
+  WebViewerOptions options = testOptions();
+  options.startTimeout = absl::Milliseconds(300);
+  const std::unique_ptr<WebMujocoViewer> viewer = makeViewer(sim.get(), options);
+  ASSERT_NE(viewer, nullptr);
+  constexpr absl::Duration kStepDuration = absl::Milliseconds(900);
+  WebMujocoViewerTestPeer::setUninterruptibleInitDelay(*viewer, kStepDuration);
+  absl::ScopedMockLog log(absl::MockLogDefault::kIgnoreUnexpected);
+  EXPECT_CALL(log, Log(absl::LogSeverity::kInfo, _, HasSubstr("stopping the render thread after the start-up timeout (300ms)"))).Times(1);
+  log.StartCapturingLogs();
+  const absl::Time begin = absl::Now();
+  EXPECT_THAT(viewer->start(), StatusIs(absl::StatusCode::kDeadlineExceeded, HasSubstr("did not set up EGL and OpenGL")));
+  EXPECT_GE(absl::Now() - begin, kStepDuration) << "start() returned while the render thread was still in its set-up";
+  log.StopCapturingLogs();
+  EXPECT_FALSE(WebMujocoViewerTestPeer::renderThreadJoinable(*viewer)) << "the render thread outlived start()";
+  EXPECT_FALSE(viewer->ok());
+}
+
 TEST(WebMujocoViewer, TheGlPreflightRefusesMoreSamplesThanTheContextOffers) {
   // GL_MAX_SAMPLES of this machine's context.
   absl::StatusOr<const EglLibrary* absl_nonnull> egl = EglLibrary::Get("libEGL.so.1");
@@ -272,6 +314,88 @@ TEST(WebMujocoViewer, TheGlPreflightRefusesMoreSamplesThanTheContextOffers) {
   // MuJoCo would have ended the process; the preflight refuses first, and the process lives on.
   EXPECT_THAT(viewer->start(), StatusIs(absl::StatusCode::kFailedPrecondition, HasSubstr("GL_MAX_SAMPLES")));
   EXPECT_FALSE(viewer->ok());
+}
+
+// While the render thread sets up EGL (up to startTimeout), /state already names the configured markers, size and rate
+// instead of an empty registry and 0x0, which made the page say "No markers are configured for this robot".
+TEST(WebMujocoViewer, TheStateBeforeTheSetUpListsTheConfiguredMarkers) {
+  const std::unique_ptr<MujocoSimInterface> sim = makeHingeSim(testOptions());
+  ASSERT_NE(sim, nullptr);
+  const std::unique_ptr<WebMujocoViewer> viewer = makeViewer(sim.get(), testOptions());
+  ASSERT_NE(viewer, nullptr);
+  const std::string state = httpGet(viewer->port().value_or(0), "/state").body;
+  EXPECT_EQ(jsonNumberField(state, "width"), 320) << state;
+  EXPECT_EQ(jsonNumberField(state, "targetFps"), 30) << state;
+  EXPECT_EQ(jsonStringField(state, "mode"), "tracking") << state;
+  EXPECT_TRUE(visualizationEnabled(state, "contact_forces").has_value()) << state;
+  EXPECT_TRUE(visualizationEnabled(state, "metrics").has_value()) << state;
+}
+
+// A frame that cannot be drawn stops the viewer, and the page learns it at once: frame requests answer 503 'the viewer
+// has stopped' instead of a 204 every 2 s forever, and /state no longer claims frames are rendered.
+TEST(WebMujocoViewer, ARenderFailureStopsServingFrames) {
+  const std::unique_ptr<MujocoSimInterface> sim = makeHingeSim(testOptions());
+  ASSERT_NE(sim, nullptr);
+  const std::unique_ptr<WebMujocoViewer> viewer = makeViewer(sim.get(), testOptions());
+  ASSERT_NE(viewer, nullptr);
+  ASSERT_THAT(viewer->start(), IsOk());
+  const int port = viewer->port().value_or(0);
+  const HttpReply first = httpGet(port, "/frame.jpg");
+  ASSERT_EQ(first.status, 200);
+  WebMujocoViewerTestPeer::failNextFrame(*viewer);
+  const absl::Time start = absl::Now();
+  const HttpReply next = httpGet(port, absl::StrCat("/frame.jpg?after=", WebMujocoViewerTestPeer::latestSequence(*viewer)));
+  EXPECT_EQ(next.status, 503) << next.body;
+  EXPECT_THAT(next.body, HasSubstr("stopped"));
+  EXPECT_LT(absl::Now() - start, absl::Seconds(1));
+  EXPECT_TRUE(eventually([&viewer] { return !viewer->ok(); }));
+  EXPECT_EQ(jsonNumberField(httpGet(port, "/state").body, "measuredFps"), 0.0);
+}
+
+// A page may ask for more than the offscreen buffer the GL preflight checked: the renderer caps it at maxWidth x
+// maxHeight, so that no resize reaches mju_error.
+TEST(WebMujocoViewer, SettingsBeyondTheMaximumSizeAreCapped) {
+  WebViewerOptions options = testOptions();
+  options.maxWidth = 640;
+  options.maxHeight = 480;
+  const std::unique_ptr<MujocoSimInterface> sim = makeHingeSim(options);
+  ASSERT_NE(sim, nullptr);
+  const std::unique_ptr<WebMujocoViewer> viewer = makeViewer(sim.get(), options);
+  ASSERT_NE(viewer, nullptr);
+  ASSERT_THAT(viewer->start(), IsOk());
+  const int port = viewer->port().value_or(0);
+  const HttpReply first = httpGet(port, "/frame.jpg");
+  ASSERT_EQ(first.status, 200);
+  ASSERT_EQ(httpPost(port, "/settings?width=3840&height=2160").status, 204);
+  const std::string state = awaitState(port, [](const std::string& body) { return jsonNumberField(body, "width") != 320; });
+  EXPECT_EQ(jsonNumberField(state, "width"), 640) << state;
+  EXPECT_EQ(jsonNumberField(state, "height"), 480) << state;
+  const HttpReply resized = httpGet(port, absl::StrCat("/frame.jpg?after=", WebMujocoViewerTestPeer::latestSequence(*viewer)));
+  ASSERT_EQ(resized.status, 200);
+  const web_viewer::JpegDecoder::Image image = decode(resized.body);
+  EXPECT_EQ(image.width, 640);
+  EXPECT_EQ(image.height, 480);
+}
+
+// At 1 fps the render thread spends most of each second in its frame-period pause, which the destructor (and a stop)
+// now cuts short; it used to sleep it out, up to a second, or longer after a backward step of the wall clock.
+TEST(WebMujocoViewer, IsDestroyedPromptlyAtOneFramePerSecond) {
+  const std::unique_ptr<MujocoSimInterface> sim = makeHingeSim(testOptions());
+  ASSERT_NE(sim, nullptr);
+  std::unique_ptr<WebMujocoViewer> viewer = makeViewer(sim.get(), testOptions());
+  ASSERT_NE(viewer, nullptr);
+  ASSERT_THAT(viewer->start(), IsOk());
+  const int port = viewer->port().value_or(0);
+  ASSERT_EQ(httpGet(port, "/frame.jpg").status, 200);
+  ASSERT_EQ(httpPost(port, "/settings?fps=1").status, 204);
+  ASSERT_EQ(jsonNumberField(awaitState(port, [](const std::string& body) { return jsonNumberField(body, "targetFps") == 1; }), "targetFps"),
+            1);
+  // A frame just published: the render thread is at the start of its pause.
+  const HttpReply next = httpGet(port, absl::StrCat("/frame.jpg?after=", WebMujocoViewerTestPeer::latestSequence(*viewer)));
+  ASSERT_EQ(next.status, 200);
+  const absl::Time begin = absl::Now();
+  viewer.reset();
+  EXPECT_LT(absl::Now() - begin, absl::Milliseconds(500));
 }
 
 TEST(WebMujocoViewer, IsDestroyedPromptlyWithAStreamOpen) {

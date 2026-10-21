@@ -155,7 +155,7 @@ class FixtureArgumentsTest(unittest.TestCase):
     def test_translation_units_show_first_party_headers_and_headers_only_themselves(
         self,
     ):
-        header_filter = "--header-filter=" + _bzl_constant("FIRST_PARTY_HEADER_FILTER")
+        header_filter = f'--header-filter={_bzl_constant("FIRST_PARTY_HEADER_FILTER")}'
         for source, arguments in self.actions.items():
             with self.subTest(source=source):
                 self.assertEqual(arguments[arguments.index("--") - 1], source)

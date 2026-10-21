@@ -31,7 +31,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include <array>
-#include <iostream>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
@@ -59,6 +59,10 @@ namespace ocs2::humanoid {
 class ModelSettings {
  public:
   struct FootConstraintConfig {
+    /** The defaults of softConstraintWeight and normalVelocitySoftConstraintWeight. */
+    static constexpr scalar_t kDefaultSoftConstraintWeight = 10.0;
+    static constexpr scalar_t kDefaultNormalVelocitySoftConstraintWeight = 500.0;
+
     scalar_t positionErrorGain_z = 1.0;
     scalar_t orientationErrorGain = 1.0;
     scalar_t linearVelocityErrorGain_z = 1.0;
@@ -67,7 +71,7 @@ class ModelSettings {
     scalar_t linearAccelerationErrorGain_z = 1.0;
     scalar_t linearAccelerationErrorGain_xy = 1.0;
     scalar_t angularAccelerationErrorGain = 1.0;
-    scalar_t softConstraintWeight = 10.0;
+    scalar_t softConstraintWeight = kDefaultSoftConstraintWeight;
     /**
      * Weight of the SOFT `normal_velocity` term, when it is listed in soft_constraints.
      *
@@ -84,7 +88,7 @@ class ModelSettings {
      * leg-joint regularization that holds the swing leg in its standing crouch. Sweep it; the shipped value is a
      * starting point, not a tuned one.
      */
-    scalar_t normalVelocitySoftConstraintWeight = 500.0;
+    scalar_t normalVelocitySoftConstraintWeight = kDefaultNormalVelocitySoftConstraintWeight;
     // The rows of the stance constraint, which the file selects by name (model_settings.foot_constraint.stance_constraint,
     // stanceConstraintNames()): "position" is constrainOrientation false, "position_and_tilt" true with the yaw rate
     // false, "position_and_orientation" both true.
@@ -122,6 +126,14 @@ class ModelSettings {
    * imposing them, which is what lets the solver choose the contact sequence.
    */
   struct ContactImplicitConfig {
+    /** The defaults of the fields below, by field. */
+    static constexpr scalar_t kDefaultComplementarityWeight = 100.0;
+    static constexpr scalar_t kDefaultSlipWeight = 100.0;
+    static constexpr scalar_t kDefaultHeightReference = 0.08;   // [m]
+    static constexpr scalar_t kDefaultVelocityReference = 0.3;  // [m/s]
+    static constexpr scalar_t kDefaultPenetrationWeight = 5.0e4;
+    static constexpr scalar_t kDefaultGapSmoothing = 1.0e-3;  // [m]
+
     // Both residuals are normalized before they are penalized - (f_n / f_ref)(h / h_ref) and (f_n / f_ref)(v / v_ref) -
     // so these two weights are dimensionless and comparable with each other - but NOT with task_space_foot_cost,
     // whose residuals are in meters (humanoid_nmpc/docs/contact_implicit_mpc/README.md, section 4: pos_z is priced at
@@ -130,14 +142,14 @@ class ModelSettings {
     // Each is the cost of the worst configuration its term can describe: a foot at the reference height, or sliding at
     // the reference speed, while carrying the reference force. See the class comment on ContactComplementarityConstraint
     // for why the un-normalized products could not be weighted sensibly at all.
-    scalar_t complementarityWeight = 100.0;
+    scalar_t complementarityWeight = kDefaultComplementarityWeight;
     // What holds a loaded foot still, in place of the mode-scheduled stance constraint.
-    scalar_t slipWeight = 100.0;
+    scalar_t slipWeight = kDefaultSlipWeight;
     // The references the two residuals are measured in. The force reference is not here: it is the robot's own weight,
     // taken from the model, because a value that has to agree with the URDF should not be maintained by hand.
-    scalar_t heightReference = 0.08;          // [m] normally the swing apex, swing_trajectory_config.swingHeight
-    scalar_t velocityReference = 0.3;         // [m/s] a sliding speed that would already be a failure
-    scalar_t angularVelocityReference = 1.0;  // [rad/s] a pivot rate that would already be a failure
+    scalar_t heightReference = kDefaultHeightReference;      // [m] normally the swing apex, swing_trajectory_config.swingHeight
+    scalar_t velocityReference = kDefaultVelocityReference;  // [m/s] a sliding speed that would already be a failure
+    scalar_t angularVelocityReference = 1.0;                 // [rad/s] a pivot rate that would already be a failure
     /**
      * Weight of the one-sided quadratic hinge on h >= 0: the penalty is `penetrationWeight * h^2 / 2` below the ground
      * and exactly zero on or above it.
@@ -152,7 +164,7 @@ class ModelSettings {
      * complementarity residual that no weight could tune away. The hinge is zero in value and in
      * gradient at h = 0, so it has no such equilibrium: it does nothing at all until the foot is actually below ground.
      */
-    scalar_t penetrationWeight = 5.0e4;
+    scalar_t penetrationWeight = kDefaultPenetrationWeight;
     /**
      * [m] The length scale over which the gap - the height of the lowest point of the footprint - is smoothed.
      *
@@ -166,7 +178,7 @@ class ModelSettings {
      * penetration under full body weight (the bias attenuated by C / (C + k * penetrationWeight), k the corners that are
      * down) - the price of a residual the SQP solver can linearize consistently.
      */
-    scalar_t gapSmoothing = 1.0e-3;
+    scalar_t gapSmoothing = kDefaultGapSmoothing;
     // Where the ground is, is NOT here: it is ModelSettings::terrainHeight, so that the complementarity conditions and
     // the swing trajectories cannot disagree about it.
     // Every field above is a field of the task file's `contact_implicit` block, listed in contactImplicitKeys().
@@ -311,5 +323,17 @@ class ModelSettings {
   /** Appends the URDF's joints to fullJointNames, in its order (Create()); throws what Pinocchio's URDF parser throws. */
   void loadFullJointNames(const std::string& urdfFile, bool verbose);
 };
+
+/** The model_fingerprint of an MpcObservation or MpcPolicy that does not carry one. */
+inline constexpr uint64_t kUnstampedModelFingerprint = 0;
+
+/**
+ * Returns the fingerprint of the model layout the robot and the MPC node exchange states, inputs and policies in
+ * (MpcObservation.model_fingerprint, MpcPolicy.model_fingerprint): FNV-1a (nproto/Fnv1a64Constants.h) of the state
+ * layout tag (StateLayout.h), the robot name and the MPC model's joint names, 3-DoF and 6-DoF contact names in their
+ * order, each length-prefixed. Two processes whose models have equal dimensions but another joint order or other fixed
+ * joints have different fingerprints. Never kUnstampedModelFingerprint. Cheap; call it once at start-up.
+ */
+uint64_t modelLayoutFingerprint(const ModelSettings& settings);
 
 }  // namespace ocs2::humanoid

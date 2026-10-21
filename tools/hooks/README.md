@@ -70,9 +70,15 @@ comment / string masker; use it rather than regular expressions over raw source.
 
 The modules: `argument_comments`, `include_style`, `boost_usage`, `american_spelling`, `proto_file_layout`,
 `proto_next_id`, `textproto_headers`, `yaml_usage`, `pointer_nullability`, `no_auto`, `cpp_google_style`, `cpp_totw`,
-`todo_format`, `inclusive_language`, `license_header`, `python_imports`, `python_docstrings`, `python_language`, and
-the base orientation's `spherical_zyx`, `euler_boundary`, `state_interpolation` and `quaternion_scalar_constructor`. `python3 -m tools.hooks.lint_code
---only <name>` runs one check; the names and descriptions are in each module's `CHECKS`.
+`magic_number`, `todo_format`, `inclusive_language`, `license_header`, `python_imports`, `python_docstrings`,
+`python_language`, and the base orientation's `spherical_zyx`, `euler_boundary`, `state_interpolation` and
+`quaternion_scalar_constructor`. `python3 -m tools.hooks.lint_code --only <name>` runs one check; the names and
+descriptions are in each module's `CHECKS`.
+
+`magic_number` (`magic-number`) reads production C++ only: the first-party code and lib/ocs2 without
+lib/ocs2/thirdparty (`FIRST_PARTY_AND_OCS2`), less tests, `benchmark` directories and the test-only libraries outside
+the test directories (its `TEST_ONLY_SOURCES`, which `test_magic_number.py` keeps in step with the `testonly` targets
+of the BUILD files).
 
 ## NOLINT markers
 

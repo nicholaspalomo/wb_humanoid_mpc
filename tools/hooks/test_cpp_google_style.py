@@ -176,7 +176,7 @@ class ForbiddenConstructTest(unittest.TestCase):
         ]:
             with self.subTest(source=source):
                 self.assertGreaterEqual(
-                    len(style.check_forbidden_construct(source + "\n", "a.cpp")), 1
+                    len(style.check_forbidden_construct(f"{source}\n", "a.cpp")), 1
                 )
 
     def test_accepted(self):
@@ -196,7 +196,7 @@ class ForbiddenConstructTest(unittest.TestCase):
         ]:
             with self.subTest(source=source):
                 self.assertEqual(
-                    style.check_forbidden_construct(source + "\n", "a.cpp"), []
+                    style.check_forbidden_construct(f"{source}\n", "a.cpp"), []
                 )
 
     def test_the_registry_runs_it(self):
@@ -273,7 +273,7 @@ class DebugOnlyCheckTest(unittest.TestCase):
         ]:
             with self.subTest(source=source):
                 self.assertEqual(
-                    len(style.check_debug_only_check(source + "\n", "a.cpp")), 1
+                    len(style.check_debug_only_check(f"{source}\n", "a.cpp")), 1
                 )
 
     def test_accepted(self):
@@ -286,7 +286,7 @@ class DebugOnlyCheckTest(unittest.TestCase):
         ]:
             with self.subTest(source=source):
                 self.assertEqual(
-                    style.check_debug_only_check(source + "\n", "a.cpp"), []
+                    style.check_debug_only_check(f"{source}\n", "a.cpp"), []
                 )
 
     def test_tests_may_assert(self):
@@ -313,7 +313,7 @@ class CtadTest(unittest.TestCase):
             "Eigen::Matrix m = n;",
         ]:
             with self.subTest(source=source):
-                self.assertEqual(len(style.check_ctad(source + "\n", "a.cpp")), 1)
+                self.assertEqual(len(style.check_ctad(f"{source}\n", "a.cpp")), 1)
 
     def test_accepted(self):
         for source in [
@@ -324,7 +324,7 @@ class CtadTest(unittest.TestCase):
             "using std::vector;",
         ]:
             with self.subTest(source=source):
-                self.assertEqual(style.check_ctad(source + "\n", "a.cpp"), [])
+                self.assertEqual(style.check_ctad(f"{source}\n", "a.cpp"), [])
 
     def test_the_registry_runs_it(self):
         check_test_support.assert_check_behaves(
@@ -419,7 +419,7 @@ class StaticStorageTest(unittest.TestCase):
         ]:
             with self.subTest(source=source):
                 self.assertEqual(
-                    len(style.check_static_storage(source + "\n", "a.cpp")), 1
+                    len(style.check_static_storage(f"{source}\n", "a.cpp")), 1
                 )
 
     def test_accepted(self):
@@ -445,7 +445,7 @@ class StaticStorageTest(unittest.TestCase):
             "absl::Status FromProto(::msgs::ControllerType proto, ControllerType* absl_nonnull value);",
         ]:
             with self.subTest(source=source):
-                self.assertEqual(style.check_static_storage(source + "\n", "a.cpp"), [])
+                self.assertEqual(style.check_static_storage(f"{source}\n", "a.cpp"), [])
 
     def test_the_registry_runs_it(self):
         check_test_support.assert_check_behaves(
@@ -521,7 +521,7 @@ class IfElseBracesTest(unittest.TestCase):
             "void f() { if (a) { b(); } else if (d) { c(); } }",
         ]:
             with self.subTest(source=source):
-                self.assertEqual(style.check_if_else_braces(source + "\n", "a.cpp"), [])
+                self.assertEqual(style.check_if_else_braces(f"{source}\n", "a.cpp"), [])
 
     def test_the_registry_runs_it(self):
         check_test_support.assert_check_behaves(

@@ -780,7 +780,7 @@ def check_macro_naming(source: str, path: str) -> list[check_types.Finding]:
                     line,
                     column,
                     MACRO_NAMING,
-                    message + " (Google C++ style, Preprocessor macros).",
+                    f"{message} (Google C++ style, Preprocessor macros).",
                 )
             )
     return findings
@@ -1129,7 +1129,7 @@ CHECKS = [
         scope=NON_TEST,
         check_source=check_exceptions,
         description="first-party code does not throw; it returns absl::Status (G: Exceptions; ToTW #76).",
-        hint="Return absl::Status / absl::StatusOr; a boundary with a throwing library (OCS2, Pinocchio, cppzmq) converts "
+        hint="Return absl::Status / absl::StatusOr; a boundary with a throwing library (OCS2, Pinocchio) converts "
         "in one try/catch with `// NOLINT(exceptions): <reason>` (AGENTS.md).",
     ),
     check_types.Check(

@@ -69,7 +69,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_centroidal_mpc/constraint/ZeroVelocityConstraintCppAd.h"
 #include "humanoid_centroidal_mpc/cost/CentroidalMpcEndEffectorFootCost.h"
 #include "humanoid_centroidal_mpc/cost/DcmTerminalCost.h"
-#include "humanoid_centroidal_mpc/cost/ICPCost.h"
 #include "humanoid_centroidal_mpc/mrt/CentroidalMpcParameterUpdater.h"
 #include "humanoid_centroidal_mpc/mrt/CentroidalMpcResetTarget.h"
 #include "humanoid_common_mpc/HumanoidPreComputation.h"
@@ -94,6 +93,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/orientation/EulerBoundary.h"
 #include "humanoid_common_mpc/parameter_update/CommandLimitsReloaders.h"
 #include "humanoid_common_mpc/parameter_update/MpcParameterUpdaterModule.h"
+#include "humanoid_common_mpc/reference_manager/ArmSwing.h"
 #include "humanoid_common_mpc/reference_manager/ProceduralMpcMotionManager.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 #include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
@@ -101,6 +101,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_mpc_config/task_file.nproto.h"
 #include "humanoid_mpc_config/task_file.nproto.pb.h"
 #include "humanoid_mpc_config/task_file.pb.h"
+#include "humanoid_nmpc/humanoid_common_mpc/test/support/StatusTestMacros.h"
 #include "nproto/options.pb.h"
 #include "robot_core/ResourcePaths.h"
 #include "support/ShippedCentroidalRobot.h"
@@ -405,7 +406,7 @@ class Stack {
         [referenceManager = interface_->getSwitchedModelReferenceManagerPtr()]() { return referenceManager->getAppliedTerrainHeight(); });
     CentroidalMpcTargetTrajectoriesCalculator* absl_nonnull calculatorPtr = calculator_.get();
     absl::StatusOr<std::unique_ptr<ProceduralMpcMotionManager>> motionManager = ProceduralMpcMotionManager::Create(
-        robot::resolveResourcePath("humanoid_nmpc/humanoid_common_mpc/config/command/gait.textproto").value(), files.referenceFile,
+        checkedValue(robot::resolveResourcePath("humanoid_nmpc/humanoid_common_mpc/config/command/gait.textproto")), files.referenceFile,
         interface_->getSwitchedModelReferenceManagerPtr(), effectiveModel,
         [calculatorPtr](const vector4_t& velocity, scalar_t initTime, scalar_t /*finalTime*/, const vector_t& initState,
                         const BasePlanarMotion& measuredMotion) {
@@ -921,11 +922,7 @@ void dumpTerms(OptimalControlProblem& ocp, Dump& dump) {
     } else if (CentroidalMpcEndEffectorFootCost* absl_nullable foot = dynamic_cast<CentroidalMpcEndEffectorFootCost*>(&cost)) {
       vector12_t weights;
       foot->getWeights(weights);
-      dump[key] = absl::StrCat(exact(weights), " | ", foot->getActiveInStance());
-    } else if (ICPCost* absl_nullable icp = dynamic_cast<ICPCost*>(&cost)) {
-      vector2_t weights;
-      icp->getWeights(weights);
-      dump[key] = exact(weights);
+      dump[key] = absl::StrCat(exact(weights), " | ", foot->getActiveInStance(), " | ", exact(foot->getSwingVelocityReferenceWeight()));
     } else if (BasisScalingNonNegativityConstraint* absl_nullable barrier = dynamic_cast<BasisScalingNonNegativityConstraint*>(&cost)) {
       dump[key] = absl::StrCat(exact(barrier->getBarrierConfig().mu), " ", exact(barrier->getBarrierConfig().delta));
     }
@@ -969,10 +966,8 @@ void dumpTerms(OptimalControlProblem& ocp, Dump& dump) {
     StateCost& cost = ocp.stateSoftConstraintPtr->get<StateCost>(term.first);
     const std::string key = absl::StrCat("stateSoftConstraint/", term.first);
     if (JointLimitsSoftConstraint* absl_nullable jointLimits = dynamic_cast<JointLimitsSoftConstraint*>(&cost)) {
-      scalar_t mu = 0.0;
-      scalar_t delta = 0.0;
-      jointLimits->getGains(mu, delta);
-      dump[key] = absl::StrCat(exact(mu), " ", exact(delta));
+      const PieceWisePolynomialBarrierPenalty::Config gains = jointLimits->getGains();
+      dump[key] = absl::StrCat(exact(gains.mu), " ", exact(gains.delta));
     } else if (StateSoftConstraint* absl_nullable softCon = dynamic_cast<StateSoftConstraint*>(&cost)) {
       std::string value = penaltyParameters(*softCon);
       if (GroundPenetrationConstraint* absl_nullable penetration =
@@ -985,7 +980,9 @@ void dumpTerms(OptimalControlProblem& ocp, Dump& dump) {
   for (const std::pair<const std::string, size_t>& term : ocp.equalityConstraintPtr->getTermNameMap()) {
     if (ZeroVelocityConstraintCppAd* absl_nullable zeroVelocity =
             dynamic_cast<ZeroVelocityConstraintCppAd*>(&ocp.equalityConstraintPtr->get<StateInputConstraint>(term.first))) {
-      dump[absl::StrCat("equalityConstraint/", term.first)] = twistParameters(zeroVelocity->getTwistConstraint());
+      // The term's own row count too: OCS2 sizes the stacked constraint by it, not by the twist's.
+      dump[absl::StrCat("equalityConstraint/", term.first)] =
+          absl::StrCat(zeroVelocity->getNumConstraints(/*time=*/0.0), " | ", twistParameters(zeroVelocity->getTwistConstraint()));
     }
   }
   if (const HumanoidPreComputation* absl_nullable preComputation =
@@ -1008,6 +1005,12 @@ Dump dumpOf(Stack& stack) {
                      exact(swing.swingPitchAngle), exact(swing.swingPitchRiseFraction), exact(swing.swingPitchFallFraction)},
                     " ");
   dump["referenceManager/terrainHeight"] = exact(stack.referenceManager().getTerrainHeight());
+  // The arm swing's tuning, which ReferenceManagerApplier writes into the reference manager whether or not the swing
+  // runs: under com_and_acom_tracking_cost (the shipped Atlas) the generator is switched off, so its reference does not
+  // move, but the tuning it will run with once it is switched on is what a reload has to have changed.
+  const ArmSwingSettings& armSwing = stack.referenceManager().getArmSwingSettings();
+  dump["referenceManager/armSwing"] = absl::StrCat(static_cast<int>(armSwing.generator), " ", exact(armSwing.shoulderGain), " ",
+                                                   exact(armSwing.elbowGain), " ", exact(armSwing.phaseOffset));
   if (const std::shared_ptr<LocomotionHeuristicLayer>& layer = stack.interface().getLocomotionHeuristicLayerPtr()) {
     dump["locomotionHeuristics"] = layer->summary();
   }

@@ -66,6 +66,7 @@ class TableRow(NamedTuple):
     publisher: str
     subscribers: str
     delivery: str
+    qos_profile: str
 
 
 def read_topic_table(path: str) -> dict[str, TableRow]:
@@ -77,10 +78,13 @@ def read_topic_table(path: str) -> dict[str, TableRow]:
     rows = {}
     for line in text[start:end].splitlines():
         cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
-        if len(cells) != 6 or not cells[0].startswith("`"):
+        # Topic, message, publisher, subscribers, delivery, QoS profile, rate.
+        if len(cells) != 7 or not cells[0].startswith("`"):
             continue
         topic, message = cells[0].strip("`"), cells[1].strip("`")
-        rows[topic] = TableRow(topic, message, cells[2], cells[3], cells[4])
+        rows[topic] = TableRow(
+            topic, message, cells[2], cells[3], cells[4], cells[5].strip("`")
+        )
     return rows
 
 
@@ -113,7 +117,7 @@ class TestTheReadmeTable(unittest.TestCase):
         # the saved file's text, which the robot parses as it parses the file at start-up, and the robot answers it.
         expected = {
             topics.OPERATOR_MPC_PARAMETERS: "humanoid_mpc_config.MpcParameterUpdate",
-            topics.OPERATOR_PD_GAINS: "humanoid_mpc_config.JointPdGainsFile",
+            topics.OPERATOR_PD_GAINS: "humanoid_mpc_config.JointPdGainsUpdate",
             topics.OPERATOR_DODGEBALL_THROW: "humanoid_mpc_msgs.DodgeballThrow",
             topics.OPERATOR_CONFIG_SAVE: "humanoid_mpc_msgs.ConfigFileSave",
             topics.ROBOT_CONFIG_SAVE_STATUS: "humanoid_mpc_msgs.ConfigFileSaveStatus",
@@ -139,17 +143,12 @@ class TestTheReadmeTable(unittest.TestCase):
                 self.assertIn("GUI", side)
 
     def test_every_topic_the_readme_gives_the_gui_is_in_the_table(self):
-        # The GUI's subscriptions to mpc/status and robot/loop_timing are not built yet (the GUI shows neither); every
-        # other topic the README has the GUI publish or subscribe is in OPERATOR_TOPICS.
-        not_yet = {topics.MPC_STATUS, topics.ROBOT_LOOP_TIMING}
         expected = {
             topic
             for topic, row in self.table.items()
             if "GUI" in row.publisher or "GUI" in row.subscribers
         }
-        self.assertEqual(
-            {row.topic for row in operator_bus.OPERATOR_TOPICS}, expected - not_yet
-        )
+        self.assertEqual({row.topic for row in operator_bus.OPERATOR_TOPICS}, expected)
 
     def test_teleop_publishes_only_what_the_readme_lets_it(self):
         teleop_topics = {
@@ -235,7 +234,7 @@ class TestWhatTheCodePublishes(unittest.TestCase):
         readme = read_topic_table(README)[topics.OPERATOR_WALKING_VELOCITY_COMMAND]
         with open(README, "r", encoding="utf-8") as handle:
             line = next(row for row in handle if row.startswith(f"| `{readme.topic}`"))
-        rate = re.search(r"(\d+(?:\.\d+)?) Hz", line.split("|")[6])
+        rate = re.search(r"(\d+(?:\.\d+)?) Hz", line.split("|")[7])
         assert rate is not None, line
         self.assertEqual(float(rate.group(1)), teleop.WALKING_COMMAND_RATE_HZ)
 
@@ -243,18 +242,26 @@ class TestWhatTheCodePublishes(unittest.TestCase):
 class TestTheNodes(unittest.TestCase):
     def test_the_gui_teleop_and_config_push_nodes_are_in_the_shipped_network_file(self):
         network = robot_ipc.load_network_config(NETWORK_FILE)
-        ports = []
         for name in (
             operator_bus.OPERATOR_NODE,
             operator_bus.TELEOP_NODE,
             operator_bus.CONFIG_PUSH_NODE,
         ):
             with self.subTest(node=name):
-                node = network.find(name)
-                assert node is not None, name
-                ports.append(node.port)
-        # Each binds its own endpoint, so push_robot_config runs next to a GUI.
-        self.assertEqual(len(set(ports)), len(ports))
+                self.assertIsNotNone(network.find(name), name)
+
+    def test_every_operator_topic_has_the_readmes_qos_profile_and_publishers_in_the_shipped_network_file(
+        self,
+    ):
+        network = robot_ipc.load_network_config(NETWORK_FILE)
+        table = read_topic_table(README)
+        for row in operator_bus.OPERATOR_TOPICS:
+            with self.subTest(topic=row.topic):
+                entry = network.find_topic(row.topic)
+                assert entry is not None, row.topic
+                self.assertEqual(entry.profile.value, table[row.topic].qos_profile)
+                if row.direction is operator_bus.Direction.PUBLISH:
+                    self.assertIn(operator_bus.OPERATOR_NODE, entry.publishers)
 
     def test_the_network_file_path_of_the_binaries_is_the_shipped_one(self):
         self.assertTrue(

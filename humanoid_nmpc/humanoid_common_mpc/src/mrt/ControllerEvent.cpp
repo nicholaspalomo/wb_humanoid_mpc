@@ -91,6 +91,10 @@ std::string formatControllerEvent(const ControllerEvent& event) {
                               ? "not of the model's dimensions, or inconsistent"
                               : "a controller it does not evaluate on the state",
                           "): holding the robot with the JOINT_PD action until a policy it evaluates is in use.");
+    case ControllerEventCode::kPolicyUpdateLockContended:
+      return absl::StrCat(prefix, "the MRT's policy buffer was locked by the solver side for ", event.values[0],
+                          " consecutive control cycles (", event.values[1],
+                          " failed try-locks in all): no newer policy could be taken into use meanwhile.");
   }
   return absl::StrCat(prefix, "controller event ", static_cast<int>(event.code));
 }
@@ -104,6 +108,7 @@ bool isWarningControllerEvent(const ControllerEvent& event) {
     case ControllerEventCode::kContactEstimateRefused:
     case ControllerEventCode::kContactWrenchGateRefused:
     case ControllerEventCode::kPolicyRefused:
+    case ControllerEventCode::kPolicyUpdateLockContended:
       return true;
     case ControllerEventCode::kContactWrenchGateChanged:
     case ControllerEventCode::kContactEstimatorChanged:

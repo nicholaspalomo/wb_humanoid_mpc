@@ -47,6 +47,7 @@ import subprocess
 import unittest
 
 from tools.hooks import checks
+from tools.hooks import lint_files
 
 RUNFILES = os.path.join(os.environ.get("TEST_SRCDIR", ""), "_main")
 CLANG_FORMAT_CONFIG = os.path.join(RUNFILES, ".clang-format")
@@ -63,7 +64,7 @@ SIGNATURE = re.compile(
 def generated_files() -> list[str]:
     files = []
     for suffix in (".nproto.h", ".nproto.pb.h", ".nproto.pb.cc"):
-        files += glob.glob(os.path.join(RUNFILES, "**", "*" + suffix), recursive=True)
+        files += glob.glob(os.path.join(RUNFILES, "**", f"*{suffix}"), recursive=True)
     return sorted(set(files))
 
 
@@ -142,6 +143,9 @@ class GeneratedCodeTest(unittest.TestCase):
                 check.name for check in checks.REGISTRY if check.applies_to(relative)
             }
             self.assertLessEqual(expected, applicable, relative)
+            # The generated code outside tests is production code, whose literals are named constants.
+            if not lint_files.is_test_path(relative):
+                self.assertIn("magic-number", applicable, relative)
 
     def test_the_output_parameters_are_nonnull(self):
         # The lint checks pass a file without pointers too; the conversions have one each, and it is nonnull.

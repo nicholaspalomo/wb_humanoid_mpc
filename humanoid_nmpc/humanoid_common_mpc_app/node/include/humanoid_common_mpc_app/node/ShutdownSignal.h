@@ -45,7 +45,10 @@ void installShutdownSignalHandlers();
 /** True once SIGINT or SIGTERM has arrived since installShutdownSignalHandlers(). */
 bool shutdownRequested();
 
+/** How often waitForShutdown() checks shutdownRequested() by default. */
+inline constexpr absl::Duration kDefaultShutdownPollPeriod = absl::Milliseconds(50);
+
 /** Returns once shutdownRequested(), checking every `pollPeriod`. */
-void waitForShutdown(absl::Duration pollPeriod = absl::Milliseconds(50));
+void waitForShutdown(absl::Duration pollPeriod = kDefaultShutdownPollPeriod);
 
 }  // namespace ocs2::humanoid::node

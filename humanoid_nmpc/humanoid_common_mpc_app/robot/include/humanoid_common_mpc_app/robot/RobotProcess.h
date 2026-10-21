@@ -41,12 +41,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 #include "absl/base/nullability.h"
+#include "absl/functional/function_ref.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/time/time.h"
 
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc_app/robot/ConfigFileStore.h"
+#include "humanoid_common_mpc_app/robot/FallRecovery.h"
+#include "humanoid_common_mpc_app/robot/FsmBridge.h"
 #include "humanoid_common_mpc_app/robot/FsmStateMailbox.h"
 #include "humanoid_common_mpc_app/robot/MujocoViewerAnnotator.h"
 #include "humanoid_common_mpc_app/robot/OperatorCommandMailbox.h"
@@ -55,8 +58,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc_app/robot/RobotBackend.h"
 #include "humanoid_common_mpc_app/robot/RobotController.h"
 #include "humanoid_common_mpc_app/robot/RobotProcessSettings.h"
-#include "humanoid_common_mpc_app/robot/SimFallRecovery.h"
-#include "humanoid_common_mpc_app/robot/SimFsmBridge.h"
 #include "humanoid_common_mpc_app/robot/TaskFileWatcher.h"
 #include "humanoid_common_mpc_app/robot/TelemetrySampler.h"
 #include "humanoid_common_mpc_app/robot/TelemetrySink.h"
@@ -65,6 +66,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_mpc_msgs/loop_timing.pb.h"
 #include "humanoid_mpc_msgs/robot_state_sample.pb.h"
 #include "humanoid_mpc_msgs/viewer_annotations.nproto.h"
+#include "humanoid_state_estimator/StateEstimator.h"
+#include "mujoco_sim_interface/MujocoSimInterface.h"
 #include "robot_ipc/Bus.h"
 #include "robot_model/ContactEstimatorRegistry.h"
 #include "robot_model/RobotState.h"
@@ -77,8 +80,16 @@ namespace ocs2::humanoid {
  * humanoid_wb_mpc_robot) build the controller and its MPC link and hand them over. See
  * humanoid_nmpc/humanoid_common_mpc_app/robot/README.md and humanoid_nmpc/docs/distributed_runtime/README.md.
  *
+ * THE BACKEND'S SUPERVISOR. The FSM bridge and the fall recovery are the ones the backend names
+ * (RobotBackend::supervisorName(), RobotSupervisorRegistry): `sim` drives the simulator's torque switch, gantry,
+ * dodgeballs and resets (SimFsmBridge, SimFallRecovery); `hardware` the backend's torque switch only, with no gantry
+ * and a tilt cut-off (HardwareFsmBridge, HardwareFallRecovery). The viewer's contact timeline and annotations exist
+ * only on a simulator (RobotBackend::simulator()).
+ *
  * THE REALTIME THREAD runs, every control period:
- *   1. read the robot state from the backend;
+ *   1. read the robot state from the backend, and run the task file's state estimator over it (state_estimator:
+ *      `ground_truth` hands the backend's state on as it is, `kalman` replaces the base's position and linear
+ *      velocity with its estimate from the IMU and the leg kinematics): what every later step reads;
  *   2. take the operator's joint targets into the JOINT_PD posture (mailbox);
  *   3. hand the controller the mode and the posture, and run computeJointControlAction(), which writes the observation
  *      into the MPC link (for a remote link: a triple buffer that the bus's IO thread publishes);
@@ -86,7 +97,8 @@ namespace ocs2::humanoid {
  *   5. every telemetry decimation, copy the cycle into a slot of the telemetry ring;
  *   6. apply a contact estimator or a contact wrench gate the operator or the task file changed (mailbox);
  *   7. the FSM bridge: a dodgeball throw, then one FSM command (mailbox), or the gantry height slider;
- *   8. the fall recovery, and the MPC resets and FSM states it calls for;
+ *   8. the fall recovery, and the MPC resets and FSM states it calls for; a base the backend relocated (the simulator's
+ *      reset) restarts the state estimator from the backend's state;
  *   9. send the joint action to the backend, unless the torques are off;
  *  10. the MPC's health into the FSM state.
  * The action goes to the backend after the cycle's FSM command and fall recovery (9), not before them: a cycle that
@@ -98,7 +110,7 @@ namespace ocs2::humanoid {
  * process's and the controller's reports go to a RealtimeEventLog); the backend's state and action go through
  * RobotHWInterfaceBase's triple buffers. The robot process adds no allocation; the controllers allocate nothing in the
  * passive modes and the holds, and executing a policy still allocates inside the model's accessors and the inverse
- * dynamics (see the package README).
+ * dynamics (see the package README). The state estimators allocate nothing either.
  *
  * A CYCLE THAT THROWS ends the loop (RealtimeLoopRunner): the backend is put in its safe state (enterSafeState(): zero
  * torque), faulted() turns true, and runUntilShutdown() returns the error, so that the binary exits with a failure and
@@ -121,8 +133,12 @@ namespace ocs2::humanoid {
 class RobotProcess {
  public:
   struct Config {
+    /** The defaults of controlFrequency [Hz] and of pdGainsFileCheckInterval. */
+    static constexpr scalar_t kDefaultControlFrequency = 500.0;
+    static constexpr size_t kDefaultPdGainsFileCheckInterval = 100;
+
     /** [Hz] The control rate (mpc.mrt_desired_frequency). */
-    scalar_t controlFrequency = 500.0;
+    scalar_t controlFrequency = kDefaultControlFrequency;
     /** SCHED_FIFO priority of the realtime thread (--realtime_priority); 0: not realtime. */
     int realtimePriority = 0;
     /** Cores of the realtime thread and of the backend's threads; empty: not pinned. */
@@ -152,14 +168,28 @@ class RobotProcess {
      */
     std::string taskFileIdentity;
     /**
+     * The running PD gains configuration: configFileIdentity() of the bundled joint PD gains file
+     * (RobotConfigDirectory::identity(kJointPdGains)). The operator mailbox refuses a joint PD gains update of another
+     * configuration (OperatorCommandMailbox::Config::pdGainsFileIdentity). Empty: not checked.
+     */
+    std::string pdGainsFileIdentity;
+    /**
      * The persistent copies a save of operator/config_save is written to (configFileStoreConfig() of the robot's
      * RobotConfigDirectory). The default has none: every save is answered NOT_STORED.
      */
     ConfigFileStore::Config configStore;
     /** The joints the fall recovery judges rest on: those of the MPC model. */
     std::vector<size_t> restJointIndices;
+    /**
+     * The robot's URDF and the MPC's contact frames, in contact order (model_settings): the leg kinematics of the
+     * `kalman` state estimator, with the contact frames' parent joints, whose frames stand in for a contact frame the
+     * URDF does not have (the MPC builds those from the task file's contact rectangles). Unused by `ground_truth`.
+     */
+    std::string urdfFile;
+    std::vector<std::string> contactFrameNames;
+    std::vector<std::string> contactParentJointNames;
     /** The PD gains file is checked every this many control periods (100 centroidal, 500 whole-body, ~1 Hz). */
-    size_t pdGainsFileCheckInterval = 100;
+    size_t pdGainsFileCheckInterval = kDefaultPdGainsFileCheckInterval;
     /** The reporting window of robot/loop_timing. */
     std::chrono::nanoseconds loopTimingWindow{std::chrono::seconds(1)};
   };
@@ -180,14 +210,15 @@ class RobotProcess {
 
   /**
    * Builds the process around `backend` and `controller` and registers it on `bus` (not running yet). Installs the
-   * task file's contact estimator (resolved through `contactEstimators`, which already holds the backend's): an unknown
-   * name is InvalidArgument listing the available ones. A backend without a simulator is Unimplemented: the FSM bridge
-   * and the fall recovery are the simulator's, and a hardware backend needs an FSM bridge of its own.
+   * task file's contact estimator (resolved through `contactEstimators`, which already holds the backend's) and its
+   * state estimator (StateEstimatorRegistry), and the supervisor the backend names (RobotSupervisorRegistry): an
+   * unknown name is InvalidArgument listing the available ones, and so is the `sim` supervisor of a backend that is no
+   * simulator.
    */
-  static absl::StatusOr<std::unique_ptr<RobotProcess>> Create(robot::ipc::Bus& bus,
-                                                              RobotBackend& backend,
-                                                              RobotController& controller,
-                                                              const robot::model::ContactEstimatorRegistry& contactEstimators,
+  static absl::StatusOr<std::unique_ptr<RobotProcess>> Create(robot::ipc::Bus* absl_nonnull bus,
+                                                              RobotBackend* absl_nonnull backend,
+                                                              RobotController* absl_nonnull controller,
+                                                              const robot::model::ContactEstimatorRegistry* absl_nonnull contactEstimators,
                                                               Config config,
                                                               Hooks hooks = Hooks());
 
@@ -213,15 +244,15 @@ class RobotProcess {
    * The main thread's wait: polls `shutdownRequested` (the binaries' SIGINT/SIGTERM flag) and faulted() every 50 ms, then
    * stops the process. OK on a shutdown, Internal with the cycle's exception once the loop has faulted.
    */
-  absl::Status runUntilShutdown(const std::function<bool()>& shutdownRequested);
+  absl::Status runUntilShutdown(absl::FunctionRef<bool()> shutdownRequested);
 
   /**
    * runUntilShutdown(), which also calls `onRunning` once, on this thread, when the realtime loop has run for
    * `runningFor` without a fault: the binaries confirm their boot with it (RobotConfigDirectory::confirmBoot()).
    */
-  absl::Status runUntilShutdown(const std::function<bool()>& shutdownRequested,
+  absl::Status runUntilShutdown(absl::FunctionRef<bool()> shutdownRequested,
                                 absl::Duration runningFor,
-                                const std::function<void()>& onRunning);
+                                absl::FunctionRef<void()> onRunning);
 
   /** Cycles the realtime loop has run. Any thread. */
   uint64_t cycles() const { return loop_.cycles(); }
@@ -232,11 +263,9 @@ class RobotProcess {
   scalar_t controlPeriod() const { return 1.0 / config_.controlFrequency; }
 
  private:
-  /** `simulator` is backend.simulator(), which Create() has checked. */
-  RobotProcess(robot::ipc::Bus& bus,
-               RobotBackend& backend,
-               robot::mujoco_sim_interface::MujocoSimInterface& simulator,
-               RobotController& controller,
+  RobotProcess(robot::ipc::Bus* absl_nonnull bus,
+               RobotBackend* absl_nonnull backend,
+               RobotController* absl_nonnull controller,
                Config config,
                Hooks hooks);
 
@@ -250,14 +279,18 @@ class RobotProcess {
 
   // ---- The communication thread.
   void pumpRealtimeMailboxes();
-  void publishFsmState(bool republish);
+  /** Publishes the FSM state the realtime thread wrote, when it is new or kFsmStateRepublishPeriod has passed. */
+  void publishFsmState();
   void publishLoopTiming(const robot::realtime::LoopTimingSnapshot& snapshot);
+  // Applies the controller-side settings of the changed task `file`, but for a file written before the newest
+  // operator/mpc_parameters arrived (OperatorCommandMailbox::lastMpcParametersArrival()), an older edit.
   void onTaskFileChanged(const std::string& file);
 
-  robot::ipc::Bus& bus_;
-  RobotBackend& backend_;
-  robot::mujoco_sim_interface::MujocoSimInterface* absl_nonnull const simulator_;
-  RobotController& controller_;
+  robot::ipc::Bus* absl_nonnull bus_;
+  RobotBackend* absl_nonnull backend_;
+  /** backend_->simulator(): the viewer's contact timeline and annotations; nullptr on a backend without one. */
+  robot::mujoco_sim_interface::MujocoSimInterface* absl_nullable const simulator_;
+  RobotController* absl_nonnull controller_;
   const Config config_;
   const Hooks hooks_;
 
@@ -265,8 +298,9 @@ class RobotProcess {
   FsmStateMailbox fsmStates_;
   std::unique_ptr<OperatorCommandMailbox> mailbox_;
   std::unique_ptr<ConfigFileStore> configStore_;
-  std::unique_ptr<SimFsmBridge> fsmBridge_;
-  std::unique_ptr<SimFallRecovery> fallRecovery_;
+  std::unique_ptr<FsmBridge> fsmBridge_;
+  std::unique_ptr<FallRecovery> fallRecovery_;
+  std::unique_ptr<estimation::StateEstimator> stateEstimator_;
   std::unique_ptr<TelemetrySampler> sampler_;
   std::vector<std::unique_ptr<TelemetrySink>> sinks_;
   std::unique_ptr<MujocoViewerAnnotator> annotator_;

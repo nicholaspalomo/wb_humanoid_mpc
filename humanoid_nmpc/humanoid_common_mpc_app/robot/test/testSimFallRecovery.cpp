@@ -214,10 +214,10 @@ std::string describeRest(const robot::model::RobotState& state, const std::vecto
 
 TEST(SimFallRecovery, EverySimulatorResetIsOneDiscontinuityWhereverTheGantryWas) {
   const std::unique_ptr<MujocoSimInterface> sim = makeSim(/*gantryLocked=*/false);
-  SimFallRecovery recovery(recoveryConfig(0.0), *sim, mpcJoints(*sim));
+  SimFallRecovery recovery(recoveryConfig(0.0), sim.get(), mpcJoints(*sim));
   const std::vector<scalar_t> nominal = currentPosture(*sim);
   std::string mode = "WB_MPC";
-  EXPECT_FALSE(recovery.update(advance(*sim), nominal, *sim, mode).discontinuity);
+  EXPECT_FALSE(recovery.update(advance(*sim), nominal, mode).discontinuity);
 
   // The base drops below the floor limit: the simulator resets the robot and locks the gantry itself, inside its step,
   // i.e. between two control cycles.
@@ -228,28 +228,28 @@ TEST(SimFallRecovery, EverySimulatorResetIsOneDiscontinuityWhereverTheGantryWas)
   // after the cycle's own commands, read it locked both times and saw no transition at all.
   ASSERT_TRUE(sim->isGantryLocked());
 
-  const SimFallRecovery::Cycle caught = recovery.update(state, nominal, *sim, mode);
+  const SimFallRecovery::Cycle caught = recovery.update(state, nominal, mode);
   EXPECT_TRUE(caught.discontinuity);
   EXPECT_EQ(caught.cause, DiscontinuityCause::kSimulatorReset);
   EXPECT_NE(recovery.describeDiscontinuity(caught).find("reset epoch 1"), std::string::npos) << recovery.describeDiscontinuity(caught);
   EXPECT_TRUE(caught.modeChanged);
   EXPECT_EQ(mode, "JOINT_PD");
   EXPECT_FALSE(sim->isZeroTorqueMode()) << "JOINT_PD needs the torques";
-  EXPECT_FALSE(recovery.update(advance(*sim), nominal, *sim, mode).discontinuity) << "one event, one discontinuity";
+  EXPECT_FALSE(recovery.update(advance(*sim), nominal, mode).discontinuity) << "one event, one discontinuity";
 
   // A reset while the gantry is locked already changes nothing a loop could see but the epoch: it is still one.
   ASSERT_TRUE(sim->isGantryLocked());
   mode = "WB_MPC";
   sim->reset();
-  const SimFallRecovery::Cycle again = recovery.update(advance(*sim), nominal, *sim, mode);
+  const SimFallRecovery::Cycle again = recovery.update(advance(*sim), nominal, mode);
   EXPECT_TRUE(again.discontinuity);
   EXPECT_EQ(mode, "JOINT_PD");
-  EXPECT_FALSE(recovery.update(advance(*sim), nominal, *sim, mode).discontinuity);
+  EXPECT_FALSE(recovery.update(advance(*sim), nominal, mode).discontinuity);
 }
 
 TEST(SimFallRecovery, ATiltIsCaughtOnceAndAnOperatorLockAndUnlockAreSeen) {
   const std::unique_ptr<MujocoSimInterface> sim = makeSim(/*gantryLocked=*/false);
-  SimFallRecovery recovery(recoveryConfig(0.0), *sim, mpcJoints(*sim));
+  SimFallRecovery recovery(recoveryConfig(0.0), sim.get(), mpcJoints(*sim));
   const std::vector<scalar_t> nominal = currentPosture(*sim);
   const double height = sim->getGantryHeight();
   std::string mode = "WB_MPC";
@@ -257,36 +257,36 @@ TEST(SimFallRecovery, ATiltIsCaughtOnceAndAnOperatorLockAndUnlockAreSeen) {
 
   // Tipped past the limit: caught on the gantry, once.
   sim->setBaseStateForTesting(basePose(/*x=*/1.0, /*y=*/0.5, height, /*roll=*/1.2), kAtRest);
-  const SimFallRecovery::Cycle caught = recovery.update(advance(*sim), nominal, *sim, mode);
+  const SimFallRecovery::Cycle caught = recovery.update(advance(*sim), nominal, mode);
   EXPECT_TRUE(caught.discontinuity);
   EXPECT_TRUE(sim->isGantryLocked());
   EXPECT_EQ(mode, "JOINT_PD");
-  EXPECT_FALSE(recovery.update(advance(*sim), nominal, *sim, mode).discontinuity);
+  EXPECT_FALSE(recovery.update(advance(*sim), nominal, mode).discontinuity);
 
   // Held upright where it was caught, then released by the operator: reported, and not a discontinuity.
-  for (int cycle = 0; cycle < 200; ++cycle) recovery.update(advance(*sim), nominal, *sim, mode);
+  for (int cycle = 0; cycle < 200; ++cycle) recovery.update(advance(*sim), nominal, mode);
   ASSERT_LT(SimFallRecovery::baseTiltAngle(sim->getRobotState().getRootRotationLocalToWorldFrame()), 0.2);
   sim->unlockGantry();
-  const SimFallRecovery::Cycle released = recovery.update(advance(*sim), nominal, *sim, mode);
+  const SimFallRecovery::Cycle released = recovery.update(advance(*sim), nominal, mode);
   EXPECT_TRUE(released.gantryUnlocked);
   EXPECT_FALSE(released.discontinuity);
 
   // The operator's LOCK_GANTRY: one discontinuity, and no settle sequence for a robot that did not fall.
   sim->setBaseStateForTesting(basePose(/*x=*/0.0, /*y=*/0.0, height, /*roll=*/0.0), kAtRest);
   advance(*sim);
-  recovery.update(sim->getRobotState(), nominal, *sim, mode);
+  recovery.update(sim->getRobotState(), nominal, mode);
   sim->lockGantry();
   mode = "WB_MPC";
-  const SimFallRecovery::Cycle locked = recovery.update(advance(*sim), nominal, *sim, mode);
+  const SimFallRecovery::Cycle locked = recovery.update(advance(*sim), nominal, mode);
   EXPECT_TRUE(locked.discontinuity);
   EXPECT_FALSE(recovery.isSettling());
-  EXPECT_FALSE(recovery.update(advance(*sim), nominal, *sim, mode).discontinuity);
+  EXPECT_FALSE(recovery.update(advance(*sim), nominal, mode).discontinuity);
 }
 
 TEST(SimFallRecovery, ACaughtRobotIsLiftedSettledAndLoweredBeforeWbMpcIsAccepted) {
   const std::unique_ptr<MujocoSimInterface> sim = makeSim(/*gantryLocked=*/false);
   const SimFallRecovery::Config config = recoveryConfig(0.15);
-  SimFallRecovery recovery(config, *sim, mpcJoints(*sim));
+  SimFallRecovery recovery(config, sim.get(), mpcJoints(*sim));
   const std::vector<scalar_t> nominal = currentPosture(*sim);
   const double standingHeight = sim->getGantryHeight();
   AtlasJointPd jointPd(*sim);
@@ -308,7 +308,7 @@ TEST(SimFallRecovery, ACaughtRobotIsLiftedSettledAndLoweredBeforeWbMpcIsAccepted
   for (int cycle = 0; cycle < 3000; ++cycle) {
     const robot::model::RobotState& state = advance(*sim);
     mode = "WB_MPC";  // the operator asks for WB_MPC at every cycle
-    const SimFallRecovery::Cycle result = recovery.update(state, nominal, *sim, mode);
+    const SimFallRecovery::Cycle result = recovery.update(state, nominal, mode);
     caught = caught || result.discontinuity;
     if (phases.empty() || phases.back() != recovery.phase()) {
       phases.push_back(recovery.phase());
@@ -375,18 +375,18 @@ TEST(SimFallRecovery, AtRestMeansUprightStillAndAtTheNominalPosture) {
 TEST(SimFallRecovery, ReportsTheCatchToTheEventLogInsteadOfLogging) {
   const std::unique_ptr<MujocoSimInterface> sim = makeSim(/*gantryLocked=*/false);
   RealtimeEventLog log;
-  SimFallRecovery recovery(recoveryConfig(0.15), *sim, mpcJoints(*sim), &log);
+  SimFallRecovery recovery(recoveryConfig(0.15), sim.get(), mpcJoints(*sim), &log);
   const std::vector<scalar_t> nominal = currentPosture(*sim);
   const double height = sim->getGantryHeight();
   std::string mode = "WB_MPC";
   advance(*sim);
   sim->setBaseStateForTesting(basePose(/*x=*/0.0, /*y=*/0.0, height, /*roll=*/1.2), kAtRest);
-  const SimFallRecovery::Cycle caught = recovery.update(advance(*sim), nominal, *sim, mode);
+  const SimFallRecovery::Cycle caught = recovery.update(advance(*sim), nominal, mode);
   ASSERT_TRUE(caught.discontinuity);
   EXPECT_EQ(caught.cause, DiscontinuityCause::kTiltCaught);
   EXPECT_GT(caught.tilt, 1.0);
   mode = "WB_MPC";
-  recovery.update(advance(*sim), nominal, *sim, mode);
+  recovery.update(advance(*sim), nominal, mode);
   EXPECT_EQ(mode, "JOINT_PD") << "refused while settling";
   std::vector<RealtimeEventCode> codes;
   std::string caughtLine;

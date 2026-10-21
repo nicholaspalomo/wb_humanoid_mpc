@@ -63,10 +63,13 @@ class MujocoRobotBackend final : public RobotBackend {
   absl::Status initialize() override;
   absl::Status start(const std::vector<int>& cores) override;
   bool acceptsJointAction() const override { return !simulator_->isZeroTorqueMode(); }
+  void enableTorques() override { simulator_->enableTorques(); }
   void readMeasuredContactForces(std::array<vector3_t, kNumContacts>& forces) override;
   /** Zero torque (disableTorques()): the start-up state of the simulator. */
   void enterSafeState() override { simulator_->disableTorques(); }
   void registerContactEstimators(robot::model::ContactEstimatorRegistry& registry) const override;
+  /** `sim`: SimFsmBridge and SimFallRecovery drive the simulator's gantry, torque switch and resets. */
+  absl::string_view supervisorName() const override;
   robot::mujoco_sim_interface::MujocoSimInterface* absl_nullable simulator() override { return simulator_.get(); }
 
   /** The MujocoSimConfig the options make (for tests). */

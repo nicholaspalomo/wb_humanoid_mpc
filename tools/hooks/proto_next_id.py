@@ -485,18 +485,14 @@ def fix_source(source: str) -> str:
             if after_brace.strip().startswith("}"):
                 # `message Empty {}` on one line: open it up.
                 lines[brace_index] = (
-                    brace_text[: brace_column + 1]
-                    + "\n"
-                    + reservation
-                    + indent
-                    + after_brace.lstrip()
+                    f"{brace_text[: brace_column + 1]}\n{reservation}{indent}{after_brace.lstrip()}"
                 )
             else:
                 body_follows = after_brace.strip() != ""
                 if body_follows:
-                    lines[brace_index] = brace_text[: brace_column + 1] + "\n"
+                    lines[brace_index] = f"{brace_text[: brace_column + 1]}\n"
                     lines.insert(brace_index + 1, f"{indent}  {after_brace.lstrip()}")
-                lines.insert(brace_index + 1, reservation + "\n")
+                lines.insert(brace_index + 1, f"{reservation}\n")
 
         comment = f"{indent}// Next ID: {next_id}\n"
         if match:

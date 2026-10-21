@@ -99,9 +99,9 @@ _CPP_HEADER_INSTALL_DIR = (
 # read, so that the guard still has something to compare against.
 _SHIPPED_HIDDEN_DIM = 64
 
-# Default dataset size and epoch count. These are a standard run, NOT a record of how every shipped header was made:
-# the Atlas header came from 80 000 samples over 300 epochs, and the recipe of the G1 and SA01 headers was not
-# recorded. Every header exported since records its own recipe in its banner, see export_network.
+# Default dataset size and epoch count. These are a standard run, NOT a record of how the shipped headers were made:
+# all three came from 80 000 samples over 300 epochs. Every exported header records its own recipe in its banner, see
+# export_network.
 _DEFAULT_NUM_SAMPLES = 20000
 _DEFAULT_EPOCHS = 150
 
@@ -282,6 +282,8 @@ def export_network(
         "model_settings.robot_name": robot_name,
         "model_settings.fixed_joint_names": fixed_joints,
         "sampling": "uniform over the full joint-limit box",
+        # The fitted quantity: the composed rate map, not J_Delta_theta alone (train_acom.create_train_step).
+        "objective": "J_l(Delta_theta) J_Delta_theta ~ I_G^-1 A_omega,j in base axes",
         "sine_layers": len(params) - 1,
         "omega_0": _OMEGA_0,
         "dataset_seed": _DATASET_SEED,
@@ -482,6 +484,8 @@ def main() -> None:
     # artifact by exactly the gap the training loop just printed.
     best_epoch = int(history["best_epoch"][0])
     exported_rmse = history["val_rmse"][best_epoch]
+    exported_mean_relative_error = history["val_mean_relative_error"][best_epoch]
+    exported_worst_relative_error = history["val_worst_relative_error"][best_epoch]
     json_path, cpp_path = export_network(
         params,
         generator,
@@ -493,6 +497,8 @@ def main() -> None:
             "hidden_dim": args.hidden_dim,
             "exported_epoch": best_epoch,
             "exported_val_rmse": f"{exported_rmse:.5f}",
+            "exported_val_relative_error_mean": f"{exported_mean_relative_error:.4f}",
+            "exported_val_relative_error_worst": f"{exported_worst_relative_error:.4f}",
         },
     )
     print(

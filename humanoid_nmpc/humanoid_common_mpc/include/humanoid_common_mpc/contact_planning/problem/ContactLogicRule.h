@@ -48,6 +48,8 @@ namespace ocs2::humanoid {
  *    nicer) is never a reason to fix anything: it belongs in the objective. A rule that fixes more than is implied
  *    prunes feasible subtrees silently - MixedIntegerOcpQp still reports `optimal` - and no test on complete
  *    assignments can see it (testContactPlanningRegression enumerates the partial assignments the search reaches).
+ *
+ * Not thread-safe, like every ContactPlanningTerm: the planner that owns it configures and evaluates it from one thread at a time.
  */
 class ContactLogicRule : public ContactPlanningTerm {
  public:

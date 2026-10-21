@@ -31,6 +31,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_wb_mpc/mrt/WBMpcResetTarget.h"
 
+#include "humanoid_common_mpc/mrt/MpcLink.h"
 #include "humanoid_common_mpc/orientation/BaseOrientation.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
 
@@ -51,7 +52,7 @@ TargetTrajectories wbMpcResetTargetTrajectories(const SystemObservation& observa
 
   const vector_t targetInput = weightCompensatingInput(pinocchioInterface, {true, true}, mpcRobotModel);
   const scalar_t startTime = observation.time;
-  return TargetTrajectories({startTime, startTime + 2.0}, {targetState, targetState}, {targetInput, targetInput});
+  return TargetTrajectories({startTime, startTime + kResetTargetDuration}, {targetState, targetState}, {targetInput, targetInput});
 }
 
 }  // namespace ocs2::humanoid

@@ -43,6 +43,9 @@ namespace ocs2::humanoid {
 /**
  * Defines a linear constraint on an end-effector position (xee) and linear velocity (vee).
  * g(xee, vee, aee) = Ax * xee + Av * vee + Aa *aee + b
+ *
+ * Not thread-safe: its end-effector dynamics evaluate on the Pinocchio data of one worker's PreComputation, so the
+ * solver gives each worker thread its own clone().
  */
 class EndEffectorDynamicsLinearAccConstraint final : public StateInputConstraint {
  public:

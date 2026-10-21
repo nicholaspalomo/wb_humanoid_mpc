@@ -32,15 +32,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <memory>
 #include <utility>
 
+#include "absl/base/nullability.h"
 #include "absl/memory/memory.h"
 
 namespace ocs2::humanoid {
 
-absl::StatusOr<std::unique_ptr<RemoteMpcLinkAdapter>> RemoteMpcLinkAdapter::Create(robot::ipc::Bus& bus,
+absl::StatusOr<std::unique_ptr<RemoteMpcLinkAdapter>> RemoteMpcLinkAdapter::Create(robot::ipc::Bus* absl_nonnull bus,
                                                                                    ipc::RemoteMpcLink::Config config,
                                                                                    MpcResetSupervisor::Config supervisorConfig) {
   std::unique_ptr<RemoteMpcLinkAdapter> adapter = absl::WrapUnique(new RemoteMpcLinkAdapter(supervisorConfig));
-  absl::StatusOr<std::unique_ptr<ipc::RemoteMpcLink>> link = ipc::RemoteMpcLink::Create(bus, adapter->resetSupervisor(), std::move(config));
+  absl::StatusOr<std::unique_ptr<ipc::RemoteMpcLink>> link =
+      ipc::RemoteMpcLink::Create(bus, &adapter->resetSupervisor(), std::move(config));
   if (!link.ok()) {
     return link.status();
   }

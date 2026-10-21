@@ -6,17 +6,19 @@ import "humanoid_mpc_config/config_options.proto";
 import "nproto/options.proto";
 
 // The settings of the MPC loop (the task file's mpc block): the fields of ocs2::mpc::Settings, with that struct's
-// defaults, converted by toMpcSettings() (humanoid_common_mpc/config/solver/SolverSettingsFromConfig.h).
+// defaults, converted by toMpcSettings() (humanoid_common_mpc/config/solver/SolverSettingsFromConfig.h), which refuses a
+// value outside the range its comment states. A field without a default is a std::optional of the struct: its absence
+// is a setting of its own, which OCS2's struct spells as a negative sentinel.
 // Next ID: 7
 message MpcSettingsConfig {
   option (nproto.generate_struct) = "ocs2::humanoid::mpc_config::MpcSettingsConfig";
 
   reserved 7 to max;
 
-  // [s] The length of the horizon.
+  // [s] The length of the horizon, positive.
   double time_horizon = 1 [default = 1.0, (humanoid_mpc_config.tuning) = { unit: "s" }];
-  // [s] How much of the solution a policy carries, from its start; a negative value is the whole horizon.
-  double solution_time_window = 2 [default = -1.0, (humanoid_mpc_config.tuning) = { unit: "s" }];
+  // [s] How much of the solution a policy carries, from its start, positive; absent: the whole horizon.
+  double solution_time_window = 2 [(humanoid_mpc_config.tuning) = { unit: "s" }];
   // Whether the MPC logs each solve.
   bool debug_print = 3 [
     default = false,
@@ -26,8 +28,8 @@ message MpcSettingsConfig {
   ];
   // Whether each solve starts cold, from the operating trajectories, instead of warm, from the previous solution.
   bool cold_start = 4 [default = false];
-  // [Hz] The rate the MPC solves at; 0 or less solves once per new observation, as fast as it can.
-  double mpc_desired_frequency = 5 [default = -1.0, (humanoid_mpc_config.tuning) = { unit: "Hz" }];
-  // [Hz] The rate of the tracking controller that runs the policy.
+  // [Hz] The rate the MPC solves at, positive; absent: once per new observation, as fast as it can.
+  double mpc_desired_frequency = 5 [(humanoid_mpc_config.tuning) = { unit: "Hz" }];
+  // [Hz] The rate of the tracking controller that runs the policy, positive.
   double mrt_desired_frequency = 6 [default = 100.0, (humanoid_mpc_config.tuning) = { unit: "Hz" }];
 }

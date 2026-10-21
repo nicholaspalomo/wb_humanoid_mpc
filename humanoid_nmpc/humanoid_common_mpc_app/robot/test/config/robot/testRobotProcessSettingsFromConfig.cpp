@@ -161,6 +161,18 @@ TEST(RobotProcessSettingsFromConfigTest, AValueTheRobotProcessCannotRunWithIsRef
   }
 }
 
+TEST(RobotProcessSettingsFromConfigTest, AFallRecoveryDistanceIsAbsentOrPositive) {
+  // The schema has no 0 sentinel: leaving the field out is off, and a present value is positive.
+  for (const double bad : {0.0, -1.0, std::numeric_limits<double>::quiet_NaN()}) {
+    mpc_config::TaskFile tilt;
+    tilt.sim_max_base_tilt_angle = bad;
+    EXPECT_THAT(robotProcessSettingsFromConfig(tilt).status().message(), HasSubstr("sim_max_base_tilt_angle is ")) << bad;
+    mpc_config::TaskFile lift;
+    lift.sim_gantry_catch_lift = bad;
+    EXPECT_THAT(robotProcessSettingsFromConfig(lift).status().message(), HasSubstr("sim_gantry_catch_lift is ")) << bad;
+  }
+}
+
 TEST(RobotProcessSettingsFromConfigTest, TheRetiredKeysNameTheirReplacement) {
   struct Retired {
     const char* absl_nonnull text;

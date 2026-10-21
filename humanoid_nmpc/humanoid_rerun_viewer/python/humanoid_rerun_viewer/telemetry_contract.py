@@ -36,8 +36,11 @@ each group's description says what its values are:
   the duplication costs a few doubles per message and keeps every panel independent of the robot's joint names.
 - The complete groups: every joint (JOINT_GROUPS), every generalized coordinate, velocity and force (DOF_GROUPS), both
   contact wrenches (CONTACT_WRENCH_GROUPS), every tracked frame (frame_groups(), one set per frame of the task file's
-  telemetry_frames) and the MPC observation (MPC_OBSERVATION_GROUPS), the optimized plan's included. The orientation
-  quaternions are not plotted: the Euler angles next to them (and the 3D scene) show them.
+  telemetry_frames), the MPC observation (MPC_OBSERVATION_GROUPS), the optimized plan's included, and the latest MPC
+  solution's performance index and cost and constraint terms (MPC_SOLUTION_GROUPS). The orientation quaternions are not
+  plotted: the Euler angles next to them (and the 3D scene) show them.
+- The balance panels plot all three sources: the whole-body CoM, the DCM / ICP xi = c + c_dot / omega with
+  omega = sqrt(g / z0) from the model, the ZMP of the contact wrenches and the ACoM attitude.
 
 The MPC's state holds the base orientation as a quaternion and its velocity as the body angular velocity w_B. The plots
 show the ZYX Euler angles (roll, pitch, yaw) of the quaternion, their rates T_B(Theta)^-1 w_B, which are display values
@@ -63,6 +66,7 @@ REFERENCE = "reference"
 MPC = "mpc"
 PLAN = "plan"
 MEASURED_VS_REFERENCE = (MEASURED, REFERENCE)
+MEASURED_REFERENCE_PLAN = (MEASURED, REFERENCE, PLAN)
 
 # The names of the complete groups' series.
 POSE_NAMES = ("x", "y", "z", "roll", "pitch", "yaw")
@@ -97,6 +101,14 @@ DOF_NAMES_RULE = (
 DOF_VELOCITY_NAMES_RULE = (
     "base_vx, base_vy, base_vz, base_wx, base_wy, base_wz (getBaseVelocityDofNames(): the world linear and the body "
     "angular velocity), then ModelSettings::mpcModelJointNames in order"
+)
+COST_TERM_NAMES_RULE = (
+    "<collection>/<term> per cost term of the solver's problem, in the order it was added: intermediate/, state/, "
+    "soft/, state_soft/ (at the solution's first node), final/, final_soft/ (at its last node)"
+)
+CONSTRAINT_TERM_NAMES_RULE = (
+    "<collection>/<term> per constraint term of the solver's problem: equality/, state_equality/, inequality/, "
+    "state_inequality/ (at the solution's first node), final_equality/, final_inequality/ (at its last node)"
 )
 STATE_NAMES_RULE = "x0, x1, ...: one per component of the MPC state"
 INPUT_NAMES_RULE = "u0, u1, ...: one per component of the MPC input"
@@ -199,6 +211,39 @@ def _pair(
 
 _POSITION_COLORS = (palette.PLOT_BLUE, palette.PLOT_RED)
 _ANGLE_COLORS = (palette.PLOT_GREEN, palette.PLOT_ORANGE)
+_SOURCE_COLORS = (palette.PLOT_BLUE, palette.PLOT_RED, palette.PLOT_PURPLE)
+
+
+def _triple(path: str, unit: str, description: str) -> SeriesGroup:
+    """A panel group of the three sources: measured, reference and plan."""
+    return SeriesGroup(
+        path=path,
+        names=MEASURED_REFERENCE_PLAN,
+        unit=unit,
+        description=description,
+        colors=_SOURCE_COLORS,
+    )
+
+
+_COM_POSITION = (
+    "the whole-body center of mass (Pinocchio's, of the source's q), world frame, at its height. measured: of the "
+    "sample; reference: of the target trajectory; plan: of the MPC policy"
+)
+_DCM = (
+    "the divergent component of motion (instantaneous capture point) xi = c + c_dot / omega, omega = sqrt(g / z0), g "
+    "the Pinocchio model's gravity, z0 the nominal state's CoM height above its feet (computeComHeightAboveFeet); NaN "
+    "without a nominal state. Sources as com/"
+)
+_ZMP = (
+    "the zero moment point of the source's contact wrenches at its contact frames, on the plane of their "
+    "normal-force-weighted height; NaN below 1 N of net normal force. measured: the force sensors' forces, which carry "
+    "no torque, so the normal-force-weighted mean of the contact frames; reference: of the target trajectory's input; "
+    "plan: of the MPC policy's input"
+)
+_ACOM = (
+    "the attitude of the angular center of mass (AngularCenterOfMass::acomAttitude() of the base quaternion and the "
+    "joints) as ZYX Euler angles, for display; NaN for a robot without an ACoM network. Sources as com/"
+)
 
 _BASE_POSITION = (
     "measured: root position; reference: base position of the target trajectory"
@@ -343,6 +388,17 @@ PANEL_GROUPS: tuple[SeriesGroup, ...] = (
     ),
     _pair("foot_kinematics/left_velocity_z", "m/s", _FOOT_VELOCITY, _ANGLE_COLORS),
     _pair("foot_kinematics/right_velocity_z", "m/s", _FOOT_VELOCITY, _ANGLE_COLORS),
+    # Balance (CoM, DCM, ZMP, ACoM)
+    _triple("com/position_x", "m", _COM_POSITION),
+    _triple("com/position_y", "m", _COM_POSITION),
+    _triple("com/position_z", "m", _COM_POSITION),
+    _triple("dcm/x", "m", _DCM),
+    _triple("dcm/y", "m", _DCM),
+    _triple("zmp/x", "m", _ZMP),
+    _triple("zmp/y", "m", _ZMP),
+    _triple("acom/roll", "rad", _ACOM),
+    _triple("acom/pitch", "rad", _ACOM),
+    _triple("acom/yaw", "rad", _ACOM),
 )
 # LINT.ThenChange(//humanoid_nmpc/humanoid_rerun_viewer/README.md:panel_groups, //humanoid_nmpc/humanoid_common_mpc_app/visualization/src/TelemetryBuilder.cpp:telemetry_groups)
 
@@ -490,6 +546,39 @@ MPC_OBSERVATION_GROUPS: tuple[SeriesGroup, ...] = (
     ),
 )
 
+MPC_SOLUTION_GROUPS: tuple[SeriesGroup, ...] = (
+    SeriesGroup(
+        path="mpc_solution/performance",
+        names=(
+            "merit",
+            "cost",
+            "dynamics_violation_sse",
+            "equality_constraints_sse",
+            "inequality_constraints_sse",
+            "equality_lagrangian",
+            "inequality_lagrangian",
+        ),
+        unit="",
+        description="the solver's performance index of the latest solution, over its horizon (OCS2's PerformanceIndex); NaN "
+        "before the first",
+    ),
+    _robot_dependent(
+        "mpc_solution/costs",
+        "",
+        "per cost term of the latest solution, evaluated on the solver thread with the solver's own problem: an intermediate "
+        "term's L(t0, x0, u0) at the first node (a rate, per second; 0 while inactive), a final term's Phi(tf, xf); NaN "
+        "before the first solution and for a term the problem no longer has",
+        COST_TERM_NAMES_RULE,
+    ),
+    _robot_dependent(
+        "mpc_solution/constraints",
+        "",
+        "per constraint term of the latest solution, at the nodes of mpc_solution/costs: the 2-norm of its violation, |g| "
+        "for an equality g = 0, |min(g, 0)| for an inequality g >= 0; 0 while inactive",
+        CONSTRAINT_TERM_NAMES_RULE,
+    ),
+)
+
 # The groups of one tracked frame: frames/<kind>/<frame>/<source>, kind first so that a view can plot one kind of
 # every frame. <frame> is a frame of the task file's telemetry_frames (the contact frames when it lists none).
 FRAME_KINDS: dict[str, tuple[tuple[str, ...], str, str]] = {
@@ -546,6 +635,7 @@ STATIC_GROUPS: tuple[SeriesGroup, ...] = (
     + DOF_GROUPS
     + CONTACT_WRENCH_GROUPS
     + MPC_OBSERVATION_GROUPS
+    + MPC_SOLUTION_GROUPS
 )
 _STATIC_GROUPS_BY_PATH: dict[str, SeriesGroup] = {
     group.path: group for group in STATIC_GROUPS
@@ -594,6 +684,15 @@ def _pair_panel(
     )
 
 
+def _triple_panel(title: str, path: str) -> Panel:
+    """A panel of one group of the three sources: measured, reference and plan."""
+    return Panel(
+        title=title,
+        paths=(path,),
+        curves=tuple(Curve(path, name) for name in MEASURED_REFERENCE_PLAN),
+    )
+
+
 def _contact_normal_panel(title: str, side: str) -> Panel:
     return _pair_panel(title, f"contact_forces/{side}_normal", names=(MPC, MEASURED))
 
@@ -610,7 +709,7 @@ def _contact_tangential_panel(title: str, side: str) -> Panel:
     )
 
 
-# The six tabs of the panel groups, one small plot per panel. The joint panels plot every joint of the robot, and the
+# The seven tabs of the panel groups, one small plot per panel. The joint panels plot every joint of the robot, and the
 # curves name the first of them. "Base Pose & Euler" shows the base's Euler angles, their rates and its body angular
 # velocity, so that a plot configuration that selects it alone shows all three.
 # LINT.IfChange(panel_tabs)
@@ -746,6 +845,27 @@ PANEL_TABS: tuple[Tab, ...] = (
             ),
         ),
     ),
+    Tab(
+        title="Balance (CoM, DCM, ZMP, ACoM)",
+        rows=(
+            (
+                _triple_panel("CoM X [m]", "com/position_x"),
+                _triple_panel("CoM Y [m]", "com/position_y"),
+                _triple_panel("CoM Height Z [m]", "com/position_z"),
+            ),
+            (
+                _triple_panel("DCM X [m]", "dcm/x"),
+                _triple_panel("DCM Y [m]", "dcm/y"),
+                _triple_panel("ZMP X [m]", "zmp/x"),
+                _triple_panel("ZMP Y [m]", "zmp/y"),
+            ),
+            (
+                _triple_panel("ACoM Roll [rad]", "acom/roll"),
+                _triple_panel("ACoM Pitch [rad]", "acom/pitch"),
+                _triple_panel("ACoM Yaw [rad]", "acom/yaw"),
+            ),
+        ),
+    ),
 )
 # LINT.ThenChange(//humanoid_nmpc/humanoid_rerun_viewer/README.md:panel_groups)
 
@@ -814,6 +934,14 @@ COMPLETE_TABS: tuple[Tab, ...] = (
                     ),
                 ),
             ),
+        ),
+    ),
+    Tab(
+        title="MPC Solution",
+        rows=(
+            (Panel("Performance Index", ("mpc_solution/performance",)),),
+            (Panel("Cost Terms", ("mpc_solution/costs",)),),
+            (Panel("Constraint Violations", ("mpc_solution/constraints",)),),
         ),
     ),
     Tab(

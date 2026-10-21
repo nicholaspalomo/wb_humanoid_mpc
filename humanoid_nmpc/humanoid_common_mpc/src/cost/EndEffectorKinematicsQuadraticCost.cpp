@@ -34,6 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/base/nullability.h"
 #include "absl/log/log.h"
+#include "absl/strings/str_cat.h"
 
 namespace ocs2::humanoid {
 
@@ -62,9 +63,12 @@ EndEffectorKinematicsQuadraticCost::EndEffectorKinematicsQuadraticCost(const End
   LOG(INFO) << "Input dim: " << mpcRobotModelADPtr_->getInputDim();
   LOG(INFO) << "Parameters dim: " << n_parameters_;
 
+  // The library name carries the version of the residual, so that a library taped from an earlier one is never loaded
+  // from the cache in its place (the robots ship recompile_libraries_cpp_ad: false): "_logMap" is the orientation error
+  // Log(q_ref (x) q^-1) of computeTaskSpaceErrors(), which replaced the vector part of the error quaternion.
   initialize(mpcRobotModelADPtr_->getStateDim(), mpcRobotModelADPtr_->getInputDim(), n_parameters_,
-             endEffectorName + "_KinematicsQuadraticCost", modelSettings.modelFolderCppAd, modelSettings.recompileLibrariesCppAd,
-             modelSettings.verboseCppAd);
+             absl::StrCat(endEffectorName, "_KinematicsQuadraticCost_logMap"), modelSettings.modelFolderCppAd,
+             modelSettings.recompileLibrariesCppAd, modelSettings.verboseCppAd);
 }
 
 /******************************************************************************************************/
@@ -138,13 +142,14 @@ ad_vector_t EndEffectorKinematicsQuadraticCost::costVectorFunction(ad_scalar_t /
   ad_vector_t linearVelocity = pinocchio::getFrameVelocity(model, data, frameID_, rf).linear();
   ad_quaternion_t orientation = matrixToQuaternion(frameData.rotation());
   ad_vector_t angularVelocity = pinocchio::getFrameVelocity(model, data, frameID_, rf).angular();
-  ad_vector_t taskSpaceVec(13);
+  ad_vector_t taskSpaceVec(kEndEffectorCostElementDim);
   taskSpaceVec << position, orientation.coeffs(), linearVelocity, angularVelocity;
   // ad_vector_t errors = ad_vector_t::Zero(12);
   ad_vector_t errors = computeTaskSpaceErrors(EndEffectorKinematicsCostElement<ad_scalar_t>(taskSpaceVec),
-                                              EndEffectorKinematicsCostElement<ad_scalar_t>(parameters.head(13)));
+                                              EndEffectorKinematicsCostElement<ad_scalar_t>(parameters.head(kEndEffectorCostElementDim)));
 
-  const ad_vector_t sqrtWeightParams = parameters.segment<12>(13);  // EndEffectorKinematicsWeights vector element
+  // EndEffectorKinematicsWeights vector element
+  const ad_vector_t sqrtWeightParams = parameters.segment<kEndEffectorTaskSpaceErrorDim>(kEndEffectorCostElementDim);
 
   return errors.cwiseProduct(sqrtWeightParams);
 }

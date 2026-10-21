@@ -41,19 +41,19 @@ template <typename SCALAR_T>
 VECTOR6_T<SCALAR_T> computeBaseAcceleration(const VECTOR_T<SCALAR_T>& state,
                                             const VECTOR_T<SCALAR_T>& input,
                                             const PinocchioInterfaceTpl<SCALAR_T>& pinInterface,
-                                            WBAccelMpcRobotModel<SCALAR_T>& mpcRobotModel);
+                                            const WBAccelMpcRobotModel<SCALAR_T>& mpcRobotModel);
 
 template <typename SCALAR_T>
 VECTOR_T<SCALAR_T> computeGeneralizedAccelerations(const VECTOR_T<SCALAR_T>& state,
                                                    const VECTOR_T<SCALAR_T>& input,
                                                    const PinocchioInterfaceTpl<SCALAR_T>& pinInterface,
-                                                   WBAccelMpcRobotModel<SCALAR_T>& mpcRobotModel);
+                                                   const WBAccelMpcRobotModel<SCALAR_T>& mpcRobotModel);
 
 template <typename SCALAR_T>
 VECTOR_T<SCALAR_T> computeStateDerivative(const VECTOR_T<SCALAR_T>& state,
                                           const VECTOR_T<SCALAR_T>& input,
                                           const PinocchioInterfaceTpl<SCALAR_T>& pinInterface,
-                                          WBAccelMpcRobotModel<SCALAR_T>& mpcRobotModel);
+                                          const WBAccelMpcRobotModel<SCALAR_T>& mpcRobotModel);
 
 /**
  * Floating-base inverse dynamics of the whole-body MPC's state and input: computeJointTorques of
@@ -64,7 +64,7 @@ template <typename SCALAR_T>
 VECTOR_T<SCALAR_T> computeJointTorques(const VECTOR_T<SCALAR_T>& state,
                                        const VECTOR_T<SCALAR_T>& input,
                                        PinocchioInterfaceTpl<SCALAR_T>& pinInterface,
-                                       WBAccelMpcRobotModel<SCALAR_T>& mpcRobotModel);
+                                       const WBAccelMpcRobotModel<SCALAR_T>& mpcRobotModel);
 
 /**
  * The same for a base held still from outside (the gantry): computeBaseHeldJointTorques of
@@ -74,6 +74,6 @@ template <typename SCALAR_T>
 VECTOR_T<SCALAR_T> computeBaseHeldJointTorques(const VECTOR_T<SCALAR_T>& state,
                                                const VECTOR_T<SCALAR_T>& input,
                                                PinocchioInterfaceTpl<SCALAR_T>& pinInterface,
-                                               WBAccelMpcRobotModel<SCALAR_T>& mpcRobotModel);
+                                               const WBAccelMpcRobotModel<SCALAR_T>& mpcRobotModel);
 
 }  // namespace ocs2::humanoid

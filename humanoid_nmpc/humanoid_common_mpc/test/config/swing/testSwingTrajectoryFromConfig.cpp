@@ -28,7 +28,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
 // The swing trajectory settings from the typed task file (SwingTrajectoryFromConfig.h): the schema's defaults are the
-// planner's, every field of the schema reaches its own setting, a value that is not finite is refused, and the old
+// planner's, every field of the schema reaches its own setting, a value that is not finite or out of its range is refused,
+// and the old
 // camelCase spelling of a key is refused by the parser.
 
 #include <array>
@@ -107,8 +108,10 @@ TEST(SwingTrajectoryFromConfigTest, EveryFieldReachesASettingOfItsOwn) {
     const google::protobuf::FieldDescriptor* absl_nonnull field = descriptor->field(i);
     ASSERT_EQ(field->cpp_type(), google::protobuf::FieldDescriptor::CPPTYPE_DOUBLE) << field->name();
     humanoid_mpc_config::SwingTrajectoryConfig proto;
-    // Away from the default, and of the default's sign.
-    const double value = 0.5 * field->default_value_double() + 0.0625;
+    // Away from the default, and inside the field's range: the lift-off slope of the impact-proximity factor is 0 or
+    // negative.
+    const double offset = field->name() == "impact_proximity_factor_lift_off_velocity" ? -0.0625 : 0.0625;
+    const double value = 0.5 * field->default_value_double() + offset;
     proto.GetReflection()->SetDouble(&proto, field, value);
 
     const std::vector<uint64_t> bits = memberBits(convert(proto));
@@ -140,6 +143,38 @@ TEST(SwingTrajectoryFromConfigTest, AValueThatIsNotFiniteIsRefusedByName) {
   }
 }
 
+TEST(SwingTrajectoryFromConfigTest, AValueOutOfItsRangeIsRefusedByName) {
+  struct OutOfRange {
+    const char* absl_nonnull field;
+    double value;
+  };
+  // swing_time_scale divides a swing's duration, a negative swing apex is below the ground, and the impact-proximity
+  // factor and the pitch ramps are documented in their ranges.
+  for (const OutOfRange& refused :
+       {OutOfRange{.field = "swing_time_scale", .value = 0.0}, OutOfRange{.field = "swing_time_scale", .value = -0.1},
+        OutOfRange{.field = "swing_height", .value = -0.01}, OutOfRange{.field = "impact_proximity_factor_lift_off_velocity", .value = 0.1},
+        OutOfRange{.field = "impact_proximity_factor_touch_down_velocity", .value = -0.1},
+        OutOfRange{.field = "impact_proximity_factor_mid_point_value", .value = -0.1},
+        OutOfRange{.field = "impact_proximity_factor_mid_point_value", .value = 1.5},
+        OutOfRange{.field = "swing_pitch_rise_fraction", .value = -0.1}, OutOfRange{.field = "swing_pitch_fall_fraction", .value = 1.1}}) {
+    humanoid_mpc_config::SwingTrajectoryConfig proto;
+    const google::protobuf::FieldDescriptor* absl_nullable field = proto.GetDescriptor()->FindFieldByName(refused.field);
+    ASSERT_NE(field, nullptr) << refused.field;
+    proto.GetReflection()->SetDouble(&proto, field, refused.value);
+    mpc_config::SwingTrajectoryConfig config;
+    ASSERT_TRUE(mpc_config::FromProto(proto, &config).ok());
+    const absl::Status status = swingTrajectorySettingsFromConfig(config).status();
+    EXPECT_EQ(status.code(), absl::StatusCode::kInvalidArgument) << refused.field << " = " << refused.value;
+    EXPECT_TRUE(absl::StrContains(status.message(), absl::StrCat("swing_trajectory_config.", refused.field, ": "))) << status;
+  }
+  // The ends of the ranges are accepted: a flat swing, a slope of 0, a factor of 0 or 1.
+  mpc_config::SwingTrajectoryConfig ends;
+  ends.swing_height = 0.0;
+  ends.impact_proximity_factor_mid_point_value = 1.0;
+  ends.swing_pitch_rise_fraction = 0.0;
+  EXPECT_TRUE(swingTrajectorySettingsFromConfig(ends).ok());
+}
+
 TEST(SwingTrajectoryFromConfigTest, TheCamelCaseSpellingOfAKeyIsRefusedWithItsNewName) {
   const absl::StatusOr<humanoid_mpc_config::TaskFile> file =
       nproto::ParseTextproto<humanoid_mpc_config::TaskFile>("swing_trajectory_config {\n  swingTimeScale: 0.25\n}\n", "task.textproto");
@@ -154,7 +189,7 @@ TEST(SwingTrajectoryFromConfigTest, AWrittenValueIsTheSetting) {
   ASSERT_TRUE(file.ok()) << file.status();
   const Settings settings = convert(file->swing_trajectory_config());
   EXPECT_EQ(settings.swingHeight, 0.08);
-  // The negative zero the G1 files write survives as one.
+  // A negative zero survives as one.
   EXPECT_TRUE(std::signbit(settings.touchDownVelocity));
   EXPECT_EQ(settings.swingTimeScale, Settings{}.swingTimeScale);
 }

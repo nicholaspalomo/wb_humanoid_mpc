@@ -29,8 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 // The task file's weights and states by name become the MPC's matrices and vectors on the layout of its state and
 // input: each block lands at the coordinates of its MPC whatever order the file names joints and contacts in, every
-// element is `scaling` times its entry (also -0.0 off the diagonal), and what the MPC needs and does not have is
-// refused naming the field path, every problem at once. An absent scaling is 1, and the schemas refuse their retired
+// element is `scaling` times its entry, and what the MPC needs and does not have, or a weight below 0, is refused
+// naming the field path, every problem at once. An absent scaling is 1, and the schemas refuse their retired
 // keys naming their replacement. Every shipped task file's state_weights, final_state_weights and initial_state convert
 // to the n_t rows of the tuning layout - the tangent of the quaternion state, one row fewer than the state - with each
 // orientation block on its own rows, and the initial state onto the quaternion state.
@@ -38,6 +38,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <array>
 #include <cmath>
 #include <cstdlib>
+#include <functional>
+#include <limits>
 #include <string>
 #include <utility>
 #include <vector>
@@ -240,14 +242,162 @@ TEST(StateWeightsFromConfigTest, EachBlockLandsOnItsWholeBodyCoordinatesScaled) 
 }
 
 TEST(StateWeightsFromConfigTest, EveryElementIsTheScalingTimesItsEntry) {
-  const mpc_config::TaskFile task = taskFile(absl::StrCat("state_weights { scaling: -1 ", kCentroidalState, " }"));
+  const mpc_config::TaskFile task = taskFile(absl::StrCat("state_weights { scaling: 3 ", kCentroidalState, " }"));
   const absl::StatusOr<matrix_t> weights =
       stateWeightsFromConfig(task.state_weights, smallLayout(StateInputLayout::Mpc::kCentroidal), "state_weights");
   ASSERT_TRUE(weights.ok()) << weights.status();
-  // loadEigenMatrix multiplied every element, the zeros included: a negative scaling gives -0.0 off the diagonal.
-  EXPECT_TRUE(std::signbit((*weights)(0, 1)));
-  EXPECT_TRUE(std::signbit((*weights)(13, 0)));
-  EXPECT_EQ((*weights)(13, 13), -14.0);
+  // The zeros off the diagonal too, as loadEigenMatrix multiplied every element.
+  EXPECT_EQ((*weights)(0, 1), 0.0);
+  EXPECT_EQ((*weights)(13, 13), 3.0 * 14.0);
+}
+
+/** A number of a weight block, by its path in the message, and how a test writes a value into it. */
+template <typename Block>
+struct WeightField {
+  std::string path;
+  std::function<void(Block&, double)> set;
+};
+
+/**
+ * Expects `convert` of `valid` with any one weight of `fields` set to -1 or NaN to be refused naming its path, and set
+ * to 0 to be accepted: a weight below 0 makes the quadratic cost, and the Gauss-Newton Hessian the solver builds from
+ * it, indefinite, while 0 switches a term off.
+ */
+template <typename Block, typename Convert>
+void expectNegativeOrNanWeightsRefused(const Block& valid, const std::vector<WeightField<Block>>& fields, Convert convert) {
+  ASSERT_TRUE(convert(valid).ok()) << convert(valid).status();
+  for (const WeightField<Block>& field : fields) {
+    for (const double value : {-1.0, std::numeric_limits<double>::quiet_NaN()}) {
+      Block refused = valid;
+      field.set(refused, value);
+      expectRefused(convert(refused).status(), {absl::StrCat(field.path, " is ", value)});
+    }
+    Block zero = valid;
+    const double switchedOff = 0.0;
+    field.set(zero, switchedOff);
+    EXPECT_TRUE(convert(zero).ok()) << field.path << " = 0: " << convert(zero).status();
+  }
+}
+
+TEST(StateWeightsFromConfigTest, ANegativeOrNanWeightOrScalingIsRefused) {
+  using Weights = mpc_config::StateWeights;
+  const StateInputLayout layout = smallLayout(StateInputLayout::Mpc::kCentroidal);
+  const Weights valid = taskFile(absl::StrCat("state_weights { ", kCentroidalState, " }")).state_weights;
+  // joint_positions[0] is the entry of joint b (kCentroidalState lists b first).
+  const std::vector<WeightField<Weights>> fields = {
+      {"state_weights.scaling", [](Weights& w, double v) { w.scaling = v; }},
+      {"state_weights.normalized_linear_momentum.x", [](Weights& w, double v) { w.normalized_linear_momentum->x = v; }},
+      {"state_weights.normalized_angular_momentum.z", [](Weights& w, double v) { w.normalized_angular_momentum->z = v; }},
+      {"state_weights.base_position.y", [](Weights& w, double v) { w.base_position->y = v; }},
+      {"state_weights.base_orientation.pitch", [](Weights& w, double v) { w.base_orientation->pitch = v; }},
+      {"state_weights.joint_positions[joint=b].value", [](Weights& w, double v) { w.joint_positions[0].value = v; }},
+  };
+  expectNegativeOrNanWeightsRefused(valid, fields,
+                                    [&layout](const Weights& w) { return stateWeightsFromConfig(w, layout, "state_weights"); });
+  // The terminal weights and the tracking weights go through the same conversion.
+  Weights negative = valid;
+  if (!negative.base_position.has_value()) {
+    FAIL() << "kCentroidalState sets base_position";
+  }
+  negative.base_position->x = -1.0;
+  expectRefused(
+      terminalStateWeightsFromConfig(negative, /*terminalCostScaling=*/1.0, layout, "final_state_weights", BasePoseWeights::kKept).status(),
+      {"final_state_weights.base_position.x is -1"});
+}
+
+TEST(StateValuesFromConfigTest, AStateValueMayBeNegative) {
+  const mpc_config::TaskFile task = taskFile(R"pb(
+    initial_state {
+      normalized_linear_momentum { x: -1 y: 2 z: 3 }
+      normalized_angular_momentum { x: 4 y: 5 z: 6 }
+      base_position { x: 7 y: 8 z: 9 }
+      base_orientation { yaw: -10 pitch: 11 roll: 12 }
+      joint_positions { joint: "b" value: -14 }
+      joint_positions { joint: "a" value: 13 }
+    }
+  )pb");
+  const absl::StatusOr<vector_t> state =
+      stateValuesFromConfig(task.initial_state, smallLayout(StateInputLayout::Mpc::kCentroidal), "initial_state");
+  ASSERT_TRUE(state.ok()) << state.status();
+  EXPECT_EQ((*state)(0), -1.0);
+}
+
+TEST(InputWeightsFromConfigTest, ANegativeOrNanWeightOrScalingIsRefused) {
+  using Weights = mpc_config::InputWeights;
+  const StateInputLayout layout = smallLayout(StateInputLayout::Mpc::kCentroidal);
+  const Weights valid = taskFile(R"pb(
+                          input_weights {
+                            contact_wrenches {
+                              contact: "left"
+                              force { x: 1 y: 2 z: 3 }
+                              moment { x: 4 y: 5 z: 6 }
+                            }
+                            contact_wrenches {
+                              contact: "right"
+                              force { x: 7 y: 8 z: 9 }
+                              moment { x: 10 y: 11 z: 12 }
+                            }
+                            joint_velocities { joint: "a" value: 13 }
+                            joint_velocities { joint: "b" value: 14 }
+                          }
+                        )pb")
+                            .input_weights;
+  const std::vector<WeightField<Weights>> fields = {
+      {"input_weights.scaling", [](Weights& w, double v) { w.scaling = v; }},
+      {"input_weights.contact_wrenches[contact=left].force.z", [](Weights& w, double v) { w.contact_wrenches[0].force->z = v; }},
+      {"input_weights.contact_wrenches[contact=right].moment.x", [](Weights& w, double v) { w.contact_wrenches[1].moment->x = v; }},
+      {"input_weights.joint_velocities[joint=b].value", [](Weights& w, double v) { w.joint_velocities[1].value = v; }},
+  };
+  expectNegativeOrNanWeightsRefused(valid, fields,
+                                    [&layout](const Weights& w) { return inputWeightsFromConfig(w, layout, "input_weights"); });
+}
+
+TEST(ComAndAcomWeightsFromConfigTest, ANegativeOrNanWeightOrScalingIsRefused) {
+  using Com = mpc_config::ComWeights;
+  const Com com = taskFile("com_weights { x: 1 y: 2 z: 3 }").com_weights;
+  expectNegativeOrNanWeightsRefused(com,
+                                    std::vector<WeightField<Com>>{
+                                        {"com_weights.scaling", [](Com& w, double v) { w.scaling = v; }},
+                                        {"com_weights.y", [](Com& w, double v) { w.y = v; }},
+                                    },
+                                    [](const Com& w) { return comWeightsFromConfig(w, "com_weights"); });
+  using Acom = mpc_config::AcomWeights;
+  const Acom acom = taskFile("acom_weights { yaw: 1 pitch: 2 roll: 3 }").acom_weights;
+  expectNegativeOrNanWeightsRefused(acom,
+                                    std::vector<WeightField<Acom>>{
+                                        {"acom_weights.scaling", [](Acom& w, double v) { w.scaling = v; }},
+                                        {"acom_weights.roll", [](Acom& w, double v) { w.roll = v; }},
+                                    },
+                                    [](const Acom& w) { return acomWeightsFromConfig(w, "acom_weights"); });
+}
+
+TEST(LegTorqueCostFromConfigTest, ANegativeOrNanWeightOrScalingIsRefused) {
+  using Weights = mpc_config::JointWeights;
+  const StateInputLayout layout = smallLayout(StateInputLayout::Mpc::kCentroidal);
+  const Weights valid = taskFile(R"pb(
+                          left_leg_torque_cost {
+                            joints { joint: "b" value: 4 }
+                            joints { joint: "a" value: 2 }
+                          }
+                        )pb")
+                            .left_leg_torque_cost;
+  const std::vector<WeightField<Weights>> fields = {
+      {"left_leg_torque_cost.scaling", [](Weights& w, double v) { w.scaling = v; }},
+      {"left_leg_torque_cost.joints[joint=a].value", [](Weights& w, double v) { w.joints[1].value = v; }},
+  };
+  expectNegativeOrNanWeightsRefused(valid, fields,
+                                    [&layout](const Weights& w) { return legTorqueCostFromConfig(w, layout, "left_leg_torque_cost"); });
+}
+
+TEST(TerminalCostScalingFromConfigTest, ANegativeOrNanScalingIsRefused) {
+  for (const double value : {-1.0, std::numeric_limits<double>::quiet_NaN()}) {
+    mpc_config::TaskFile task;
+    task.terminal_cost_scaling = value;
+    expectRefused(terminalCostScalingFromConfig(task).status(), {absl::StrCat("terminal_cost_scaling is ", value)});
+  }
+  mpc_config::TaskFile zero;
+  zero.terminal_cost_scaling = 0.0;
+  EXPECT_TRUE(terminalCostScalingFromConfig(zero).ok());
 }
 
 TEST(StateWeightsFromConfigTest, EmptyBlocksAndJointsWithoutAValueAreZeros) {
@@ -563,6 +713,35 @@ TEST(JointTorqueWeightsFromConfigTest, EachJointsWeightLandsAtItsJoint) {
       jointTorqueWeightsFromConfig(mpc_config::JointWeights{}, smallLayout(StateInputLayout::Mpc::kWholeBody), "joint_torque_weights")
           .status(),
       {"joint_torque_weights.joints: missing a, b"});
+}
+
+TEST(JointTorqueWeightsFromConfigTest, ANegativeOrNanWeightOrScalingIsRefused) {
+  // JointTorqueCostCppAd weighs each torque by the square root of its weight: a negative weight is a NaN in the cost.
+  const mpc_config::TaskFile task = taskFile(R"pb(
+    joint_torque_weights {
+      scaling: 3
+      joints { joint: "b" value: 2 }
+      joints { joint: "a" value: 1 }
+    }
+  )pb");
+  const StateInputLayout layout = smallLayout(StateInputLayout::Mpc::kWholeBody);
+  mpc_config::JointWeights negativeScaling = task.joint_torque_weights;
+  negativeScaling.scaling = -1.0;
+  expectRefused(jointTorqueWeightsFromConfig(negativeScaling, layout, "joint_torque_weights").status(),
+                {"joint_torque_weights.scaling is -1, but a weight is at least 0"});
+  mpc_config::JointWeights negativeWeight = task.joint_torque_weights;
+  negativeWeight.joints[0].value = -2.0;
+  expectRefused(jointTorqueWeightsFromConfig(negativeWeight, layout, "joint_torque_weights").status(),
+                {"joint_torque_weights.joints[joint=b].value is -2, but a weight is at least 0"});
+  mpc_config::JointWeights nanWeight = task.joint_torque_weights;
+  nanWeight.joints[1].value = std::numeric_limits<double>::quiet_NaN();
+  EXPECT_FALSE(jointTorqueWeightsFromConfig(nanWeight, layout, "joint_torque_weights").ok());
+  // A zero weight switches a joint's torque off and is kept.
+  mpc_config::JointWeights zeroWeight = task.joint_torque_weights;
+  zeroWeight.joints[0].value = 0.0;
+  const absl::StatusOr<vector_t> zero = jointTorqueWeightsFromConfig(zeroWeight, layout, "joint_torque_weights");
+  ASSERT_TRUE(zero.ok()) << zero.status();
+  EXPECT_EQ(*zero, (vector_t(2) << 3.0, 0.0).finished());
 }
 
 TEST(WeightSchemaTest, AnAbsentScalingIsOne) {

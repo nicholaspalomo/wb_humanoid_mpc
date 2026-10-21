@@ -35,7 +35,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-/** `warm_start_previous_plan`: the previous plan's assignment, shifted by the elapsed time, is tried first. */
+/**
+ * `warm_start_previous_plan`: the previous plan's assignment, shifted by the elapsed time, is tried first.
+ *
+ * Not thread-safe, like every ContactPlanningTerm: the planner that owns it configures and evaluates it from one thread at a time.
+ */
 class WarmStartPreviousPlanStage final : public SearchStage {
  public:
   std::string describe() const override;

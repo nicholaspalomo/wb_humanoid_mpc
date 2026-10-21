@@ -282,7 +282,7 @@ TEST(RemoteMpcLinkAdapter, IsCreatedBeforeTheBusRunsAndHandedOverOnce) {
   std::unique_ptr<robot::ipc::Bus> bus = robot_test::createLoopbackBus("robot");
   ipc::RemoteMpcLink::Config config;
   config.dimensions = ipc::ModelDimensions{.stateDim = 3, .inputDim = 2, .numModes = 4};
-  absl::StatusOr<std::unique_ptr<RemoteMpcLinkAdapter>> adapter = RemoteMpcLinkAdapter::Create(*bus, config);
+  absl::StatusOr<std::unique_ptr<RemoteMpcLinkAdapter>> adapter = RemoteMpcLinkAdapter::Create(bus.get(), config);
   ASSERT_TRUE(adapter.ok()) << adapter.status();
   RemoteMpcLinkAdapter* absl_nonnull link = adapter->get();
   EXPECT_TRUE(link->isHealthy());
@@ -306,7 +306,7 @@ TEST(RemoteMpcLinkAdapter, IsCreatedBeforeTheBusRunsAndHandedOverOnce) {
   // A running bus takes no more subscriptions.
   std::unique_ptr<robot::ipc::Bus> running = robot_test::createLoopbackBus("robot");
   ASSERT_TRUE(running->start().ok());
-  EXPECT_FALSE(RemoteMpcLinkAdapter::Create(*running, config).ok());
+  EXPECT_FALSE(RemoteMpcLinkAdapter::Create(running.get(), config).ok());
   running->stop();
 }
 

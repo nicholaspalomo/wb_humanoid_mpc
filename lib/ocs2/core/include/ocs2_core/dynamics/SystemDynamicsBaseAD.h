@@ -96,6 +96,16 @@ class SystemDynamicsBaseAD : public SystemDynamicsBase {
   virtual ad_vector_t systemJumpMap(ad_scalar_t time, const ad_vector_t& state) const;
 
  private:
+  /**
+   * The functions the libraries tape, systemFlowMap() at x = (time, state, input) and systemJumpMap() at x = (time,
+   * state) of this object. They refer to this object, so a copy hands the copies of the libraries functions of its own
+   * (the copy constructor) and never tapes the object it was copied from, which may be destroyed first.
+   */
+  CppAdInterface::ad_function_t tapedFlowMap() const;
+  CppAdInterface::ad_function_t tapedJumpMap() const;
+
+  size_t stateDim_ = 0;
+  size_t inputDim_ = 0;
   std::unique_ptr<CppAdInterface> flowMapADInterfacePtr_;
   std::unique_ptr<CppAdInterface> jumpMapADInterfacePtr_;
 

@@ -30,15 +30,19 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <unistd.h>
 
 #include <atomic>
+#include <chrono>
 #include <cstdlib>
+#include <filesystem>
 #include <fstream>
 #include <functional>
 #include <memory>
 #include <optional>
 #include <string>
+#include <system_error>
 #include <utility>
 
 #include "absl/base/nullability.h"
+#include "absl/base/thread_annotations.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
@@ -57,7 +61,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "robot_ipc/Bus.h"
 #include "robot_ipc/BusOptions.h"
 #include "robot_ipc/Delivery.h"
-#include "robot_ipc/NodeEndpoint.h"
+#include "robot_runtime/robot_ipc/test/TestNetwork.h"
 
 /*
  * The keyboard velocity teleoperation: the command limits it reads from reference.textproto (the ones the MPC scales
@@ -68,10 +72,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid::teleop {
 namespace {
 
+// The header of a reference file, which names its schema.
+constexpr char kReferenceHeader[] = "# proto-message: humanoid_mpc_config.ReferenceFile\n";
+
+/** The reference file `content`, on the line below kReferenceHeader, written to `name`; its path. */
 std::string writeTemporaryFile(const std::string& name, const std::string& content) {
   const char* absl_nullable directory = std::getenv("TEST_TMPDIR");
   const std::string path = absl::StrCat(directory != nullptr ? directory : "/tmp", "/", name);
-  std::ofstream(path) << content;
+  std::ofstream(path) << kReferenceHeader << content;
   return path;
 }
 
@@ -116,7 +124,7 @@ TEST(KeyboardCommandLimits, RefusesAMissingFieldALimitThatIsNotPositiveAnUnknown
   const std::string unknownFile = writeTemporaryFile("unknown.textproto", absl::StrCat(complete, "max_speed: 2\n"));
   const absl::StatusOr<KeyboardCommandLimits> unknown = loadKeyboardCommandLimits(unknownFile);
   EXPECT_EQ(unknown.status().code(), absl::StatusCode::kInvalidArgument);
-  EXPECT_TRUE(absl::StrContains(unknown.status().message(), absl::StrCat(unknownFile, ":6:"))) << unknown.status();
+  EXPECT_TRUE(absl::StrContains(unknown.status().message(), absl::StrCat(unknownFile, ":7:"))) << unknown.status();
 
   EXPECT_EQ(loadKeyboardCommandLimits("/nonexistent/reference.textproto").status().code(), absl::StatusCode::kNotFound);
 }
@@ -188,10 +196,61 @@ TEST(LineReader, GivesUpWaitingOnceTheStopPredicateHolds) {
   ::close(pipeEnds[1]);
 }
 
+// A complete reference file whose max_displacement_velocity_x is `maxVelocityX` (default_base_height 0.75 m).
+std::string referenceWithMaxVelocityX(const std::string& maxVelocityX) {
+  return absl::StrCat("max_displacement_velocity_x: ", maxVelocityX,
+                      "\nmax_displacement_velocity_y: 0.3\nmax_delta_pelvis_height: 0.2\nmax_rotation_velocity: 0.8\n"
+                      "default_base_height: 0.75\n");
+}
+
+// Rewrites `path` with the reference file `content` below kReferenceHeader and moves its modification time `secondsLater` seconds past the
+// previous one, so that a file system of coarse timestamps still shows the change.
+void rewriteLater(const std::string& path, const std::string& content, int secondsLater) {
+  std::error_code error;
+  const std::filesystem::file_time_type before = std::filesystem::last_write_time(path, error);
+  ASSERT_FALSE(error) << error.message();
+  std::ofstream(path, std::ios::trunc) << kReferenceHeader << content;
+  std::filesystem::last_write_time(path, before + std::chrono::seconds(secondsLater), error);
+  ASSERT_FALSE(error) << error.message();
+}
+
+// The commands a subscriber on its own loopback bus receives on operator/walking_velocity_command.
+class CommandRecorder {
+ public:
+  void record(const humanoid_mpc_msgs::WalkingVelocityCommand& command) {
+    absl::MutexLock lock(mutex_);
+    last_ = command;
+    ++count_;
+  }
+  std::optional<humanoid_mpc_msgs::WalkingVelocityCommand> last() const {
+    absl::MutexLock lock(mutex_);
+    return last_;
+  }
+  int count() const {
+    absl::MutexLock lock(mutex_);
+    return count_;
+  }
+  // Waits up to `timeout` until the last command satisfies `done`.
+  bool waitFor(const std::function<bool(const humanoid_mpc_msgs::WalkingVelocityCommand&)>& done, absl::Duration timeout) const {
+    const absl::Time deadline = absl::Now() + timeout;
+    while (absl::Now() < deadline) {
+      const std::optional<humanoid_mpc_msgs::WalkingVelocityCommand> command = last();
+      if (command.has_value() && done(*command)) return true;
+      absl::SleepFor(absl::Milliseconds(5));
+    }
+    return false;
+  }
+
+ private:
+  mutable absl::Mutex mutex_;
+  std::optional<humanoid_mpc_msgs::WalkingVelocityCommand> last_ ABSL_GUARDED_BY(mutex_);
+  int count_ ABSL_GUARDED_BY(mutex_) = 0;
+};
+
 std::unique_ptr<robot::ipc::Bus> loopbackBus(const std::string& name) {
   robot::ipc::BusOptions options;
   options.nodeName = name;
-  options.network.nodes = {robot::ipc::NodeEndpoint{.name = name, .host = "127.0.0.1", .port = robot::ipc::kEphemeralPort, .bindHost = ""}};
+  options.network = robot::ipc::isolatedTestNetwork({name});
   absl::StatusOr<std::unique_ptr<robot::ipc::Bus>> bus = robot::ipc::Bus::Create(std::move(options));
   EXPECT_TRUE(bus.ok()) << bus.status();
   return *std::move(bus);
@@ -200,7 +259,6 @@ std::unique_ptr<robot::ipc::Bus> loopbackBus(const std::string& name) {
 TEST(VelocityCommandRepeater, PublishesNothingBeforeTheFirstCommandAndThenTheLatestOneAtTheTopicsRate) {
   std::unique_ptr<robot::ipc::Bus> teleop = loopbackBus("teleop");
   std::unique_ptr<robot::ipc::Bus> mpc = loopbackBus("mpc");
-  ASSERT_TRUE(mpc->connect(teleop->boundEndpoint()).ok());
   absl::Mutex mutex;
   std::optional<humanoid_mpc_msgs::WalkingVelocityCommand> received;
   std::atomic<int> receivedCount{0};
@@ -212,7 +270,10 @@ TEST(VelocityCommandRepeater, PublishesNothingBeforeTheFirstCommandAndThenTheLat
                                                                           receivedCount.fetch_add(1);
                                                                         })
                   .ok());
-  absl::StatusOr<std::unique_ptr<VelocityCommandRepeater>> repeater = VelocityCommandRepeater::Create(*teleop);
+  const std::string referenceFile = writeTemporaryFile("repeater_rate.textproto", referenceWithMaxVelocityX("1.0"));
+  const absl::StatusOr<KeyboardCommandLimits> limits = loadKeyboardCommandLimits(referenceFile);
+  ASSERT_TRUE(limits.ok()) << limits.status();
+  absl::StatusOr<std::unique_ptr<VelocityCommandRepeater>> repeater = VelocityCommandRepeater::Create(*teleop, referenceFile, *limits);
   ASSERT_TRUE(repeater.ok()) << repeater.status();
   ASSERT_TRUE(teleop->start().ok());
   ASSERT_TRUE(mpc->start().ok());
@@ -221,10 +282,7 @@ TEST(VelocityCommandRepeater, PublishesNothingBeforeTheFirstCommandAndThenTheLat
   EXPECT_EQ((*repeater)->published(), 0);
   EXPECT_EQ(receivedCount.load(), 0);
 
-  humanoid_mpc_msgs::WalkingVelocityCommand command;
-  command.set_linear_velocity_x(0.5);
-  command.set_desired_pelvis_height(0.8);
-  (*repeater)->setCommand(command);
+  (*repeater)->setCommand(vector4_t(0.5, 0.0, 0.0, 0.0), *limits);
   const absl::Time deadline = absl::Now() + absl::Seconds(10);
   while (receivedCount.load() < 3 && absl::Now() < deadline) absl::SleepFor(absl::Milliseconds(5));
   ASSERT_GE(receivedCount.load(), 3);
@@ -242,6 +300,109 @@ TEST(VelocityCommandRepeater, PublishesNothingBeforeTheFirstCommandAndThenTheLat
   EXPECT_LE(inPeriod, 15);
   teleop->stop();
   mpc->stop();
+}
+
+// A pair of loopback buses, the teleop one with a repeater on `referenceFile`, the MPC one recording what arrives.
+struct RepeaterRig {
+  std::unique_ptr<robot::ipc::Bus> teleop;
+  std::unique_ptr<robot::ipc::Bus> mpc;
+  std::unique_ptr<CommandRecorder> recorder;
+  std::unique_ptr<VelocityCommandRepeater> repeater;
+};
+
+RepeaterRig startRepeaterRig(const std::string& referenceFile, const KeyboardCommandLimits& limits, absl::Duration limitsCheckPeriod) {
+  RepeaterRig rig{
+      .teleop = loopbackBus("teleop"), .mpc = loopbackBus("mpc"), .recorder = std::make_unique<CommandRecorder>(), .repeater = nullptr};
+  CommandRecorder* absl_nonnull recorder = rig.recorder.get();
+  EXPECT_TRUE(rig.mpc
+                  ->subscribe<humanoid_mpc_msgs::WalkingVelocityCommand>(
+                      ipc::topics::kOperatorWalkingVelocityCommand, robot::ipc::Delivery::kAll,
+                      [recorder](const humanoid_mpc_msgs::WalkingVelocityCommand& command) { recorder->record(command); })
+                  .ok());
+  absl::StatusOr<std::unique_ptr<VelocityCommandRepeater>> repeater =
+      VelocityCommandRepeater::Create(*rig.teleop, referenceFile, limits, kVelocityCommandPeriod, limitsCheckPeriod);
+  EXPECT_TRUE(repeater.ok()) << repeater.status();
+  if (repeater.ok()) rig.repeater = *std::move(repeater);
+  EXPECT_TRUE(rig.teleop->start().ok());
+  EXPECT_TRUE(rig.mpc->start().ok());
+  return rig;
+}
+
+TEST(VelocityCommandRepeater, ASavedChangeOfTheLimitsKeepsTheTypedSpeed) {
+  const std::string referenceFile = writeTemporaryFile("repeater_limits.textproto", referenceWithMaxVelocityX("1.0"));
+  const absl::StatusOr<KeyboardCommandLimits> limits = loadKeyboardCommandLimits(referenceFile);
+  ASSERT_TRUE(limits.ok()) << limits.status();
+  RepeaterRig rig = startRepeaterRig(referenceFile, *limits, /*limitsCheckPeriod=*/absl::Milliseconds(80));
+  ASSERT_NE(rig.repeater, nullptr);
+
+  // 0.5 m/s at a limit of 1.0 m/s goes out normalized as 0.5.
+  rig.repeater->setCommand(vector4_t(0.5, 0.0, 0.0, 0.0), *limits);
+  ASSERT_TRUE(rig.recorder->waitFor([](const humanoid_mpc_msgs::WalkingVelocityCommand& c) { return c.linear_velocity_x() == 0.5; },
+                                    absl::Seconds(10)));
+
+  // The MPC now scales by 2.0 m/s: the repeater sends 0.25, so the robot still walks at the 0.5 m/s the terminal showed.
+  rewriteLater(referenceFile, referenceWithMaxVelocityX("2.0"), /*secondsLater=*/2);
+  EXPECT_TRUE(rig.recorder->waitFor([](const humanoid_mpc_msgs::WalkingVelocityCommand& c) { return c.linear_velocity_x() == 0.25; },
+                                    absl::Seconds(10)));
+  EXPECT_GE(rig.repeater->limitsReloads(), 1u);
+
+  // A lowered limit clamps the held command: 0.5 m/s at a limit of 0.4 m/s is the full 1.0.
+  rewriteLater(referenceFile, referenceWithMaxVelocityX("0.4"), /*secondsLater=*/4);
+  EXPECT_TRUE(rig.recorder->waitFor([](const humanoid_mpc_msgs::WalkingVelocityCommand& c) { return c.linear_velocity_x() == 1.0; },
+                                    absl::Seconds(10)));
+
+  // A file that no longer reads keeps the previous limits.
+  rewriteLater(referenceFile, "max_displacement_velocity_x: \n", /*secondsLater=*/6);
+  absl::SleepFor(absl::Milliseconds(400));
+  const std::optional<humanoid_mpc_msgs::WalkingVelocityCommand> kept = rig.recorder->last();
+  if (!kept.has_value()) FAIL() << "no command";
+  EXPECT_EQ(kept->linear_velocity_x(), 1.0);
+  rig.teleop->stop();
+  rig.mpc->stop();
+}
+
+TEST(VelocityCommandRepeater, EndsWithTheStopCommandKeepingTheHeight) {
+  const std::string referenceFile = writeTemporaryFile("repeater_stop.textproto", referenceWithMaxVelocityX("1.0"));
+  const absl::StatusOr<KeyboardCommandLimits> limits = loadKeyboardCommandLimits(referenceFile);
+  ASSERT_TRUE(limits.ok()) << limits.status();
+  RepeaterRig rig = startRepeaterRig(referenceFile, *limits, kCommandLimitsCheckPeriod);
+  ASSERT_NE(rig.repeater, nullptr);
+
+  // Nothing was ever commanded: nothing to stop, and nothing is published.
+  EXPECT_FALSE(rig.repeater->publishStopCommand(/*timeout=*/absl::Milliseconds(100), /*gracePeriod=*/absl::ZeroDuration()));
+  EXPECT_EQ(rig.repeater->published(), 0u);
+
+  rig.repeater->setCommand(vector4_t(0.5, 0.1, 0.05, 0.2), *limits);
+  ASSERT_TRUE(rig.recorder->waitFor([](const humanoid_mpc_msgs::WalkingVelocityCommand& c) { return c.linear_velocity_x() == 0.5; },
+                                    absl::Seconds(10)));
+  EXPECT_TRUE(rig.repeater->publishStopCommand());
+  EXPECT_TRUE(rig.recorder->waitFor(
+      [](const humanoid_mpc_msgs::WalkingVelocityCommand& c) {
+        return c.linear_velocity_x() == 0.0 && c.linear_velocity_y() == 0.0 && c.angular_velocity_z() == 0.0;
+      },
+      absl::Seconds(10)));
+  const std::optional<humanoid_mpc_msgs::WalkingVelocityCommand> stop = rig.recorder->last();
+  if (!stop.has_value()) FAIL() << "no command";
+  EXPECT_DOUBLE_EQ(stop->desired_pelvis_height(), 0.75 + 0.05);
+  rig.teleop->stop();
+  rig.mpc->stop();
+}
+
+TEST(VelocityCommandRepeater, ABusThatIsNotRunningNeverSendsTheStopCommand) {
+  const std::string referenceFile = writeTemporaryFile("repeater_stopped.textproto", referenceWithMaxVelocityX("1.0"));
+  const absl::StatusOr<KeyboardCommandLimits> limits = loadKeyboardCommandLimits(referenceFile);
+  ASSERT_TRUE(limits.ok()) << limits.status();
+  std::unique_ptr<robot::ipc::Bus> teleop = loopbackBus("teleop");
+  absl::StatusOr<std::unique_ptr<VelocityCommandRepeater>> repeater = VelocityCommandRepeater::Create(*teleop, referenceFile, *limits);
+  ASSERT_TRUE(repeater.ok()) << repeater.status();
+  (*repeater)->setCommand(vector4_t(0.5, 0.0, 0.0, 0.0), *limits);
+  EXPECT_FALSE((*repeater)->publishStopCommand(/*timeout=*/absl::Milliseconds(200), /*gracePeriod=*/absl::ZeroDuration()));
+}
+
+TEST(VelocityCommandRepeater, RefusesAPeriodThatIsNotPositive) {
+  std::unique_ptr<robot::ipc::Bus> teleop = loopbackBus("teleop");
+  EXPECT_EQ(VelocityCommandRepeater::Create(*teleop, "unused", KeyboardCommandLimits{}, absl::ZeroDuration()).status().code(),
+            absl::StatusCode::kInvalidArgument);
 }
 
 }  // namespace

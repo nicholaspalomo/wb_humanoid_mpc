@@ -37,6 +37,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <utility>
 #include <vector>
 
+#include "absl/container/flat_hash_map.h"
 #include "absl/status/status.h"
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
@@ -46,7 +47,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/common/CostTermNames.h"
 #include "humanoid_common_mpc/config/costs/TaskSpaceCostFromConfig.h"
 #include "humanoid_common_mpc/config/weights/StateInputWeightsFromConfig.h"
-#include "humanoid_common_mpc/cost/EndEffectorKinematicCostHelpers.h"
 #include "humanoid_common_mpc/cost/EndEffectorKinematicsQuadraticCost.h"
 #include "humanoid_common_mpc/cost/ExternalTorqueQuadraticCostAD.h"
 #include "humanoid_common_mpc/parameter_update/OcpTermUpdates.h"
@@ -88,8 +88,8 @@ std::vector<std::string> carriedLinkCostTerms(const HotUpdateTarget& target) {
   return terms;
 }
 
-bool namesTerm(const std::vector<TermWeights>& entries, const std::string& term) {
-  return std::any_of(entries.begin(), entries.end(), [&term](const TermWeights& entry) { return entry.term == term; });
+bool namesTerm(const std::vector<TermWeights>& entries, absl::string_view term) {
+  return std::any_of(entries.begin(), entries.end(), [term](const TermWeights& entry) { return entry.term == term; });
 }
 
 /**
@@ -145,12 +145,40 @@ std::vector<TermWeights> legTorqueWeights(const HotUpdateTarget& target) {
     if (!carriesTerm(*target.runningProblem().costPtr, term)) continue;
     const bool left = i == 0;
     const absl::string_view field = left ? "left_leg_torque_cost" : "right_leg_torque_cost";
-    if (const std::optional<ExternalTorqueQuadraticCostAD::Config> config =
-            convertedOrReported(legTorqueCostFromConfig(left ? target.task().left_leg_torque_cost : target.task().right_leg_torque_cost,
-                                                        target.layout(), field),
-                                target.source(), field)) {
-      weights.push_back(TermWeights{.term = term, .weights = config->weights});
+    const std::optional<ExternalTorqueQuadraticCostAD::Config> config = convertedOrReported(
+        legTorqueCostFromConfig(left ? target.task().left_leg_torque_cost : target.task().right_leg_torque_cost, target.layout(), field),
+        target.source(), field);
+    if (!config.has_value()) continue;
+
+    const ExternalTorqueQuadraticCostAD& runningCost = target.runningProblem().costPtr->get<ExternalTorqueQuadraticCostAD>(term);
+    const std::vector<std::string>& runningJoints = runningCost.activeJointNames();
+    if (config->activeJointNames.size() != runningJoints.size()) {
+      target.reportNotApplied(absl::StrCat(field, ".joints"),
+                              absl::FailedPreconditionError("the joints of a leg's torque cost are taped into its CppAD library; an added, "
+                                                            "removed or renamed joint takes effect at the next start"));
+      continue;
     }
+    absl::flat_hash_map<std::string, scalar_t> weightByJoint;
+    for (size_t j = 0; j < config->activeJointNames.size(); ++j) {
+      weightByJoint[config->activeJointNames[j]] = config->weights[static_cast<Eigen::Index>(j)];
+    }
+    bool jointsMatch = true;
+    vector_t mappedWeights(runningJoints.size());
+    for (size_t j = 0; j < runningJoints.size(); ++j) {
+      const absl::flat_hash_map<std::string, scalar_t>::const_iterator it = weightByJoint.find(runningJoints[j]);
+      if (it == weightByJoint.end()) {
+        jointsMatch = false;
+        break;
+      }
+      mappedWeights[static_cast<Eigen::Index>(j)] = it->second;
+    }
+    if (!jointsMatch) {
+      target.reportNotApplied(absl::StrCat(field, ".joints"),
+                              absl::FailedPreconditionError("the joints of a leg's torque cost are taped into its CppAD library; an added, "
+                                                            "removed or renamed joint takes effect at the next start"));
+      continue;
+    }
+    weights.push_back(TermWeights{.term = term, .weights = std::move(mappedWeights)});
   }
   return weights;
 }
@@ -170,8 +198,11 @@ void TrackingCostWeightsApplier::apply(HotUpdateTarget& target) {
           *ocp.costPtr, update.term, [&](EndEffectorKinematicsQuadraticCost& cost) { cost.setWeights(vector12_t(update.weights)); });
     }
     for (const TermWeights& update : legTorques) {
-      updateTermIfPresent<ExternalTorqueQuadraticCostAD>(*ocp.costPtr, update.term,
-                                                         [&](ExternalTorqueQuadraticCostAD& cost) { cost.setWeights(update.weights); });
+      updateTermIfPresent<ExternalTorqueQuadraticCostAD>(*ocp.costPtr, update.term, [&](ExternalTorqueQuadraticCostAD& cost) {
+        if (const absl::Status status = cost.setWeights(update.weights); !status.ok()) {
+          reportFailedTermUpdate(update.term, status);
+        }
+      });
     }
   }
 }

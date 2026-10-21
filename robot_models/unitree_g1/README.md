@@ -42,11 +42,9 @@ G1 has a trained Angular Center of Mass network, `AcomSirenWeightsG1.h`, registe
 `com_and_acom_tracking_cost` in its `costs` (a comment there says why), and G1 has no contact planner configuration that
 would run the network as a heading model. The whole-body MPC refuses the cost whatever the robot.
 
-The reason is accuracy. Over the joint-limit box, the network's joint Jacobian is 40 % off the centroidal connection
-on average, against 22 % for the validated Atlas network, and at its worst configurations it is further from the
-target than no network at all; at G1's nominal stance it is 37 % off. It was also trained on a joint box trimmed by
-10 % of each range, which left G1's nominal knee angle of 0.1 rad outside the training set; the dataset generator now
-samples the full box. `testAcomAngularVelocityConsistency` grades the header against its own measured bounds, which
+The reason is accuracy. Over the joint-limit box, the network's joint rate map J_l(Δθ)·J_Δθ is 34 % off the centroidal
+connection on average, against 16 % for the validated Atlas network, and at its worst configurations it is further
+from the target than no network at all; at G1's nominal stance it is 36 % off. `testAcomAngularVelocityConsistency` grades the header against its own measured bounds, which
 only guard against it getting worse, and fails if `com_and_acom_tracking_cost` is listed while G1 is marked unvalidated
 there.
 

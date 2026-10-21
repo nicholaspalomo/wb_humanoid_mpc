@@ -19,14 +19,14 @@ sim_contact_force_threshold: 5.0  # [N] normal force above which a contact point
 # limit, an unstable step) are caught the same way. The remote control follows the lock and re-centers its joysticks,
 # so a stick left forward cannot keep commanding a walk into a robot hanging from the harness. The measure is the angle
 # between the base's own vertical and the world vertical, so it is heading independent: 0 upright, pi/2 on its side, pi
-# upside down. 0 disables the catch and leaves a fallen robot where it lands, which is what you want when the fall
+# upside down. Leaving it out disables the catch and leaves a fallen robot where it lands, which is what you want when the fall
 # itself is the thing being studied. 1.0 rad (57 deg) is past any recoverable lean.
 # sim_gantry_catch_lift is how far the gantry then lifts the caught robot so that its feet clear the ground: JOINT_PD brings
 # the legs back to the nominal posture, the gantry lowers the robot back onto its feet, and WB_MPC is refused until it
 # rests there. Caught at its standing height with its feet loaded where they landed, the robot hung pitched and fell
-# again within two seconds of the unlock. 0 skips the sequence and accepts WB_MPC at once. Simulation only.
-sim_max_base_tilt_angle: 1.0  # [rad] 0 disables
-sim_gantry_catch_lift: 0.15  # [m] 0 skips the settle sequence
+# again within two seconds of the unlock. Leaving it out skips the sequence and accepts WB_MPC at once. Simulation only.
+sim_max_base_tilt_angle: 1.0  # [rad] positive; absent disables
+sim_gantry_catch_lift: 0.15  # [m] positive; absent skips the settle sequence
 # Measured contact state of the controller, by name (robot_model/ContactEstimatorRegistry.h): the MPC observation mode and
 # which planned contact wrenches the inverse dynamics projects into feedforward torques. One of:
 #   cheater_sim        the ground truth of the physics (normal force above sim_contact_force_threshold); required for the
@@ -157,10 +157,15 @@ model_settings {
     orientation_error_gain: 80.0
     linear_velocity_error_gain_z: 10.0
     linear_velocity_error_gain_xy: 20.0
-    angular_velocity_error_gain: 20.0
+    # The angular gains multiply the rate and the acceleration of the orientation error (the sine of half the tilt;
+    # along the ground normal, half the rotation rate about the foot normal), not the foot's angular velocity and
+    # acceleration: at a level foot these are w / 2 and alpha / 2 + (n.w)(n x w) / 2 (humanoid_nmpc/docs/
+    # quaternion_base_orientation/README.md, section 2.8.6). Twice the 20 and 1 the gains had on w and alpha reproduce
+    # the former law at a level foot up to (n.w)(n x w), times the former acceleration gain of 1, which is zero at rest.
+    angular_velocity_error_gain: 40.0
     linear_acceleration_error_gain_z: 1.0
     linear_acceleration_error_gain_xy: 1.0
-    angular_acceleration_error_gain: 1.0
+    angular_acceleration_error_gain: 2.0
   }
 
   phase_transition_stance_time: 0.0
@@ -195,7 +200,7 @@ model_settings {
 
 swing_trajectory_config {
   lift_off_velocity: 0.05
-  touch_down_velocity: -0.0
+  touch_down_velocity: 0.0
   swing_height: 0.08
   touch_down_height_offset: -0.001
   swing_time_scale: 0.4
@@ -233,7 +238,7 @@ rollout {
 
 mpc {
   time_horizon: 1.1  # [s]
-  solution_time_window: -1  # maximum [s]
+  # solution_time_window is absent: every policy carries the whole horizon.
   cold_start: false
 
   debug_print: false
@@ -401,7 +406,7 @@ state_weights {
 input_weights {
   scaling: 1e-3
 
-  # ; Feet Contact Forces: [LF, RF, LH, RH] ;;
+  # The wrench of each contact, by name: its force [N] and moment [N m].
   contact_wrenches {
     contact: "foot_l_contact"
     force {
@@ -544,8 +549,10 @@ task_space_foot_cost {
     pos_x: 0.0
     pos_y: 0.0
     pos_z: 0.0
-    orientation_x: 10000.0
-    orientation_y: 10000.0
+    # orientation_x / orientation_y weigh the foot's tilt from the ground in rad^2 (tiltAngleToPlane()). They were 10000 on
+    # the half-angle residual sin(tilt / 2), the same weight at small tilts as 2500 here.
+    orientation_x: 2500.0
+    orientation_y: 2500.0
     orientation_z: 0.0
     lin_velocity_x: 5.0
     lin_velocity_y: 5.0
@@ -571,10 +578,15 @@ contacts {
   }
   contact_rectangle {
     # ; length specified in contact frame ;;
-    x_max: 0.09
-    x_min: -0.09
-    y_max: 0.03
-    y_min: -0.03
+    # Inside the support polygon of the sole in g1_29dof.xml: its four contact spheres sit at ankle-frame x = -0.05 /
+    # +0.12, y = +-0.025 at the heel and +-0.03 at the toe, and the contact frame is 0.035 ahead of the ankle, so the
+    # polygon is x in [-0.085, +0.085], y in [-0.025, +0.025] at the heel widening to +-0.03 at the toe. The rectangle is
+    # the largest inside it (robot_models/tests/test_default_stance.py); the previous +-0.09 / +-0.03 let the MPC plan the
+    # center of pressure up to 5 mm beyond the heel, the toe and the heel's sides.
+    x_max: 0.085
+    x_min: -0.085
+    y_max: 0.025
+    y_min: -0.025
   }
 
   friction_force_cone_soft_constraint {

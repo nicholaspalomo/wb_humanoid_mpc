@@ -25,6 +25,10 @@ exports_files(["setup_env.sh"])
 # //tools/hooks:test_lint_enforcement check how it runs the hooks.
 exports_files(["Makefile"])
 
+# The viewer hotkey table, which //robot_runtime/mujoco_sim_interface:test_viewer_hotkey_docs checks against the shipped
+# task files (with .devcontainer/README.md, exported below).
+exports_files(["README.md"])
+
 # The issue templates, which //tools/dev_container:test_dev_container keeps free of ROS.
 exports_files([
     ".github/ISSUE_TEMPLATE/bug_report.md",
@@ -32,8 +36,8 @@ exports_files([
 ])
 
 # The dev image and the system packages CI and the image install; //tools/hooks:test_include_style checks that none of
-# them brings a system Abseil, Protocol Buffers, ZeroMQ or googletest, and //tools/hooks:test_ci_formatter_versions that
-# CI's format check uses the image's formatters.
+# them brings a system Abseil, Protocol Buffers, Cyclone DDS or googletest, and //tools/hooks:test_ci_formatter_versions
+# that CI's format check uses the image's formatters.
 exports_files([
     ".github/workflows/format_test.yml",
     "dependencies.txt",

@@ -40,7 +40,9 @@ namespace ocs2 {
 PinocchioCentroidalDynamicsAD::PinocchioCentroidalDynamicsAD(const PinocchioInterface& pinocchioInterface, const CentroidalModelInfo& info,
                                                              const std::string& modelName, const std::string& modelFolder,
                                                              bool recompileLibraries, bool verbose) {
-  auto systemFlowMapFunc = [&](const ad_vector_t& x, ad_vector_t& y) {
+  // The function holds copies of what it reads: every copy of the CppAdInterface holds a copy of it, which a taping
+  // after construction (CppAdInterface::getTapeOperationCount()) runs after the arguments are gone.
+  const CppAdInterface::ad_function_t systemFlowMapFunc = [pinocchioInterface, info](const ad_vector_t& x, ad_vector_t& y) {
     // initialize CppAD interface
     auto pinocchioInterfaceCppAd = pinocchioInterface.toCppAd();
 

@@ -217,7 +217,7 @@ def in_paths(path: str, paths: list[str]) -> bool:
         return True
     for selected in paths:
         selected = repository_path(selected).rstrip("/")
-        if path == selected or path.startswith(selected + "/"):
+        if path == selected or path.startswith(f"{selected}/"):
             return True
     return False
 

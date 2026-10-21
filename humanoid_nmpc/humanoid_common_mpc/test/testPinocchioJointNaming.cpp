@@ -52,6 +52,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
 #include "humanoid_common_mpc/pinocchio_model/pinocchioUtils.h"
 #include "humanoid_mpc_config/task_file.nproto.h"
+#include "humanoid_nmpc/humanoid_common_mpc/test/support/StatusTestMacros.h"
 
 /**
  * The MPC indexes its state, its joint limits and its joint weights by the order of ModelSettings::mpcModelJointNames,
@@ -113,12 +114,12 @@ class PinocchioJointNamingTest : public ::testing::Test {
     absl::StatusOr<mpc_config::TaskFile> task = loadTaskFile(taskFile);
     ASSERT_TRUE(task.ok()) << task.status();
     task_ = *std::move(task);
-    settings_ = std::make_unique<ModelSettings>(ModelSettings::Create(task_, urdfFile_, "wb_mpc_", /*verbose=*/false).value());
+    settings_ = std::make_unique<ModelSettings>(checkedValue(ModelSettings::Create(task_, urdfFile_, "wb_mpc_", /*verbose=*/false)));
     // The same task file with one more joint fixed: the ModelSettings of another joint list.
     moreFixedTask_ = task_;
     moreFixedTask_.model_settings.fixed_joint_names.emplace_back(kJoint);
     moreFixedSettings_ =
-        std::make_unique<ModelSettings>(ModelSettings::Create(moreFixedTask_, urdfFile_, "wb_mpc_", /*verbose=*/false).value());
+        std::make_unique<ModelSettings>(checkedValue(ModelSettings::Create(moreFixedTask_, urdfFile_, "wb_mpc_", /*verbose=*/false)));
     ASSERT_EQ(moreFixedSettings_->mpcModelJointNames.size() + 1, settings_->mpcModelJointNames.size());
   }
 
@@ -183,14 +184,14 @@ TEST_F(PinocchioJointNamingTest, theRootIsTheQuaternionCompositeAndEachJointsLim
   const size_t jointDim = settings_->mpcModelJointNames.size();
   ASSERT_EQ(static_cast<size_t>(model.nq), kBaseConfigurationDim + jointDim);
   ASSERT_EQ(static_cast<size_t>(model.nv), kBaseVelocityDim + jointDim);
-  const std::pair<vector_t, vector_t> limits = readPinocchioJointLimits(*pinocchioInterface, *settings_, /*verbose=*/false);
+  const JointPositionLimits limits = readPinocchioJointLimits(*pinocchioInterface, *settings_, Verbosity::kQuiet);
   for (size_t joint = 0; joint < jointDim; ++joint) {
     const std::string& name = settings_->mpcModelJointNames[joint];
     const pinocchio::JointModel& jointModel = model.joints[model.getJointId(name)];
     EXPECT_EQ(static_cast<size_t>(jointModel.idx_q()), kJointConfigurationOffset + joint) << name;
     EXPECT_EQ(static_cast<size_t>(jointModel.idx_v()), kJointVelocityOffset + joint) << name;
-    EXPECT_EQ(limits.first(static_cast<Eigen::Index>(joint)), model.lowerPositionLimit(jointModel.idx_q())) << name;
-    EXPECT_EQ(limits.second(static_cast<Eigen::Index>(joint)), model.upperPositionLimit(jointModel.idx_q())) << name;
+    EXPECT_EQ(limits.lower(static_cast<Eigen::Index>(joint)), model.lowerPositionLimit(jointModel.idx_q())) << name;
+    EXPECT_EQ(limits.upper(static_cast<Eigen::Index>(joint)), model.upperPositionLimit(jointModel.idx_q())) << name;
   }
 }
 
@@ -200,9 +201,9 @@ TEST_F(PinocchioJointNamingDeathTest, theJointLimitsAreNotReadByPositionFromAMis
   const absl::StatusOr<PinocchioInterface> full = loadCustomPinocchioInterface(task_, urdfFile_, *settings_);
   ASSERT_TRUE(full.ok()) << full.status();
   // Positive control: the matching settings read one limit per MPC joint.
-  const std::pair<vector_t, vector_t> limits = readPinocchioJointLimits(*full, *settings_, /*verbose=*/false);
-  EXPECT_EQ(limits.first.size(), static_cast<Eigen::Index>(settings_->mpcModelJointNames.size()));
-  EXPECT_DEATH(readPinocchioJointLimits(*full, *moreFixedSettings_, /*verbose=*/false), kJoint.data());
+  const JointPositionLimits limits = readPinocchioJointLimits(*full, *settings_, Verbosity::kQuiet);
+  EXPECT_EQ(limits.lower.size(), static_cast<Eigen::Index>(settings_->mpcModelJointNames.size()));
+  EXPECT_DEATH(readPinocchioJointLimits(*full, *moreFixedSettings_, Verbosity::kQuiet), kJoint.data());
 }
 
 }  // namespace ocs2::humanoid

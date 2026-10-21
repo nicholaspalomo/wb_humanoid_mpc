@@ -32,6 +32,7 @@ cc_library(
         "//robot_runtime/robot_realtime",
         "@abseil-cpp//absl/base:core_headers",
         "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/functional:function_ref",
         "@abseil-cpp//absl/log",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/strings",
@@ -40,8 +41,8 @@ cc_library(
     ],
 )
 
-# The robot process (RobotProcess.h) and its parts: the backend registry, the operator's mailboxes, the FSM bridge and
-# the fall recovery of the simulator, the telemetry sampler and sinks, the task file's settings (from the typed task
+# The robot process (RobotProcess.h) and its parts: the backend registry, the operator's mailboxes, the supervisors (the
+# FSM bridge and the fall recovery of the simulator and of a hardware backend), the telemetry sampler and sinks, the task file's settings (from the typed task
 # file, src/config/robot/), the MpcLink over the remote MPC link, and the configuration store (the persistent copies
 # the GUI's Save writes, RobotConfigDirectory.h, ConfigFileStore.h) with the start-up the robot binaries share
 # (RobotStartup.h).
@@ -51,8 +52,11 @@ cc_library(
         "src/AtomicFileWrite.cpp",
         "src/BusTelemetrySink.cpp",
         "src/ConfigFileStore.cpp",
+        "src/FsmBridgeState.cpp",
         "src/FsmCommand.cpp",
         "src/FsmStateMailbox.cpp",
+        "src/HardwareFallRecovery.cpp",
+        "src/HardwareFsmBridge.cpp",
         "src/InitialSimState.cpp",
         "src/JointNamesByIndex.cpp",
         "src/MujocoRobotBackend.cpp",
@@ -68,6 +72,7 @@ cc_library(
         "src/RobotProcessSettings.cpp",
         "src/RobotSetUpSteps.cpp",
         "src/RobotStartup.cpp",
+        "src/RobotSupervisorRegistry.cpp",
         "src/SimFallRecovery.cpp",
         "src/SimFsmBridge.cpp",
         "src/StoredConfigFileKinds.cpp",
@@ -81,8 +86,13 @@ cc_library(
         "include/humanoid_common_mpc_app/robot/AtomicFileWrite.h",
         "include/humanoid_common_mpc_app/robot/BusTelemetrySink.h",
         "include/humanoid_common_mpc_app/robot/ConfigFileStore.h",
+        "include/humanoid_common_mpc_app/robot/FallRecovery.h",
+        "include/humanoid_common_mpc_app/robot/FsmBridge.h",
+        "include/humanoid_common_mpc_app/robot/FsmBridgeState.h",
         "include/humanoid_common_mpc_app/robot/FsmCommand.h",
         "include/humanoid_common_mpc_app/robot/FsmStateMailbox.h",
+        "include/humanoid_common_mpc_app/robot/HardwareFallRecovery.h",
+        "include/humanoid_common_mpc_app/robot/HardwareFsmBridge.h",
         "include/humanoid_common_mpc_app/robot/InitialSimState.h",
         "include/humanoid_common_mpc_app/robot/JointNamesByIndex.h",
         "include/humanoid_common_mpc_app/robot/MrtRobotController.h",
@@ -101,6 +111,7 @@ cc_library(
         "include/humanoid_common_mpc_app/robot/RobotSetUpSteps.h",
         "include/humanoid_common_mpc_app/robot/RobotStack.h",
         "include/humanoid_common_mpc_app/robot/RobotStartup.h",
+        "include/humanoid_common_mpc_app/robot/RobotSupervisorRegistry.h",
         "include/humanoid_common_mpc_app/robot/SimFallRecovery.h",
         "include/humanoid_common_mpc_app/robot/SimFsmBridge.h",
         "include/humanoid_common_mpc_app/robot/StoredConfigFileKinds.h",
@@ -130,6 +141,7 @@ cc_library(
         # The plot configuration, whose mujoco_viewer names the MuJoCo viewer without --viewer (RobotAppOptions.h).
         "//humanoid_nmpc/humanoid_rerun_viewer:plot_config_cc_proto",
         "//humanoid_nmpc/humanoid_rerun_viewer:plot_config_nproto",
+        "//humanoid_state_estimation/humanoid_state_estimator:state_estimator",
         "//lib/ocs2:ocs2_core",
         "//lib/ocs2:ocs2_mpc",
         "//lib/ocs2:ocs2_robotic_tools",
@@ -144,6 +156,7 @@ cc_library(
         "@abseil-cpp//absl/base:core_headers",
         "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/container:flat_hash_map",
+        "@abseil-cpp//absl/functional:function_ref",
         "@abseil-cpp//absl/log",
         "@abseil-cpp//absl/memory",
         "@abseil-cpp//absl/status",
@@ -200,15 +213,22 @@ _SHIPPED_TASK_FILES = [
 ]
 # LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_app/robot/test/testRobotProcessSettings.cpp:shipped_task_files)
 
-# What the tests of the robot process share: the Atlas files, headless simulators, loopback buses and a scripted
-# controller (test/RobotTestSupport.h).
+# What the tests of the robot process share: the Atlas files, headless simulators, loopback buses, a scripted
+# controller (test/RobotTestSupport.h) and a backend that is no simulator (test/FakeRobotBackend.h).
 cc_library(
     name = "robot_test_support",
     testonly = True,
-    srcs = ["test/RobotTestSupport.cpp"],
-    hdrs = ["test/RobotTestSupport.h"],
+    srcs = [
+        "test/FakeRobotBackend.cpp",
+        "test/RobotTestSupport.cpp",
+    ],
+    hdrs = [
+        "test/FakeRobotBackend.h",
+        "test/RobotTestSupport.h",
+    ],
     copts = FIRST_PARTY_COPTS,
     deps = [
+        "//robot_runtime/robot_ipc:test_network",
         ":robot_process",
         "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
         "//robot_runtime/mujoco_sim_interface",
@@ -247,6 +267,7 @@ cc_library(
         "//humanoid_nmpc/humanoid_mpc_ipc",
         "//humanoid_nmpc/humanoid_mpc_msgs:messages_cc_proto",
         "//robot_runtime/robot_ipc",
+        "//robot_runtime/robot_ipc:test_network",
         "@abseil-cpp//absl/base:core_headers",
         "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/log:check",
@@ -294,10 +315,7 @@ cc_test(
     size = "small",
     srcs = ["test/testRobotRealtimeAllocations.cpp"],
     copts = FIRST_PARTY_COPTS,
-    data = [
-        "test/data/dodgeball_throw.textproto",
-        "//robot_models/drc_atlas/drc_atlas_description",
-    ],
+    data = _ATLAS_DATA + ["test/data/dodgeball_throw.textproto"],
     linkstatic = True,
     deps = [
         ":realtime_loop",
@@ -309,11 +327,41 @@ cc_test(
         "//humanoid_nmpc/humanoid_mpc_msgs:messages_cc_proto",
         "//robot_runtime/mujoco_sim_interface:viewer_settings",
         "//robot_runtime/robot_model",
+        "//humanoid_state_estimation/humanoid_state_estimator:state_estimator",
+        "//robot_runtime/robot_ipc",
         "//robot_runtime/robot_realtime:allocation_counter",
         "//tools/nproto:nproto_runtime",
         "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/synchronization",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The robot process on a backend that is no simulator: the hardware supervisor's FSM bridge (the backend's torque
+# switch, no gantry) and fall recovery (torques off past the tilt limit), the supervisor registry's refusals, and the
+# whole process running its cycles over the bus on the fake backend with either state estimator.
+cc_test(
+    name = "test_hardware_supervisor",
+    size = "medium",
+    srcs = ["test/testHardwareSupervisor.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = _ATLAS_DATA,
+    deps = [
+        ":realtime_loop",
+        ":robot_process",
+        ":robot_test_support",
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_mpc_ipc",
+        "//humanoid_nmpc/humanoid_mpc_msgs:messages_cc_proto",
+        "//humanoid_nmpc/humanoid_mpc_msgs:messages_nproto",
+        "//humanoid_state_estimation/humanoid_state_estimator:state_estimator",
+        "//robot_runtime/robot_ipc",
+        "//robot_runtime/robot_model",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/synchronization",
+        "@eigen",
         "@googletest//:gtest_main",
     ],
 )
@@ -386,6 +434,32 @@ cc_test(
         "@abseil-cpp//absl/log:absl_check",
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
+        "@googletest//:gtest_main",
+        "@pinocchio",
+    ],
+)
+
+# Every shipped robot runs one gravity: its MuJoCo scene's, its Pinocchio model's (which the MPC's pendulums read), the
+# centroidal dynamics' kGravitationalAcceleration and the GUI's dodgeball aim.
+cc_test(
+    name = "test_shipped_robot_gravity",
+    size = "small",
+    srcs = ["test/testShippedRobotGravity.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = _SHIPPED_TASK_FILES + [
+        "//robot_models/drc_atlas/drc_atlas_description",
+        "//robot_models/engineai_sa01/engineai_sa01_description",
+        "//robot_models/unitree_g1/g1_description",
+        "//robot_models/unitree_r1/unitree_r1_description",
+    ],
+    deps = [
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//lib/mujoco_vendor",
+        "//lib/ocs2:ocs2_core",
+        "//robot_runtime/mujoco_sim_interface",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
         "@googletest//:gtest_main",
         "@pinocchio",
     ],
@@ -477,6 +551,7 @@ cc_test(
         "//humanoid_nmpc/humanoid_common_mpc",
         "//humanoid_nmpc/humanoid_mpc_config:config_cc_proto",
         "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
+        "//humanoid_state_estimation/humanoid_state_estimator:state_estimator",
         "//robot_runtime/robot_model",
         "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/status",

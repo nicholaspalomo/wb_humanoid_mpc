@@ -38,8 +38,9 @@ You can choose between different tracking formulations in `task.textproto`:
 
 <!-- LINT.IfChange(acom_status) -->
 Atlas's ACoM network (`AcomSirenWeightsAtlas.h`) is the reference, and the only one **validated** for closed-loop use:
-its joint Jacobian approximates the centroidal connection to 0.219 mean relative error, against acceptance bounds of
-0.30 mean and 0.50 worst that `testAcomAngularVelocityConsistency` enforces. That is why Atlas is the one robot that
+the map from joint velocities to its angular velocity, J_l(Δθ)·J_Δθ, approximates the centroidal connection to 0.158
+mean relative error, against acceptance bounds of 0.22 mean and 0.45 worst that `testAcomAngularVelocityConsistency`
+enforces. That is why Atlas is the one robot that
 ships with `com_and_acom_tracking_cost` in its `costs` and with `heading_double_integrator` in its contact planner. See
 `humanoid_learning/acom/README.md`, section 6.3.
 <!-- LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/test/testAcomAngularVelocityConsistency.cpp:acom_acceptance_robots) -->

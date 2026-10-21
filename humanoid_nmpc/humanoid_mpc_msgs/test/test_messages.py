@@ -29,14 +29,16 @@
 
 Every .proto file of the package has a generated module that loads, which also checks that its gencode version
 matches the protobuf wheel of @operator_deps (the generated code refuses an incompatible runtime at import). The
-messages travel over ZeroMQ in the bus's three-frame layout (humanoid_nmpc/docs/distributed_runtime/README.md), and
-the Rerun SDK of the viewer bridge loads next to them.
+messages travel over the DDS bus in its envelope (humanoid_nmpc/docs/distributed_runtime/README.md), and the Rerun
+SDK of the viewer bridge loads next to them.
 """
 
 import glob
 import importlib
 import os
 import re
+import struct
+import time
 import types
 import unittest
 
@@ -47,7 +49,8 @@ from humanoid_mpc_msgs import mpc_policy_pb2
 from humanoid_mpc_msgs import target_contact_patch_pb2
 from nproto import options_pb2
 import rerun
-import zmq
+
+import robot_ipc
 
 PACKAGE = "humanoid_mpc_msgs"
 # The one import from outside the package: the options that name each message's nproto struct.
@@ -92,8 +95,8 @@ def make_policy() -> mpc_policy_pb2.MpcPolicy:
     policy.controller_type = controller_type_pb2.CONTROLLER_TYPE_LINEAR
     policy.performance.merit = 10.0
     patch = policy.annotations.target_contact_patches.add()
-    patch.valid = True
     patch.kind = target_contact_patch_pb2.TargetContactPatch.KIND_NEXT_SWING
+    patch.pose.x = 0.25
     return policy
 
 
@@ -171,34 +174,52 @@ class MpcPolicyTest(unittest.TestCase):
         )
 
 
-class ZeroMqTest(unittest.TestCase):
+class TargetContactPatchTest(unittest.TestCase):
 
-    def test_carries_a_policy_in_three_frames(self) -> None:
-        context = zmq.Context()
-        receiver = context.socket(zmq.PAIR)
-        sender = context.socket(zmq.PAIR)
+    def test_a_patch_without_a_pose_has_no_target_and_an_unset_kind_is_unspecified(
+        self,
+    ) -> None:
+        patch = target_contact_patch_pb2.TargetContactPatch()
+        self.assertFalse(patch.HasField("pose"))
+        self.assertEqual(
+            patch.kind, target_contact_patch_pb2.TargetContactPatch.KIND_UNSPECIFIED
+        )
+        patch.pose.x = 0.0
+        self.assertTrue(patch.HasField("pose"))
+
+    def test_a_payload_of_the_retired_layout_is_not_read_as_a_pose(self) -> None:
+        # valid: true (field 1), kind: 2 (field 2) and x: 0.5 (field 3) of the layout before the pose had presence.
+        old = bytes([0x08, 0x01, 0x10, 0x02, 0x19]) + struct.pack("<d", 0.5)
+        patch = target_contact_patch_pb2.TargetContactPatch.FromString(old)
+        self.assertFalse(patch.HasField("pose"))
+        self.assertEqual(
+            patch.kind, target_contact_patch_pb2.TargetContactPatch.KIND_UNSPECIFIED
+        )
+
+
+class BusTest(unittest.TestCase):
+
+    def test_carries_a_policy_with_its_type_name(self) -> None:
+        received: list[tuple[str, bytes]] = []
+        policy = make_policy()
+        bus = robot_ipc.Bus("mpc", robot_ipc.isolated_test_network(["mpc"]))
         try:
-            for socket in (receiver, sender):
-                socket.setsockopt(zmq.LINGER, 0)
-            receiver.setsockopt(zmq.RCVTIMEO, 5000)
-            receiver.bind("inproc://humanoid_mpc_msgs_test")
-            sender.connect("inproc://humanoid_mpc_msgs_test")
-
-            policy = make_policy()
-            type_name = policy.DESCRIPTOR.full_name.encode()
-            sender.send_multipart(
-                [b"mpc/policy", type_name, policy.SerializeToString()]
+            bus.subscribe_raw(
+                "mpc/policy",
+                lambda type_name, payload: received.append((type_name, payload)),
+                "all",
             )
-            frames = receiver.recv_multipart()
+            bus.start()
+            deadline = time.monotonic() + 20.0
+            while not received and time.monotonic() < deadline:
+                bus.publish("mpc/policy", policy)
+                time.sleep(0.01)
         finally:
-            sender.close()
-            receiver.close()
-            context.term()
-
-        self.assertEqual(len(frames), 3)
-        self.assertEqual(frames[0], b"mpc/policy")
-        self.assertEqual(frames[1], type_name)
-        self.assertEqual(mpc_policy_pb2.MpcPolicy.FromString(frames[2]), policy)
+            bus.close()
+        self.assertTrue(received, "timed out")
+        type_name, payload = received[0]
+        self.assertEqual(type_name, policy.DESCRIPTOR.full_name)
+        self.assertEqual(mpc_policy_pb2.MpcPolicy.FromString(payload), policy)
 
 
 class RerunTest(unittest.TestCase):

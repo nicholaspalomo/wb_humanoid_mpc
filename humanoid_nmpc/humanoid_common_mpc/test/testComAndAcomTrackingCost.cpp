@@ -30,9 +30,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <memory>
+#include <random>
 #include <string>
 #include <utility>
 #include <vector>
@@ -40,12 +42,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
+#include "absl/strings/str_cat.h"
 #include "gtest/gtest.h"
 #include "ocs2_centroidal_model/CentroidalModelInfo.h"
 #include "ocs2_centroidal_model/CentroidalModelPinocchioMapping.h"
 #include "ocs2_centroidal_model/FactoryFunctions.h"
 #include "ocs2_core/PreComputation.h"
 #include "ocs2_core/manifold/StateManifold.h"
+#include "ocs2_core/manifold/UnitQuaternionMath.h"
 #include "ocs2_core/reference/TargetTrajectories.h"
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
 #include "pinocchio/algorithm/center-of-mass.hpp"
@@ -63,6 +67,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
 #include "humanoid_mpc_config/task_file.nproto.h"
 #include "humanoid_nmpc/humanoid_common_mpc/test/support/QuaternionLayoutRobotModel.h"
+#include "humanoid_nmpc/humanoid_common_mpc/test/support/StatusTestMacros.h"
 #include "robot_core/ResourcePaths.h"
 
 namespace ocs2::humanoid {
@@ -105,14 +110,15 @@ constexpr scalar_t kFiniteDifferenceTolerance = 1.0e-5;
 class ComAndAcomTrackingCostTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    task_ = loadTaskFile(robot::resolveResourcePath("robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.textproto").value())
-                .value();
-    urdfFile_ = robot::resolveResourcePath("robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf").value();
+    HUMANOID_ASSERT_OK_AND_ASSIGN(const std::string taskFile,
+                                  robot::resolveResourcePath("robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.textproto"));
+    HUMANOID_ASSERT_OK_AND_ASSIGN(task_, loadTaskFile(taskFile));
+    HUMANOID_ASSERT_OK_AND_ASSIGN(urdfFile_, robot::resolveResourcePath("robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf"));
 
-    modelSettingsPtr_ =
-        std::make_unique<ModelSettings>(ModelSettings::Create(task_, urdfFile_, "testComAndAcomTrackingCost", /*verbose=*/false).value());
+    modelSettingsPtr_ = std::make_unique<ModelSettings>(
+        checkedValue(ModelSettings::Create(task_, urdfFile_, "testComAndAcomTrackingCost", /*verbose=*/false)));
     pinocchioInterfacePtr_ =
-        std::make_unique<PinocchioInterface>(loadCustomPinocchioInterface(task_, urdfFile_, *modelSettingsPtr_).value());
+        std::make_unique<PinocchioInterface>(checkedValue(loadCustomPinocchioInterface(task_, urdfFile_, *modelSettingsPtr_)));
 
     info_ = makeInfo(*pinocchioInterfacePtr_, *modelSettingsPtr_);
     nJoints_ = static_cast<Eigen::Index>(info_.actuatedDofNum);
@@ -451,9 +457,10 @@ TEST_F(ComAndAcomTrackingCostTest, CreateRejectsAModelWithADifferentFixedJointSe
       << "the shipped task file no longer fixes r_arm_wrx once; update this test";
   *std::find(fixedJoints.begin(), fixedJoints.end(), "r_arm_wrx") = "neck_ry";
 
-  const ModelSettings driftedSettings = ModelSettings::Create(drifted, urdfFile_, "testComAndAcomTrackingCost", /*verbose=*/false).value();
+  HUMANOID_ASSERT_OK_AND_ASSIGN(const ModelSettings driftedSettings,
+                                ModelSettings::Create(drifted, urdfFile_, "testComAndAcomTrackingCost", /*verbose=*/false));
   ASSERT_EQ(driftedSettings.mpcModelJointNames.size(), static_cast<size_t>(nJoints_)) << "the joint COUNT must not change";
-  const PinocchioInterface driftedModel = loadCustomPinocchioInterface(drifted, urdfFile_, driftedSettings).value();
+  HUMANOID_ASSERT_OK_AND_ASSIGN(const PinocchioInterface driftedModel, loadCustomPinocchioInterface(drifted, urdfFile_, driftedSettings));
   const CentroidalModelInfo driftedInfo = makeInfo(driftedModel, driftedSettings);
 
   const absl::StatusOr<std::unique_ptr<ComAndAcomTrackingCost>> cost = ComAndAcomTrackingCost::Create(
@@ -618,7 +625,7 @@ TEST_F(ComAndAcomTrackingCostTest, CreateRejectsARobotModelOfAnotherPinocchioMod
   mpc_config::TaskFile fewerJoints = task_;
   fewerJoints.model_settings.fixed_joint_names.emplace_back("neck_ry");
   const ModelSettings fewerSettings =
-      ModelSettings::Create(fewerJoints, urdfFile_, "testComAndAcomTrackingCost", /*verbose=*/false).value();
+      checkedValue(ModelSettings::Create(fewerJoints, urdfFile_, "testComAndAcomTrackingCost", /*verbose=*/false));
   ASSERT_EQ(fewerSettings.mpcModelJointNames.size() + 1, static_cast<size_t>(nJoints_)) << "neck_ry is no longer an active joint";
   const test::QuaternionLayoutRobotModel otherModel(fewerSettings, StateInputLayout::Mpc::kCentroidal);
   const absl::StatusOr<std::unique_ptr<ComAndAcomTrackingCost>> cost = ComAndAcomTrackingCost::Create(
@@ -645,6 +652,160 @@ TEST_F(ComAndAcomTrackingCostTest, CenterOfMassIsPhysicallyPlausible) {
   EXPECT_NEAR(com[1], 0.0, 0.5);
   EXPECT_GT(com[2], 0.3);
   EXPECT_GT(info_.robotMass, 0.0);
+}
+
+namespace {
+
+/** One draw of a base attitude and an ACoM offset for the E2 bounds: ZYX angles with |tilt| = hypot(pitch, roll). */
+struct AcomDraw {
+  vector3_t eulerZyx = vector3_t::Zero();
+  vector3_t offset = vector3_t::Zero();  // Delta_theta, the joints' rotation of the ACoM in the base frame
+  scalar_t tilt = 0.0;
+};
+
+AcomDraw drawAcom(std::mt19937& engine, scalar_t maxTilt, scalar_t maxOffset) {
+  std::uniform_real_distribution<scalar_t> unit(0.0, 1.0);
+  std::normal_distribution<scalar_t> normal(0.0, 1.0);
+  AcomDraw draw;
+  const scalar_t direction = 2.0 * M_PI * unit(engine);
+  draw.tilt = maxTilt * unit(engine);
+  draw.eulerZyx = vector3_t(M_PI * (2.0 * unit(engine) - 1.0), draw.tilt * std::sin(direction), draw.tilt * std::cos(direction));
+  const vector3_t axis(normal(engine), normal(engine), normal(engine));
+  draw.offset = (maxOffset * unit(engine) / axis.norm()) * axis;
+  return draw;
+}
+
+/** The yaw, pitch, roll rows (P3) of a body rotation vector (x, y, z). */
+vector3_t permutedToHeadingTiltRows(const vector3_t& rotation) {
+  return vector3_t(rotation(2), rotation(1), rotation(0));
+}
+
+/** The heading-tilt residual of the ACoM attitudes xi(Theta) (x) Exp(Delta_theta) of a state and a reference. */
+vector3_t acomResidual(const vector3_t& eulerZyx,
+                       const vector3_t& offset,
+                       const vector3_t& referenceEulerZyx,
+                       const vector3_t& referenceOffset) {
+  return headingTiltResidual(quaternionProduct(quaternionFromEulerZyx(eulerZyx), quaternionExp(offset)),
+                             quaternionProduct(quaternionFromEulerZyx(referenceEulerZyx), quaternionExp(referenceOffset)));
+}
+
+/** `angle` wrapped into [-pi, pi]. */
+scalar_t wrappedAngle(scalar_t angle) {
+  return std::remainder(angle, 2.0 * M_PI);
+}
+
+/** The ranges the bounds are drawn over: (max |tilt|, max |Delta_theta|), both within README 4.4's 0.2 rad. */
+constexpr std::array<std::pair<scalar_t, scalar_t>, 5> kAcomRanges = {{{0.05, 0.05}, {0.1, 0.1}, {0.2, 0.2}, {0.05, 0.2}, {0.2, 0.05}}};
+constexpr int kAcomDrawsPerRange = 2000;
+
+}  // namespace
+
+/**
+ * README section 4.4, E2 ComAndAcom: the ACoM rows e_HT(xi (x) Exp(Delta_theta), xi_r (x) Exp(Delta_theta_r)) differ
+ * from the base attitudes' own heading-tilt residual plus the additive Euler rule's P3 (Delta_theta - Delta_theta_r),
+ * per row (yaw wrapped), by at most c (|Delta_theta| |tilt| + |Delta_theta|^2) for the state plus the same for the
+ * reference, c = 1 + max |Delta_theta| + max |tilt|; and so the rows against the additive Euler rule
+ * Theta - Theta_r + P3 (Delta_theta - Delta_theta_r) by at most that plus the base attitudes' own change. The bound is
+ * not vacuous: some draw comes within a quarter of it (a probe reached 0.81 of it).
+ */
+TEST(ComAndAcomEulerTolerance, RowsStayWithinTheStatedBoundOfTheAdditiveEulerRule) {
+  std::mt19937 engine(9U);
+  scalar_t largestRatio = 0.0;
+  for (const std::pair<scalar_t, scalar_t>& range : kAcomRanges) {
+    for (int i = 0; i < kAcomDrawsPerRange; ++i) {
+      const AcomDraw state = drawAcom(engine, range.first, range.second);
+      const AcomDraw reference = drawAcom(engine, range.first, range.second);
+      const scalar_t c = 1.0 + std::max(state.offset.norm(), reference.offset.norm()) + std::max(state.tilt, reference.tilt);
+      const scalar_t slack = c * (state.offset.norm() * state.tilt + state.offset.squaredNorm()) +
+                             c * (reference.offset.norm() * reference.tilt + reference.offset.squaredNorm());
+      const vector3_t acom = acomResidual(state.eulerZyx, state.offset, reference.eulerZyx, reference.offset);
+      const vector3_t base = headingTiltResidual(quaternionFromEulerZyx(state.eulerZyx), quaternionFromEulerZyx(reference.eulerZyx));
+      vector3_t composition = acom - base - permutedToHeadingTiltRows(state.offset - reference.offset);
+      composition(0) = wrappedAngle(composition(0));
+      vector3_t eulerDifference = state.eulerZyx - reference.eulerZyx;
+      eulerDifference(0) = wrappedAngle(eulerDifference(0));
+      vector3_t additive = acom - eulerDifference - permutedToHeadingTiltRows(state.offset - reference.offset);
+      additive(0) = wrappedAngle(additive(0));
+      vector3_t own = base - eulerDifference;
+      own(0) = wrappedAngle(own(0));
+      for (Eigen::Index row = 0; row < 3; ++row) {
+        EXPECT_LE(std::abs(composition(row)), slack + 1.0e-12) << "row " << row << " range " << range.first << ", " << range.second;
+        EXPECT_LE(std::abs(additive(row)), std::abs(own(row)) + slack + 1.0e-12) << "row " << row;
+      }
+      if (slack > 0.0) largestRatio = std::max(largestRatio, composition.cwiseAbs().maxCoeff() / slack);
+    }
+  }
+  RecordProperty("largest_ratio_to_the_bound", absl::StrCat(largestRatio));
+  EXPECT_GT(largestRatio, 0.25) << "the bound is not tested near its value";
+  EXPECT_LE(largestRatio, 1.0);
+}
+
+/**
+ * README section 4.4, E2 ComAndAcom Jacobian: in the Euler chart, d e / d Theta of the ACoM rows is within
+ * c (|tilt| + |Delta_theta|) of the identity per entry, and d e / d Delta_theta (J_HT(xi_a) J_r(Delta_theta)) within the
+ * same of P3, at a level reference of any heading, c = 1 + |Delta_theta| + |tilt|. A probe reached 0.98 of the bound,
+ * so the stated constant is used; the bound is not vacuous (some draw within a half of it).
+ */
+TEST(ComAndAcomEulerTolerance, TheEulerChartJacobianStaysWithinTheStatedBound) {
+  constexpr scalar_t kStep = 1.0e-6;
+  std::mt19937 engine(11U);
+  std::uniform_real_distribution<scalar_t> heading(-M_PI, M_PI);
+  matrix3_t permutation = matrix3_t::Zero();
+  permutation(0, 2) = 1.0;
+  permutation(1, 1) = 1.0;
+  permutation(2, 0) = 1.0;
+  scalar_t largestRatio = 0.0;
+  for (const std::pair<scalar_t, scalar_t>& range : kAcomRanges) {
+    for (int i = 0; i < kAcomDrawsPerRange / 4; ++i) {
+      const AcomDraw state = drawAcom(engine, range.first, range.second);
+      const vector3_t level(heading(engine), 0.0, 0.0);
+      const scalar_t bound = (1.0 + state.offset.norm() + state.tilt) * (state.tilt + state.offset.norm());
+      matrix3_t baseBlock = matrix3_t::Zero();
+      matrix3_t jointBlock = matrix3_t::Zero();
+      for (Eigen::Index k = 0; k < 3; ++k) {
+        const vector3_t step = kStep * vector3_t::Unit(k);
+        vector3_t alongTheta = acomResidual(state.eulerZyx + step, state.offset, level, vector3_t::Zero()) -
+                               acomResidual(state.eulerZyx - step, state.offset, level, vector3_t::Zero());
+        alongTheta(0) = wrappedAngle(alongTheta(0));
+        baseBlock.col(k) = alongTheta / (2.0 * kStep);
+        vector3_t alongOffset = acomResidual(state.eulerZyx, state.offset + step, level, vector3_t::Zero()) -
+                                acomResidual(state.eulerZyx, state.offset - step, level, vector3_t::Zero());
+        alongOffset(0) = wrappedAngle(alongOffset(0));
+        jointBlock.col(k) = alongOffset / (2.0 * kStep);
+      }
+      // The differences' own error, O(kStep^2) and round-off 1e-16 / kStep, is below 1e-8.
+      EXPECT_LE((baseBlock - matrix3_t::Identity()).cwiseAbs().maxCoeff(), bound + 1.0e-8);
+      EXPECT_LE((jointBlock - permutation).cwiseAbs().maxCoeff(), bound + 1.0e-8);
+      if (bound > 1.0e-3) {
+        largestRatio = std::max({largestRatio, (baseBlock - matrix3_t::Identity()).cwiseAbs().maxCoeff() / bound,
+                                 (jointBlock - permutation).cwiseAbs().maxCoeff() / bound});
+      }
+    }
+  }
+  RecordProperty("largest_ratio_to_the_bound", absl::StrCat(largestRatio));
+  EXPECT_GT(largestRatio, 0.5) << "the bound is not tested near its value";
+}
+
+/**
+ * README section 4.4, E2 planner heading: the contact planner's heading with the ACoM, twistHeading(xi (x)
+ * Exp(Delta_theta)), differs from the additive Euler rule's psi + Delta_theta_z by at most |o(theta, phi)| +
+ * c (|Delta_theta| |tilt| + |Delta_theta|^2), o(theta, phi) = -2 atan(tan(theta / 2) tan(phi / 2)) the twist's offset
+ * from the ZYX yaw (a probe reached 0.49 of the second term).
+ */
+TEST(ComAndAcomEulerTolerance, ThePlannerHeadingStaysWithinTheStatedBound) {
+  std::mt19937 engine(13U);
+  for (const std::pair<scalar_t, scalar_t>& range : kAcomRanges) {
+    for (int i = 0; i < kAcomDrawsPerRange; ++i) {
+      const AcomDraw state = drawAcom(engine, range.first, range.second);
+      const scalar_t pitch = state.eulerZyx(1);
+      const scalar_t roll = state.eulerZyx(2);
+      const scalar_t twistOffset = -2.0 * std::atan(std::tan(0.5 * pitch) * std::tan(0.5 * roll));
+      const scalar_t c = 1.0 + state.offset.norm() + state.tilt;
+      const scalar_t plannerHeading = twistHeading(quaternionProduct(quaternionFromEulerZyx(state.eulerZyx), quaternionExp(state.offset)));
+      EXPECT_LE(std::abs(wrappedAngle(plannerHeading - (state.eulerZyx(0) + state.offset(2)))),
+                std::abs(twistOffset) + c * (state.offset.norm() * state.tilt + state.offset.squaredNorm()) + 1.0e-12);
+    }
+  }
 }
 
 }  // namespace ocs2::humanoid

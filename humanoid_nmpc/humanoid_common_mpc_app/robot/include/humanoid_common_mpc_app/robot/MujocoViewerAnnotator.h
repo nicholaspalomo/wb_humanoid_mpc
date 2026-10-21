@@ -31,6 +31,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <vector>
 
+#include "absl/base/nullability.h"
+
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_mpc_msgs/viewer_annotations.nproto.h"
 #include "mujoco_sim_interface/MujocoContactPatch.h"
@@ -47,12 +49,13 @@ namespace ocs2::humanoid {
  */
 class MujocoViewerAnnotator {
  public:
-  explicit MujocoViewerAnnotator(robot::mujoco_sim_interface::MujocoSimInterface& simulator);
+  /** Draws in the viewer of `simulator`, which must outlive the annotator. */
+  explicit MujocoViewerAnnotator(robot::mujoco_sim_interface::MujocoSimInterface* absl_nonnull simulator);
 
   void apply(const msgs::ViewerAnnotations& annotations);
 
  private:
-  robot::mujoco_sim_interface::MujocoSimInterface& simulator_;
+  robot::mujoco_sim_interface::MujocoSimInterface* absl_nonnull simulator_;
   std::vector<robot::mujoco_sim_interface::TargetContactPatch> patches_;
 };
 

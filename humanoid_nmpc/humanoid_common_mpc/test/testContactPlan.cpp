@@ -37,6 +37,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <utility>
 #include <vector>
 
+#include "absl/log/absl_check.h"
 #include "absl/log/log.h"
 #include "gtest/gtest.h"
 
@@ -45,6 +46,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/LipContactPlanner.h"
 #include "humanoid_common_mpc/contact_planning/hlip/HlipContactPlanner.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
+#include "humanoid_nmpc/humanoid_common_mpc/test/support/StatusTestMacros.h"
 
 namespace ocs2::humanoid {
 namespace {
@@ -149,7 +151,7 @@ void printSchedule(const ModeSchedule& schedule) {
  * checks that every phase the merge produces honors the configured minima in real time.
  */
 ModeSchedule expectMergedScheduleHonorsMinimumDurations(const ModeSchedule& applied, scalar_t time, const ContactPlanningConfig& config) {
-  const std::unique_ptr<LipContactPlanner> planner = LipContactPlanner::Create(config).value();
+  const std::unique_ptr<LipContactPlanner> planner = checkedValue(LipContactPlanner::Create(config));
   const ContactPlannerInput input = makeInput(applied, time, config);
   const ContactPlan plan = planner->plan(input);
   EXPECT_TRUE(plan.valid);
@@ -370,7 +372,7 @@ TEST(ContactPlanDescribe, ASwingAlreadyInFlightAtTheStartOfThePlanPrintsNoStepAt
 TEST(ContactPlanDescribe, EveryStepOfARealHlipPlanReportsTheDisplacementTheDeadbeatLawChose) {
   if (kNumContacts < 2) GTEST_SKIP() << "needs a second foot";
   const ContactPlanningConfig config = makeHlipConfig();
-  HlipContactPlanner planner(config);
+  HUMANOID_ASSERT_OK_AND_ASSIGN(const std::unique_ptr<HlipContactPlanner> planner, HlipContactPlanner::Create(config));
 
   ContactPlannerInput input;
   input.time = 0.0;
@@ -385,9 +387,9 @@ TEST(ContactPlanDescribe, EveryStepOfARealHlipPlanReportsTheDisplacementTheDeadb
   input.phaseElapsedTime = makeFeetArray(0.0);
   input.velocityCommand = vector2_t(0.4, 0.0);
   input.committedUntil = input.time;
-  ASSERT_TRUE(planner.isWalking(input));
+  ASSERT_TRUE(planner->isWalking(input));
 
-  const ContactPlan plan = planner.plan(input);
+  const ContactPlan plan = planner->plan(input);
   ASSERT_TRUE(plan.valid);
   const std::string line = plan.describe();
   const std::vector<vector2_t> steps = stepsInDescription(line);

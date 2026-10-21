@@ -37,7 +37,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <vector>
 
+#include "absl/base/nullability.h"
 #include "absl/container/flat_hash_map.h"
+#include "absl/container/flat_hash_set.h"
 #include "absl/log/absl_check.h"
 #include "absl/log/log.h"
 #include "absl/status/status.h"
@@ -49,6 +51,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/StateLayout.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
+#include "humanoid_common_mpc/config/ConfigValueChecks.h"
 #include "humanoid_mpc_config/contact_implicit_config.nproto.h"
 #include "humanoid_mpc_config/model_settings_config.nproto.h"
 #include "humanoid_mpc_config/model_settings_config.nproto.pb.h"
@@ -63,7 +66,8 @@ namespace {
 // ContactImplicitConfig holds nothing but its seven scalars, so a field added to it without a line in
 // contactImplicitFromConfig() - which would leave it at its default whatever the file says - changes its size and fails
 // to compile here.
-static_assert(sizeof(ModelSettings::ContactImplicitConfig) == 7 * sizeof(scalar_t),
+constexpr int kContactImplicitScalarCount = 7;
+static_assert(sizeof(ModelSettings::ContactImplicitConfig) == kContactImplicitScalarCount * sizeof(scalar_t),
               "every field of ModelSettings::ContactImplicitConfig needs its line in contactImplicitFromConfig()");
 
 /** A stance_constraint name, and the two settings of the zero_velocity constraint it selects. */
@@ -81,6 +85,18 @@ constexpr std::array<StanceConstraintEntry, 3> kStanceConstraints = {{
     {.name = kPositionAndOrientationStanceConstraint, .constrainOrientation = true, .constrainYawRateAboutContactNormal = true},
 }};
 
+// The error gains of model_settings.foot_constraint.
+constexpr size_t kFootConstraintGains = 8;
+
+/**
+ * An error gain of model_settings.foot_constraint, by its field name (a string literal). Neither field has a default,
+ * since a nonnull pointer has none to give: every initializer names both.
+ */
+struct NamedGain {
+  const char* absl_nonnull field;
+  double value;
+};
+
 /** The index of each name of `names` in it. */
 absl::flat_hash_map<std::string, size_t> indexMap(const std::vector<std::string>& names) {
   absl::flat_hash_map<std::string, size_t> indices;
@@ -94,6 +110,26 @@ absl::flat_hash_map<std::string, size_t> indexMap(const std::vector<std::string>
 absl::StatusOr<std::vector<std::string>> activeJointNames(const std::vector<std::string>& fullJointNames,
                                                           const std::vector<std::string>& fixedJointNames,
                                                           bool verbose) {
+  // Every fixed joint once, and each a joint of the URDF: a misspelled name would otherwise leave the joint active
+  // without a word, and a name given twice would count twice in the size check below.
+  const absl::flat_hash_set<std::string> urdfJoints(fullJointNames.begin(), fullJointNames.end());
+  absl::flat_hash_set<std::string> seen;
+  std::vector<std::string> unknown;
+  std::vector<std::string> twice;
+  for (const std::string& joint : fixedJointNames) {
+    if (!urdfJoints.contains(joint)) {
+      unknown.push_back(joint);
+    } else if (!seen.insert(joint).second) {
+      twice.push_back(joint);
+    }
+  }
+  if (!unknown.empty() || !twice.empty()) {
+    std::vector<std::string> problems;
+    if (!unknown.empty()) problems.push_back(absl::StrCat("names ", absl::StrJoin(unknown, ", "), ", which the URDF does not have"));
+    if (!twice.empty()) problems.push_back(absl::StrCat("names ", absl::StrJoin(twice, ", "), " more than once"));
+    return absl::InvalidArgumentError(absl::StrCat("[ModelSettings] model_settings.fixed_joint_names ", absl::StrJoin(problems, " and "),
+                                                   "; it lists joints of the URDF, each once."));
+  }
   // Compared before subtracting: more fixed joints than the URDF has would wrap the unsigned difference around.
   if (fullJointNames.size() <= fixedJointNames.size()) {
     return absl::InvalidArgumentError(
@@ -179,6 +215,21 @@ absl::StatusOr<ModelSettings::FootConstraintConfig> footConstraintFromConfig(
     const mpc_config::ModelSettingsConfig::FootConstraintConfig& config) {
   RETURN_IF_ERROR(checkSoftTermWeight("soft_constraint_weight", config.soft_constraint_weight));
   RETURN_IF_ERROR(checkSoftTermWeight("normal_velocity_soft_constraint_weight", config.normal_velocity_soft_constraint_weight));
+  // The error gains of the foot constraints, e.g. v_z = zdot_ref + position_error_gain_z * (z_ref - z): a negative gain
+  // makes the error grow instead of decay, and NaN poisons every solve.
+  const std::array<NamedGain, kFootConstraintGains> gains = {{
+      {.field = "position_error_gain_z", .value = config.position_error_gain_z},
+      {.field = "orientation_error_gain", .value = config.orientation_error_gain},
+      {.field = "linear_velocity_error_gain_z", .value = config.linear_velocity_error_gain_z},
+      {.field = "linear_velocity_error_gain_xy", .value = config.linear_velocity_error_gain_xy},
+      {.field = "angular_velocity_error_gain", .value = config.angular_velocity_error_gain},
+      {.field = "linear_acceleration_error_gain_z", .value = config.linear_acceleration_error_gain_z},
+      {.field = "linear_acceleration_error_gain_xy", .value = config.linear_acceleration_error_gain_xy},
+      {.field = "angular_acceleration_error_gain", .value = config.angular_acceleration_error_gain},
+  }};
+  for (const NamedGain& gain : gains) {
+    RETURN_IF_ERROR(requireNonNegative(absl::StrCat("model_settings.foot_constraint.", gain.field), gain.value));
+  }
   ModelSettings::FootConstraintConfig converted = {
       .positionErrorGain_z = config.position_error_gain_z,
       .orientationErrorGain = config.orientation_error_gain,
@@ -215,8 +266,9 @@ ModelSettings::ContactImplicitConfig contactImplicitFromConfig(const mpc_config:
   };
 }
 
-ModelSettings::NominalFootholdConfig nominalFootholdFromConfig(const mpc_config::NominalFootholdConfig& config) {
-  return {.stepWidth = config.step_width};
+absl::StatusOr<ModelSettings::NominalFootholdConfig> nominalFootholdFromConfig(const mpc_config::NominalFootholdConfig& config) {
+  RETURN_IF_ERROR(requireNonNegative("nominal_foothold.step_width", config.step_width));
+  return ModelSettings::NominalFootholdConfig{.stepWidth = config.step_width};
 }
 
 absl::StatusOr<ModelSettings> ModelSettings::Create(const mpc_config::TaskFile& taskFile,
@@ -238,6 +290,7 @@ absl::StatusOr<ModelSettings> ModelSettings::Create(const mpc_config::TaskFile& 
   // One folder per state layout (StateLayout.h): a library taped for another layout is never loaded for this one.
   settings.modelFolderCppAd = absl::StrCat("cppad_code_gen/cppad_", mpcName, settings.robotName, "/", kStateLayoutTag);
   // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/common/StateLayout.h:cppad_layout_tag)
+  RETURN_IF_ERROR(requireNonNegative("model_settings.phase_transition_stance_time", config.phase_transition_stance_time));
   settings.phaseTransitionStanceTime = config.phase_transition_stance_time;
   settings.fixedJointNames = config.fixed_joint_names;
   settings.contactNames6DoF = config.contact_names_6dof;
@@ -273,9 +326,10 @@ absl::StatusOr<ModelSettings> ModelSettings::Create(const mpc_config::TaskFile& 
   }
 
   ASSIGN_OR_RETURN(settings.footConstraintConfig, footConstraintFromConfig(config.foot_constraint));
+  RETURN_IF_ERROR(requireFinite("terrain_height", taskFile.terrain_height));
   settings.terrainHeight = taskFile.terrain_height;
   settings.contactImplicitConfig = contactImplicitFromConfig(taskFile.contact_implicit);
-  settings.nominalFootholdConfig = nominalFootholdFromConfig(taskFile.nominal_foothold);
+  ASSIGN_OR_RETURN(settings.nominalFootholdConfig, nominalFootholdFromConfig(taskFile.nominal_foothold));
   return settings;
 }
 

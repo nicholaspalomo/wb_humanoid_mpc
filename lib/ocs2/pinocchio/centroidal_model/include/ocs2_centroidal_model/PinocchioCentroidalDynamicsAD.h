@@ -92,8 +92,8 @@ class PinocchioCentroidalDynamicsAD final {
   VectorFunctionLinearApproximation getLinearApproximation(scalar_t time, const vector_t& state, const vector_t& input) const;
 
  private:
-  ad_vector_t getValueCppAd(PinocchioInterfaceCppAd& pinocchioInterfaceCppAd, const CentroidalModelPinocchioMappingCppAd& mapping,
-                            const ad_vector_t& state, const ad_vector_t& input);
+  static ad_vector_t getValueCppAd(PinocchioInterfaceCppAd& pinocchioInterfaceCppAd, const CentroidalModelPinocchioMappingCppAd& mapping,
+                                   const ad_vector_t& state, const ad_vector_t& input);
 
   std::unique_ptr<CppAdInterface> systemFlowMapCppAdInterfacePtr_;
 };

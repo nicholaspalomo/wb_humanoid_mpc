@@ -8,8 +8,9 @@ load("@rules_cc//cc:cc_test.bzl", "cc_test")
 load("@rules_python//python:defs.bzl", "py_library", "py_test")
 load("//bazel:copts.bzl", "FIRST_PARTY_COPTS")
 
-# robot_ipc - the ZeroMQ bus of the distributed runtime (humanoid_nmpc/docs/distributed_runtime/README.md), in C++
-# and in Python. Generic: it knows nothing of the humanoid's topics or messages, which live in humanoid_nmpc.
+# robot_ipc - the Cyclone DDS bus of the distributed runtime (humanoid_nmpc/docs/distributed_runtime/README.md), in C++
+# and in Python. Generic: it knows nothing of the humanoid's messages, which live in humanoid_nmpc; the shipped
+# network file names the humanoid's topics only to give each its quality of service.
 
 package(default_visibility = ["//visibility:public"])
 
@@ -41,6 +42,51 @@ py_proto_library(
 )
 
 # ==============================================================================
+# The DDS type of every topic
+# ==============================================================================
+
+# robot_ipc::Envelope (idl/Envelope.idl): idlc, the IDL compiler of the cyclonedds module, generates its C type support,
+# which the C++ bus registers for every topic. The Python bus declares the same struct (python/robot_ipc/envelope.py).
+genrule(
+    name = "envelope_type_support",
+    srcs = ["idl/Envelope.idl"],
+    outs = [
+        "idl/Envelope.c",
+        "idl/Envelope.h",
+    ],
+    cmd = "$(location @cyclonedds//:idlc) -l c -o $(RULEDIR)/idl $(location idl/Envelope.idl)",
+    tools = ["@cyclonedds//:idlc"],
+)
+
+# Generated C: GCC warns that the C++-only flags of FIRST_PARTY_COPTS do not apply to C, and compiles it under the rest.
+cc_library(
+    name = "envelope_type",
+    srcs = ["idl/Envelope.c"],
+    hdrs = ["idl/Envelope.h"],
+    copts = FIRST_PARTY_COPTS,
+    includes = ["idl"],
+    visibility = ["//visibility:private"],
+    deps = ["@cyclonedds//:ddsc"],
+)
+
+# config/ipc/network.textproto as a string constant, so that localhostNetworkConfig() is the shipped file itself.
+genrule(
+    name = "localhost_network_text",
+    srcs = ["//config/ipc:network.textproto"],
+    outs = ["LocalhostNetworkText.h"],
+    cmd = """(
+  echo '#pragma once'
+  echo '#include "absl/strings/string_view.h"'
+  echo 'namespace robot::ipc {'
+  echo '// config/ipc/network.textproto, built in by //robot_runtime/robot_ipc:localhost_network_text.'
+  printf 'inline constexpr absl::string_view kLocalhostNetworkText = R"ipc_network('
+  cat $<
+  echo ')ipc_network";'
+  echo '}  // namespace robot::ipc'
+) > $@""",
+)
+
+# ==============================================================================
 # C++
 # ==============================================================================
 
@@ -63,31 +109,52 @@ cc_library(
 cc_library(
     name = "robot_ipc",
     srcs = [
+        "LocalhostNetworkText.h",
         "src/Bus.cpp",
         "src/Delivery.cpp",
+        "src/DomainConfig.cpp",
+        "src/DomainRegistry.cpp",
+        "src/DomainRegistry.h",
         "src/NetworkConfig.cpp",
+        "src/QosProfile.cpp",
         "src/StatusMacros.h",
     ],
     copts = FIRST_PARTY_COPTS,
     hdrs = glob(["include/robot_ipc/*.h"]),
     includes = ["include"],
     deps = [
+        ":envelope_type",
         ":network_config_cc_proto",
         ":textproto",
         "@abseil-cpp//absl/base:core_headers",
+        "@abseil-cpp//absl/base:no_destructor",
         "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/container:flat_hash_map",
+        "@abseil-cpp//absl/container:flat_hash_set",
         "@abseil-cpp//absl/log",
+        "@abseil-cpp//absl/log:check",
         "@abseil-cpp//absl/memory",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
         "@abseil-cpp//absl/synchronization",
         "@abseil-cpp//absl/time",
-        # cppzmq's target carries only the headers of libzmq; @libzmq is the library itself.
-        "@cppzmq",
-        "@libzmq",
+        "@cyclonedds//:ddsc",
         "@protobuf",
+    ],
+)
+
+# isolatedTestNetwork(): a network of its own for every test process.
+cc_library(
+    name = "test_network",
+    testonly = True,
+    srcs = ["test/TestNetwork.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    hdrs = ["test/TestNetwork.h"],
+    deps = [
+        ":robot_ipc",
+        "@abseil-cpp//absl/base:no_destructor",
+        "@abseil-cpp//absl/strings",
     ],
 )
 
@@ -102,8 +169,8 @@ py_library(
     imports = ["python"],
     deps = [
         ":network_config_py_proto",
+        requirement("cyclonedds"),
         requirement("protobuf"),
-        requirement("pyzmq"),
     ],
 )
 
@@ -143,10 +210,17 @@ cc_test(
     size = "small",
     srcs = ["test/testNetworkConfig.cpp"],
     copts = FIRST_PARTY_COPTS,
-    data = ["//config/ipc:network.textproto"],
+    data = [
+        "//config/ipc:network.textproto",
+        "//config/ipc:two_machine.example.textproto",
+    ],
     deps = [
         ":robot_ipc",
         "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/time",
         "@googletest//:gtest_main",
     ],
 )
@@ -171,19 +245,26 @@ cc_test(
     size = "small",
     srcs = ["test/testBus.cpp"],
     copts = FIRST_PARTY_COPTS,
+    # The bus never reads the variable: a configuration it named would fail every bus of the test.
+    env = {"CYCLONEDDS_URI": "<CycloneDDS><Domain><General><Interfaces><NetworkInterface name=\"no_such_interface\"/></Interfaces></General></Domain></CycloneDDS>"},
     deps = [
+        ":envelope_type",
         ":robot_ipc",
         ":test_messages_cc_proto",
+        ":test_network",
+        "@abseil-cpp//absl/base:core_headers",
         "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
         "@abseil-cpp//absl/synchronization",
         "@abseil-cpp//absl/time",
-        "@cppzmq",
+        "@cyclonedds//:ddsc",
         "@googletest//:gtest_main",
-        "@libzmq",
     ],
 )
 
-# The C++ side of :cross_language_test: subscribes to TestSample on one topic and publishes each one back on another.
+# The C++ side of :cross_language_test: subscribes to TestSample on topics and publishes each one back on others.
 cc_binary(
     name = "bus_echo",
     testonly = True,
@@ -191,6 +272,7 @@ cc_binary(
     copts = FIRST_PARTY_COPTS,
     deps = [
         ":robot_ipc",
+        "@abseil-cpp//absl/strings",
         ":test_messages_cc_proto",
         "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/flags:flag",
@@ -204,7 +286,10 @@ py_test(
     name = "network_config_py_test",
     size = "small",
     srcs = ["test/test_network_config.py"],
-    data = ["//config/ipc:network.textproto"],
+    data = [
+        "//config/ipc:network.textproto",
+        "//config/ipc:two_machine.example.textproto",
+    ],
     main = "test/test_network_config.py",
     deps = [":robot_ipc_py"],
 )
@@ -213,18 +298,20 @@ py_test(
     name = "bus_py_test",
     size = "small",
     srcs = ["test/test_bus.py"],
+    env = {"CYCLONEDDS_URI": "<CycloneDDS><Domain><General><Interfaces><NetworkInterface name=\"no_such_interface\"/></Interfaces></General></Domain></CycloneDDS>"},
     main = "test/test_bus.py",
     deps = [
         ":robot_ipc_py",
         ":test_messages_py_proto",
-        requirement("pyzmq"),
+        requirement("cyclonedds"),
     ],
 )
 
-# Python publishes and the C++ bus answers, and the other way round: the two buses frame messages identically.
+# Python publishes and the C++ bus answers, and the other way round: the two buses speak one wire protocol over DDS,
+# generate one Cyclone DDS configuration, and carry policy-sized samples whole over a lossy link.
 py_test(
     name = "cross_language_test",
-    size = "small",
+    size = "medium",
     srcs = ["test/test_cross_language.py"],
     data = [":bus_echo"],
     env = {"BUS_ECHO": "$(rootpath :bus_echo)"},
@@ -234,3 +321,4 @@ py_test(
         ":test_messages_py_proto",
     ],
 )
+

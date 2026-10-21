@@ -146,10 +146,11 @@ def _template_fields(template: str, context: str) -> list[str]:
         if field_name is None:
             continue
         if not field_name.isidentifier() or format_spec or conversion:
+            conversion_text = f"!{conversion}" if conversion else ""
+            format_spec_text = f":{format_spec}" if format_spec else ""
             raise LaunchFileError(
-                f"{context}: '{{{field_name}{'!' + conversion if conversion else ''}"
-                f"{':' + format_spec if format_spec else ''}}}' in {template!r} is not a variable reference; "
-                "write {name}, or {{ and }} for literal braces"
+                f"{context}: '{{{field_name}{conversion_text}{format_spec_text}}}' in {template!r} is not a variable "
+                "reference; write {name}, or {{ and }} for literal braces"
             )
         names.append(field_name)
     return names

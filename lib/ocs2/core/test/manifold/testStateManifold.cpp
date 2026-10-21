@@ -33,6 +33,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <cmath>
 #include <cstring>
+#include <limits>
 #include <memory>
 #include <vector>
 
@@ -415,7 +416,7 @@ TEST(UnitQuaternionMath, TapedAtOnesIsValidEverywhere) {
     }
     // Reverse mode, which is how the costs are differentiated.
     tape.Forward(/*q=*/0, input);
-    for (size_t row = 0; row < y.size(); ++row) {
+    for (size_t row = 0; row < static_cast<size_t>(y.size()); ++row) {
       std::vector<scalar_t> weight(y.size(), 0.0);
       weight[row] = 1.0;
       for (const scalar_t value : tape.Reverse(/*q=*/1, weight)) {
@@ -551,6 +552,46 @@ TEST(ProductStateManifold, InterpolateAndProject) {
   EXPECT_NEAR(x.segment<4>(9).norm(), 1.0, 1e-15);
   EXPECT_EQ(x.head<3>(), before.head<3>());
   EXPECT_EQ(x.segment<2>(7), before.segment<2>(7));
+}
+
+TEST(ProductStateManifold, TheMaximumRotationAngleKeepsANan) {
+  // A NaN rotation block makes the maximum NaN, in either block; finite blocks keep their largest angle.
+  const std::shared_ptr<const ProductStateManifold> manifold = twoQuaternionManifold();
+  const vector_t dx = vector_t::Random(manifold->getTangentDim());
+  for (const size_t offset : manifold->getQuaternionTangentOffsets()) {
+    vector_t withNan = dx;
+    withNan(offset + 1) = std::numeric_limits<scalar_t>::quiet_NaN();
+    EXPECT_TRUE(std::isnan(manifold->getMaximumRotationAngle(withNan))) << offset;
+  }
+  EXPECT_EQ(manifold->getMaximumRotationAngle(dx), std::max(dx.segment<3>(3).norm(), dx.segment<3>(8).norm()));
+  vector_t euclideanNan = dx;
+  euclideanNan(0) = std::numeric_limits<scalar_t>::quiet_NaN();
+  EXPECT_EQ(manifold->getMaximumRotationAngle(euclideanNan), manifold->getMaximumRotationAngle(dx));
+}
+
+TEST(ProductStateManifold, ARotationIsRepresentableAboveTheNormalizationGuard) {
+  const std::shared_ptr<const ProductStateManifold> manifold = twoQuaternionManifold();
+  const vector_t x = randomState(*manifold);
+  EXPECT_TRUE(manifold->hasRepresentableRotations(x));
+  // The guard is the safe normalization's: a block longer than kQuaternionNormalizationEpsilon is normalized, one at or
+  // below it is not and has no rotation a step could move.
+  for (const size_t offset : manifold->getQuaternionAmbientOffsets()) {
+    vector_t scaled = x;
+    scaled.segment<4>(offset) *= 1.1 * kQuaternionNormalizationEpsilon;
+    EXPECT_TRUE(manifold->hasRepresentableRotations(scaled)) << offset;
+    scaled.segment<4>(offset) = x.segment<4>(offset) * (0.1 * kQuaternionNormalizationEpsilon);
+    EXPECT_FALSE(manifold->hasRepresentableRotations(scaled)) << offset;
+    scaled.segment<4>(offset).setZero();
+    EXPECT_FALSE(manifold->hasRepresentableRotations(scaled)) << offset;
+    scaled.segment<4>(offset) = x.segment<4>(offset);
+    scaled(offset) = std::numeric_limits<scalar_t>::quiet_NaN();
+    EXPECT_FALSE(manifold->hasRepresentableRotations(scaled)) << offset;
+  }
+  // The Euclidean blocks do not enter.
+  vector_t euclideanZero = x;
+  euclideanZero.head<3>().setZero();
+  euclideanZero.segment<2>(7).setZero();
+  EXPECT_TRUE(manifold->hasRepresentableRotations(euclideanZero));
 }
 
 TEST(ProductStateManifold, IntoFunctionsComputeTheByValueResultsToTheBit) {
@@ -728,6 +769,7 @@ TEST(EuclideanStateManifold, IsTheFlatSpace) {
   EXPECT_EQ(xNew, (x + 0.3 * dx).eval());
   EXPECT_EQ(manifold.difference(x, xNew), (xNew - x).eval());
   EXPECT_EQ(manifold.getMaximumRotationAngle(dx), 0.0);
+  EXPECT_TRUE(manifold.hasRepresentableRotations(vector_t::Zero(4)));
   matrix_t J = matrix_t::Random(2, 4);
   const matrix_t before = J;
   manifold.pullBackStateColumns(x, J);

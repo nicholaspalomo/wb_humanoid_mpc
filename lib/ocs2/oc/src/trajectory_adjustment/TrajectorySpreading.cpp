@@ -36,6 +36,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2 {
 
+namespace {
+
+/** [s] How far outside the old trajectory's time range set() places an event time that it shifts out of that range. */
+constexpr scalar_t kOutOfRangeEventTimeMargin = 1e-4;
+
+}  // namespace
+
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
@@ -61,8 +68,10 @@ void TrajectorySpreading::set(const ModeSchedule& oldModeSchedule, const ModeSch
   // step 3: What is the longest window of matched mode sequence?
   // the size of the window where the active modes are identical.
   // this means: mode[firstMatchingModeIndex + w] != updatedMode[updatedFirstMatchingModeIndex + w]
+  // Only the modes of the old trajectory are matched: past oldLastActiveModeIndex the range std::mismatch compares would be
+  // reversed, and a mode after the old trajectory has no samples to keep.
   size_t w = 0;
-  while (oldStartIndexOfMatchedSequence < oldModeSchedule.modeSequence.size()) {
+  while (oldStartIndexOfMatchedSequence <= oldLastActiveModeIndex) {
     // +1 to include the last active mode
     const auto mismatchedIndex = std::mismatch(oldModeSchedule.modeSequence.cbegin() + oldStartIndexOfMatchedSequence,
                                                oldModeSchedule.modeSequence.cbegin() + oldLastActiveModeIndex + 1,
@@ -77,6 +86,14 @@ void TrajectorySpreading::set(const ModeSchedule& oldModeSchedule, const ModeSch
       // move starting index forward to find the first matched mode in the old mode schedule
       ++oldStartIndexOfMatchedSequence;
     }
+  }
+
+  // No mode of the old trajectory continues the new schedule's first mode: nothing to keep, erase all. The phases below index
+  // the event times after the w matched modes, which do not exist for w == 0.
+  if (w == 0) {
+    eraseFromIndex_ = 0;
+    computeSpreadingStrategy(oldTimeTrajectory, scalar_array_t(), scalar_array_t());
+    return;
   }
 
   // matched event times. Used to store event time that is likely to be spread.
@@ -99,7 +116,7 @@ void TrajectorySpreading::set(const ModeSchedule& oldModeSchedule, const ModeSch
   // In summary, Triggering event time can be either ignored (leading mode of both old and new schedule are matched) or shifted backward.
   if (w > 0 && oldStartIndexOfMatchedSequence > oldFirstActiveModeIndex) {
     const auto oldLastTriggeredEvent = oldModeSchedule.eventTimes[oldStartIndexOfMatchedSequence - 1];
-    const auto newLastTriggeredEvent = oldInitTime - 1e-4;  // a bit before the updated initial time
+    const auto newLastTriggeredEvent = oldInitTime - kOutOfRangeEventTimeMargin;  // a bit before the updated initial time
 
     oldMatchedEventTimes.insert(oldMatchedEventTimes.begin(), oldLastTriggeredEvent);
     newMatchedEventTimes.insert(newMatchedEventTimes.begin(), newLastTriggeredEvent);
@@ -113,14 +130,14 @@ void TrajectorySpreading::set(const ModeSchedule& oldModeSchedule, const ModeSch
   // If the last active mode of the old mode schedule is NOT matched but the last active mode of the new mode schedule is matched, that
   // indicates the old ending event time need to be spread till the end of trajectories.
   // If neither new last active mode and old last active mode is matched, we have to compare the corresponding ending event time.
-  const bool isLastActiveModeOfOldModeSequenceMatched = oldStartIndexOfMatchedSequence + w - 1 == oldLastActiveModeIndex;
-  const bool isLastActiveModeOfNewModeSequenceMatched = newStartIndexOfMatchedSequence + w - 1 == newLastActiveModeIndex;
+  const bool isLastActiveModeOfOldModeSequenceMatched = oldStartIndexOfMatchedSequence + w - 1 == static_cast<size_t>(oldLastActiveModeIndex);
+  const bool isLastActiveModeOfNewModeSequenceMatched = newStartIndexOfMatchedSequence + w - 1 == static_cast<size_t>(newLastActiveModeIndex);
   if (!isLastActiveModeOfOldModeSequenceMatched &&
       (isLastActiveModeOfNewModeSequenceMatched || oldModeSchedule.eventTimes[oldStartIndexOfMatchedSequence + w - 1] <
                                                        newModeSchedule.eventTimes[newStartIndexOfMatchedSequence + w - 1])) {
     const auto oldLEndEvent = oldModeSchedule.eventTimes[oldStartIndexOfMatchedSequence + w - 1];
-    const auto newEndEvent =
-        isLastActiveModeOfNewModeSequenceMatched ? oldFinalTime + 1e-4 : newModeSchedule.eventTimes[newStartIndexOfMatchedSequence + w - 1];
+    const auto newEndEvent = isLastActiveModeOfNewModeSequenceMatched ? oldFinalTime + kOutOfRangeEventTimeMargin
+                                                                      : newModeSchedule.eventTimes[newStartIndexOfMatchedSequence + w - 1];
 
     oldMatchedEventTimes.push_back(oldLEndEvent);
     newMatchedEventTimes.push_back(newEndEvent);
@@ -130,12 +147,8 @@ void TrajectorySpreading::set(const ModeSchedule& oldModeSchedule, const ModeSch
 
   // find the start index of erasing(include the start index) (by default preserve all)
   eraseFromIndex_ = oldTimeTrajectory.size();
-  if (w == 0) {
-    // erase all
-    eraseFromIndex_ = 0;
-  }
   // if last mode of the new mode sequence is NOT matched
-  else if (!isLastActiveModeOfNewModeSequenceMatched) {
+  if (!isLastActiveModeOfNewModeSequenceMatched) {
     const auto mismatchEventTime = newModeSchedule.eventTimes[newStartIndexOfMatchedSequence + w - 1];
     eraseFromIndex_ = lowerBoundIndex(oldTimeTrajectory, mismatchEventTime);
   }
@@ -175,7 +188,9 @@ void TrajectorySpreading::computeSpreadingStrategy(const scalar_array_t& oldTime
      * |- -  - * - |(erase from here)| New event
      *
      *
-     * The end index should be smaller or equal to the index of the first erased time stamp
+     * The end index should be smaller or equal to the index of the first erased time stamp. The value index is not: when the new
+     * schedule starts another mode before the old event's samples, the old post-event sample is erased, so adjustTrajectory() reads
+     * the spreading values before it erases.
      */
     if (newPostEventIndices[j] < oldPostEventIndices[j]) {
       const size_t endIndex = std::min(oldPostEventIndices[j], eraseFromIndex_);
@@ -200,11 +215,14 @@ void TrajectorySpreading::computeSpreadingStrategy(const scalar_array_t& oldTime
      *
      * The begin index should be larger than the previous new event index when overlapping occurs in the forward spreadind case. Otherwise
      * the current mode will override the previous mode resulting in wrong mode sequence.
+     * The end index should be smaller or equal to the index of the first erased time stamp: the new event can be the one from which
+     * the trajectory is erased, and an old sample at its time lies between eraseFromIndex_ (lower bound) and its post-event index
+     * (upper bound).
      */
     else if (newPostEventIndices[j] > oldPostEventIndices[j]) {
       const size_t beginIndex = (j == 0 ? oldPostEventIndices[j] : std::max(oldPostEventIndices[j], newPostEventIndices[j - 1]));
       beginIndices_.push_back(beginIndex);
-      endIndices_.push_back(newPostEventIndices[j]);
+      endIndices_.push_back(std::min(newPostEventIndices[j], eraseFromIndex_));
       spreadingValueIndices_.push_back(oldPreEventIndex);
 
       // Check the assumption that zero length adjustment is excluded. Note that oldPostEventIndices[j] and newPostEventIndices[j - 1]

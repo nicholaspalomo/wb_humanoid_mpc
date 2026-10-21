@@ -40,6 +40,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_cat.h"
 
 #include "humanoid_common_mpc/common/ThreadAffinity.h"
+#include "humanoid_common_mpc_app/robot/RobotSupervisorRegistry.h"
 #include "mujoco_sim_interface/CheaterSimContactEstimator.h"
 #include "mujoco_sim_interface/Projectile.h"
 #include "mujoco_sim_interface/viewer/ViewerSettings.h"
@@ -65,7 +66,7 @@ absl::StatusOr<robot::mujoco_sim_interface::MujocoSimConfig> MujocoRobotBackend:
   if (const absl::Status viewer = robot::mujoco_sim_interface::validateViewerSettings(config.viewer); !viewer.ok()) {
     return absl::Status(viewer.code(), absl::StrCat("the mujoco backend's viewer: ", viewer.message()));
   }
-  config.initStatePtr_ = std::make_shared<robot::model::RobotState>(*options.initialState);
+  config.initialState = *options.initialState;
   config.contactFrameNames = options.contactFrameNames;
   config.contactParentJointNames = options.contactParentJointNames;
   config.contactForceThreshold = options.simulator.contactForceThreshold;
@@ -75,6 +76,8 @@ absl::StatusOr<robot::mujoco_sim_interface::MujocoSimConfig> MujocoRobotBackend:
   }
   config.gantryHold = options.simulator.gantryHold;
   config.projectile = options.simulator.projectile;
+  config.ragdollJointDamping = options.simulator.ragdollJointDamping;
+  config.autoResetBaseHeight = options.simulator.autoResetBaseHeight;
   config.contactPatchCorners = options.contactPatchCorners;
   return config;
 }
@@ -108,6 +111,10 @@ absl::string_view MujocoRobotBackend::name() const {
   return kMujocoBackendName;
 }
 
+absl::string_view MujocoRobotBackend::supervisorName() const {
+  return kSimSupervisorName;
+}
+
 absl::Status MujocoRobotBackend::initialize() {
   simulator_->initSim();
   return simulator_->viewerStatus();
@@ -123,12 +130,12 @@ absl::Status MujocoRobotBackend::start(const std::vector<int>& cores) {
 }
 
 void MujocoRobotBackend::readMeasuredContactForces(std::array<vector3_t, kNumContacts>& forces) {
-  static_assert(kNumContacts == 2, "the simulator has a force sensor in each of two feet");
+  static_assert(kNumContacts == kBipedFootCount, "the simulator has a force sensor in each of two feet (takeMeasuredFootForces())");
   simulator_->takeMeasuredFootForces(forces[0], forces[1]);
 }
 
 void MujocoRobotBackend::registerContactEstimators(robot::model::ContactEstimatorRegistry& registry) const {
-  robot::mujoco_sim_interface::registerCheaterSimContactEstimator(registry, *simulator_);
+  robot::mujoco_sim_interface::registerCheaterSimContactEstimator(registry, simulator_.get());
 }
 
 }  // namespace ocs2::humanoid

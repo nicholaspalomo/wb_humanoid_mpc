@@ -57,6 +57,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/config/reference/ReferenceFromConfig.h"
 #include "humanoid_common_mpc/config/reference/ReferenceSettings.h"
 #include "humanoid_mpc_config/reference_file.nproto.h"
+#include "humanoid_nmpc/humanoid_common_mpc/test/support/StatusTestMacros.h"
 #include "humanoid_wb_mpc/command/WBMpcTargetTrajectoriesCalculator.h"
 #include "humanoid_wb_mpc/common/WBAccelMpcRobotModel.h"
 
@@ -99,10 +100,10 @@ class TargetTrajectoriesCalculatorSettersTest : public ::testing::Test {
     referenceFile_ = runfilePath("robot_models/unitree_g1/g1_wb_mpc/config/command/reference.textproto");
     // LINT.ThenChange(//humanoid_nmpc/humanoid_wb_mpc/BUILD.bazel:calculator_setters_test_data)
     ASSERT_FALSE(taskFile.empty() || urdfFile.empty() || referenceFile_.empty()) << "the G1 whole-body files are not in the runfiles";
-    modelSettings_ = std::make_unique<ModelSettings>(ModelSettings::Create(taskFile, urdfFile, "wb_mpc_", /*verbose=*/false).value());
+    modelSettings_ = std::make_unique<ModelSettings>(checkedValue(ModelSettings::Create(taskFile, urdfFile, "wb_mpc_", /*verbose=*/false)));
     model_ = std::make_unique<WBAccelMpcRobotModel<scalar_t>>(*modelSettings_);
-    calculator_ = WBMpcTargetTrajectoriesCalculator::Create(referenceFile_, *model_, kHorizon).value();
-    reference_ = loadReferenceFile(referenceFile_).value();
+    HUMANOID_ASSERT_OK_AND_ASSIGN(calculator_, WBMpcTargetTrajectoriesCalculator::Create(referenceFile_, *model_, kHorizon));
+    HUMANOID_ASSERT_OK_AND_ASSIGN(reference_, loadReferenceFile(referenceFile_));
     // At the origin, level, facing along x: the identity orientation.
     initState_ = model_->getNeutralState();
   }
@@ -239,7 +240,7 @@ TEST_F(TargetTrajectoriesCalculatorSettersTest, TheTwoSpeedsAreIndependent) {
 TEST_F(TargetTrajectoriesCalculatorSettersTest, TheTypedReferenceFileBuildsWhatItsPathBuilds) {
   // The path form loads the file and builds the typed form: the same limits, so the same times to every target.
   const std::unique_ptr<WBMpcTargetTrajectoriesCalculator> typed =
-      WBMpcTargetTrajectoriesCalculator::Create(reference_, *model_, kHorizon).value();
+      checkedValue(WBMpcTargetTrajectoriesCalculator::Create(reference_, *model_, kHorizon));
   const vector4_t turn(0.0, 0.0, 0.0, kTurnDegrees);
   EXPECT_EQ(typed->commandedPositionToTargetTrajectories(turn, kInitTime, initState_).timeTrajectory.back(), timeToTarget(turn));
   const vector4_t step(1.0, 0.5, 0.0, 0.0);

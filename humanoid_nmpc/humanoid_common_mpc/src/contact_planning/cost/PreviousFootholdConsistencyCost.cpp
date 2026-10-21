@@ -33,6 +33,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cmath>
 #include <string>
 
+#include "ocs2_core/Dimensions.h"
+
 namespace ocs2::humanoid {
 
 std::string PreviousFootholdConsistencyCost::describe() const {
@@ -44,10 +46,10 @@ void PreviousFootholdConsistencyCost::configure(const ContactPlanningConfig& con
 }
 
 void PreviousFootholdConsistencyCost::addToStage(const ContactPlanningContext& ctx, int node, StageAccumulator& stage) const {
-  if (ctx.previousPlanShift < 0 || ctx.previousPlan == nullptr || weight_ <= 0.0) return;
-  const int source = std::min(node + ctx.previousPlanShift, static_cast<int>(ctx.previousPlan->footholds.size()) - 1);
+  if (!ctx.previousPlanShift.has_value() || ctx.previousPlan == nullptr || weight_ <= 0.0) return;
+  const int source = std::min(node + *ctx.previousPlanShift, static_cast<int>(ctx.previousPlan->footholds.size()) - 1);
   for (size_t foot = 0; foot < kNumContacts; ++foot) {
-    for (int axis = 0; axis < 2; ++axis) {
+    for (int axis = 0; axis < kHorizontalPositionDim; ++axis) {
       stage.addQuadraticResidual({{idx_.foot[foot][axis], 1.0}}, /*uCoefficients=*/{},
                                  -ctx.previousPlan->footholds[static_cast<size_t>(source)][foot](axis), weight_);
     }

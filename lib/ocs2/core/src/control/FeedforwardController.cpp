@@ -167,7 +167,7 @@ void swap(FeedforwardController& a, FeedforwardController& b) noexcept {
 /******************************************************************************************************/
 /******************************************************************************************************/
 std::ostream& operator<<(std::ostream& out, const FeedforwardController& controller) {
-  for (int i = 0; i < controller.timeStamp_.size(); i++) {
+  for (size_t i = 0; i < controller.timeStamp_.size(); i++) {
     out << "t\t" << controller.timeStamp_[i] << "\tu\t" << controller.uffArray_[i].transpose() << '\n';
   }
   return out;

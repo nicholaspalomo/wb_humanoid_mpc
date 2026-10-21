@@ -54,6 +54,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/constraint/ContactWrenchConeConstraint.h"
 #include "humanoid_common_mpc/contact/ContactRectangle.h"
 #include "humanoid_common_mpc/contact/ContactWrenchConeBasisMatrix.h"
+#include "humanoid_common_mpc/mrt/ControllerEvent.h"
+#include "humanoid_common_mpc/mrt/ControllerEventSink.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
 #include "robot_model/RobotDescription.h"
 #include "robot_model/RobotStateContactEstimator.h"
@@ -104,7 +106,7 @@ class FixedContactEstimator final : public ::robot::model::ContactEstimator {
     ++calls;
     flags.assign(flags_.begin(), flags_.end());
   }
-  std::string getName() const override { return "FixedContactEstimator"; }
+  absl::string_view getName() const override { return "FixedContactEstimator"; }
   void set(std::vector<bool> flags) { flags_ = std::move(flags); }
   size_t calls = 0;
 
@@ -112,15 +114,30 @@ class FixedContactEstimator final : public ::robot::model::ContactEstimator {
   std::vector<bool> flags_;
 };
 
+/** A sink that keeps the events of one code, as the robot process's realtime event log would hand them on. */
+class CodeRecordingSink final : public ControllerEventSink {
+ public:
+  explicit CodeRecordingSink(ControllerEventCode code) : code_(code) {}
+  bool post(const ControllerEvent& event) override {
+    if (event.code == code_) events.push_back(event);
+    return true;
+  }
+  std::vector<ControllerEvent> events;
+
+ private:
+  const ControllerEventCode code_;
+};
+
 class CentroidalMpcMrtJointControllerTest : public ::testing::Test {
  protected:
   void SetUp() override {
     tempPdGainsFile_ = std::filesystem::temp_directory_path() / "test_pd_gains.textproto";
 
-    // A PD gains file (humanoid_mpc_config.JointPdGainsFile) that names no joint: every joint has the controller's
-    // own gains. (A joint the model does not have would make it another robot's file, which the controller refuses.)
+    // A PD gains file (humanoid_mpc_config.JointPdGainsFile) that names no joint: every joint has its default_gains,
+    // which every gains file sets in full - the controller has no gains of its own. (A joint the model does not have
+    // would make it another robot's file, which the controller refuses.)
     std::ofstream ofs(tempPdGainsFile_);
-    ofs << "# The controller's own gains for every joint.\n";
+    ofs << "# proto-message: humanoid_mpc_config.JointPdGainsFile\ndefault_gains { kp: 250.0 kd: 15.0 torque_limit: 500.0 }\n";
     ofs.close();
   }
 
@@ -128,6 +145,14 @@ class CentroidalMpcMrtJointControllerTest : public ::testing::Test {
     if (std::filesystem::exists(tempPdGainsFile_)) {
       std::filesystem::remove(tempPdGainsFile_);
     }
+  }
+
+  /** A controller of the fixture's model on the scripted MPC, whose link is never started: no policy arrives. */
+  absl::StatusOr<std::unique_ptr<CentroidalMpcMrtJointController>> createController(const ::robot::model::RobotDescription& robotDesc) {
+    return CentroidalMpcMrtJointController::Create(robotDesc, testingModelInterface_.getModelSettings(),
+                                                   testingModelInterface_.getMpcRobotModel(), scriptedMpc_,
+                                                   /*solverObservationObserver=*/nullptr, testingModelInterface_.getPinocchioInterface(),
+                                                   /*mpcDesiredFrequency=*/400.0, tempPdGainsFile_.string());
   }
 
   CentroidalTestingModelInterface testingModelInterface_;
@@ -253,6 +278,169 @@ TEST_F(CentroidalMpcMrtJointControllerTest, testSafetyModeDecaysADampedPdToZeroT
   }
 }
 
+// A clock that runs back past the SAFETY entry (the sim or the runtime clock restarting at 0) keeps the time the decay has
+// run for and the posture captured at entry (docs/mpc_reset/README.md). The start time, shifted by the rewind, used to
+// fall below zero, which was also the "not yet captured" sentinel: the controller captured the posture of the moment as
+// the one to hold, posted kSafetyEntered again and commanded the full JOINT_PD gains.
+TEST_F(CentroidalMpcMrtJointControllerTest, testSafetyKeepsItsDecayAndItsPostureAcrossAClockRewindPastItsEntry) {
+  // Declared first, so that it outlives the controller, which may report until it is destroyed.
+  CodeRecordingSink entered(ControllerEventCode::kSafetyEntered);
+  absl::StatusOr<::robot::model::RobotDescription> robotDescOrStatus =
+      ::robot::model::RobotDescription::Create(testingModelInterface_.urdfFile);
+  ASSERT_TRUE(robotDescOrStatus.ok()) << robotDescOrStatus.status();
+  const ::robot::model::RobotDescription& robotDesc = *robotDescOrStatus;
+  ::robot::model::RobotState robotState(robotDesc);
+  absl::StatusOr<std::unique_ptr<CentroidalMpcMrtJointController>> controllerOrStatus = createController(robotDesc);
+  ASSERT_TRUE(controllerOrStatus.ok()) << controllerOrStatus.status();
+  CentroidalMpcMrtJointController& controller = **controllerOrStatus;
+  controller.setEventSink(&entered);
+  const scalar_t timeConstant = 0.5;
+  controller.setSafetyDecayTimeConstant(timeConstant);
+
+  controller.setControlMode("JOINT_PD");
+  ::robot::model::RobotJointAction reference(robotDesc);
+  robotState.setTime(0.0);
+  controller.computeJointControlAction(/*time=*/0.0, robotState, reference);
+
+  // Decay part of the way from an entry at t = 10.
+  const scalar_t entryTime = 10.0;
+  const scalar_t decayed = 0.5 * timeConstant;
+  for (size_t index = 0; index < robotDesc.getNumJoints(); ++index) {
+    robotState.setJointPosition(index, robotState.getJointPosition(index) + 0.3);
+  }
+  std::vector<scalar_t> postureAtEntry(robotDesc.getNumJoints(), 0.0);
+  for (size_t index = 0; index < robotDesc.getNumJoints(); ++index) postureAtEntry[index] = robotState.getJointPosition(index);
+  controller.setControlMode("SAFETY");
+  ::robot::model::RobotJointAction action(robotDesc);
+  for (const scalar_t time : {entryTime, entryTime + decayed}) {
+    robotState.setTime(time);
+    controller.computeJointControlAction(time, robotState, action);
+  }
+
+  // The robot has moved on, and the clock restarts at 0: before the time SAFETY was entered at.
+  for (size_t index = 0; index < robotDesc.getNumJoints(); ++index) {
+    robotState.setJointPosition(index, robotState.getJointPosition(index) + 0.2);
+  }
+  robotState.setTime(0.0);
+  controller.computeJointControlAction(/*time=*/0.0, robotState, action);
+
+  const scalar_t alpha = CentroidalMpcMrtJointController::safetyDecayFactor(decayed, timeConstant);
+  ASSERT_GT(alpha, 0.0);
+  ASSERT_LT(alpha, 1.0);
+  size_t checkedJoints = 0;
+  for (size_t index = 0; index < robotDesc.getNumJoints(); ++index) {
+    if (!action.at(index).has_value() || !reference.at(index).has_value()) continue;
+    EXPECT_NEAR(actionOf(action, index).kp, alpha * actionOf(reference, index).kp, 1.0e-9) << "joint " << index;
+    EXPECT_NEAR(actionOf(action, index).kd, alpha * actionOf(reference, index).kd, 1.0e-9) << "joint " << index;
+    EXPECT_NEAR(actionOf(action, index).q_des, postureAtEntry[index], 1.0e-9) << "joint " << index << ": not the posture at entry";
+    ++checkedJoints;
+  }
+  ASSERT_GT(checkedJoints, 0u) << "the fixture produced no actuated joints, so nothing was verified";
+  EXPECT_EQ(entered.events.size(), 1U) << "the rewind entered SAFETY a second time";
+
+  // The decay goes on from where it was on the new clock, and completes.
+  const scalar_t completed = 4.0 * timeConstant;
+  robotState.setTime(completed);
+  controller.computeJointControlAction(completed, robotState, action);
+  EXPECT_TRUE(controller.isSafetyDecayComplete());
+  for (size_t index = 0; index < robotDesc.getNumJoints(); ++index) {
+    if (!action.at(index).has_value()) continue;
+    EXPECT_DOUBLE_EQ(actionOf(action, index).kp, 0.0) << "joint " << index;
+    EXPECT_DOUBLE_EQ(actionOf(action, index).kd, 0.0) << "joint " << index;
+  }
+  controller.setEventSink(nullptr);
+}
+
+// A SAFETY decay that has reached zero torque stays there when the clock runs back past its entry. It used to start over
+// at the full JOINT_PD gains while isSafetyDecayComplete() went on reporting true.
+TEST_F(CentroidalMpcMrtJointControllerTest, testACompletedSafetyDecayStaysAtZeroTorqueAcrossAClockRewind) {
+  // Declared first, so that it outlives the controller, which may report until it is destroyed.
+  CodeRecordingSink entered(ControllerEventCode::kSafetyEntered);
+  absl::StatusOr<::robot::model::RobotDescription> robotDescOrStatus =
+      ::robot::model::RobotDescription::Create(testingModelInterface_.urdfFile);
+  ASSERT_TRUE(robotDescOrStatus.ok()) << robotDescOrStatus.status();
+  const ::robot::model::RobotDescription& robotDesc = *robotDescOrStatus;
+  ::robot::model::RobotState robotState(robotDesc);
+  absl::StatusOr<std::unique_ptr<CentroidalMpcMrtJointController>> controllerOrStatus = createController(robotDesc);
+  ASSERT_TRUE(controllerOrStatus.ok()) << controllerOrStatus.status();
+  CentroidalMpcMrtJointController& controller = **controllerOrStatus;
+  controller.setEventSink(&entered);
+  const scalar_t timeConstant = 0.5;
+  controller.setSafetyDecayTimeConstant(timeConstant);
+
+  controller.setControlMode("SAFETY");
+  ::robot::model::RobotJointAction action(robotDesc);
+  const scalar_t entryTime = 10.0;
+  for (const scalar_t time : {entryTime, entryTime + 4.0 * timeConstant}) {
+    robotState.setTime(time);
+    controller.computeJointControlAction(time, robotState, action);
+  }
+  ASSERT_TRUE(controller.isSafetyDecayComplete());
+
+  robotState.setTime(0.0);
+  controller.computeJointControlAction(/*time=*/0.0, robotState, action);
+  EXPECT_TRUE(controller.isSafetyDecayComplete());
+  size_t checkedJoints = 0;
+  for (size_t index = 0; index < robotDesc.getNumJoints(); ++index) {
+    if (!action.at(index).has_value()) continue;
+    EXPECT_DOUBLE_EQ(actionOf(action, index).kp, 0.0) << "joint " << index;
+    EXPECT_DOUBLE_EQ(actionOf(action, index).kd, 0.0) << "joint " << index;
+    EXPECT_DOUBLE_EQ(actionOf(action, index).feed_forward_effort, 0.0) << "joint " << index;
+    ++checkedJoints;
+  }
+  ASSERT_GT(checkedJoints, 0u) << "the fixture produced no actuated joints, so nothing was verified";
+  EXPECT_EQ(entered.events.size(), 1U) << "the rewind entered SAFETY a second time";
+  controller.setEventSink(nullptr);
+}
+
+// Leaving SAFETY for WB_MPC holds the JOINT_PD action until a post-reset policy is in use, as leaving ZERO_TORQUE does
+// (docs/mpc_reset/README.md): SAFETY's own hold decays to zero torque and cannot carry the robot through the reset.
+TEST_F(CentroidalMpcMrtJointControllerTest, testEntryFromSafetyHoldsTheJointPdAction) {
+  absl::StatusOr<::robot::model::RobotDescription> robotDescOrStatus =
+      ::robot::model::RobotDescription::Create(testingModelInterface_.urdfFile);
+  ASSERT_TRUE(robotDescOrStatus.ok()) << robotDescOrStatus.status();
+  const ::robot::model::RobotDescription& robotDesc = *robotDescOrStatus;
+  ::robot::model::RobotState robotState(robotDesc);
+  absl::StatusOr<std::unique_ptr<CentroidalMpcMrtJointController>> controllerOrStatus = createController(robotDesc);
+  ASSERT_TRUE(controllerOrStatus.ok()) << controllerOrStatus.status();
+  CentroidalMpcMrtJointController& controller = **controllerOrStatus;
+  const scalar_t timeConstant = 0.5;
+  controller.setSafetyDecayTimeConstant(timeConstant);
+
+  controller.setControlMode("JOINT_PD");
+  ::robot::model::RobotJointAction jointPd(robotDesc);
+  robotState.setTime(0.0);
+  controller.computeJointControlAction(/*time=*/0.0, robotState, jointPd);
+
+  controller.setControlMode("SAFETY");
+  ::robot::model::RobotJointAction safety(robotDesc);
+  for (const scalar_t time : {0.01, 0.01 + 5.0 * timeConstant}) {
+    robotState.setTime(time);
+    controller.computeJointControlAction(time, robotState, safety);
+  }
+
+  controller.setControlMode("WB_MPC");  // requests a reset; the link is never started, so no post-reset policy arrives
+  ::robot::model::RobotJointAction held(robotDesc);
+  const scalar_t entryTime = 0.02 + 5.0 * timeConstant;
+  robotState.setTime(entryTime);
+  controller.computeJointControlAction(entryTime, robotState, held);
+
+  EXPECT_TRUE(controller.isEnteringMpc());
+  size_t checkedJoints = 0;
+  for (size_t index = 0; index < robotDesc.getNumJoints(); ++index) {
+    if (!jointPd.at(index).has_value()) continue;
+    EXPECT_DOUBLE_EQ(actionOf(held, index).q_des, actionOf(jointPd, index).q_des) << "joint " << index;
+    EXPECT_DOUBLE_EQ(actionOf(held, index).qd_des, actionOf(jointPd, index).qd_des) << "joint " << index;
+    EXPECT_DOUBLE_EQ(actionOf(held, index).kp, actionOf(jointPd, index).kp) << "joint " << index;
+    EXPECT_DOUBLE_EQ(actionOf(held, index).kd, actionOf(jointPd, index).kd) << "joint " << index;
+    EXPECT_DOUBLE_EQ(actionOf(held, index).feed_forward_effort, actionOf(jointPd, index).feed_forward_effort) << "joint " << index;
+    EXPECT_GT(actionOf(jointPd, index).kp, 0.0) << "joint " << index;
+    EXPECT_DOUBLE_EQ(actionOf(safety, index).kp, 0.0) << "positive control: SAFETY had decayed to zero torque, joint " << index;
+    ++checkedJoints;
+  }
+  ASSERT_GT(checkedJoints, 0u) << "the fixture produced no actuated joints, so nothing was verified";
+}
+
 // Entering WB_MPC from JOINT_PD resets the MPC, and no policy solved before that reset may reach the robot: the controller
 // keeps the JOINT_PD action, field by field, until a policy solved after it is in use - whatever the entry blend time,
 // which only shapes the ramp that follows. It used to switch at once when the blend time was 0, executing the policy
@@ -337,7 +525,7 @@ TEST_F(CentroidalMpcMrtJointControllerTest, testBasisVectorInputsUseWorldFrameWr
   const std::filesystem::path gainsFile = std::filesystem::temp_directory_path() / "test_pd_gains_basis.textproto";
   {
     std::ofstream ofs(gainsFile);
-    ofs << "default_gains { kp: 100.0 kd: 10.0 torque_limit: 1000000.0 }\n";
+    ofs << "# proto-message: humanoid_mpc_config.JointPdGainsFile\ndefault_gains { kp: 100.0 kd: 10.0 torque_limit: 1000000.0 }\n";
   }
 
   absl::StatusOr<std::unique_ptr<CentroidalMpcMrtJointController>> controllerOrStatus = CentroidalMpcMrtJointController::Create(
@@ -370,8 +558,10 @@ TEST_F(CentroidalMpcMrtJointControllerTest, testBasisVectorInputsUseWorldFrameWr
   const vector_t q = basisModel.getGeneralizedCoordinates(observation.state);
   const vector_t qd = basisModel.getGeneralizedVelocities(observation.state, observation.input);
   const vector_t qddZero = vector_t::Zero(basisModel.getJointDim());
-  const vector_t expectedTorques = computeBaseHeldJointTorques<scalar_t>(q, qd, qddZero, worldWrenches, pinocchioInterface);
-  const vector_t localFrameTorques = computeBaseHeldJointTorques<scalar_t>(q, qd, qddZero, localWrenches, pinocchioInterface);
+  const vector_t expectedTorques = computeBaseHeldJointTorques<scalar_t>(
+      q, qd, qddZero, worldWrenches, getContactFrameIndexArray<scalar_t>(pinocchioInterface, basisModel), pinocchioInterface);
+  const vector_t localFrameTorques = computeBaseHeldJointTorques<scalar_t>(
+      q, qd, qddZero, localWrenches, getContactFrameIndexArray<scalar_t>(pinocchioInterface, basisModel), pinocchioInterface);
 
   // Sanity: with pitched feet the local- and world-frame wrenches (and hence torques) differ, so the check discriminates.
   ASSERT_GT((worldWrenches[0] - localWrenches[0]).norm(), 1.0);
@@ -455,7 +645,7 @@ TEST_F(CentroidalMpcMrtJointControllerTest, testFeedforwardWrenchesFollowTheMeas
   const std::filesystem::path gainsFile = std::filesystem::temp_directory_path() / "test_pd_gains_measured_contacts.textproto";
   {
     std::ofstream ofs(gainsFile);
-    ofs << "default_gains { kp: 100.0 kd: 10.0 torque_limit: 1000000.0 }\n";
+    ofs << "# proto-message: humanoid_mpc_config.JointPdGainsFile\ndefault_gains { kp: 100.0 kd: 10.0 torque_limit: 1000000.0 }\n";
   }
   absl::StatusOr<std::unique_ptr<CentroidalMpcMrtJointController>> controllerOrStatus = CentroidalMpcMrtJointController::Create(
       robotDesc, testingModelInterface_.getModelSettings(), testingModelInterface_.getMpcRobotModel(), scriptedMpc_,
@@ -485,14 +675,14 @@ TEST_F(CentroidalMpcMrtJointControllerTest, testFeedforwardWrenchesFollowTheMeas
   const std::array<vector6_t, 2> wrenches{model.getContactWrenchInWorldFrame(observation.state, weightInput, /*contactIndex=*/0),
                                           model.getContactWrenchInWorldFrame(observation.state, weightInput, /*contactIndex=*/1)};
   ASSERT_TRUE(wrenches[1].isZero());
-  const vector_t expected = computeBaseHeldJointTorques<scalar_t>(model.getGeneralizedCoordinates(observation.state),
-                                                                  model.getGeneralizedVelocities(observation.state, observation.input),
-                                                                  vector_t::Zero(model.getJointDim()), wrenches, pinocchioInterface);
+  const vector_t expected = computeBaseHeldJointTorques<scalar_t>(
+      model.getGeneralizedCoordinates(observation.state), model.getGeneralizedVelocities(observation.state, observation.input),
+      vector_t::Zero(model.getJointDim()), wrenches, getContactFrameIndexArray<scalar_t>(pinocchioInterface, model), pinocchioInterface);
   // Positive control: the floating-base inverse dynamics of the same single-support wrench accelerates the free base and
   // differs, so the comparison below tells the base-held (gantry) feedforward from it.
-  const vector_t floatingBase = computeJointTorques<scalar_t>(model.getGeneralizedCoordinates(observation.state),
-                                                              model.getGeneralizedVelocities(observation.state, observation.input),
-                                                              vector_t::Zero(model.getJointDim()), wrenches, pinocchioInterface);
+  const vector_t floatingBase = computeJointTorques<scalar_t>(
+      model.getGeneralizedCoordinates(observation.state), model.getGeneralizedVelocities(observation.state, observation.input),
+      vector_t::Zero(model.getJointDim()), wrenches, getContactFrameIndexArray<scalar_t>(pinocchioInterface, model), pinocchioInterface);
   ASSERT_GT((floatingBase - expected).cwiseAbs().maxCoeff(), 1.0);
 
   const std::vector<size_t> mpcJointIndices = robotDesc.getJointIndices(testingModelInterface_.getModelSettings().mpcModelJointNames);

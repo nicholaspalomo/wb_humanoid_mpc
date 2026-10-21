@@ -38,6 +38,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <optional>
 #include <utility>
 
+#include "absl/base/nullability.h"
 #include "absl/log/log.h"
 #include "absl/memory/memory.h"
 #include "absl/status/status.h"
@@ -98,9 +99,11 @@ absl::Status validateConfig(const RemoteMpcLink::Config& config) {
 
 }  // namespace
 
-absl::StatusOr<std::unique_ptr<RemoteMpcLink>> RemoteMpcLink::Create(robot::ipc::Bus& bus, MpcResetSupervisor& supervisor, Config config) {
+absl::StatusOr<std::unique_ptr<RemoteMpcLink>> RemoteMpcLink::Create(robot::ipc::Bus* absl_nonnull bus,
+                                                                     MpcResetSupervisor* absl_nonnull supervisor,
+                                                                     Config config) {
   RETURN_IF_ERROR(validateConfig(config));
-  if (bus.isRunning()) {
+  if (bus->isRunning()) {
     return absl::FailedPreconditionError("RemoteMpcLink: the bus is running; create the link before Bus::start()");
   }
   std::unique_ptr<RemoteMpcLink> link = absl::WrapUnique(new RemoteMpcLink(bus, supervisor, std::move(config)));
@@ -109,18 +112,18 @@ absl::StatusOr<std::unique_ptr<RemoteMpcLink>> RemoteMpcLink::Create(robot::ipc:
 }
 
 absl::StatusOr<std::unique_ptr<RemoteMpcLink>> RemoteMpcLink::Create(robot::ipc::BusOptions busOptions,
-                                                                     MpcResetSupervisor& supervisor,
+                                                                     MpcResetSupervisor* absl_nonnull supervisor,
                                                                      Config config) {
   RETURN_IF_ERROR(validateConfig(config));
   ASSIGN_OR_RETURN(std::unique_ptr<robot::ipc::Bus> bus, robot::ipc::Bus::Create(std::move(busOptions)));
-  std::unique_ptr<RemoteMpcLink> link = absl::WrapUnique(new RemoteMpcLink(*bus, supervisor, std::move(config)));
+  std::unique_ptr<RemoteMpcLink> link = absl::WrapUnique(new RemoteMpcLink(bus.get(), supervisor, std::move(config)));
   link->ownedBus_ = std::move(bus);
   RETURN_IF_ERROR(link->registerOnBus());
   RETURN_IF_ERROR(link->ownedBus_->start());
   return link;
 }
 
-RemoteMpcLink::RemoteMpcLink(robot::ipc::Bus& bus, MpcResetSupervisor& supervisor, Config config)
+RemoteMpcLink::RemoteMpcLink(robot::ipc::Bus* absl_nonnull bus, MpcResetSupervisor* absl_nonnull supervisor, Config config)
     : bus_(bus),
       supervisor_(supervisor),
       config_(std::move(config)),
@@ -136,8 +139,8 @@ RemoteMpcLink::RemoteMpcLink(robot::ipc::Bus& bus, MpcResetSupervisor& superviso
       newestPolicyInitTimeStatistic_(kNoTime) {
   setStateManifold(config_.stateManifold);
   // A reset served before the link existed counts as the last ticket: a policy that serves less was solved before it.
-  ticket_.request = supervisor_.numResetsServed();
-  ticket_.fullRequest = supervisor_.numFullResetsServed();
+  ticket_.request = supervisor_->numResetsServed();
+  ticket_.fullRequest = supervisor_->numFullResetsServed();
   absl::MutexLock lock(guard_->mutex);
   guard_->link = this;
 }
@@ -164,11 +167,11 @@ absl::Status RemoteMpcLink::registerOnBus() {
     absl::MutexLock lock(guard->mutex);
     if (guard->link != nullptr) guard->link->onPoll();
   };
-  RETURN_IF_ERROR(bus_.subscribe<humanoid_mpc_msgs::MpcPolicy>(topics::kMpcPolicy, robot::ipc::Delivery::kLatest, onPolicyMessage));
+  RETURN_IF_ERROR(bus_->subscribe<humanoid_mpc_msgs::MpcPolicy>(topics::kMpcPolicy, robot::ipc::Delivery::kLatest, onPolicyMessage));
   // After mpc/policy: the bus hands the newest message of each topic of one drain over in the order of the
   // subscriptions, so a status is handled after a policy of the same drain, which an earlier or the same attempt solved.
-  RETURN_IF_ERROR(bus_.subscribe<humanoid_mpc_msgs::MpcStatus>(topics::kMpcStatus, robot::ipc::Delivery::kLatest, onStatusMessage));
-  return bus_.addPeriodicCallback(config_.pollPeriod, onPollPeriod);
+  RETURN_IF_ERROR(bus_->subscribe<humanoid_mpc_msgs::MpcStatus>(topics::kMpcStatus, robot::ipc::Delivery::kLatest, onStatusMessage));
+  return bus_->addPeriodicCallback(config_.pollPeriod, onPollPeriod);
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -176,7 +179,7 @@ absl::Status RemoteMpcLink::registerOnBus() {
 // ---------------------------------------------------------------------------------------------------------------------
 
 void RemoteMpcLink::resetMpcNode(const TargetTrajectories& /*initTargetTrajectories*/) {
-  supervisor_.requestReset(MpcResetSupervisor::ResetKind::kFull);
+  supervisor_->requestReset(MpcResetSupervisor::ResetKind::kFull);
 }
 
 void RemoteMpcLink::setCurrentObservation(const SystemObservation& observation) {
@@ -185,13 +188,13 @@ void RemoteMpcLink::setCurrentObservation(const SystemObservation& observation) 
   slot.sequence = ++observationsWritten_;
   observations_.publishWrite();
 
-  // The watchdog of this thread, against the deadline of the newest policy the IO thread accepted. The IO thread checks
-  // the same deadline, but only when it runs: a stalled or starved IO thread must not leave the controller executing a
-  // plan past its end. False before the first policy (an infinite deadline) and for a NaN time.
+  // The watchdog of this thread, against the deadline of the policy that may be in use (publishPolicyDeadline()). The IO
+  // thread checks the same deadline, but only when it runs: a stalled or starved IO thread must not leave the controller
+  // executing a plan past its end. False before the first policy (an infinite deadline) and for a NaN time.
   const bool expired = observation.time > policyDeadline_.load(std::memory_order_acquire);
   if (expired != policyExpired_) {
     policyExpired_ = expired;
-    supervisor_.setRemotePolicyExpired(expired);
+    supervisor_->setRemotePolicyExpired(expired);
   }
 }
 
@@ -243,14 +246,15 @@ void RemoteMpcLink::takeAndPublishObservation() {
   const ObservationSlot& slot = observations_.readSlot();
   const scalar_t time = slot.observation.time;
   // A rewind is what the controller's supervisor counts as one (MpcResetSupervisor::observeTime()).
-  if (!haveObservation_ || time < latestObservationTime_ - supervisor_.getConfig().clockRewindTolerance) {
+  if (!haveObservation_ || time < latestObservationTime_ - supervisor_->getConfig().clockRewindTolerance) {
     // The first observation, or a clock that ran backwards: a policy solved before this one is not of this clock.
     sessionStartTime_ = time;
     if (policyAccepted_) {
-      // The newest policy is timed on the old clock; the timeout counts from here, and its horizon says nothing. A lost
-      // link stays lost: only a policy that arrives ends that.
+      // The newest policy, and an older one still in use, are timed on the old clock; the timeout counts from here,
+      // and their horizons say nothing. A lost link stays lost: only a policy that arrives ends that.
       newestPolicyInitTime_ = time;
       newestPolicyFinalTime_ = kNoEnd;
+      if (inUsePolicy_.has_value()) inUsePolicy_ = PolicyWindow{.initTime = time, .finalTime = kNoEnd};
       publishPolicyDeadline();
       // No policy of this clock yet, so no policy age (statistics() reads the observation time first).
       newestPolicyInitTimeStatistic_.store(kNoTime);
@@ -270,11 +274,12 @@ void RemoteMpcLink::takeAndPublishObservation() {
                                               << dimensions.message();
     return;
   }
-  const MpcResetSupervisor::ResetCounters counters = supervisor_.resetsRequested();
+  const MpcResetSupervisor::ResetCounters counters = supervisor_->resetsRequested();
   observationMessage_.mutable_resets()->set_requested(counters.requested);
   observationMessage_.mutable_resets()->set_full_requested(counters.fullRequested);
   observationMessage_.set_sequence(slot.sequence);
-  const absl::Status published = bus_.publishFromIoThread(topics::kRobotMpcObservation, observationMessage_);
+  observationMessage_.set_model_fingerprint(config_.modelFingerprint);
+  const absl::Status published = bus_->publishFromIoThread(topics::kRobotMpcObservation, observationMessage_);
   if (published.ok()) {
     observationsPublished_.fetch_add(1);
   } else {
@@ -283,7 +288,7 @@ void RemoteMpcLink::takeAndPublishObservation() {
 }
 
 void RemoteMpcLink::serveResetRequests() {
-  const std::optional<MpcResetSupervisor::ResetTicket> ticket = supervisor_.takeResetRequest();
+  const std::optional<MpcResetSupervisor::ResetTicket> ticket = supervisor_->takeResetRequest();
   if (!ticket.has_value()) {
     return;
   }
@@ -291,7 +296,7 @@ void RemoteMpcLink::serveResetRequests() {
     return;  // Already waiting for the policy that serves it.
   }
   // The policy in use stops being current, and no policy solved before this request can be swapped in after it.
-  discardBufferedPolicy();
+  discardBufferedPolicyAndTrackInUse();
   ticket_ = *ticket;
   ticketOpen_ = true;
   resetTicketsTaken_.fetch_add(1);
@@ -319,14 +324,14 @@ void RemoteMpcLink::onPolicy(const humanoid_mpc_msgs::MpcPolicy& message) {
   if (message.resets_served() < ticket_.request || message.full_resets_served() < ticket_.fullRequest) {
     // Solved before a reset this robot requested. Its solver status is current all the same.
     stalePoliciesDropped_.fetch_add(1);
-    mirrorSolverStatus(message.solver_status(), /*fromPolicy=*/true);
+    mirrorSolverStatus(message.solver_status(), StatusSource::kPolicy);
     updateHealth();
     return;
   }
   if (latestObservationTime_ > initTime + config_.policyTimeout) {
     // Older than the timeout on arrival: it would not end a hold, nor keep the link healthy.
     latePoliciesDropped_.fetch_add(1);
-    mirrorSolverStatus(message.solver_status(), /*fromPolicy=*/true);
+    mirrorSolverStatus(message.solver_status(), StatusSource::kPolicy);
     updateHealth();
     return;
   }
@@ -335,6 +340,11 @@ void RemoteMpcLink::onPolicy(const humanoid_mpc_msgs::MpcPolicy& message) {
   std::unique_ptr<PrimalSolution> solution = std::make_unique<PrimalSolution>();
   std::unique_ptr<PerformanceIndex> performance = std::make_unique<PerformanceIndex>();
   absl::Status decoded = checkDimensions(message, config_.dimensions);
+  if (decoded.ok() && config_.modelFingerprint != 0 && message.model_fingerprint() != config_.modelFingerprint) {
+    decoded = absl::InvalidArgumentError(absl::StrCat("MpcPolicy.model_fingerprint is ", message.model_fingerprint(),
+                                                      ", this robot's model layout is ", config_.modelFingerprint,
+                                                      ": the MPC node runs another robot model, joint order or set of fixed joints"));
+  }
   if (decoded.ok()) {
     decoded = policyFromProto(message, config_.stateManifold, command.get(), solution.get(), performance.get());
   }
@@ -348,16 +358,23 @@ void RemoteMpcLink::onPolicy(const humanoid_mpc_msgs::MpcPolicy& message) {
   if (latestObservationTime_ >= finalTime) {
     // Its horizon ended before it arrived: taking it would lose the link again at once.
     latePoliciesDropped_.fetch_add(1);
-    mirrorSolverStatus(message.solver_status(), /*fromPolicy=*/true);
+    mirrorSolverStatus(message.solver_status(), StatusSource::kPolicy);
     updateHealth();
     return;
   }
-  moveToBuffer(std::move(command), std::move(solution), std::move(performance));
+  const bool replacedUnswapped = moveToBuffer(std::move(command), std::move(solution), std::move(performance));
+  if (newestPolicyBuffered_ && !replacedUnswapped) {
+    // The buffer no longer held the previous newest policy, and nothing dropped it: the controller swapped it in. It is
+    // the plan that runs should this one be dropped before its swap.
+    inUsePolicy_ = PolicyWindow{.initTime = newestPolicyInitTime_, .finalTime = newestPolicyFinalTime_};
+  }
   publishAnnotations(message.annotations());
   policiesAccepted_.fetch_add(1);
   policyAccepted_ = true;
   newestPolicyInitTime_ = initTime;
   newestPolicyFinalTime_ = finalTime;
+  newestPolicyBuffered_ = true;
+  newestPolicyDropped_ = false;
   // After moveToBuffer(): the realtime thread's watchdog never sees the new deadline before the policy it belongs to.
   publishPolicyDeadline();
   newestPolicyInitTimeStatistic_.store(initTime);
@@ -370,11 +387,11 @@ void RemoteMpcLink::onPolicy(const humanoid_mpc_msgs::MpcPolicy& message) {
   }
   // Completed after the policy is in the buffer: the controller never sees the reset served without a policy of it.
   if (ticketOpen_) {
-    supervisor_.completeReset(ticket_);
+    supervisor_->completeReset(ticket_);
     ticketOpen_ = false;
     resetTicketsCompleted_.fetch_add(1);
   }
-  mirrorSolverStatus(message.solver_status(), /*fromPolicy=*/true);
+  mirrorSolverStatus(message.solver_status(), StatusSource::kPolicy);
   updateHealth();
 }
 
@@ -388,7 +405,7 @@ void RemoteMpcLink::onStatus(const humanoid_mpc_msgs::MpcStatus& message) {
   if (message.solver_status().solve_count() <= newestPolicySolveCount_) {
     return;
   }
-  mirrorSolverStatus(message.solver_status(), /*fromPolicy=*/false);
+  mirrorSolverStatus(message.solver_status(), StatusSource::kStatusTopic);
   updateHealth();
 }
 
@@ -402,7 +419,8 @@ void RemoteMpcLink::observeServerInstance(uint64_t serverInstance) {
   newestPolicySolveCount_ = 0;
 }
 
-void RemoteMpcLink::mirrorSolverStatus(const humanoid_mpc_msgs::MpcSolverStatus& status, bool fromPolicy) {
+void RemoteMpcLink::mirrorSolverStatus(const humanoid_mpc_msgs::MpcSolverStatus& status, StatusSource source) {
+  const bool fromPolicy = source == StatusSource::kPolicy;
   if (fromPolicy) {
     newestPolicySolveCount_ = status.solve_count();
   }
@@ -411,7 +429,7 @@ void RemoteMpcLink::mirrorSolverStatus(const humanoid_mpc_msgs::MpcSolverStatus&
   // The in-process solver resets after a failed solve and drops the buffered policy with it; so does the link, once per
   // run of failures, so that the policy in use is no longer current until one solved after the failure arrives.
   if (!fromPolicy && status.consecutive_failures() > 0 && !droppedForFailure_) {
-    discardBufferedPolicy();
+    discardBufferedPolicyAndTrackInUse();
     droppedForFailure_ = true;
   }
 }
@@ -428,11 +446,38 @@ void RemoteMpcLink::publishAnnotations(const humanoid_mpc_msgs::ViewerAnnotation
   annotations_.publishWrite();
 }
 
+void RemoteMpcLink::discardBufferedPolicyAndTrackInUse() {
+  const bool dropped = discardBufferedPolicy();
+  if (newestPolicyBuffered_) {
+    if (dropped) {
+      // Dropped before the controller took it: the plan that runs is still the one in use before it.
+      newestPolicyDropped_ = true;
+    } else {
+      // No longer in the buffer, and not dropped: the controller swapped it in.
+      inUsePolicy_ = PolicyWindow{.initTime = newestPolicyInitTime_, .finalTime = newestPolicyFinalTime_};
+    }
+  }
+  newestPolicyBuffered_ = false;
+  if (policyAccepted_) publishPolicyDeadline();
+}
+
+scalar_t RemoteMpcLink::deadlineInitTime() const {
+  // A policy waiting in the buffer is swapped in at the controller's next cycle, so its deadline counts from then on;
+  // one dropped before its swap never ran, so the plan in use before it keeps its own deadline.
+  return newestPolicyDropped_ && inUsePolicy_.has_value() ? inUsePolicy_->initTime : newestPolicyInitTime_;
+}
+
+scalar_t RemoteMpcLink::deadlineFinalTime() const {
+  return newestPolicyDropped_ && inUsePolicy_.has_value() ? inUsePolicy_->finalTime : newestPolicyFinalTime_;
+}
+
 void RemoteMpcLink::publishPolicyDeadline() {
   // The realtime thread's watchdog compares with `time > deadline`: the timeout is passed after init + policyTimeout,
-  // the horizon is reached at its final time, which is the same as passing the double just below it.
-  const scalar_t horizonEnd = std::nextafter(newestPolicyFinalTime_, -std::numeric_limits<scalar_t>::infinity());
-  policyDeadline_.store(std::min(newestPolicyInitTime_ + config_.policyTimeout, horizonEnd), std::memory_order_release);
+  // the horizon is reached at its final time, which is the same as passing the double just below it. Of the policy
+  // that may be in use: one the buffer dropped before its swap never ran, so its later deadline must not extend the
+  // older plan that does.
+  const scalar_t horizonEnd = std::nextafter(deadlineFinalTime(), -std::numeric_limits<scalar_t>::infinity());
+  policyDeadline_.store(std::min(deadlineInitTime() + config_.policyTimeout, horizonEnd), std::memory_order_release);
 }
 
 void RemoteMpcLink::updateHealth() {
@@ -440,8 +485,8 @@ void RemoteMpcLink::updateHealth() {
   bool lostNow = false;
   if (policyAccepted_ && haveObservation_ && !linkLost_) {
     // The checks of the realtime thread's watchdog (publishPolicyDeadline()), on the newest observation time.
-    const bool timedOut = latestObservationTime_ > newestPolicyInitTime_ + config_.policyTimeout;
-    const bool pastHorizon = latestObservationTime_ >= newestPolicyFinalTime_;
+    const bool timedOut = latestObservationTime_ > deadlineInitTime() + config_.policyTimeout;
+    const bool pastHorizon = latestObservationTime_ >= deadlineFinalTime();
     if (timedOut || pastHorizon) {
       linkLost_ = true;
       lostNow = true;
@@ -450,17 +495,17 @@ void RemoteMpcLink::updateHealth() {
       // rather than on one that resumes the schedule the MPC kept running through the loss. Taking the ticket at once
       // drops the buffered policy, and every policy in flight is stale for it: the hold ends on a policy that arrived
       // afterwards.
-      supervisor_.requestReset(MpcResetSupervisor::ResetKind::kFull);
+      supervisor_->requestReset(MpcResetSupervisor::ResetKind::kFull);
       serveResetRequests();
       if (timedOut) {
-        LOG(WARNING) << "[RemoteMpcLink] No MPC policy solved within the last " << config_.policyTimeout
-                     << " s of robot time has arrived (the newest is from t = " << newestPolicyInitTime_
-                     << ", the robot is at t = " << latestObservationTime_
+        LOG(WARNING) << "[RemoteMpcLink] The MPC policy that may be in use was solved more than " << config_.policyTimeout
+                     << " s of robot time ago (from t = " << deadlineInitTime() << ", the robot is at t = " << latestObservationTime_
                      << "). The link reads unhealthy, WB_MPC holds the robot with the JOINT_PD action, and the MPC "
                      << "node is asked for a full reset, which the first policy that ends the hold serves.";
       } else {
-        LOG(WARNING) << "[RemoteMpcLink] The robot clock (t = " << latestObservationTime_ << ") has reached the end of the newest "
-                     << "MPC policy (t = " << newestPolicyFinalTime_ << "). The link reads unhealthy, WB_MPC holds the robot with "
+        LOG(WARNING) << "[RemoteMpcLink] The robot clock (t = " << latestObservationTime_ << ") has reached the end of the MPC "
+                     << "policy that may be in use (t = " << deadlineFinalTime()
+                     << "). The link reads unhealthy, WB_MPC holds the robot with "
                      << "the JOINT_PD action, and the MPC node is asked for a full reset, which the first policy that ends the "
                      << "hold serves.";
       }
@@ -477,7 +522,7 @@ void RemoteMpcLink::updateHealth() {
                  << "logs the cause.";
     }
   }
-  supervisor_.setRemoteHealth(healthy, solverConsecutiveFailures_);
+  supervisor_->setRemoteHealth(healthy, solverConsecutiveFailures_);
   publishStatistics();
   if (lostNow) {
     // Counted last: whoever sees the count sees the loss's reset request, dropped policy, health and statistics too.

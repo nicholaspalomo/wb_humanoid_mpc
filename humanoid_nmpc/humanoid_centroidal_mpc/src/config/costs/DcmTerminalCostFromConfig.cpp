@@ -55,7 +55,6 @@ absl::StatusOr<DcmTerminalCost::Config> dcmTerminalCostConfigFromConfig(const mp
     }
     config.comHeight = comHeight;
   }
-  config.gravity = dcmTerminalCost.gravity;
   config.weights(0) = dcmTerminalCost.weight_x;
   config.weights(1) = dcmTerminalCost.weight_y;
   config.velocityOffsetFactor = dcmTerminalCost.velocity_offset_factor;

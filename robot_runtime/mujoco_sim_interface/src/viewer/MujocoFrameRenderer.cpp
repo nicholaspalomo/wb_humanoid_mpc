@@ -37,20 +37,51 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 #include "absl/base/nullability.h"
+#include "absl/log/die_if_null.h"
 #include "absl/log/log.h"
+#include "absl/memory/memory.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
 #include "mujoco/mujoco.h"
+#include "ocs2_core/Dimensions.h"
 
 #include "mujoco_sim_interface/MujocoSimInterface.h"
 #include "mujoco_sim_interface/visualization/VisualizationRegistry.h"
+#include "web_viewer/JpegEncoder.h"
 
 namespace robot::mujoco_sim_interface {
 
-MujocoFrameRenderer::MujocoFrameRenderer(const MujocoSimInterface* absl_nonnull sim) : sim_(sim), state_(sim->getModel()) {
+using ::ocs2::kZAxisIndex;
+
+namespace {
+constexpr int kMaxSceneGeoms = 2000;  // the objects the scene has space for
+// A scroll notch emulates a vertical mouse motion of this fraction of the window's height.
+constexpr double kScrollZoomPerNotch = 0.05;
+// The view resetCamera() starts from, of the robot's left side: MuJoCo's camera azimuth and elevation [deg], its distance
+// [m] and the point it looks at [m].
+constexpr double kLeftSideViewAzimuth = 89.608063;
+constexpr double kLeftSideViewElevation = -5.588379;
+constexpr double kLeftSideViewDistance = 3.0;
+constexpr double kLeftSideViewLookatX = 0.0;
+constexpr double kLeftSideViewLookatY = 0.0;
+constexpr double kLeftSideViewLookatZ = 0.5;
+}  // namespace
+
+absl::StatusOr<std::unique_ptr<MujocoFrameRenderer>> MujocoFrameRenderer::Create(const MujocoSimInterface* absl_nonnull sim,
+                                                                                 mjModel* absl_nonnull model) {
+  std::unique_ptr<MujocoFrameRenderer> renderer = absl::WrapUnique(new MujocoFrameRenderer(sim, model));
+  if (absl::Status setUp = renderer->setUp(); !setUp.ok()) {
+    renderer->release();
+    return setUp;
+  }
+  return renderer;
+}
+
+MujocoFrameRenderer::MujocoFrameRenderer(const MujocoSimInterface* absl_nonnull sim, mjModel* absl_nonnull model)
+    : sim_(sim), model_(model), state_(sim->getModel()) {
   std::vector<std::string> errors;
   visualizations_ = createVisualizations(sim_->getConfig().visualizations, &errors);
   for (const std::string& error : errors) {
@@ -62,25 +93,18 @@ MujocoFrameRenderer::~MujocoFrameRenderer() {
   if (sceneAllocated_) mjv_freeScene(&scene_);
 }
 
-void MujocoFrameRenderer::initialize(const mjModel* absl_nonnull model) {
-  privateModel_ = nullptr;
-  setUp(model);
-}
-
-void MujocoFrameRenderer::initializeWithPrivateModel(mjModel* absl_nonnull model) {
-  privateModel_ = model;
-  setUp(model);
-}
-
-void MujocoFrameRenderer::setUp(const mjModel* absl_nonnull model) {
-  model_ = model;
+absl::Status MujocoFrameRenderer::setUp() {
+  mjModel* absl_nonnull model = ABSL_DIE_IF_NULL(model_);
   mjv_defaultCamera(&camera_);
   mjv_defaultOption(&options_);
   mjv_defaultScene(&scene_);
   mjr_defaultContext(&context_);
-  mjv_makeScene(model, &scene_, /*maxgeom=*/2000);  // space for 2000 objects
+  mjv_makeScene(model, &scene_, kMaxSceneGeoms);
   sceneAllocated_ = true;
   mjr_makeContext(model, &context_, mjFONTSCALE_150);  // model-specific context
+  if (context_.glInitialized == 0) {
+    return absl::FailedPreconditionError("MuJoCo could not make its GPU context: no OpenGL context is current on the render thread");
+  }
 
   // MuJoCo's own markers start off; the mj_* visualizations of the task file switch them on (MujocoOptionFlagVisualization).
   options_.flags[mjVIS_CONTACTPOINT] = 0;
@@ -91,17 +115,19 @@ void MujocoFrameRenderer::setUp(const mjModel* absl_nonnull model) {
   resetCamera();
 
   sim_->readLatestMjState(state_);
-  if (privateModel_ != nullptr) state_.modelFields.applyTo(privateModel_);
+  state_.modelFields.applyTo(model);
   // The snapshot is stepped, not the simulation: stepping the simulation here would upset the IMU's initialization.
   mj_step(model, state_.data);  // populate state info
   mjv_updateScene(model, state_.data, &options_, /*pert=*/nullptr, &camera_, mjCAT_ALL, &scene_);
+  return absl::OkStatus();
 }
 
 void MujocoFrameRenderer::drawFrame(const mjrRect& viewport, double elapsedRealTime) {
-  const mjModel* absl_nonnull model = model_;
-  // Copy physics data to render data, and the model arrays the physics changed into a private model copy.
+  if (model_ == nullptr) return;  // released
+  mjModel* absl_nonnull model = model_;
+  // Copy physics data to render data, and the model arrays the physics changed into the private model copy.
   sim_->readLatestMjState(state_);
-  if (privateModel_ != nullptr) state_.modelFields.applyTo(privateModel_);
+  state_.modelFields.applyTo(model);
   mj_forward(model, state_.data);
 
   VisualizationFrame frame;
@@ -144,8 +170,7 @@ void MujocoFrameRenderer::moveCamera(mjtMouse action, double relativeDx, double 
 }
 
 void MujocoFrameRenderer::scroll(double notches) {
-  // emulate vertical mouse motion = 5% of window height
-  mjv_moveCamera(model_, mjMOUSE_ZOOM, /*reldx=*/0.0, -0.05 * notches, &scene_, &camera_);
+  mjv_moveCamera(model_, mjMOUSE_ZOOM, /*reldx=*/0.0, -kScrollZoomPerNotch * notches, &scene_, &camera_);
 }
 
 void MujocoFrameRenderer::handleKey(char key) {
@@ -218,13 +243,12 @@ void MujocoFrameRenderer::resetCamera() {
   camera_.trackbodyid = trackbodyid;
   camera_.fixedcamid = -1;
 
-  constexpr std::array<double, 6> kLeftSideView = {89.608063, -5.588379, 3.0, 0.0, 0.0, 0.5};  // azimuth, elevation, distance, lookat
-  camera_.azimuth = kLeftSideView[0];
-  camera_.elevation = kLeftSideView[1];
-  camera_.distance = kLeftSideView[2];
-  camera_.lookat[0] = kLeftSideView[3];
-  camera_.lookat[1] = kLeftSideView[4];
-  camera_.lookat[2] = kLeftSideView[5];
+  camera_.azimuth = kLeftSideViewAzimuth;
+  camera_.elevation = kLeftSideViewElevation;
+  camera_.distance = kLeftSideViewDistance;
+  camera_.lookat[0] = kLeftSideViewLookatX;
+  camera_.lookat[1] = kLeftSideViewLookatY;
+  camera_.lookat[kZAxisIndex] = kLeftSideViewLookatZ;
 }
 
 void MujocoFrameRenderer::printHotkeys() const {
@@ -257,7 +281,7 @@ void MujocoFrameRenderer::printHotkeys() const {
 }
 
 absl::Status MujocoFrameRenderer::readPixels(const mjrRect& viewport, absl::Span<uint8_t> rgb) const {
-  const int64_t expected = static_cast<int64_t>(viewport.width) * viewport.height * 3;
+  const int64_t expected = static_cast<int64_t>(viewport.width) * viewport.height * web_viewer::kRgbBytesPerPixel;
   if (viewport.width <= 0 || viewport.height <= 0 || static_cast<int64_t>(rgb.size()) != expected) {
     return absl::InvalidArgumentError(absl::StrCat("readPixels: a ", viewport.width, "x", viewport.height, " viewport needs ", expected,
                                                    " bytes of RGB, the buffer holds ", rgb.size()));
@@ -282,7 +306,6 @@ void MujocoFrameRenderer::release() {
   sceneAllocated_ = false;
   mjr_freeContext(&context_);
   model_ = nullptr;
-  privateModel_ = nullptr;
 }
 
 double MujocoFrameRenderer::snapshotTime() const {

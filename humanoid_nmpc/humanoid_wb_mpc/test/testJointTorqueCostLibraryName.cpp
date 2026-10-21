@@ -64,8 +64,8 @@ TEST(WholeBodyCostNames, TheTermAndLibraryNamesKeepTheirSpellings) {
   EXPECT_EQ(JointTorqueCostCppAd::libraryName(JointTorqueCostCppAd::kLibraryCostName), "jointTorqueCost_fullMassMatrix");
   EXPECT_EQ(EndEffectorDynamicsFootCost::termName("foot_l_contact"), "foot_l_contact_TaskSpaceTrackingCost");
   EXPECT_EQ(EndEffectorDynamicsFootCost::termName("foot_r_contact"), "foot_r_contact_TaskSpaceTrackingCost");
-  EXPECT_EQ(EndEffectorDynamicsFootCost::libraryModelName("foot_l_contact"), "foot_l_contact_TaskSpaceTrackingCost");
-  EXPECT_EQ(EndEffectorDynamicsFootCost::libraryModelName("foot_r_contact"), "foot_r_contact_TaskSpaceTrackingCost");
+  EXPECT_EQ(EndEffectorDynamicsFootCost::libraryModelName("foot_l_contact"), "foot_l_contact_TaskSpaceTrackingCost_tiltAngle");
+  EXPECT_EQ(EndEffectorDynamicsFootCost::libraryModelName("foot_r_contact"), "foot_r_contact_TaskSpaceTrackingCost_tiltAngle");
 }
 // clang-format off
 // LINT.ThenChange(//humanoid_nmpc/humanoid_wb_mpc/include/humanoid_wb_mpc/cost/JointTorqueCostCppAd.h:joint_torque_cost_names, //humanoid_nmpc/humanoid_wb_mpc/src/cost/EndEffectorDynamicsFootCost.cpp:foot_cost_names)

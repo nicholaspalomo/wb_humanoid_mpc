@@ -30,10 +30,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "web_viewer/ViewerFrameMailbox.h"
 
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <optional>
+#include <string>
 #include <utility>
 
+#include "absl/container/flat_hash_map.h"
 #include "absl/log/absl_check.h"
 #include "absl/log/log.h"
 #include "absl/synchronization/mutex.h"
@@ -44,6 +47,28 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "web_viewer/ViewerStatus.h"
 
 namespace robot::web_viewer {
+namespace {
+
+std::chrono::steady_clock::time_point steadyNow() {
+  return std::chrono::steady_clock::now();
+}
+
+// The monotonic deadline `timeout` from now; a timeout too long for the clock is the clock's maximum.
+std::chrono::steady_clock::time_point steadyDeadline(absl::Duration timeout) {
+  const std::chrono::steady_clock::time_point now = steadyNow();
+  if (timeout >= absl::FromChrono(std::chrono::steady_clock::time_point::max() - now)) {
+    return std::chrono::steady_clock::time_point::max();
+  }
+  return now + absl::ToChronoNanoseconds(timeout);
+}
+
+// The time left until `deadline`, for the relative waits of absl::CondVar: these wait on the monotonic clock, while
+// an absolute deadline waits on the wall clock.
+absl::Duration remainingUntil(std::chrono::steady_clock::time_point deadline) {
+  return absl::FromChrono(deadline - steadyNow());
+}
+
+}  // namespace
 
 ViewerFrameMailbox::ViewerFrameMailbox(int maxClients) : maxClients_(maxClients) {
   ABSL_CHECK_GE(maxClients, 1) << "a ViewerFrameMailbox admits at least one client";
@@ -54,6 +79,7 @@ void ViewerFrameMailbox::publish(EncodedFrame frame) {
     absl::MutexLock lock(&frameMutex_);
     frame.sequence = frame_.sequence + 1;
     frame.publishTime = absl::Now();
+    frame.publishSteadyTime = steadyNow();
     std::swap(frame_, frame);
     frameCondition_.SignalAll();
   }
@@ -61,10 +87,11 @@ void ViewerFrameMailbox::publish(EncodedFrame frame) {
 }
 
 std::optional<EncodedFrame> ViewerFrameMailbox::copyNewer(int64_t afterSequence, absl::Duration timeout) const {
-  const absl::Time deadline = absl::Now() + timeout;
+  const std::chrono::steady_clock::time_point deadline = steadyDeadline(timeout);
   absl::MutexLock lock(&frameMutex_);
   while (!closed_.load() && frame_.sequence <= afterSequence) {
-    if (frameCondition_.WaitWithDeadline(&frameMutex_, deadline)) break;
+    const absl::Duration remaining = remainingUntil(deadline);
+    if (remaining <= absl::ZeroDuration() || frameCondition_.WaitWithTimeout(&frameMutex_, remaining)) break;
   }
   if (closed_.load() || frame_.sequence <= afterSequence) return std::nullopt;
   return frame_;
@@ -78,6 +105,7 @@ std::optional<EncodedFrame> ViewerFrameMailbox::latestFrameMetadata() const {
                       .height = frame_.height,
                       .simTime = frame_.simTime,
                       .publishTime = frame_.publishTime,
+                      .publishSteadyTime = frame_.publishSteadyTime,
                       .jpeg = {}};
 }
 
@@ -94,23 +122,59 @@ ViewerStatus ViewerFrameMailbox::status() const {
   return status_;
 }
 
+bool ViewerFrameMailbox::leaseHolds(std::chrono::steady_clock::time_point now) const {
+  return lastFrameRequest_.has_value() && absl::FromChrono(now - *lastFrameRequest_) < kDemandLease;
+}
+
 bool ViewerFrameMailbox::waitForDemand(absl::Duration timeout) const {
-  const absl::Time deadline = absl::Now() + timeout;
+  const std::chrono::steady_clock::time_point deadline = steadyDeadline(timeout);
   absl::MutexLock lock(&demandMutex_);
   while (true) {
     if (closed_.load()) return false;
     if (activeClients_.load() > 0) return true;
-    const absl::Time now = absl::Now();
-    if (now - lastFrameRequest_ < kDemandLease) return true;
-    if (now >= deadline) return false;
-    demandCondition_.WaitWithDeadline(&demandMutex_, deadline);
+    if (leaseHolds(steadyNow())) return true;
+    const absl::Duration remaining = remainingUntil(deadline);
+    if (remaining <= absl::ZeroDuration()) return false;
+    demandCondition_.WaitWithTimeout(&demandMutex_, remaining);
   }
 }
 
 void ViewerFrameMailbox::noteFrameRequest() {
   absl::MutexLock lock(&demandMutex_);
-  lastFrameRequest_ = absl::Now();
+  lastFrameRequest_ = steadyNow();
   demandCondition_.SignalAll();
+}
+
+void ViewerFrameMailbox::noteViewer(absl::string_view viewerId) {
+  const std::chrono::steady_clock::time_point now = steadyNow();
+  absl::MutexLock lock(&demandMutex_);
+  absl::erase_if(viewers_, [now](const std::pair<const std::string, std::chrono::steady_clock::time_point>& viewer) {
+    return absl::FromChrono(now - viewer.second) >= kDemandLease;
+  });
+  if (!viewers_.contains(viewerId) && static_cast<int>(viewers_.size()) >= kMaxTrackedViewers) {
+    absl::flat_hash_map<std::string, std::chrono::steady_clock::time_point>::iterator oldest = viewers_.begin();
+    for (absl::flat_hash_map<std::string, std::chrono::steady_clock::time_point>::iterator viewer = viewers_.begin();
+         viewer != viewers_.end(); ++viewer) {
+      if (viewer->second < oldest->second) oldest = viewer;
+    }
+    viewers_.erase(oldest);
+  }
+  viewers_.insert_or_assign(std::string(viewerId), now);
+}
+
+int ViewerFrameMailbox::viewerCount() const {
+  const std::chrono::steady_clock::time_point now = steadyNow();
+  absl::MutexLock lock(&demandMutex_);
+  int count = 0;
+  for (const std::pair<const std::string, std::chrono::steady_clock::time_point>& viewer : viewers_) {
+    if (absl::FromChrono(now - viewer.second) < kDemandLease) ++count;
+  }
+  return count;
+}
+
+std::optional<std::chrono::steady_clock::time_point> ViewerFrameMailbox::demandResumedAt() const {
+  absl::MutexLock lock(&demandMutex_);
+  return demandResumedAt_;
 }
 
 bool ViewerFrameMailbox::tryAcquireClient() {
@@ -120,6 +184,8 @@ bool ViewerFrameMailbox::tryAcquireClient() {
       // waitForDemand() reads the count under demandMutex_: taking it here means a waiter either saw the new count or
       // is already waiting and receives the signal.
       absl::MutexLock lock(&demandMutex_);
+      const std::chrono::steady_clock::time_point now = steadyNow();
+      if (admitted == 0 && !leaseHolds(now)) demandResumedAt_ = now;
       demandCondition_.SignalAll();
       return true;
     }

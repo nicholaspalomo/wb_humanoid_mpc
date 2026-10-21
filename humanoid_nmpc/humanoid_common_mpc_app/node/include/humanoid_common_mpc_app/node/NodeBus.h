@@ -35,6 +35,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 
 #include "robot_ipc/Bus.h"
+#include "robot_ipc/BusOptions.h"
 #include "robot_ipc/NetworkConfig.h"
 
 namespace ocs2::humanoid::node {
@@ -47,9 +48,17 @@ namespace ocs2::humanoid::node {
 absl::StatusOr<robot::ipc::NetworkConfig> loadNodeNetwork(const std::string& networkConfigPath);
 
 /**
- * The bus of a binary that publishes as `nodeName` (--ipc_node) on the network of `networkConfigPath`
- * (loadNodeNetwork()), created and not yet started. The errors of Bus::Create(): InvalidArgument for a node name the
- * network does not have (the message lists the ones it has), Unavailable for an endpoint that cannot be bound.
+ * The options of the bus of a binary that publishes as `nodeName` (--ipc_node) on the network of `networkConfigPath`
+ * (loadNodeNetwork()). How much a subscriber that falls behind is handed after a stall is the topic's QoS, which the
+ * network file names (robot_ipc/QosProfile.h): KEEP_LAST 1 for the latest-value streams (robot/mpc_observation,
+ * mpc/policy), whichever node publishes them. The errors of loadNodeNetwork().
+ */
+absl::StatusOr<robot::ipc::BusOptions> nodeBusOptions(const std::string& networkConfigPath, const std::string& nodeName);
+
+/**
+ * The bus of nodeBusOptions(), created and not yet started. The errors of nodeBusOptions() and of Bus::Create():
+ * InvalidArgument for a node name the network does not have (the message lists the ones it has), Unavailable for a
+ * node whose host is an address of another machine.
  */
 absl::StatusOr<std::unique_ptr<robot::ipc::Bus>> createNodeBus(const std::string& networkConfigPath, const std::string& nodeName);
 

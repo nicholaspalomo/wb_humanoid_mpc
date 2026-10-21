@@ -29,7 +29,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "web_viewer/ViewerInputQueue.h"
 
-#include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <utility>
 #include <vector>
@@ -41,12 +41,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace robot::web_viewer {
 namespace {
 
-// The range of a drag's motion (ViewerInput::dx, dy), which a merged drag keeps.
-constexpr double kMaxDragFraction = 2.0;
+bool withinOneDrag(double motion) {
+  return std::abs(motion) <= ViewerInput::kMaxDragFraction;
+}
 
+// A drag merges into the drag before it while the sum stays within the range of one drag: beyond it the motion would
+// be cut off, so it starts an entry of its own.
 bool mergesInto(const ViewerInput& previous, const ViewerInput& next) {
   return previous.type == ViewerInputType::kDrag && next.type == ViewerInputType::kDrag && previous.button == next.button &&
-         previous.shift == next.shift;
+         previous.shift == next.shift && withinOneDrag(previous.dx + next.dx) && withinOneDrag(previous.dy + next.dy);
 }
 
 }  // namespace
@@ -55,8 +58,8 @@ void ViewerInputQueue::push(ViewerInput input) {
   absl::MutexLock lock(&mutex_);
   if (!events_.empty() && mergesInto(events_.back(), input)) {
     ViewerInput& last = events_.back();
-    last.dx = std::clamp(last.dx + input.dx, -kMaxDragFraction, kMaxDragFraction);
-    last.dy = std::clamp(last.dy + input.dy, -kMaxDragFraction, kMaxDragFraction);
+    last.dx += input.dx;
+    last.dy += input.dy;
     return;
   }
   if (static_cast<int>(events_.size()) >= kCapacity) {

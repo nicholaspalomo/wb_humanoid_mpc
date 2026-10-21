@@ -25,8 +25,9 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-"""Tests for bus_listener.py: the network file and the receive-only side of the bus contract over loopback."""
+"""Tests for bus_listener.py: the network file and the receive-only side of the bus over the test's DDS domain."""
 
+from collections.abc import Callable
 import os
 import pathlib
 import tempfile
@@ -39,50 +40,44 @@ import bus_test_publisher
 import robot_ipc
 
 TYPE_NAME = "humanoid_mpc_msgs.FsmCommand"
-# Generous: a loaded CI machine may take a while to connect, and a passing test returns as soon as it receives.
+# Generous: a loaded CI machine may take a while to discover, and a passing test returns as soon as it receives.
 RECEIVE_TIMEOUT_S = 10.0
+
+
+def wait_for(
+    condition: Callable[[], bool], timeout_s: float = RECEIVE_TIMEOUT_S
+) -> bool:
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        if condition():
+            return True
+        time.sleep(0.005)
+    return condition()
 
 
 class ParseNetworkConfigTest(unittest.TestCase):
 
-    def test_nodes_keep_file_order_and_name_tcp_endpoints(self) -> None:
-        nodes = bus_listener.parse_network_config(
-            'nodes { name: "robot" host: "127.0.0.1" port: 5600 }\n'
-            'nodes { name: "mpc" host: "192.168.1.20" port: 5610 }\n',
+    def test_reads_the_domain_and_the_nodes_in_file_order(self) -> None:
+        network = bus_listener.parse_network_config(
+            'domain_id: 3\nnodes { name: "robot" host: "127.0.0.1" }\n'
+            'nodes { name: "mpc" host: "192.168.1.20" }\n',
             "network.textproto",
         )
-        self.assertEqual([node.name for node in nodes], ["robot", "mpc"])
-        self.assertEqual(
-            [node.connect_endpoint() for node in nodes],
-            ["tcp://127.0.0.1:5600", "tcp://192.168.1.20:5610"],
-        )
-
-    def test_a_wildcard_host_is_reached_over_loopback(self) -> None:
-        nodes = bus_listener.parse_network_config(
-            'nodes { name: "robot" host: "0.0.0.0" port: 5600 }\n'
-            'nodes { name: "mpc" host: "*" port: 5610 bind_host: "0.0.0.0" }\n',
-            "network.textproto",
-        )
-        self.assertEqual(
-            [node.connect_endpoint() for node in nodes],
-            ["tcp://127.0.0.1:5600", "tcp://127.0.0.1:5610"],
-        )
+        self.assertEqual(network.domain_id, 3)
+        self.assertEqual(network.node_names(), ["robot", "mpc"])
+        self.assertEqual(network.peer_hosts(), ["127.0.0.1", "192.168.1.20"])
 
     def test_invalid_files_are_rejected_like_the_bus_rejects_them(self) -> None:
         # The tool reads the file with the bus library's loader: what the bus refuses, the tool refuses too, with the
-        # same message (its line and column, or the node).
+        # same message (its line and column, or the entry).
         cases = {
-            "an unknown field": ('nodes { name: "robot" prot: 5600 }', ":1:"),
+            "an unknown field": ('nodes { name: "robot" hots: "a" }', ":1:"),
+            "a retired port": ('nodes { name: "robot" port: 5600 }', ":1:"),
             "no node": ("", "nodes"),
-            "a host missing": ('nodes { name: "robot" port: 5600 }', "(robot).host"),
-            "a port out of range": (
-                'nodes { name: "robot" host: "127.0.0.1" port: 70000 }',
-                "(robot).port",
-            ),
-            "a shared endpoint": (
-                'nodes { name: "robot" host: "127.0.0.1" port: 5600 }\n'
-                'nodes { name: "mpc" host: "127.0.0.1" port: 5600 }',
-                "(mpc)",
+            "a host missing": ('nodes { name: "robot" }', "(robot).host"),
+            "a domain out of range": (
+                'nodes { name: "robot" host: "127.0.0.1" }\ndomain_id: 300',
+                "domain_id",
             ),
         }
         for case, (text, expected) in cases.items():
@@ -114,11 +109,9 @@ class LoadNetworkConfigTest(unittest.TestCase):
 
     def test_reads_the_file_written_for_the_tests(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            path = bus_test_publisher.write_network_file(
-                directory, {"robot": 5600, "mpc": 5610}
-            )
-            nodes = bus_listener.load_network_config(path)
-        self.assertEqual([node.port for node in nodes], [5600, 5610])
+            path = bus_test_publisher.write_network_file(directory)
+            network = bus_listener.load_network_config(path)
+        self.assertEqual(network, bus_test_publisher.network())
 
 
 class ShippedNetworkFileTest(unittest.TestCase):
@@ -136,9 +129,11 @@ class ShippedNetworkFileTest(unittest.TestCase):
         with mock.patch.dict(os.environ, environment, clear=True):
             path = bus_listener.resolve_input_path(bus_listener.DEFAULT_NETWORK_CONFIG)
         self.assertTrue(os.path.isfile(path), path)
-        nodes = bus_listener.load_network_config(path)
-        self.assertTrue(nodes)
-        self.assertEqual(nodes, list(robot_ipc.localhost_network_config().nodes))
+        network = bus_listener.load_network_config(path)
+        self.assertEqual(
+            network.node_names(), ["robot", "mpc", "operator", "teleop", "config_push"]
+        )
+        self.assertEqual(network.domain_id, 0)
 
 
 class ResolveInputPathTest(unittest.TestCase):
@@ -178,85 +173,84 @@ class ResolveInputPathTest(unittest.TestCase):
 
 class BusListenerTest(unittest.TestCase):
 
-    def test_one_socket_receives_from_every_endpoint(self) -> None:
+    def test_one_listener_receives_every_topic_of_every_publisher(self) -> None:
         robot_topic = bus_test_publisher.unique_topic("robot")
         mpc_topic = bus_test_publisher.unique_topic("mpc")
-        with bus_test_publisher.FramePublisher() as robot, bus_test_publisher.FramePublisher() as mpc:
-            robot.start([bus_test_publisher.frames(robot_topic, TYPE_NAME, b"r")])
-            mpc.start([bus_test_publisher.frames(mpc_topic, TYPE_NAME, b"m")])
-            endpoints = [
-                f"tcp://127.0.0.1:{robot.port}",
-                f"tcp://127.0.0.1:{mpc.port}",
-                # A node that is not running: connecting to it is harmless.
-                f"tcp://127.0.0.1:{bus_test_publisher.unused_port()}",
-            ]
-            seen: set[str] = set()
-            with bus_listener.BusListener(endpoints) as listener:
-                deadline = time.monotonic() + RECEIVE_TIMEOUT_S
-                while seen != {robot_topic, mpc_topic} and time.monotonic() < deadline:
-                    received = listener.receive(timeout_s=0.1)
-                    if received is not None and received.topic.startswith("test/"):
-                        seen.add(received.topic)
-        self.assertEqual(seen, {robot_topic, mpc_topic})
+        with bus_test_publisher.MessagePublisher(
+            "robot"
+        ) as robot, bus_test_publisher.MessagePublisher("mpc") as mpc:
+            robot.start([bus_test_publisher.message(robot_topic, TYPE_NAME, b"r")])
+            mpc.start([bus_test_publisher.message(mpc_topic, TYPE_NAME, b"m")])
+            with bus_listener.BusListener(bus_test_publisher.network()) as listener:
+                seen: dict[str, bytes] = {}
 
-    def test_a_topic_subscription_drops_longer_topics_with_the_same_prefix(
-        self,
-    ) -> None:
+                def both_seen() -> bool:
+                    received = listener.receive(0.05)
+                    if received is not None:
+                        seen[received.topic] = received.payload
+                        self.assertEqual(received.type_name, TYPE_NAME)
+                    return robot_topic in seen and mpc_topic in seen
+
+                self.assertTrue(wait_for(both_seen))
+                self.assertIn("DDS domain", listener.endpoints[0])
+        self.assertEqual(seen[robot_topic], b"r")
+        self.assertEqual(seen[mpc_topic], b"m")
+
+    def test_a_topic_listener_receives_only_its_topic(self) -> None:
+        # Every topic is a DDS topic of its own: a longer name is another topic, not a match of a prefix.
         topic = bus_test_publisher.unique_topic("state")
-        with bus_test_publisher.FramePublisher() as publisher:
+        with bus_test_publisher.MessagePublisher() as publisher:
             publisher.start(
                 [
-                    bus_test_publisher.frames(topic + "_estimate", TYPE_NAME, b"no"),
-                    bus_test_publisher.frames(topic, TYPE_NAME, b"yes"),
+                    bus_test_publisher.message(topic + "_estimate", TYPE_NAME, b"no"),
+                    bus_test_publisher.message(topic, TYPE_NAME, b"yes"),
                 ]
             )
             with bus_listener.BusListener(
-                [f"tcp://127.0.0.1:{publisher.port}"], topic=topic
+                bus_test_publisher.network(), topic=topic
             ) as listener:
-                received = [
-                    listener.receive(timeout_s=RECEIVE_TIMEOUT_S) for _ in range(5)
-                ]
-        messages = [message for message in received if message is not None]
-        self.assertEqual(len(messages), len(received))
-        self.assertEqual({message.topic for message in messages}, {topic})
-        self.assertEqual({message.payload for message in messages}, {b"yes"})
-        self.assertEqual({message.type_name for message in messages}, {TYPE_NAME})
+                received = listener.receive(RECEIVE_TIMEOUT_S)
+                self.assertIsNotNone(received)
+                assert received is not None  # For the type checker.
+                time.sleep(0.1)
+                pending = listener.receive_pending()
+        for message in [received, *pending]:
+            self.assertEqual(message.topic, topic)
+            self.assertEqual(message.payload, b"yes")
+        self.assertGreater(
+            len(pending), 0, "receive_pending() hands over what has arrived"
+        )
 
-    def test_messages_that_are_not_three_frames_are_counted_and_skipped(
-        self,
-    ) -> None:
+    def test_another_wire_protocol_version_is_counted_as_malformed(self) -> None:
         topic = bus_test_publisher.unique_topic("malformed")
-        with bus_test_publisher.FramePublisher() as publisher:
-            publisher.start(
-                [
-                    [topic.encode(), b"only two frames"],
-                    bus_test_publisher.frames(topic, TYPE_NAME, b"ok"),
-                ]
-            )
-            with bus_listener.BusListener(
-                [f"tcp://127.0.0.1:{publisher.port}"], topic=topic
-            ) as listener:
-                received = [
-                    listener.receive(timeout_s=RECEIVE_TIMEOUT_S) for _ in range(3)
-                ]
-                malformed = listener.malformed_messages
-        messages = [message for message in received if message is not None]
-        self.assertEqual(len(messages), len(received))
-        self.assertEqual({message.payload for message in messages}, {b"ok"})
-        self.assertGreater(malformed, 0)
-
-    def test_receive_returns_none_after_the_timeout(self) -> None:
         with bus_listener.BusListener(
-            [f"tcp://127.0.0.1:{bus_test_publisher.unused_port()}"],
+            bus_test_publisher.network(), topic=topic
+        ) as listener:
+            writer = bus_test_publisher.RawEnvelopeWriter(topic)
+            self.assertTrue(wait_for(writer.matched))
+            writer.write(
+                robot_ipc.WIRE_PROTOCOL_VERSION + 1, TYPE_NAME, b"from the future"
+            )
+            writer.write(robot_ipc.WIRE_PROTOCOL_VERSION, TYPE_NAME, b"ok")
+            received = listener.receive(RECEIVE_TIMEOUT_S)
+            self.assertIsNotNone(received)
+            assert received is not None  # For the type checker.
+            self.assertEqual(received.payload, b"ok")
+            self.assertTrue(wait_for(lambda: listener.malformed_messages == 1))
+
+    def test_a_silent_bus_times_out(self) -> None:
+        with bus_listener.BusListener(
+            bus_test_publisher.network(),
             topic=bus_test_publisher.unique_topic("silent"),
         ) as listener:
             start = time.monotonic()
-            self.assertIsNone(listener.receive(timeout_s=0.2))
+            self.assertIsNone(listener.receive(0.2))
             self.assertGreaterEqual(time.monotonic() - start, 0.15)
+            self.assertEqual(listener.receive_pending(), [])
 
-    def test_needs_an_endpoint(self) -> None:
+    def test_a_topic_that_is_no_dds_name_is_refused(self) -> None:
         with self.assertRaises(ValueError):
-            bus_listener.BusListener([])
+            bus_listener.BusListener(bus_test_publisher.network(), topic="robot-state")
 
 
 if __name__ == "__main__":

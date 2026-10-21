@@ -48,12 +48,14 @@ struct GlCapabilities {
   std::string extensions;       // GL_EXTENSIONS, space-separated
   int maxRenderbufferSize = 0;  // [px] GL_MAX_RENDERBUFFER_SIZE
   int maxSamples = 0;           // GL_MAX_SAMPLES
+  int maxTextureSize = 0;       // [px] GL_MAX_TEXTURE_SIZE, which bounds the shadow map
 };
 
 /**
  * Checks, before MuJoCo creates its GPU context, every condition under which mjr_makeContext or mjr_resizeOffscreen
  * would end the process (mju_error) for a viewer of `options`: OpenGL 3.0, or 1.5 with GL_ARB_framebuffer_object;
- * an offscreen buffer of maxWidth x maxHeight within GL_MAX_RENDERBUFFER_SIZE; and msaaSamples within GL_MAX_SAMPLES.
+ * an offscreen buffer of maxWidth x maxHeight within GL_MAX_RENDERBUFFER_SIZE; msaaSamples within GL_MAX_SAMPLES;
+ * and a shadow map of shadowSize within GL_MAX_TEXTURE_SIZE (a shadowSize of 0 makes none).
  * FailedPrecondition names the limit, the value asked for and how to run without the web viewer.
  */
 absl::Status checkGlCapabilities(const GlCapabilities& capabilities, const WebViewerOptions& options);

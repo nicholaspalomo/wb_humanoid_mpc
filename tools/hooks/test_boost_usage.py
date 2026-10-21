@@ -390,7 +390,7 @@ class BazelrcTest(unittest.TestCase):
             ("build --linkopt=-lboost_system", ("link", "-lboost_system")),
         ]:
             with self.subTest(line=line):
-                self.assertEqual(bazelrc(line + "\n"), [expected])
+                self.assertEqual(bazelrc(f"{line}\n"), [expected])
 
     def test_comments_and_other_flags_are_fine(self):
         source = (

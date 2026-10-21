@@ -27,7 +27,7 @@
 
 """Decodes a bus message from its type name, without a registry of topics (for tools/ipc).
 
-The second frame of every bus message is the full protobuf type name of the third, such as
+Every bus sample (a robot_ipc::Envelope) carries the full protobuf type name of its payload, such as
 "humanoid_mpc_msgs.MpcPolicy". The class is found in the protobuf default descriptor pool, which knows every message
 whose generated module (`*_pb2`) has been imported: import the modules of the messages you want to decode first.
 """
@@ -51,7 +51,7 @@ def message_class(type_name: str | bytes) -> type[message.Message]:
     """The generated class of a full protobuf type name.
 
     Args:
-        type_name: The full type name, such as "humanoid_mpc_msgs.MpcPolicy", as text or as the bus's second frame.
+        type_name: The full type name, such as "humanoid_mpc_msgs.MpcPolicy", as text or as UTF-8 bytes.
 
     Returns:
         The generated message class, from the default descriptor pool.

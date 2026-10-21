@@ -1,0 +1,38 @@
+edition = "2023";
+
+package humanoid_mpc_config;
+
+import "humanoid_mpc_config/config_options.proto";
+import "nproto/options.proto";
+
+// The arm-swing reference of the running state costs (the task file's arm_swing block, ArmSwingSettings;
+// SwitchedModelReferenceManager::getDesiredState()): the four joints of model_settings.arm_joint_names driven against
+// the legs at the gait's cadence, in proportion to the commanded forward speed. Read only for a robot that names its
+// arm joints, and not while com_and_acom_tracking_cost is listed, under which the arm motion emerges from the ACoM cost.
+//
+// Which way each joint turns to swing the arm forward, or to flex the elbow, is not configured: it is derived from the
+// robot model at the nominal posture (deriveArmSwingDirections()).
+// Next ID: 5
+message ArmSwingConfig {
+  option (nproto.generate_struct) = "ocs2::humanoid::mpc_config::ArmSwingConfig";
+
+  reserved 5 to max;
+
+  // The generator of the arm reference, by name: "procedural" swings the arms, "none" holds them at the target's
+  // posture.
+  // LINT.IfChange(arm_swing_generator)
+  string generator = 1 [
+    default = "procedural",
+    (humanoid_mpc_config.tuning) = {
+      registry: "arm_swing"
+    }
+  ];
+  // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/reference_manager/ArmSwing.cpp:arm_swing_generator_names)
+  // [rad s/m] The shoulder's swing per unit of commanded forward speed, at the peak of the cycle; not negative.
+  double shoulder_gain = 2 [default = 0.15, (humanoid_mpc_config.tuning) = { unit: "rad s/m" minimum: 0.0 }];
+  // [rad s/m] The elbow's flexion per unit of commanded forward speed, at the peak of the cycle; not negative.
+  double elbow_gain = 3 [default = 0.15, (humanoid_mpc_config.tuning) = { unit: "rad s/m" minimum: 0.0 }];
+  // [gait cycles] How far into the cycle the left arm is farthest forward, less a quarter cycle: the swing is
+  // sin(2 pi (phase - phase_offset)), so with the default 0.15 the left arm leads at phase 0.4, late in left stance.
+  double phase_offset = 4 [default = 0.15, (humanoid_mpc_config.tuning) = { unit: "gait cycles" }];
+}

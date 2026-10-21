@@ -32,6 +32,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <memory>
 
 #include "absl/base/nullability.h"
+#include "absl/status/statusor.h"
 #include "ocs2_core/constraint/StateConstraint.h"
 
 #include "humanoid_common_mpc/common/Types.h"
@@ -60,15 +61,21 @@ namespace ocs2::humanoid {
  *
  * It shares that object with ContactComplementarityConstraint of the same foot, so the two terms cannot end up
  * disagreeing about where the foot is; see the class comment there.
+ *
+ * Not thread-safe: the CppAD model of the corner heights keeps evaluation buffers, so even the const methods of one
+ * object must not run concurrently. The solver gives each worker thread its own clone().
  */
 class GroundPenetrationConstraint final : public StateConstraint {
  public:
   /**
+   * Builds the term, or returns InvalidArgument when `cornerHeights` has no point to keep above the ground.
+   *
    * @param [in] cornerHeights : the points of this foot that may not go below the ground, normally the footprint's
-   *        corner frames; the contact frame alone leaves the toe and the heel unconstrained.
+   *        corner frames; the contact frame alone leaves the toe and the heel unconstrained. It is cloned, not retained.
    * @param [in] terrainHeight : [m] height of the ground under the foot.
    */
-  explicit GroundPenetrationConstraint(const FootprintCornerHeights& cornerHeights, scalar_t terrainHeight = 0.0);
+  static absl::StatusOr<std::unique_ptr<GroundPenetrationConstraint>> Create(const FootprintCornerHeights& cornerHeights,
+                                                                             scalar_t terrainHeight = 0.0);
 
   ~GroundPenetrationConstraint() override = default;
   GroundPenetrationConstraint& operator=(const GroundPenetrationConstraint&) = delete;
@@ -89,6 +96,7 @@ class GroundPenetrationConstraint final : public StateConstraint {
   scalar_t getTerrainHeight() const { return terrainHeight_; }
 
  private:
+  GroundPenetrationConstraint(const FootprintCornerHeights& cornerHeights, scalar_t terrainHeight);
   GroundPenetrationConstraint(const GroundPenetrationConstraint& rhs);
 
   std::unique_ptr<FootprintCornerHeights> cornerHeightsPtr_;

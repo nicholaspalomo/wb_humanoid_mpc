@@ -44,7 +44,9 @@ ABSL_FLAG(std::string,
           "",
           "The network file of the bus (a robot_ipc_proto.NetworkConfig textproto such as config/ipc/network.textproto); "
           "empty: the shipped single-machine network.");
-// LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_app/node/include/humanoid_common_mpc_app/node/MpcAppFlags.h:mpc_app_flags)
+// clang-format off
+// LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_app/node/include/humanoid_common_mpc_app/node/MpcAppFlags.h:mpc_app_flags, //humanoid_nmpc/docs/distributed_runtime/README.md:command_line_flags)
+// clang-format on
 
 namespace ocs2::humanoid::node {
 

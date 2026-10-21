@@ -11,18 +11,20 @@ services:
         USER_ID: "${USER_ID:-1000}"
 
     # platform selectable via DOCKER_PLATFORM on host; default uses amd64 (Rosetta on Apple Silicon)
+    # LINT.IfChange(dev_platform)
     platform: ${DOCKER_PLATFORM:-linux/amd64}
+    # LINT.ThenChange(//tools/deploy/README.md:dev_platform)
 
     user: "${CONTAINER_USER:-ubuntu}"
     privileged: true
 
-    # Host networking (Linux): the container's processes bind and connect on the host's own interfaces. The ZeroMQ bus
-    # then reaches the processes of other containers (the robot runtime's) and of other machines at the addresses of
-    # the network file (config/ipc/network.textproto), with no port to publish or remap, and the VNC desktop, Rerun and
-    # Jupyter answer on the host's ports directly. Docker Desktop (macOS, Windows) runs containers in a VM whose host
+    # Host networking (Linux): the container's processes bind and connect on the host's own interfaces. The DDS bus
+    # (UDP, unicast discovery) then reaches the processes of other containers (the robot runtime's) and of other machines
+    # at the addresses of the network file (config/ipc/network.textproto), with no port to publish or remap, and the VNC
+    # desktop, Rerun and Jupyter answer on the host's ports directly. Docker Desktop (macOS, Windows) runs containers in a VM whose host
     # network is not the computer's: there, add docker-compose.bridge.yaml, which publishes the ports instead
     # (.devcontainer/README.md, "Ports"). Two containers with host networking share the host's ports: run one VNC
-    # desktop (5901, 6080) and one bus of each node name at a time.
+    # desktop (5901, 6080) at a time; the bus's processes take the next free DDS port pair each.
     # LINT.IfChange(network_mode)
     network_mode: host
     # LINT.ThenChange(//docker-compose.bridge.yaml:published_ports, //.devcontainer/README.md:ports)

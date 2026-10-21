@@ -50,10 +50,42 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid::validation {
 namespace {
 
+/** The most a candidate's p99 solve time may be of the baseline's (+10 %), under BandOptions::compareSolveTime. */
+constexpr double kMaxSolveTimeRatio = 1.10;
+/** The bound max | |xi| - 1 | of a candidate's solutions stays below. */
+constexpr double kMaxQuaternionNormDeviation = 1.0e-9;
+
 std::optional<double> numberAt(const JsonValue& document, const std::string& path) {
   const JsonValue* absl_nullable value = document.findPath(path);
   if (value == nullptr || !value->isNumber()) return std::nullopt;
   return value->asNumber();
+}
+
+/** A candidate's finite value at a path, and the baseline's finite value it is held to. */
+struct HeldNumber {
+  double value = 0.0;
+  double reference = 0.0;
+};
+
+/**
+ * The candidate's value at `path` where the baseline has a finite one to hold it to; nullopt where it has none, and
+ * where the candidate has none either. A candidate without a finite value there (null, absent, or a NaN or infinity of
+ * a document still in memory) is a violation, appended to `comparison`, and nullopt: a metric the baseline measured
+ * cannot vanish, nor become NaN, which every comparison with a band would let pass.
+ */
+std::optional<HeldNumber> candidateNumberHeldTo(const JsonValue& candidate,
+                                                const JsonValue& baseline,
+                                                const std::string& path,
+                                                ClosedLoopComparison& comparison) {
+  const std::optional<double> reference = numberAt(baseline, path);
+  if (!reference.has_value() || !std::isfinite(*reference)) return std::nullopt;
+  const std::optional<double> value = numberAt(candidate, path);
+  if (!value.has_value() || !std::isfinite(*value)) {
+    comparison.violations.push_back(absl::StrCat(path, ": ", value.has_value() ? absl::StrCat(*value) : std::string("null"), " against ",
+                                                 *reference, ", no finite value where the baseline has one"));
+    return std::nullopt;
+  }
+  return HeldNumber{.value = *value, .reference = *reference};
 }
 
 bool survivedIn(const JsonValue& document) {
@@ -156,24 +188,28 @@ ClosedLoopComparison compareClosedLoopMetrics(const JsonValue& candidate, const 
   }
 
   for (const MetricBand& band : closedLoopMetricBands()) {
-    const std::optional<double> value = numberAt(candidate, band.path);
-    const std::optional<double> reference = numberAt(baseline, band.path);
-    if (!value.has_value() || !reference.has_value()) continue;
-    holdToBand(band, *value, *reference, comparison);
+    const std::optional<HeldNumber> held = candidateNumberHeldTo(candidate, baseline, band.path, comparison);
+    if (held.has_value()) holdToBand(band, held->value, held->reference, comparison);
   }
 
   if (options.compareSolveTime) {
-    const std::optional<double> p99 = numberAt(candidate, "solve_time_ms.total.p99");
-    const std::optional<double> baselineP99 = numberAt(baseline, "solve_time_ms.total.p99");
-    if (p99.has_value() && baselineP99.has_value() && *p99 > 1.10 * *baselineP99) {
+    const std::optional<HeldNumber> p99 = candidateNumberHeldTo(candidate, baseline, "solve_time_ms.total.p99", comparison);
+    if (p99.has_value() && p99->value > kMaxSolveTimeRatio * p99->reference) {
       comparison.violations.push_back(
-          absl::StrCat("solve_time_ms.total.p99: ", *p99, " ms against ", *baselineP99, " ms, more than +10 %"));
+          absl::StrCat("solve_time_ms.total.p99: ", p99->value, " ms against ", p99->reference, " ms, more than +10 %"));
     }
   }
 
+  // A null deviation (no solve) where the baseline has one is a violation of candidateNumberHeldTo(); a number that is
+  // not finite fails here, as one at or above the bound.
   const std::optional<double> normDeviation = numberAt(candidate, "quaternion_norm.max_deviation");
-  if (normDeviation.has_value() && *normDeviation >= 1.0e-9) {
+  if (!normDeviation.has_value()) candidateNumberHeldTo(candidate, baseline, "quaternion_norm.max_deviation", comparison);
+  if (normDeviation.has_value() && (!std::isfinite(*normDeviation) || *normDeviation >= kMaxQuaternionNormDeviation)) {
     comparison.violations.push_back(absl::StrCat("quaternion_norm.max_deviation: ", *normDeviation, ", not below 1e-9"));
+  }
+  const std::optional<double> nonFiniteSolves = numberAt(candidate, "quaternion_norm.non_finite_solves");
+  if (nonFiniteSolves.has_value() && *nonFiniteSolves > 0.0) {
+    comparison.violations.push_back(absl::StrCat("quaternion_norm.non_finite_solves: ", *nonFiniteSolves, ", non-zero"));
   }
   return comparison;
 }

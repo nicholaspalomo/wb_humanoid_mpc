@@ -51,6 +51,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid::validation {
 namespace {
 
+/** The kibibytes (KiB, what /proc/meminfo counts in as "kB") of a gibibyte. */
+constexpr double kKibibytesPerGibibyte = 1024.0 * 1024.0;
+
 std::string environmentOr(const char* absl_nonnull name, const std::string& fallback) {
   const char* absl_nullable value = std::getenv(name);
   return value != nullptr && value[0] != '\0' ? std::string(value) : fallback;
@@ -97,7 +100,7 @@ std::string describeMachine() {
   const std::vector<absl::string_view> memoryFields = absl::StrSplit(memory, ' ', absl::SkipEmpty());
   double kibibytes = 0.0;
   if (!memoryFields.empty() && absl::SimpleAtod(memoryFields[0], &kibibytes)) {
-    absl::StrAppend(&description, ", ", absl::StrFormat("%.1f", kibibytes / (1024.0 * 1024.0)), " GiB");
+    absl::StrAppend(&description, ", ", absl::StrFormat("%.1f", kibibytes / kKibibytesPerGibibyte), " GiB");
   }
   return description;
 }

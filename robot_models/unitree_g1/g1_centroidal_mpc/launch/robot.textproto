@@ -48,7 +48,7 @@ variables { name: "backend_cores" value: "default" }
 variables { name: "config_store_dir" value: "" }
 # When a stored copy is replaced by the bundled file: when_bundle_changes, every_start or never.
 variables { name: "config_seed" value: "when_bundle_changes" }
-# LINT.ThenChange(//docker-compose.robot.yaml:robot_environment, //tools/deploy/README.md:robot_environment, //humanoid_nmpc/humanoid_common_mpc_app/robot/src/RobotAppFlags.cpp:web_viewer_port)
+# LINT.ThenChange(//docker-compose.robot.yaml:robot_environment, //tools/deploy/README.md:robot_environment, //robot_runtime/web_viewer/include/web_viewer/WebViewerServerOptions.h:web_viewer_port)
 
 processes {
   name: "robot"

@@ -39,6 +39,8 @@ namespace ocs2::humanoid {
  * `dcm_step_adjustment`: the planned landing spot of every swing in flight is shifted by the DCM (capture point) error
  * between the measured center of mass and the NMPC's prediction, propagated to touch-down and clipped to the planner's
  * reachable region.
+ *
+ * Not thread-safe, like every ContactPlanningTerm: the planner that owns it configures and evaluates it from one thread at a time.
  */
 class DcmStepAdjustmentRule final : public ExecutionRule {
  public:

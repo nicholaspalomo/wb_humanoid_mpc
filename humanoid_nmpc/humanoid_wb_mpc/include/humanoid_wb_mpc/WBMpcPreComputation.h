@@ -44,9 +44,9 @@ namespace ocs2::humanoid {
 /**
  * The pre-computation of the whole-body MPC: on a constraint request it updates the Pinocchio kinematics at the node and
  * derives, per foot, the coefficients of the swing foot's normal-motion constraint (SwingLegVerticalConstraintCppAd)
- * from the swing trajectory planner and its own gains, and the rotation of each contact frame. The gains start as the
- * model settings' and are retuned per copy (setSwingFootGains(), setNormalVelocityPositionErrorGain()), because the
- * model settings are shared by every worker thread's copy. Not thread-safe; the solver clones one per worker thread.
+ * from the swing trajectory planner and its own gains. The gains start as the model settings' and are retuned per copy
+ * (setSwingFootGains(), setNormalVelocityPositionErrorGain()), because the model settings are shared by every worker
+ * thread's copy. Not thread-safe; the solver clones one per worker thread.
  */
 class WBMpcPreComputation : public HumanoidPreComputation {
  public:

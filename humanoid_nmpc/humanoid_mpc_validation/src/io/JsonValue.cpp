@@ -35,6 +35,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <limits>
 #include <string>
 #include <utility>
 
@@ -48,10 +49,49 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid::validation {
 namespace {
 
+/** The fewest significant digits formatNumber() tries, DBL_DIG, and the most, DBL_DECIMAL_DIG, which reads back any double. */
+constexpr int kMinRoundTripDigits = std::numeric_limits<double>::digits10;
+constexpr int kMaxRoundTripDigits = std::numeric_limits<double>::max_digits10;
+
+/** The first character a JSON string may hold unescaped: U+0000 to U+001F are control characters (RFC 8259, section 7). */
+constexpr int kFirstNonControlCharacter = 0x20;
+
+/** The spaces each nesting level of a serialized array or object is indented by. */
+constexpr int kIndentStep = 2;
+
+// UTF-8 (RFC 3629, section 3): the first code point that needs two, three and four bytes, the marker of the lead byte of
+// each length, and the continuation bytes, which carry 6 bits each under their marker.
+constexpr int kFirstTwoByteCodePoint = 0x80;
+constexpr int kFirstThreeByteCodePoint = 0x800;
+constexpr int kFirstFourByteCodePoint = 0x10000;
+constexpr int kTwoByteLeadMarker = 0xc0;
+constexpr int kThreeByteLeadMarker = 0xe0;
+constexpr int kFourByteLeadMarker = 0xf0;
+constexpr int kContinuationMarker = 0x80;
+constexpr int kContinuationPayloadMask = 0x3f;
+constexpr int kContinuationPayloadBits = 6;
+constexpr int kTwoContinuationsPayloadBits = 2 * kContinuationPayloadBits;
+constexpr int kThreeContinuationsPayloadBits = 3 * kContinuationPayloadBits;
+
+// A Unicode escape (RFC 8259, section 7): its prefix and four hexadecimal digits of 4 bits each, the letters a to f
+// worth 10 to 15.
+constexpr absl::string_view kUnicodeEscapePrefix = "\\u";
+constexpr int kHexQuadDigits = 4;
+constexpr int kBitsPerHexDigit = 4;
+constexpr int kHexLetterOffset = 10;
+
+// UTF-16 surrogate pairs: a high surrogate in [0xd800, 0xdc00) and a low one in [0xdc00, 0xe000) encode the code point
+// 0x10000 + ((high - 0xd800) << 10) + (low - 0xdc00).
+constexpr int kHighSurrogateBegin = 0xd800;
+constexpr int kLowSurrogateBegin = 0xdc00;
+constexpr int kLowSurrogateEnd = 0xe000;
+constexpr int kSurrogatePairBase = 0x10000;
+constexpr int kSurrogatePayloadBits = 10;
+
 /** The fewest significant digits (15 to 17) that read back to exactly `value`. */
 std::string formatNumber(double value) {
   std::string text;
-  for (int precision = 15; precision <= 17; ++precision) {
+  for (int precision = kMinRoundTripDigits; precision <= kMaxRoundTripDigits; ++precision) {
     text = absl::StrFormat("%.*g", precision, value);
     if (std::strtod(text.c_str(), /*endptr=*/nullptr) == value) break;
   }
@@ -84,7 +124,7 @@ void appendEscaped(std::string& out, const std::string& text) {
         out += "\\f";
         break;
       default:
-        if (static_cast<unsigned char>(c) < 0x20) {
+        if (static_cast<unsigned char>(c) < kFirstNonControlCharacter) {
           absl::StrAppendFormat(&out, "\\u%04x", static_cast<unsigned int>(static_cast<unsigned char>(c)));
         } else {
           out.push_back(c);
@@ -95,20 +135,20 @@ void appendEscaped(std::string& out, const std::string& text) {
 }
 
 void appendUtf8(std::string& out, uint32_t codePoint) {
-  if (codePoint < 0x80) {
+  if (codePoint < kFirstTwoByteCodePoint) {
     out.push_back(static_cast<char>(codePoint));
-  } else if (codePoint < 0x800) {
-    out.push_back(static_cast<char>(0xc0 | (codePoint >> 6)));
-    out.push_back(static_cast<char>(0x80 | (codePoint & 0x3f)));
-  } else if (codePoint < 0x10000) {
-    out.push_back(static_cast<char>(0xe0 | (codePoint >> 12)));
-    out.push_back(static_cast<char>(0x80 | ((codePoint >> 6) & 0x3f)));
-    out.push_back(static_cast<char>(0x80 | (codePoint & 0x3f)));
+  } else if (codePoint < kFirstThreeByteCodePoint) {
+    out.push_back(static_cast<char>(kTwoByteLeadMarker | (codePoint >> kContinuationPayloadBits)));
+    out.push_back(static_cast<char>(kContinuationMarker | (codePoint & kContinuationPayloadMask)));
+  } else if (codePoint < kFirstFourByteCodePoint) {
+    out.push_back(static_cast<char>(kThreeByteLeadMarker | (codePoint >> kTwoContinuationsPayloadBits)));
+    out.push_back(static_cast<char>(kContinuationMarker | ((codePoint >> kContinuationPayloadBits) & kContinuationPayloadMask)));
+    out.push_back(static_cast<char>(kContinuationMarker | (codePoint & kContinuationPayloadMask)));
   } else {
-    out.push_back(static_cast<char>(0xf0 | (codePoint >> 18)));
-    out.push_back(static_cast<char>(0x80 | ((codePoint >> 12) & 0x3f)));
-    out.push_back(static_cast<char>(0x80 | ((codePoint >> 6) & 0x3f)));
-    out.push_back(static_cast<char>(0x80 | (codePoint & 0x3f)));
+    out.push_back(static_cast<char>(kFourByteLeadMarker | (codePoint >> kThreeContinuationsPayloadBits)));
+    out.push_back(static_cast<char>(kContinuationMarker | ((codePoint >> kTwoContinuationsPayloadBits) & kContinuationPayloadMask)));
+    out.push_back(static_cast<char>(kContinuationMarker | ((codePoint >> kContinuationPayloadBits) & kContinuationPayloadMask)));
+    out.push_back(static_cast<char>(kContinuationMarker | (codePoint & kContinuationPayloadMask)));
   }
 }
 
@@ -189,17 +229,17 @@ class Parser {
   }
 
   absl::StatusOr<uint32_t> parseHexQuad() {
-    if (position_ + 4 > text_.size()) return error("a truncated \\u escape");
+    if (position_ + kHexQuadDigits > text_.size()) return error("a truncated \\u escape");
     uint32_t value = 0;
-    for (int i = 0; i < 4; ++i) {
+    for (int i = 0; i < kHexQuadDigits; ++i) {
       const char c = text_[position_++];
-      value <<= 4;
+      value <<= kBitsPerHexDigit;
       if (c >= '0' && c <= '9') {
         value |= static_cast<uint32_t>(c - '0');
       } else if (c >= 'a' && c <= 'f') {
-        value |= static_cast<uint32_t>(c - 'a' + 10);
+        value |= static_cast<uint32_t>(c - 'a' + kHexLetterOffset);
       } else if (c >= 'A' && c <= 'F') {
-        value |= static_cast<uint32_t>(c - 'A' + 10);
+        value |= static_cast<uint32_t>(c - 'A' + kHexLetterOffset);
       } else {
         return error("a \\u escape that is not hexadecimal");
       }
@@ -214,7 +254,7 @@ class Parser {
       if (position_ >= text_.size()) return error("an unterminated string");
       const char c = text_[position_++];
       if (c == '"') return out;
-      if (static_cast<unsigned char>(c) < 0x20) return error("a control character in a string");
+      if (static_cast<unsigned char>(c) < kFirstNonControlCharacter) return error("a control character in a string");
       if (c != '\\') {
         out.push_back(c);
         continue;
@@ -245,12 +285,13 @@ class Parser {
         case 'u': {
           absl::StatusOr<uint32_t> codePoint = parseHexQuad();
           if (!codePoint.ok()) return codePoint.status();
-          if (*codePoint >= 0xd800 && *codePoint < 0xdc00 && text_.substr(position_, 2) == "\\u") {
-            position_ += 2;
+          if (*codePoint >= kHighSurrogateBegin && *codePoint < kLowSurrogateBegin &&
+              text_.substr(position_, kUnicodeEscapePrefix.size()) == kUnicodeEscapePrefix) {
+            position_ += kUnicodeEscapePrefix.size();
             const absl::StatusOr<uint32_t> low = parseHexQuad();
             if (!low.ok()) return low.status();
-            if (*low < 0xdc00 || *low >= 0xe000) return error("an unpaired surrogate");
-            *codePoint = 0x10000 + ((*codePoint - 0xd800) << 10) + (*low - 0xdc00);
+            if (*low < kLowSurrogateBegin || *low >= kLowSurrogateEnd) return error("an unpaired surrogate");
+            *codePoint = kSurrogatePairBase + ((*codePoint - kHighSurrogateBegin) << kSurrogatePayloadBits) + (*low - kLowSurrogateBegin);
           }
           appendUtf8(out, *codePoint);
           break;
@@ -477,8 +518,8 @@ void JsonValue::serializeTo(std::string& out, int indent) const {
       }
       out += "[\n";
       for (size_t i = 0; i < elements_.size(); ++i) {
-        out.append(static_cast<size_t>(indent + 2), ' ');
-        elements_[i].serializeTo(out, indent + 2);
+        out.append(static_cast<size_t>(indent + kIndentStep), ' ');
+        elements_[i].serializeTo(out, indent + kIndentStep);
         out += i + 1 < elements_.size() ? ",\n" : "\n";
       }
       out.append(static_cast<size_t>(indent), ' ');
@@ -492,10 +533,10 @@ void JsonValue::serializeTo(std::string& out, int indent) const {
       }
       out += "{\n";
       for (size_t i = 0; i < elements_.size(); ++i) {
-        out.append(static_cast<size_t>(indent + 2), ' ');
+        out.append(static_cast<size_t>(indent + kIndentStep), ' ');
         appendEscaped(out, keys_[i]);
         out += ": ";
-        elements_[i].serializeTo(out, indent + 2);
+        elements_[i].serializeTo(out, indent + kIndentStep);
         out += i + 1 < elements_.size() ? ",\n" : "\n";
       }
       out.append(static_cast<size_t>(indent), ' ');
@@ -510,21 +551,21 @@ absl::StatusOr<JsonValue> JsonValue::parse(absl::string_view text) {
   return parser.parseDocument();
 }
 
-bool JsonValue::operator==(const JsonValue& other) const {
-  if (type_ != other.type_) return false;
-  switch (type_) {
-    case Type::kNull:
+bool operator==(const JsonValue& lhs, const JsonValue& rhs) {
+  if (lhs.type_ != rhs.type_) return false;
+  switch (lhs.type_) {
+    case JsonValue::Type::kNull:
       return true;
-    case Type::kBool:
-      return bool_ == other.bool_;
-    case Type::kNumber:
-      return number_ == other.number_;
-    case Type::kString:
-      return string_ == other.string_;
-    case Type::kArray:
-      return elements_ == other.elements_;
-    case Type::kObject:
-      return keys_ == other.keys_ && elements_ == other.elements_;
+    case JsonValue::Type::kBool:
+      return lhs.bool_ == rhs.bool_;
+    case JsonValue::Type::kNumber:
+      return lhs.number_ == rhs.number_;
+    case JsonValue::Type::kString:
+      return lhs.string_ == rhs.string_;
+    case JsonValue::Type::kArray:
+      return lhs.elements_ == rhs.elements_;
+    case JsonValue::Type::kObject:
+      return lhs.keys_ == rhs.keys_ && lhs.elements_ == rhs.elements_;
   }
   return false;
 }

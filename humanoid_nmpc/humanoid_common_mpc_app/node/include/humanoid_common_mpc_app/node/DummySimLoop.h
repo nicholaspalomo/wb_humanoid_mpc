@@ -31,10 +31,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <atomic>
 #include <cstdint>
-#include <functional>
 #include <memory>
 
 #include "absl/base/thread_annotations.h"
+#include "absl/functional/function_ref.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/synchronization/mutex.h"
@@ -76,8 +76,13 @@ namespace ocs2::humanoid::node {
 class DummySimLoop {
  public:
   struct Config {
+    /** [Hz] The default of simulationFrequency. */
+    static constexpr scalar_t kDefaultSimulationFrequency = 100.0;
+    /** The default of waitLogPeriod. */
+    static constexpr absl::Duration kDefaultWaitLogPeriod = absl::Seconds(5);
+
     /** [Hz] The plant's step rate. Positive. */
-    scalar_t simulationFrequency = 100.0;
+    scalar_t simulationFrequency = kDefaultSimulationFrequency;
     /** [Hz] The MPC's rate (mpc.mpc_desired_frequency): positive runs the loop synchronized with it, <= 0 in real time. */
     scalar_t mpcDesiredFrequency = -1.0;
     /**
@@ -87,7 +92,7 @@ class DummySimLoop {
      */
     ipc::RemoteMpcLink::Config link;
     /** How often a synchronized wait for a policy that does not come logs that it is still waiting. */
-    absl::Duration waitLogPeriod = absl::Seconds(5);
+    absl::Duration waitLogPeriod = kDefaultWaitLogPeriod;
   };
 
   /** What the loop has done so far; every counter only grows. */
@@ -120,7 +125,7 @@ class DummySimLoop {
    * and while waiting). Returns OK when stopped, FailedPrecondition when called a second time, and Internal when the
    * rollout of the plant throws.
    */
-  absl::Status run(const SystemObservation& initialObservation, const std::function<bool()>& shouldStop);
+  absl::Status run(const SystemObservation& initialObservation, absl::FunctionRef<bool()> shouldStop);
 
   /** The plant's newest observation (the initial one before the first step). Thread-safe. */
   SystemObservation latestObservation() const;
@@ -132,9 +137,9 @@ class DummySimLoop {
   DummySimLoop(std::unique_ptr<robot::ipc::Bus> bus, Config config);
 
   /** Steps until the first policy has arrived; false on stop. */
-  bool awaitInitialPolicy(const SystemObservation& initialObservation, const std::function<bool()>& shouldStop);
+  bool awaitInitialPolicy(const SystemObservation& initialObservation, absl::FunctionRef<bool()> shouldStop);
   /** Waits for a policy that starts at `time` (synchronized loop); false on stop. */
-  bool awaitPolicyFor(scalar_t time, const std::function<bool()>& shouldStop);
+  bool awaitPolicyFor(scalar_t time, absl::FunctionRef<bool()> shouldStop);
   /** One step of the plant under the policy in use; Internal, with the exception's message, when the rollout throws. */
   absl::StatusOr<SystemObservation> forwardSimulation(const SystemObservation& observation);
   void publishLatest(const SystemObservation& observation);

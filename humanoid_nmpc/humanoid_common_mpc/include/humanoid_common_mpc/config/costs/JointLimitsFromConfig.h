@@ -40,7 +40,8 @@ namespace ocs2::humanoid {
  * The barrier of the soft constraint joint_limits from the task file's joint_limits block:
  * PieceWisePolynomialBarrierPenalty::Config's own mu and delta for the ones the block leaves out.
  *
- * @return The barrier; InvalidArgument naming mu or delta when it is not finite.
+ * @return The barrier; InvalidArgument naming mu or delta when it is not a finite positive number (a non-positive mu
+ *         rewards a violation, and the barrier is discontinuous at a non-positive delta).
  */
 absl::StatusOr<PieceWisePolynomialBarrierPenalty::Config> jointLimitsBarrierFromConfig(const mpc_config::JointLimitsConfig& jointLimits);
 

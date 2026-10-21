@@ -77,12 +77,6 @@ struct RobotConfigurationCheckContext {
   std::vector<std::string> mpcJointNames;
   std::vector<std::string> otherJointNames;
   /**
-   * The defaults the MRT joint controller reads its PD gains file with (its pdGainsDefaults()), so that the file is read
-   * here as the controller reads it: whether the controller commands a torque limit (JointPdGainsDefaults::torqueLimit)
-   * decides whether the file's torque_limit fields are read, and so may refuse it.
-   */
-  JointPdGainsDefaults pdGainsDefaults;
-  /**
    * The contact estimators the backend filled in (the robot process's registry); nullptr: contact_estimator is not
    * checked. Must outlive every call with the context. backendOptions.initialState, when set, is the state each
    * estimator is asked once on (checkContactEstimator()), as the operator mailbox asks it.
@@ -104,7 +98,8 @@ struct RobotConfigurationCheckContext {
  * writer share (ConfigFileStore::Hooks::validateConfigFile), so that a saved file is held to exactly what start-up
  * holds it to. In order: the task file's model_settings.robot_name, robotProcessSettingsFromConfig(), the formulation's
  * check, jointPdGainsFromConfig() on the controller's joints, contact_estimator against the registry (and its probe),
- * every telemetry_sinks name against TelemetrySinkRegistry, and the backend's options (RobotBackendRegistry::checkOptions()).
+ * every telemetry_sinks name against TelemetrySinkRegistry, state_estimator against StateEstimatorRegistry (and the
+ * noise model of `kalman`), and the backend's options (RobotBackendRegistry::checkOptions()).
  * A start-up check added later belongs here, once.
  *
  * @return The first refusal, naming the file and the field.

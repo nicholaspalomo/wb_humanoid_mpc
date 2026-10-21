@@ -36,7 +36,43 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ocs2_core/Types.h>
 #include <ocs2_core/automatic_differentiation/Types.h>
 
+#include "ocs2_core/Dimensions.h"
+
 namespace ocs2 {
+namespace centroidal_model {
+
+/*
+ * The layout of the centroidal model's vectors, which AccessHelperFunctions.h reads and writes:
+ *   - the state x = [h, p_W, xi, q_j]: the centroidal momentum divided by the robot mass, h = [linear; angular] / m,
+ *     followed by the pinocchio configuration q = [p_W, xi, q_j] with the base quaternion xi = (x, y, z, w);
+ *   - the pinocchio velocity v = [dp_W, w_B, dq_j] of the Composite(Translation, Spherical) root;
+ *   - the input u = [the force of each 3-DoF contact, the wrench (force, torque) of each 6-DoF contact, dq_j].
+ */
+
+/** The centroidal momentum [linear; angular]: the rows of the centroidal momentum matrix, and h at the head of the state. */
+inline constexpr int kLinearMomentumDim = kPositionDim;
+inline constexpr int kAngularMomentumDim = kRotationTangentDim;
+inline constexpr int kCentroidalMomentumDim = kLinearMomentumDim + kAngularMomentumDim;
+/** Where the angular momentum starts in the centroidal momentum, after the linear one. */
+inline constexpr int kAngularMomentumStartIndex = kLinearMomentumDim;
+
+/** The base velocity [dp_W, w_B] at the head of v, and where its angular velocity w_B starts, after dp_W. */
+inline constexpr int kBaseVelocityDim = kPoseTangentDim;
+inline constexpr int kBaseAngularVelocityStartInVelocity = kPositionDim;
+
+/** Where the base quaternion xi starts in the pinocchio configuration q = [p_W, xi, q_j], after p_W. */
+inline constexpr int kBaseQuaternionStartInConfiguration = kPositionDim;
+
+/** Where the parts of the state x = [h, p_W, xi, q_j] start: the configuration q = [p_W, xi, q_j] follows h. */
+inline constexpr int kGeneralizedCoordinatesStartInState = kCentroidalMomentumDim;
+inline constexpr int kBasePositionStartInState = kGeneralizedCoordinatesStartInState;
+inline constexpr int kBaseQuaternionStartInState = kGeneralizedCoordinatesStartInState + kBaseQuaternionStartInConfiguration;
+inline constexpr int kJointAnglesStartInState = kBaseQuaternionStartInState + kQuaternionCoefficients;
+
+/** Where the torque starts in the input wrench (force, torque) of a 6-DoF contact, after the force. */
+inline constexpr int kTorqueStartInContactWrench = kForceDim;
+
+}  // namespace centroidal_model
 
 template <typename SCALAR>
 class CentroidalModelInfoTpl;
@@ -55,8 +91,8 @@ struct CentroidalModelInfoTpl {
 
   using scalar_t = SCALAR;
   using vector_t = Eigen::Matrix<SCALAR, Eigen::Dynamic, 1>;
-  using vector3_t = Eigen::Matrix<SCALAR, 3, 1>;
-  using matrix3_t = Eigen::Matrix<SCALAR, 3, 3>;
+  using vector3_t = Eigen::Matrix<SCALAR, kPositionDim, 1>;
+  using matrix3_t = Eigen::Matrix<SCALAR, kPositionDim, kPositionDim>;
 
   template <typename T>  // Template for conditional compilation using SFINAE
   using EnableIfScalar_t = typename std::enable_if<std::is_same<T, scalar_t>::value, bool>::type;

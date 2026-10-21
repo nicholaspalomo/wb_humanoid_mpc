@@ -37,6 +37,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * warm start, warm start across the event), and prints everything the solver produces at 17 significant digits: the
  * iteration log, the primal solution, the per-node metrics and the policy evaluated on and off the nominal trajectory.
  *
+ * Each warm start is the solver's last solution handed back without its post-event indices. The flat path has changed
+ * once since the recording, on purpose: trajectorySpread() stamps a multiple-shooting solution's post-event samples at
+ * the start of their intervals before it spreads (stampPostEventSamplesAtIntervalStart(), lib/ocs2/README.md, tested by
+ * test_trajectory_spreading), which moves the warm start of every solve after one with an event. The stamp reads the
+ * post-event indices, so without them trajectorySpread() spreads as the recorded solver did, and the rest of the solver
+ * is compared bit for bit against the solver before the manifold support.
+ *
  * The golden (sqp_flat_parity_golden.txt) is the printout of the solver before the manifold support, on this
  * toolchain: it was recorded on the main line after the merge of the manifold support, with HPIPM and BLASFEO built by
  * bazel/system_libs.bzl for TARGET=GENERIC, and the solver of the main line before that merge reproduces it line for
@@ -59,8 +66,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * header, and then fails, printing the hash to pin.
  */
 
-#include <gtest/gtest.h>
-
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
@@ -73,7 +78,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 #include "absl/base/nullability.h"
+#include "ocs2_sqp/SqpSolver.h"
 
+#include <gtest/gtest.h>
 #include <ocs2_core/constraint/LinearStateConstraint.h>
 #include <ocs2_core/constraint/LinearStateInputConstraint.h>
 #include <ocs2_core/cost/QuadraticStateCost.h>
@@ -86,8 +93,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ocs2_core/soft_constraint/StateSoftConstraint.h>
 #include <ocs2_oc/oc_data/PrimalSolution.h>
 #include <ocs2_oc/synchronized_module/ReferenceManager.h>
-
-#include "ocs2_sqp/SqpSolver.h"
 
 namespace ocs2 {
 namespace {
@@ -334,12 +339,18 @@ std::string solveAndPrint(const ParityConfiguration& configuration) {
   const std::vector<scalar_t> initTimes = {0.0, 0.05, 0.4};
   vector_t perturbation(kStateDim);
   perturbation << 0.01, -0.02, 0.03, -0.01;
+  // The warm start of the recorded solver (the file comment): the last solution without its post-event indices.
+  PrimalSolution warmStart;
   for (size_t solve = 0; solve < initTimes.size(); ++solve) {
     const scalar_t initTime = initTimes[solve];
     const scalar_t finalTime = initTime + 1.0;
     const std::string prefix = configuration.name + " solve" + std::to_string(solve);
 
-    solver.run(initTime, initState, /*initMode=*/0, finalTime);
+    if (solve == 0) {
+      solver.run(initTime, initState, /*initMode=*/0, finalTime);
+    } else {
+      solver.run(initTime, initState, /*initMode=*/0, finalTime, warmStart);
+    }
 
     const std::vector<PerformanceIndex>& iterations = solver.getIterationsLog();
     printScalar(out, prefix + " iterations", static_cast<scalar_t>(iterations.size()));
@@ -380,6 +391,8 @@ std::string solveAndPrint(const ParityConfiguration& configuration) {
     const scalar_t nextTime = (solve + 1 < initTimes.size()) ? initTimes[solve + 1] : finalTime;
     initState =
         LinearInterpolation::interpolate(nextTime, primalSolution.timeTrajectory_, primalSolution.stateTrajectory_) + 0.5 * perturbation;
+    warmStart = primalSolution;
+    warmStart.postEventIndices_.clear();
   }
   return out.str();
 }

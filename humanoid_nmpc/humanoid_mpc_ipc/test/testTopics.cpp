@@ -30,11 +30,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <array>
 #include <cstddef>
 
+#include "absl/base/nullability.h"
 #include "absl/strings/match.h"
 #include "absl/strings/string_view.h"
 #include "gtest/gtest.h"
 
 #include "humanoid_mpc_ipc/Topics.h"
+#include "robot_ipc/NetworkConfig.h"
 
 namespace ocs2::humanoid::ipc::topics {
 namespace {
@@ -66,14 +68,16 @@ TEST(TopicsTest, EveryTopicIsAPublisherPrefixFollowedByASnakeCaseName) {
   }
 }
 
-TEST(TopicsTest, NoTopicIsAPrefixOfAnother) {
-  // ZeroMQ's SUB filter matches a prefix of the topic frame: a topic that began another would also receive it.
-  for (size_t i = 0; i < kAllTopics.size(); ++i) {
-    for (size_t j = 0; j < kAllTopics.size(); ++j) {
-      if (i != j) {
-        EXPECT_FALSE(absl::StartsWith(kAllTopics[j], kAllTopics[i])) << kAllTopics[i] << " begins " << kAllTopics[j];
-      }
-    }
+TEST(TopicsTest, EveryTopicIsADdsTopicNameListedOnceWithItsQosInTheShippedNetwork) {
+  // Every topic is a DDS topic of the same name, whose QoS profile and publishers the network file names: a topic it
+  // did not list would fall back to reliable_events and have no writer before its first sample.
+  const robot::ipc::NetworkConfig network = robot::ipc::localhostNetworkConfig();
+  EXPECT_EQ(network.topics.size(), kAllTopics.size()) << "config/ipc/network.textproto lists exactly the topics of Topics.h";
+  for (const absl::string_view topic : kAllTopics) {
+    EXPECT_TRUE(robot::ipc::validateTopicName(topic).ok()) << topic;
+    const robot::ipc::TopicQos* absl_nullable entry = network.findTopic(topic);
+    ASSERT_NE(entry, nullptr) << topic << " is not in config/ipc/network.textproto";
+    EXPECT_FALSE(entry->publishers.empty()) << topic;
   }
 }
 

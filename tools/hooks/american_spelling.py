@@ -29,8 +29,9 @@
 
 color, behavior, center, initialize, normalize, analyze, modeling, labeled, canceled, defense, gray, program. The words
 are matched as whole words and as the parts of a camelCase or snake_case identifier (`normalisedTime`, `kCentreOfMass`),
-case preserved, and never inside a URL. A line that has to keep a British spelling - the title of a cited paper, an
-external API - carries `NOLINT(american-spelling)`.
+case preserved, and never inside a URL; a British root such as "centre" or "colour" is also found inside a compound
+word (`offcentre`, `colourmap`, `neighbourhood`). A line that has to keep a British spelling - the title of a cited
+paper, an external API - carries `NOLINT(american-spelling)`.
 """
 
 import argparse
@@ -182,6 +183,10 @@ _WORDS = {
     "centimetres": "centimeters",
     "kilometre": "kilometer",
     "kilometres": "kilometers",
+    "micrometre": "micrometer",
+    "micrometres": "micrometers",
+    "nanometre": "nanometer",
+    "nanometres": "nanometers",
     "litre": "liter",
     "litres": "liters",
     "fibre": "fiber",
@@ -311,6 +316,28 @@ def _with_prefixes(table: dict[str, str]) -> dict[str, str]:
 
 
 TABLE = _with_prefixes(_build_table())
+
+# British roots that no American word contains, so that they are found inside a compound word the table has no entry
+# for (offcentre, colourmap, neighbourhood, kilometrespersecond): the root is replaced wherever it occurs in the part.
+# Only roots that are never a substring of an American word: not "grey" (greyhound) or the -ise family (otherwise).
+_COMPOUND_ROOTS = {
+    "behaviour": "behavior",
+    "centre": "center",
+    "colour": "color",
+    "defence": "defense",
+    "favour": "favor",
+    "fibre": "fiber",
+    "flavour": "flavor",
+    "honour": "honor",
+    "labour": "labor",
+    "licence": "license",
+    "litre": "liter",
+    "metre": "meter",
+    "modelling": "modeling",
+    "neighbour": "neighbor",
+    "labelled": "labeled",
+    "cancelled": "canceled",
+}
 # The parts a line is split into: runs of letters, cut at camelCase humps (normalisedTime -> normalised, Time;
 # HTMLCentre -> HTML, Centre). Digits, underscores, hyphens and punctuation separate parts too.
 _PART = re.compile(r"[A-Z]+(?=[A-Z][a-z])|[A-Z]?[a-z]+|[A-Z]+")
@@ -338,12 +365,31 @@ class Finding(NamedTuple):
         )
 
 
+def _american_spelling(word: str) -> str | None:
+    """Looks up the American spelling of a word.
+
+    Args:
+        word: A lowercase part of a line. A word of the table maps to its entry; any other word containing a root of
+            _COMPOUND_ROOTS has every root replaced.
+
+    Returns:
+        The American spelling, or None when the word is not British.
+    """
+    american = TABLE.get(word)
+    if american is not None:
+        return american
+    compound = word
+    for british_root, american_root in _COMPOUND_ROOTS.items():
+        compound = compound.replace(british_root, american_root)
+    return compound if compound != word else None
+
+
 def _scan_line(line: str) -> list[tuple[re.Match[str], str]]:
     """The British spellings of `line` outside URLs, each with its American spelling in the same case."""
     urls = [(m.start(), m.end()) for m in _URL.finditer(line)]
     matches = []
     for part in _PART.finditer(line):
-        american = TABLE.get(part.group(0).lower())
+        american = _american_spelling(part.group(0).lower())
         if american is None or any(start <= part.start() < end for start, end in urls):
             continue
         matches.append((part, _match_case(part.group(0), american)))

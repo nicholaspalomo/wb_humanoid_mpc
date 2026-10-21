@@ -30,6 +30,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_wb_mpc/constraint/JointMimicDynamicsConstraint.h"
 
+#include <cmath>
 #include <memory>
 #include <string>
 #include <utility>
@@ -54,11 +55,12 @@ absl::StatusOr<std::unique_ptr<JointMimicDynamicsConstraint>> JointMimicDynamics
     scalar_t multiplier,
     scalar_t positionGain,
     scalar_t velocityGain) {
-  // Negated, so that NaN is refused too.
-  if (!(velocityGain > 0.0) || !(positionGain > velocityGain)) {
+  // The joint error obeys e'' + Kd e' + Kp e = 0, which is asymptotically stable exactly when both coefficients are positive
+  // (Routh-Hurwitz for a second-order polynomial); their ratio only sets the damping. Negated, so that NaN is refused too.
+  if (!(positionGain > 0.0) || !(velocityGain > 0.0) || !std::isfinite(positionGain) || !std::isfinite(velocityGain)) {
     return absl::InvalidArgumentError(absl::StrCat("[JointMimicDynamicsConstraint] the gains of the mimic joint ", childJointName,
-                                                   " must satisfy 0 < velocityGain < positionGain, got positionGain ", positionGain,
-                                                   " and velocityGain ", velocityGain));
+                                                   " must be finite and positive, got positionGain ", positionGain, " and velocityGain ",
+                                                   velocityGain));
   }
   Config config;
   config.parentJointName = parentJointName;

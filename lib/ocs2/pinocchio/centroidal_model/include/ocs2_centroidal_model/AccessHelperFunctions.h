@@ -31,6 +31,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <Eigen/Core>
 
+#include "ocs2_core/Dimensions.h"
+
 #include "ocs2_centroidal_model/CentroidalModelInfo.h"
 
 namespace ocs2 {
@@ -40,29 +42,33 @@ namespace centroidal_model {
  * Provides read/write access to the contact forces.
  */
 template <typename Derived, typename SCALAR>
-Eigen::Block<Derived, 3, 1> getContactForces(Eigen::MatrixBase<Derived>& input, size_t contactIndex,
-                                             const CentroidalModelInfoTpl<SCALAR>& info);
+Eigen::Block<Derived, kForceDim, 1> getContactForces(Eigen::MatrixBase<Derived>& input,
+                                                     size_t contactIndex,
+                                                     const CentroidalModelInfoTpl<SCALAR>& info);
 
 /**
  * Provides read access to the contact forces.
  */
 template <typename Derived, typename SCALAR>
-const Eigen::Block<const Derived, 3, 1> getContactForces(const Eigen::MatrixBase<Derived>& input, size_t contactIndex,
-                                                         const CentroidalModelInfoTpl<SCALAR>& info);
+const Eigen::Block<const Derived, kForceDim, 1> getContactForces(const Eigen::MatrixBase<Derived>& input,
+                                                                 size_t contactIndex,
+                                                                 const CentroidalModelInfoTpl<SCALAR>& info);
 
 /**
  * Provides read/write access to the contact torques.
  */
 template <typename Derived, typename SCALAR>
-Eigen::Block<Derived, 3, 1> getContactTorques(Eigen::MatrixBase<Derived>& input, size_t contactIndex,
-                                              const CentroidalModelInfoTpl<SCALAR>& info);
+Eigen::Block<Derived, kTorqueDim, 1> getContactTorques(Eigen::MatrixBase<Derived>& input,
+                                                       size_t contactIndex,
+                                                       const CentroidalModelInfoTpl<SCALAR>& info);
 
 /**
  * Provides read access to the contact torques.
  */
 template <typename Derived, typename SCALAR>
-const Eigen::Block<const Derived, 3, 1> getContactTorques(const Eigen::MatrixBase<Derived>& input, size_t contactIndex,
-                                                          const CentroidalModelInfoTpl<SCALAR>& info);
+const Eigen::Block<const Derived, kTorqueDim, 1> getContactTorques(const Eigen::MatrixBase<Derived>& input,
+                                                                   size_t contactIndex,
+                                                                   const CentroidalModelInfoTpl<SCALAR>& info);
 
 /**
  * Provides read/write access to the joint velocities.
@@ -81,40 +87,43 @@ const Eigen::Block<const Derived, -1, 1> getJointVelocities(const Eigen::MatrixB
  * Provides read/write access to the mass-normalized momentum.
  */
 template <typename Derived, typename SCALAR>
-Eigen::Block<Derived, 6, 1> getNormalizedMomentum(Eigen::MatrixBase<Derived>& state, const CentroidalModelInfoTpl<SCALAR>& info);
+Eigen::Block<Derived, kCentroidalMomentumDim, 1> getNormalizedMomentum(Eigen::MatrixBase<Derived>& state,
+                                                                       const CentroidalModelInfoTpl<SCALAR>& info);
 
 /**
  * Provides read access to the mass-normalized momentum.
  */
 template <typename Derived, typename SCALAR>
-const Eigen::Block<const Derived, 6, 1> getNormalizedMomentum(const Eigen::MatrixBase<Derived>& state,
-                                                              const CentroidalModelInfoTpl<SCALAR>& info);
+const Eigen::Block<const Derived, kCentroidalMomentumDim, 1> getNormalizedMomentum(const Eigen::MatrixBase<Derived>& state,
+                                                                                   const CentroidalModelInfoTpl<SCALAR>& info);
 
 /**
  * Provides read/write access to the base position p_W (3 entries at 6), in the world frame.
  */
 template <typename Derived, typename SCALAR>
-Eigen::Block<Derived, 3, 1> getBasePosition(Eigen::MatrixBase<Derived>& state, const CentroidalModelInfoTpl<SCALAR>& info);
+Eigen::Block<Derived, kPositionDim, 1> getBasePosition(Eigen::MatrixBase<Derived>& state, const CentroidalModelInfoTpl<SCALAR>& info);
 
 /**
  * Provides read access to the base position p_W.
  */
 template <typename Derived, typename SCALAR>
-const Eigen::Block<const Derived, 3, 1> getBasePosition(const Eigen::MatrixBase<Derived>& state, const CentroidalModelInfoTpl<SCALAR>& info);
+const Eigen::Block<const Derived, kPositionDim, 1> getBasePosition(const Eigen::MatrixBase<Derived>& state,
+                                                                   const CentroidalModelInfoTpl<SCALAR>& info);
 
 /**
  * Provides read/write access to the base orientation xi (4 entries at 9): the coefficients (x, y, z, w) of the quaternion
  * from the base frame to the world, as the state stores them, not normalized.
  */
 template <typename Derived, typename SCALAR>
-Eigen::Block<Derived, 4, 1> getBaseQuaternion(Eigen::MatrixBase<Derived>& state, const CentroidalModelInfoTpl<SCALAR>& info);
+Eigen::Block<Derived, kQuaternionCoefficients, 1> getBaseQuaternion(Eigen::MatrixBase<Derived>& state,
+                                                                    const CentroidalModelInfoTpl<SCALAR>& info);
 
 /**
  * Provides read access to the base orientation xi, as the state stores it.
  */
 template <typename Derived, typename SCALAR>
-const Eigen::Block<const Derived, 4, 1> getBaseQuaternion(const Eigen::MatrixBase<Derived>& state,
-                                                          const CentroidalModelInfoTpl<SCALAR>& info);
+const Eigen::Block<const Derived, kQuaternionCoefficients, 1> getBaseQuaternion(const Eigen::MatrixBase<Derived>& state,
+                                                                                const CentroidalModelInfoTpl<SCALAR>& info);
 
 /**
  * Provides read/write access to the joint angles.

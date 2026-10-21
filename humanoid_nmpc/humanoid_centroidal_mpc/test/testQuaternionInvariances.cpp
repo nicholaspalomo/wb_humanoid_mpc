@@ -431,10 +431,11 @@ bool noTerm(const std::string& /*label*/) {
 }
 
 TEST_P(QuaternionInvariances, EveryTermsTangentJacobianIsItsFiniteDifferenceAlongTheRetraction) {
-  // The procedural arm swing makes the reference of the arm joints a function of the node's own heading
-  // (SwitchedModelReferenceManager::getDesiredState() reads getBaseHeading(state)), which the state costs' Jacobians
-  // treat as a constant reference: off for this check, which holds every term's Jacobian to the term it linearizes.
-  interface_->getSwitchedModelReferenceManagerPtr()->setArmSwingReferenceActive(false);
+  // The procedural arm swing reads the REFERENCE's heading, not the node's (SwitchedModelReferenceManager::
+  // getDesiredState()), so the state costs' Jacobians, which hold the reference constant, are exact with it on. It is
+  // switched on wherever the robot names its arm joints - also on the robots whose shipped ACoM cost turns it off - so
+  // that this check would catch a reference that went back to reading the state.
+  interface_->getSwitchedModelReferenceManagerPtr()->setArmSwingReferenceActive(interface_->modelSettings().hasArmSwingJoints);
   size_t checked = 0;
   for (const scalar_t time : kTimes) {
     SCOPED_TRACE(absl::StrCat("t = ", time));

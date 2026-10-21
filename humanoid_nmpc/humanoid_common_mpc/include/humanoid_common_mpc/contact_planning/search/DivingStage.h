@@ -31,11 +31,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <string>
 
+#include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
 #include "humanoid_common_mpc/contact_planning/search/SearchStage.h"
 
 namespace ocs2::humanoid {
 
-/** `diving`: after the root relaxation the solver dives (fix integral values, round the first fractional one) for an early incumbent. */
+/**
+ * `diving`: after the root relaxation the solver dives (fix integral values, round the first fractional one) for an early incumbent.
+ *
+ * Not thread-safe, like every ContactPlanningTerm: the planner that owns it configures and evaluates it from one thread at a time.
+ */
 class DivingStage final : public SearchStage {
  public:
   std::string describe() const override;
@@ -43,7 +48,7 @@ class DivingStage final : public SearchStage {
   void beforeSearch(SearchSetup& setup) const override;
 
  private:
-  int maxDiveIterations_ = 64;
+  int maxDiveIterations_ = DivingParameters::kDefaultMaxDiveIterations;
 };
 
 }  // namespace ocs2::humanoid

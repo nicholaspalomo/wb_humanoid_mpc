@@ -30,10 +30,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <optional>
+#include <string>
 
 #include "absl/base/thread_annotations.h"
+#include "absl/container/flat_hash_map.h"
+#include "absl/strings/string_view.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/time/time.h"
 
@@ -53,14 +57,24 @@ namespace robot::web_viewer {
  *
  * Demand: waitForDemand() lets the render thread idle while nobody watches. A frame client counts as demand while it
  * is admitted (tryAcquireClient() to releaseClient()), and each frame request (noteFrameRequest()) for kDemandLease
- * after it.
+ * after it. demandResumedAt() is when the last admission found no demand, so the renderer was idle or about to be: a
+ * frame published before it is stale.
+ *
+ * Viewers: each page names itself on its frame requests (noteViewer()); viewerCount() is the pages seen within
+ * kDemandLease, at most kMaxTrackedViewers.
+ *
+ * Every time is measured on the monotonic clock, so that a step of the wall clock (NTP, a VM resync) neither extends
+ * the lease nor stretches a wait.
  *
  * Thread-safe: every method may be called from any thread. close() wakes every waiter for good.
  */
 class ViewerFrameMailbox {
  public:
-  // How long a frame request keeps the renderer busy after it was made.
+  // How long a frame request keeps the renderer busy after it was made, and a page counts as a viewer.
   static constexpr absl::Duration kDemandLease = absl::Seconds(1);
+  // The most page ids viewerCount() keeps; a request with a new id beyond them replaces the oldest, so that a client
+  // inventing ids cannot grow the map.
+  static constexpr int kMaxTrackedViewers = 256;
 
   /** Creates an empty mailbox that admits at most `maxClients` (>= 1) frame clients at a time. */
   explicit ViewerFrameMailbox(int maxClients);
@@ -71,8 +85,8 @@ class ViewerFrameMailbox {
 
   /**
    * Replaces the newest frame with `frame` and wakes the requests waiting for it. Stamps `frame.sequence` (one more than
-   * the previous frame's, 1 for the first) and `frame.publishTime` (now); the caller's values of both are ignored. The
-   * previous frame is freed after the mutex is released.
+   * the previous frame's, 1 for the first), `frame.publishTime` and `frame.publishSteadyTime` (now); the caller's values
+   * of these are ignored. The previous frame is freed after the mutex is released.
    */
   void publish(EncodedFrame frame);
 
@@ -100,9 +114,23 @@ class ViewerFrameMailbox {
   /** Records a frame request, which counts as demand for kDemandLease, and wakes waitForDemand(). */
   void noteFrameRequest();
 
+  /** Records a frame request of the page `viewerId`, which counts as a viewer for kDemandLease. */
+  void noteViewer(absl::string_view viewerId);
+
+  /** Returns the number of distinct page ids noted within kDemandLease. */
+  int viewerCount() const;
+
+  /**
+   * Returns when tryAcquireClient() last admitted a client with no demand before it (none admitted, the lease lapsed),
+   * on the monotonic clock; nullopt before the first admission. Frames published before it were drawn before the
+   * renderer idled.
+   */
+  std::optional<std::chrono::steady_clock::time_point> demandResumedAt() const;
+
   /**
    * Admits one more frame client if fewer than maxClients() are admitted and returns true; returns false otherwise. A
-   * client that was admitted calls releaseClient() exactly once when it leaves.
+   * client that was admitted calls releaseClient() exactly once when it leaves. An admission with no demand before it
+   * moves demandResumedAt().
    */
   bool tryAcquireClient();
 
@@ -131,10 +159,16 @@ class ViewerFrameMailbox {
   // sequence 0 until the first publish().
   EncodedFrame frame_ ABSL_GUARDED_BY(frameMutex_);
 
+  // Whether a frame was requested less than kDemandLease before `now`.
+  bool leaseHolds(std::chrono::steady_clock::time_point now) const ABSL_EXCLUSIVE_LOCKS_REQUIRED(demandMutex_);
+
   mutable absl::Mutex demandMutex_;
   mutable absl::CondVar demandCondition_;
-  // InfinitePast() until the first frame request.
-  absl::Time lastFrameRequest_ ABSL_GUARDED_BY(demandMutex_) = absl::InfinitePast();
+  // Nullopt until the first frame request.
+  std::optional<std::chrono::steady_clock::time_point> lastFrameRequest_ ABSL_GUARDED_BY(demandMutex_) = std::nullopt;
+  std::optional<std::chrono::steady_clock::time_point> demandResumedAt_ ABSL_GUARDED_BY(demandMutex_) = std::nullopt;
+  // The last request of each page id, pruned to kDemandLease on every noteViewer().
+  absl::flat_hash_map<std::string, std::chrono::steady_clock::time_point> viewers_ ABSL_GUARDED_BY(demandMutex_);
 
   mutable absl::Mutex statusMutex_;
   ViewerStatus status_ ABSL_GUARDED_BY(statusMutex_);

@@ -103,6 +103,19 @@ cc_test(
     ],
 )
 
+# The FNV-1a 64-bit constants (nproto/Fnv1a64Constants.h) against the algorithm's reference vectors.
+cc_test(
+    name = "test_fnv1a64_constants",
+    size = "small",
+    srcs = ["testFnv1a64Constants.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        "//tools/nproto:fnv1a64_constants",
+        "@abseil-cpp//absl/strings:string_view",
+        "@googletest//:gtest_main",
+    ],
+)
+
 # nproto/Schema.h: the unknown fields of a message by their paths, and the schema fingerprint the Python twin pins alike.
 cc_test(
     name = "test_schema",
@@ -215,5 +228,8 @@ py_test(
         "//humanoid_nmpc/humanoid_mpc_config:config_nproto_files",
         "//humanoid_nmpc/humanoid_mpc_msgs:messages_nproto_files",
     ],
-    deps = ["//tools/hooks:checks"],
+    deps = [
+        "//tools/hooks:checks",
+        "//tools/hooks:lint_files",
+    ],
 )

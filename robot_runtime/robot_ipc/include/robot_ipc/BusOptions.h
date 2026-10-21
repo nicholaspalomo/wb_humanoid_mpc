@@ -41,35 +41,42 @@ namespace robot::ipc {
 /** How Bus::Create() sets up a bus. The defaults suit every process of the humanoid runtime. */
 struct BusOptions {
   /**
-   * The node this process publishes as: the bus binds its endpoint of the network. Empty: the bus only subscribes and
-   * binds nothing (a monitoring tool).
+   * The node this process publishes as: the bus uses its node's network interface and creates the DDS writers of the
+   * topics the network file lists it as a publisher of. Empty: the bus only subscribes (a monitoring tool).
    */
   std::string nodeName;
-  /** The nodes; the SUB socket connects to every one of them, this process's own included. */
+  /** The DDS network: domain, discovery peers, topic QoS and transport (NetworkConfig.h). */
   NetworkConfig network;
 
   // The Python bus has the same defaults.
   // LINT.IfChange(bus_defaults)
-  /**
-   * The longest the IO thread waits for something to happen. publish(), stop(), arriving messages and due periodic
-   * callbacks all wake it at once, so this only bounds how stale a wait can get.
-   */
-  absl::Duration ioPollPeriod = absl::Milliseconds(100);
-  /** ZMQ_SNDHWM: messages queued per subscriber before ZeroMQ drops for it (0: no limit). */
-  int sendHighWaterMark = 1000;
-  /** ZMQ_RCVHWM: messages queued per publisher before the connection pushes back (0: no limit). */
-  int receiveHighWaterMark = 1000;
-  /** Messages publish() queues for the IO thread before it refuses (counted as sendDropped). */
-  size_t publishQueueCapacity = 1024;
-  /** The most messages one drain reads before the IO thread dispatches and serves its other work. */
-  size_t maxMessagesPerDrain = 4096;
+  /** The defaults of the fields below. */
+  static constexpr absl::Duration kDefaultIoPollPeriod = absl::Milliseconds(100);
+  static constexpr size_t kDefaultPublishQueueCapacity = 1024;
+  static constexpr size_t kDefaultMaxMessagesPerDrain = 4096;
+  static constexpr int kDefaultLatestDeliveryHistoryDepth = 4;
+  static constexpr int kDefaultAllDeliveryHistoryDepth = 256;
 
-  /** ZMTP heartbeats (ZMQ_HEARTBEAT_IVL / _TIMEOUT / _TTL): a peer silent for heartbeatTimeout is disconnected. */
-  absl::Duration heartbeatInterval = absl::Seconds(1);
-  absl::Duration heartbeatTimeout = absl::Seconds(3);
-  /** ZMQ_RECONNECT_IVL / _MAX: how often the SUB socket retries a node that is down. */
-  absl::Duration reconnectInterval = absl::Milliseconds(100);
-  absl::Duration reconnectIntervalMax = absl::Seconds(1);
+  /**
+   * The longest the IO thread waits for something to happen. publish(), stop(), arriving samples and due periodic
+   * callbacks all wake it at once, so this only bounds how stale a wait (and the DDS status in TopicStatistics) gets.
+   */
+  absl::Duration ioPollPeriod = kDefaultIoPollPeriod;
+  /** Messages publish() queues for the IO thread before it refuses (counted as sendDropped). */
+  size_t publishQueueCapacity = kDefaultPublishQueueCapacity;
+  /** The most samples one drain takes, across topics, before the IO thread dispatches and serves its other work. */
+  size_t maxMessagesPerDrain = kDefaultMaxMessagesPerDrain;
+  /**
+   * The KEEP_LAST depth of the DDS reader of a Delivery::kLatest subscription. More than one, so that a sample of the
+   * wrong type does not displace a valid one before the drain sees both; the drain then hands over only the newest
+   * (the others are superseded, unparsed), and what the reader replaced before the drain is counted as missed.
+   */
+  int latestDeliveryHistoryDepth = kDefaultLatestDeliveryHistoryDepth;
+  /**
+   * The KEEP_LAST depth of the DDS reader of a Delivery::kAll subscription: the samples it holds while the IO thread
+   * is busy before the oldest are replaced (counted as missed).
+   */
+  int allDeliveryHistoryDepth = kDefaultAllDeliveryHistoryDepth;
   // LINT.ThenChange(//robot_runtime/robot_ipc/python/robot_ipc/bus.py:bus_defaults)
 };
 

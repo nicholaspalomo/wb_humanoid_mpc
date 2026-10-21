@@ -133,7 +133,13 @@ enum class TuningSegmentKind {
 };
 
 /** The state rows of a kEulerZyxOrientation block, which the state stores as a quaternion (x, y, z, w). */
-inline constexpr size_t kQuaternionOrientationStateDim = 4;
+inline constexpr size_t kQuaternionOrientationStateDim = kQuaternionCoefficients;
+
+/**
+ * The tuning rows of a rotation block (not kEuclidean): the three ZYX Euler angles (yaw, pitch, roll) of a
+ * kEulerZyxOrientation block, the three components (w_z, w_y, w_x) of a kZyxOrderedAngularVelocity block.
+ */
+inline constexpr size_t kRotationTuningDim = 3;
 
 /** One block of a TuningLayout. */
 struct TuningSegment {

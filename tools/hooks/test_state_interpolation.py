@@ -78,6 +78,26 @@ class LinearInterpolationTest(unittest.TestCase):
         )
         self.assertEqual(_found(source), [])
 
+    def test_a_using_declaration_or_alias_that_hides_the_qualified_call_is_flagged(
+        self,
+    ):
+        # Unqualified, the call no longer reads as LinearInterpolation's, so the input exemption cannot be read.
+        source = (
+            "using ocs2::LinearInterpolation::interpolate;\n"
+            "namespace li = ocs2::LinearInterpolation;\n"
+            "using LinearInterpolation::interpolate;\n"
+        )
+        self.assertEqual(_found(source), [(1, 1), (2, 1), (3, 1)])
+
+    def test_other_using_declarations_are_not(self):
+        source = (
+            "using LinearInterpolation::index_alpha_t;\n"
+            "using ocs2::LinearInterpolation::timeSegment;\n"
+            "namespace oc = ocs2::humanoid;\n"
+            "using namespace_alias = LinearInterpolation;\n"
+        )
+        self.assertEqual(_found(source), [])
+
     def test_the_robot_model_headers_and_other_directories_are_not_read(self):
         source = "const vector_t a = LinearInterpolation::interpolate(time, times, states);\n"
         for path in (

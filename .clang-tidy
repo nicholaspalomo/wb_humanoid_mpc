@@ -140,8 +140,9 @@ Checks:
   #   `if (p)`. cppcoreguidelines-avoid-const-or-ref-data-members: ToTW #177. misc-non-private-member-variables-in-classes:
   #   OCS2 deviation. modernize-pass-by-value: Eigen alignment (ToTW #234). readability-function-size: the guide sets no
   #   limit. cppcoreguidelines-macro-usage, cert-err58-cpp: tools/hooks macro-naming and static-storage. llvm-*: LLVM
-  #   style. readability-magic-numbers, readability-identifier-length, bugprone-easily-swappable-parameters,
-  #   modernize-avoid-c-arrays, misc-const-correctness: not Google style.
+  #   style. readability-magic-numbers: tools/hooks magic-number, which applies the repository's exemptions (0 and 1, a
+  #   floating 0.5 or 2.0 as a factor, constant definitions, enumerators) and skips tests. readability-identifier-length,
+  #   bugprone-easily-swappable-parameters, modernize-avoid-c-arrays, misc-const-correctness: not Google style.
   # Not enabled: misc-include-cleaner (G: Include what you use) had 5,621 findings after its IgnoreHeaders, more
   #   than the rollout takes on (about 3,000), so cpplint's build/include_what_you_use is the include-what-you-use check.
 # LINT.ThenChange(//tools/clang_tidy/clang_tidy.bzl:clang_diagnostics, //AGENTS.md:cpp_style, //AGENTS.md:totw_rules)

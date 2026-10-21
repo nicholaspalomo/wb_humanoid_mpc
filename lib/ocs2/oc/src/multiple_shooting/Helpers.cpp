@@ -36,10 +36,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2 {
 namespace multiple_shooting {
 
+namespace {
+
+/** The guess of toProblemMetrics() at the number of nodes per event, which sizes its reserve of pre-jump metrics. */
+constexpr int kExpectedNodesPerEvent = 10;
+
+}  // namespace
+
 void remapProjectedInput(const std::vector<VectorFunctionLinearApproximation>& constraintsProjection, const vector_array_t& deltaXSol,
                          vector_array_t& deltaUSol) {
   vector_t tmp;  // 1 temporary for re-use.
-  for (int i = 0; i < deltaUSol.size(); ++i) {
+  for (size_t i = 0; i < deltaUSol.size(); ++i) {
     if (constraintsProjection[i].f.size() > 0) {
       tmp.noalias() = constraintsProjection[i].dfdu * deltaUSol[i];
       deltaUSol[i] = tmp + constraintsProjection[i].f;
@@ -50,7 +57,7 @@ void remapProjectedInput(const std::vector<VectorFunctionLinearApproximation>& c
 
 void remapProjectedGain(const std::vector<VectorFunctionLinearApproximation>& constraintsProjection, matrix_array_t& KMatrices) {
   matrix_t tmp;  // 1 temporary for re-use.
-  for (int i = 0; i < KMatrices.size(); ++i) {
+  for (size_t i = 0; i < KMatrices.size(); ++i) {
     if (constraintsProjection[i].f.size() > 0) {
       tmp.noalias() = constraintsProjection[i].dfdu * KMatrices[i];
       KMatrices[i] = tmp + constraintsProjection[i].dfdx;
@@ -61,7 +68,7 @@ void remapProjectedGain(const std::vector<VectorFunctionLinearApproximation>& co
 PrimalSolution toPrimalSolution(const std::vector<AnnotatedTime>& time, ModeSchedule&& modeSchedule, vector_array_t&& x,
                                 vector_array_t&& u) {
   // Correct for missing inputs at PreEvents and the terminal time
-  for (int i = 0; i < u.size(); ++i) {
+  for (size_t i = 0; i < u.size(); ++i) {
     if (time[i].event == AnnotatedTime::Event::PreEvent && i > 0) {
       u[i] = u[i - 1];
     }
@@ -85,7 +92,7 @@ PrimalSolution toPrimalSolution(const std::vector<AnnotatedTime>& time, ModeSche
   // Compute feedback, before x and u are moved to primal solution
   // see doc/LQR_full.pdf for detailed derivation for feedback terms
   vector_array_t uff = u;  // Copy and adapt in loop
-  for (int i = 0; i < KMatrices.size(); ++i) {
+  for (size_t i = 0; i < KMatrices.size(); ++i) {
     if (time[i].event == AnnotatedTime::Event::PreEvent && i > 0) {
       uff[i] = uff[i - 1];
       KMatrices[i] = KMatrices[i - 1];
@@ -101,7 +108,7 @@ PrimalSolution toPrimalSolution(const std::vector<AnnotatedTime>& time, ModeSche
   KMatrices.push_back(KMatrices.back());
 
   // Correct for missing inputs at PreEvents and the terminal time
-  for (int i = 0; i < u.size(); ++i) {
+  for (size_t i = 0; i < u.size(); ++i) {
     if (time[i].event == AnnotatedTime::Event::PreEvent && i > 0) {
       u[i] = u[i - 1];
     }
@@ -174,7 +181,7 @@ ProblemMetrics toProblemMetrics(const std::vector<AnnotatedTime>& time, std::vec
   // resize
   ProblemMetrics problemMetrics;
   problemMetrics.intermediates.reserve(N);
-  problemMetrics.preJumps.reserve(N / 10);  // the size is just a guess
+  problemMetrics.preJumps.reserve(N / kExpectedNodesPerEvent);  // the size is just a guess
   problemMetrics.final = std::move(metrics.back());
 
   for (int i = 0; i < N; ++i) {

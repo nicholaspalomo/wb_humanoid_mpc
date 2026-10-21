@@ -31,10 +31,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <limits>
 
 #include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
 #include "humanoid_common_mpc/contact/ContactWrenchGate.h"
+#include "humanoid_nmpc/humanoid_common_mpc/test/support/StatusTestMacros.h"
 
 namespace ocs2::humanoid {
 
@@ -58,7 +60,7 @@ TEST(ContactWrenchGate, defaultConfigurationIsTheInstantaneousGate) {
 }
 
 TEST(ContactWrenchGate, debounceWithholdsTheWrenchUntilContactPersisted) {
-  ContactWrenchGate gate({.debounceTime = 0.02, .rampTime = 0.0});
+  HUMANOID_ASSERT_OK_AND_ASSIGN(ContactWrenchGate gate, ContactWrenchGate::Create({.debounceTime = 0.02, .rampTime = 0.0}));
   EXPECT_NEAR(gate.update(/*time=*/1.000, {true, true})[0], 0.0, 1.0e-12);  // onset
   EXPECT_NEAR(gate.update(/*time=*/1.010, {true, true})[0], 0.0, 1.0e-12);
   EXPECT_NEAR(gate.update(/*time=*/1.020, {true, true})[0], 1.0, 1.0e-12);  // persisted for debounceTime: full wrench, no ramp
@@ -71,7 +73,7 @@ TEST(ContactWrenchGate, debounceWithholdsTheWrenchUntilContactPersisted) {
 }
 
 TEST(ContactWrenchGate, rampRisesLinearlyAfterTheDebounce) {
-  ContactWrenchGate gate({.debounceTime = 0.01, .rampTime = 0.04});
+  HUMANOID_ASSERT_OK_AND_ASSIGN(ContactWrenchGate gate, ContactWrenchGate::Create({.debounceTime = 0.01, .rampTime = 0.04}));
   gate.update(/*time=*/2.00, {true, false});
   EXPECT_NEAR(gate.getScales()[0], 0.0, 1.0e-12);
   EXPECT_NEAR(gate.update(/*time=*/2.01, {true, false})[0], 0.0, 1.0e-12);  // debounce over, ramp starts
@@ -87,7 +89,7 @@ TEST(ContactWrenchGate, rampRisesLinearlyAfterTheDebounce) {
 }
 
 TEST(ContactWrenchGate, resetAndTimeRewindRestartTheOnset) {
-  ContactWrenchGate gate({.debounceTime = 0.0, .rampTime = 0.1});
+  HUMANOID_ASSERT_OK_AND_ASSIGN(ContactWrenchGate gate, ContactWrenchGate::Create({.debounceTime = 0.0, .rampTime = 0.1}));
   gate.update(/*time=*/5.0, {true, true});
   gate.update(/*time=*/5.1, {true, true});
   EXPECT_NEAR(gate.getScales()[0], 1.0, 1.0e-12);
@@ -119,17 +121,43 @@ TEST(ContactWrenchGate, configurationIsValidated) {
 }
 
 // The realtime thread sets the configuration, where nothing may end the process: an invalid one is refused and the one
-// in use kept. The constructor runs at setup, where an invalid configuration is a programming error that ends it.
+// in use kept. Create() runs at setup and reports an invalid configuration as a Status.
 TEST(ContactWrenchGate, setConfigRefusesAnInvalidConfigurationAndKeepsTheOneInUse) {
-  ContactWrenchGate gate({.debounceTime = 0.02, .rampTime = 0.05});
+  HUMANOID_ASSERT_OK_AND_ASSIGN(ContactWrenchGate gate, ContactWrenchGate::Create({.debounceTime = 0.02, .rampTime = 0.05}));
   EXPECT_FALSE(gate.setConfig({.debounceTime = 0.0, .rampTime = -1.0}));
   EXPECT_FALSE(gate.setConfig({.debounceTime = std::numeric_limits<scalar_t>::quiet_NaN(), .rampTime = 0.0}));
   EXPECT_DOUBLE_EQ(gate.getConfig().debounceTime, 0.02);
   EXPECT_DOUBLE_EQ(gate.getConfig().rampTime, 0.05);
 }
 
-TEST(ContactWrenchGateDeathTest, anInvalidConfigurationAtConstructionEndsTheProcess) {
-  EXPECT_DEATH(ContactWrenchGate({.debounceTime = -0.01, .rampTime = 0.0}), "must be non-negative");
+TEST(ContactWrenchGate, createRefusesAnInvalidConfiguration) {
+  const scalar_t nan = std::numeric_limits<scalar_t>::quiet_NaN();
+  for (const ContactWrenchGate::Config& config :
+       {ContactWrenchGate::Config{.debounceTime = -0.01, .rampTime = 0.0}, ContactWrenchGate::Config{.debounceTime = 0.0, .rampTime = -1.0},
+        ContactWrenchGate::Config{.debounceTime = nan, .rampTime = 0.0}, ContactWrenchGate::Config{.debounceTime = 0.0, .rampTime = nan}}) {
+    const absl::StatusOr<ContactWrenchGate> gate = ContactWrenchGate::Create(config);
+    EXPECT_EQ(gate.status().code(), absl::StatusCode::kInvalidArgument);
+    EXPECT_THAT(gate.status().message(), ::testing::HasSubstr("must be non-negative"));
+  }
+  const absl::StatusOr<ContactWrenchGate> instantaneous = ContactWrenchGate::Create(ContactWrenchGate::Config{});
+  ASSERT_TRUE(instantaneous.ok()) << instantaneous.status();
+  EXPECT_EQ(instantaneous->getScales(), (feet_array_t<scalar_t>{1.0, 1.0}));
+}
+
+// A gate created from a configuration behaves as the default gate after setConfig() of the same configuration.
+TEST(ContactWrenchGate, createdGateMatchesADefaultGateGivenTheSameConfiguration) {
+  const ContactWrenchGate::Config config{.debounceTime = 0.01, .rampTime = 0.03};
+  HUMANOID_ASSERT_OK_AND_ASSIGN(ContactWrenchGate created, ContactWrenchGate::Create(config));
+  ContactWrenchGate reconfigured;
+  ASSERT_TRUE(reconfigured.setConfig(config));
+  const std::array<contact_flag_t, 4> flags = {contact_flag_t{true, false}, contact_flag_t{true, true}, contact_flag_t{false, true},
+                                               contact_flag_t{true, true}};
+  scalar_t time = 0.0;
+  for (int cycle = 0; cycle < 40; ++cycle) {
+    const contact_flag_t& measured = flags[static_cast<size_t>(cycle / 10)];
+    EXPECT_EQ(created.update(time, measured), reconfigured.update(time, measured)) << "cycle " << cycle;
+    time += 0.002;
+  }
 }
 
 }  // namespace ocs2::humanoid

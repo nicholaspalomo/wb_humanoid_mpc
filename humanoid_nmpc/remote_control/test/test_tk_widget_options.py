@@ -179,6 +179,33 @@ class TestWidgets(unittest.TestCase):
         row.set_value(3.0)
         self.assertEqual(str(row.label.cget("foreground")), highlighted)
 
+    def test_a_slider_value_that_is_not_a_number_is_logged_and_ignored(self):
+        changes: list[float | None] = []
+        row = slider_row.SliderRow(
+            self.root, "kp", 1.0, on_change=lambda name, value: changes.append(value)
+        )
+        with self.assertLogs(slider_row.__name__, level="WARNING") as logs:
+            row._on_scale_change("not a number")
+        self.assertIn("not a number", logs.output[0])
+        self.assertEqual(row.get_value(), 1.0)
+        self.assertEqual(changes, [])
+        # Positive control: a numeric value is taken and reported.
+        row._on_scale_change("2.0")
+        self.assertEqual(row.get_value(), 2.0)
+        self.assertEqual(changes, [2.0])
+
+    def test_a_failing_change_callback_is_raised_and_the_row_keeps_working(self):
+        def failing_callback(name: str, value: float | None) -> None:
+            raise RuntimeError(f"{name}={value}")
+
+        row = slider_row.SliderRow(self.root, "kp", 1.0, on_change=failing_callback)
+        with self.assertRaisesRegex(RuntimeError, "kp=2.0"):
+            row._on_scale_change("2.0")
+        # The row did not stay in its updating state: the next value is taken.
+        row.on_change = None
+        row._on_scale_change("3.0")
+        self.assertEqual(row.get_value(), 3.0)
+
 
 @operator_test_support.requires_display
 class TestControllerIndicator(unittest.TestCase):

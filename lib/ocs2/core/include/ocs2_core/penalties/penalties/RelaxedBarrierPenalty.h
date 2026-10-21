@@ -57,7 +57,10 @@ class RelaxedBarrierPenalty final : public PenaltyBase {
    * delta: relaxation parameter, see class description
    */
   struct Config {
-    Config() : Config(1.0, 1e-3) {}
+    static constexpr scalar_t kDefaultMu = 1.0;
+    static constexpr scalar_t kDefaultDelta = 1e-3;
+
+    Config() : Config(kDefaultMu, kDefaultDelta) {}
     Config(scalar_t muParam, scalar_t deltaParam) : mu(muParam), delta(deltaParam) {}
     scalar_t mu;
     scalar_t delta;

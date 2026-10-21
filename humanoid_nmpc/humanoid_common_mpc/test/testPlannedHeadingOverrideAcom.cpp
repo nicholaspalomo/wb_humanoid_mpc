@@ -126,7 +126,7 @@ class PlannedHeadingOverrideAcomTest : public ::testing::Test {
     absl::StatusOr<std::unique_ptr<AngularCenterOfMass>> acom =
         AngularCenterOfMass::Create(settings_->robotName, settings_->mpcModelJointNames);
     ASSERT_TRUE(acom.ok()) << acom.status();
-    acom_ = std::shared_ptr<AngularCenterOfMass>(*std::move(acom));
+    acom_ = *std::move(acom);
 
     // Bent joints, so that the network's rotation is far from the identity.
     const Eigen::Index jointDim = static_cast<Eigen::Index>(model_->getJointDim());
@@ -150,6 +150,14 @@ class PlannedHeadingOverrideAcomTest : public ::testing::Test {
     return twistHeading(acom_->acomAttitude(model_->getBaseOrientation(state), model_->getJointAngles(state)));
   }
 
+  /** A fresh ACoM evaluator of the fixture's robot, for a manager to own; null after a failed expectation. */
+  std::unique_ptr<AngularCenterOfMass> makeAcom() const {
+    absl::StatusOr<std::unique_ptr<AngularCenterOfMass>> acom =
+        AngularCenterOfMass::Create(settings_->robotName, settings_->mpcModelJointNames);
+    EXPECT_TRUE(acom.ok()) << acom.status();
+    return acom.ok() ? *std::move(acom) : nullptr;
+  }
+
   /** The contact planner's reference manager of the fixture's robot, with the heading model on, or null after a failed expectation. */
   std::shared_ptr<ContactPlanningReferenceManager> headingReferenceManager() const {
     ContactPlanningConfig config;
@@ -160,7 +168,7 @@ class PlannedHeadingOverrideAcomTest : public ::testing::Test {
     EXPECT_TRUE(gaitSchedule.ok()) << gaitSchedule.status();
     if (!gaitSchedule.ok()) return nullptr;
     absl::StatusOr<std::shared_ptr<ContactPlanningReferenceManager>> manager = ContactPlanningReferenceManager::Create(
-        *std::move(gaitSchedule), std::make_shared<SwingTrajectoryPlanner>(SwingTrajectoryPlanner::Config(), /*numFeet=*/2),
+        *std::move(gaitSchedule), std::make_unique<SwingTrajectoryPlanner>(SwingTrajectoryPlanner::Config(), /*numFeet=*/2),
         *pinocchioInterface_, *model_, config);
     EXPECT_TRUE(manager.ok()) << manager.status();
     return manager.ok() ? *std::move(manager) : nullptr;
@@ -170,7 +178,7 @@ class PlannedHeadingOverrideAcomTest : public ::testing::Test {
   std::unique_ptr<ModelSettings> settings_;
   std::unique_ptr<PinocchioInterface> pinocchioInterface_;
   std::unique_ptr<test::QuaternionLayoutRobotModel> model_;
-  std::shared_ptr<AngularCenterOfMass> acom_;
+  std::unique_ptr<AngularCenterOfMass> acom_;
   vector_t joints_;
 };
 
@@ -208,9 +216,9 @@ TEST_F(PlannedHeadingOverrideAcomTest, OverriddenLevelKnotsCarryThePlannedAcomHe
   const vector_array_t knots = {stateAt(vector3_t(2.7, 0.0, 0.0)), stateAt(vector3_t(-3.0, 0.0, 0.0)), stateAt(vector3_t(9.6, 0.0, 0.0)),
                                 stateAt(vector3_t(0.4, 0.0, 0.0))};
 
-  const std::shared_ptr<AngularCenterOfMass> noAcom;
-  const std::array<const std::shared_ptr<AngularCenterOfMass>* absl_nonnull, 2> slots = {&acom_, &noAcom};
-  for (const std::shared_ptr<AngularCenterOfMass>* absl_nonnull const slot : slots) {
+  const std::unique_ptr<AngularCenterOfMass> noAcom;
+  const std::array<const std::unique_ptr<AngularCenterOfMass>* absl_nonnull, 2> slots = {&acom_, &noAcom};
+  for (const std::unique_ptr<AngularCenterOfMass>* absl_nonnull const slot : slots) {
     const PlannedHeadingOverride rule(*model_, slot);
     TargetTrajectories target(times, knots, vector_array_t(times.size(), input));
     rule.overrideTarget(context, target);
@@ -257,7 +265,7 @@ TEST_F(PlannedHeadingOverrideAcomTest, ThePlannersHeadingIsTheTwistHeadingOfTheA
   const vector_t state = stateAt(vector3_t(3.5, 0.15, -0.1));
   EXPECT_EQ(manager->computeHeading(state), model_->getBaseHeading(state)) << "without an evaluator";
 
-  manager->setAngularCenterOfMass(acom_);
+  manager->setAngularCenterOfMass(makeAcom());
   const scalar_t heading = manager->computeHeading(state);
   EXPECT_EQ(heading, acomHeadingOf(state));
   EXPECT_GT(heading, -std::numbers::pi);
@@ -278,7 +286,7 @@ TEST_F(PlannedHeadingOverrideAcomTest, OnTheQuaternionLayoutThePlannersHeadingRe
   const Eigen::Index orientation = static_cast<Eigen::Index>(model_->getBaseOrientationStartIndex());
   const vector_t state = stateAt(vector3_t(2.4, 0.2, -0.3));
   for (const bool withAcom : {false, true}) {
-    manager->setAngularCenterOfMass(withAcom ? acom_ : nullptr);
+    manager->setAngularCenterOfMass(withAcom ? makeAcom() : nullptr);
     const scalar_t heading = manager->computeHeading(state);
     for (const scalar_t scale : {-1.0, 0.25, -3.0}) {
       vector_t scaled = state;

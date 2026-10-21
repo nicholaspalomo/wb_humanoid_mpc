@@ -38,6 +38,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <array>
 #include <atomic>
 #include <cerrno>
+#include <chrono>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -61,6 +62,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/numbers.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
+#include "absl/strings/str_split.h"
 #include "absl/strings/string_view.h"
 #include "absl/synchronization/notification.h"
 #include "absl/time/clock.h"
@@ -92,6 +94,9 @@ constexpr char kSettingsPath[] = "/settings";
 constexpr char kFramePattern[] = R"(/frame\.jpg)";
 constexpr char kStreamPattern[] = R"(/stream\.mjpg)";
 constexpr char kAfterParameter[] = "after";
+// The page's id on its frame requests, for /state's viewer count: 1 to kMaxViewerIdLength lower-case hex digits.
+constexpr char kViewerParameter[] = "viewer";
+constexpr size_t kMaxViewerIdLength = 32;
 constexpr char kStreamBoundary[] = "mujocoframe";
 // What follows each part's JPEG bytes.
 constexpr absl::string_view kPartEnd = "\r\n";
@@ -112,6 +117,7 @@ constexpr absl::Duration kWaitSlice = absl::Milliseconds(250);
 // another. The server's stop is checked between two pieces.
 constexpr size_t kWritePieceBytes = 4 * 1024;
 
+// LINT.IfChange(web_viewer_limits)
 // cpp-httplib's settings (README.md, "Limits").
 constexpr int kKeepAliveTimeoutSeconds = 1;
 constexpr size_t kKeepAliveMaxCount = 100;
@@ -121,7 +127,25 @@ constexpr int kWriteTimeoutSeconds = 2;
 // Accepted connections that wait for a free request thread; beyond them a connection is closed at once.
 constexpr size_t kMaxQueuedConnections = 16;
 constexpr int kMaxClientsLimit = 64;
-constexpr int kMaxPort = 65535;
+// The request pool: this many threads per frame client and a few more (README.md, "Limits").
+constexpr int kRequestThreadsPerClient = 3;
+constexpr int kExtraRequestThreads = 2;
+// cpp-httplib's compile-time caps of a request, which README.md's Limits table quotes; an upgrade that changes one
+// fails the build here. They are not defined here instead: the test client is another translation unit of httplib.h.
+constexpr int kRequestUriMaxBytes = 8192;
+constexpr int kHeaderLineMaxBytes = 8192;
+constexpr int kHeaderMaxCount = 100;
+static_assert(CPPHTTPLIB_REQUEST_URI_MAX_LENGTH == kRequestUriMaxBytes, "cpp-httplib's URI cap changed: update README.md, Limits");
+static_assert(CPPHTTPLIB_HEADER_MAX_LENGTH == kHeaderLineMaxBytes, "cpp-httplib's header line cap changed: update README.md, Limits");
+static_assert(CPPHTTPLIB_HEADER_MAX_COUNT == kHeaderMaxCount, "cpp-httplib's header count cap changed: update README.md, Limits");
+// LINT.ThenChange(//robot_runtime/web_viewer/README.md:web_viewer_limits)
+// The loopback network of IPv4, 127.0.0.0/8: its first octet, the top eight bits of an address.
+constexpr int kIpv4FirstOctetShift = 24;
+constexpr int kIpv4LoopbackFirstOctet = 127;
+// [s] How often a refused request is logged at most.
+constexpr int kRefusedRequestLogPeriodSeconds = 10;
+// An idle renderer's frame older than this many frame periods is stale.
+constexpr int kStaleFramePeriods = 2;
 
 constexpr int kNoContent = 204;
 constexpr int kBadRequest = 400;
@@ -177,7 +201,7 @@ absl::StatusOr<BindAddress> parseBindAddress(absl::string_view address) {
     return BindAddress{.canonical = addressText(AF_INET, &ipv4),
                        .isIpv6 = false,
                        .isWildcard = hostOrder == INADDR_ANY,
-                       .isLoopback = (hostOrder >> 24) == 127};
+                       .isLoopback = (hostOrder >> kIpv4FirstOctetShift) == kIpv4LoopbackFirstOctet};
   }
   in6_addr ipv6 = {};
   if (inet_pton(AF_INET6, text.c_str(), &ipv6) == 1) {
@@ -190,8 +214,17 @@ absl::StatusOr<BindAddress> parseBindAddress(absl::string_view address) {
       absl::StrCat("the web viewer binds a numeric IPv4 or IPv6 address (127.0.0.1, ::1, 0.0.0.0, ::), not '", address, "'"));
 }
 
-// The host name of a Host header without its port, lower case: "LocalHost:6090" is "localhost", "[::1]:6090" is
-// "::1". Nullopt for a header that is empty or malformed (an IPv6 address without brackets).
+// `name` in inet_ntop's form when it is an IPv6 address ("2001:0DB8:0:0::1" is "2001:db8::1", "::ffff:c0a8:105" is
+// "::ffff:192.168.1.5"), else unchanged: a browser and an allowed-host entry may spell one address differently.
+std::string canonicalHostname(std::string name) {
+  in6_addr ipv6 = {};
+  if (inet_pton(AF_INET6, name.c_str(), &ipv6) == 1) return addressText(AF_INET6, &ipv6);
+  return name;
+}
+
+// The host name of a Host header without its port, lower case, an IPv6 address in inet_ntop's form: "LocalHost:6090"
+// is "localhost", "[0:0::1]:6090" is "::1". Nullopt for a header that is empty or malformed (an IPv6 address without
+// brackets).
 std::optional<std::string> hostnameOf(absl::string_view host) {
   if (host.empty()) return std::nullopt;
   if (host.front() == '[') {
@@ -199,7 +232,7 @@ std::optional<std::string> hostnameOf(absl::string_view host) {
     if (close == absl::string_view::npos || close == 1) return std::nullopt;
     const absl::string_view rest = host.substr(close + 1);
     if (!rest.empty() && rest.front() != ':') return std::nullopt;
-    return absl::AsciiStrToLower(host.substr(1, close - 1));
+    return canonicalHostname(absl::AsciiStrToLower(host.substr(1, close - 1)));
   }
   const size_t colon = host.find(':');
   if (colon == 0 || (colon != absl::string_view::npos && host.find(':', colon + 1) != absl::string_view::npos)) return std::nullopt;
@@ -213,7 +246,7 @@ absl::Status notAnAllowedHost(absl::string_view entry) {
 }
 
 // The host name an allowed-host entry names, lower case, in the form hostnameOf() reads from a Host header:
-// "Robot.LAN" is "robot.lan", and "[fe80::1]" and "fe80::1" are "fe80::1". InvalidArgument for an entry with a port
+// "Robot.LAN" is "robot.lan", and "[FE80:0::1]" and "fe80::1" are "fe80::1". InvalidArgument for an entry with a port
 // ("robot.lan:6090", "[fe80::1]:6090"), which no request's host name equals, and for one that is empty, holds a '/' or
 // a space, or brackets anything but an IPv6 address.
 absl::StatusOr<std::string> allowedHostnameOf(absl::string_view entry) {
@@ -223,7 +256,7 @@ absl::StatusOr<std::string> allowedHostnameOf(absl::string_view entry) {
     // An IPv6 address without the brackets a Host header puts around it.
     in6_addr ipv6 = {};
     if (inet_pton(AF_INET6, std::string(entry).c_str(), &ipv6) != 1) return notAnAllowedHost(entry);
-    return absl::AsciiStrToLower(entry);
+    return addressText(AF_INET6, &ipv6);
   }
   const std::optional<std::string> hostname = hostnameOf(entry);
   if (!hostname.has_value()) return notAnAllowedHost(entry);
@@ -241,8 +274,9 @@ absl::StatusOr<std::string> allowedHostnameOf(absl::string_view entry) {
 }
 
 absl::Status checkOptions(const WebViewerServerOptions& options, const ViewerFrameMailbox& mailbox) {
-  if (options.port < 0 || options.port > kMaxPort) {
-    return absl::InvalidArgumentError(absl::StrCat("the web viewer port is 0 (any free port) to ", kMaxPort, ", not ", options.port));
+  if (options.port < 0 || options.port > WebViewerServerOptions::kMaxPort) {
+    return absl::InvalidArgumentError(
+        absl::StrCat("the web viewer port is 0 (any free port) to ", WebViewerServerOptions::kMaxPort, ", not ", options.port));
   }
   if (options.maxClients < 1 || options.maxClients > kMaxClientsLimit) {
     return absl::InvalidArgumentError(
@@ -264,15 +298,43 @@ void answer(httplib::Response& response, int status, absl::string_view message) 
   response.set_content(absl::StrCat(message, "\n"), "text/plain; charset=utf-8");
 }
 
-// The parameters of a request by name; InvalidArgument when one is repeated.
+// The query parameters of a request by their decoded names, read from the raw request target: cpp-httplib's own
+// `params` drop an exact repeat ("key=a&key=a") and add the parameters of a form body. InvalidArgument when one is
+// repeated or the request has a body.
 absl::StatusOr<absl::flat_hash_map<std::string, std::string>> singleParameters(const httplib::Request& request) {
+  if (!request.body.empty()) {
+    return absl::InvalidArgumentError("the routes take query parameters only, not a request body");
+  }
   absl::flat_hash_map<std::string, std::string> parameters;
-  for (const std::pair<const std::string, std::string>& parameter : request.params) {
-    if (!parameters.try_emplace(parameter.first, parameter.second).second) {
-      return absl::InvalidArgumentError(absl::StrCat("parameter '", parameter.first, "' is given more than once"));
+  const size_t question = request.target.find('?');
+  if (question == std::string::npos) return parameters;
+  for (const absl::string_view segment : absl::StrSplit(absl::string_view(request.target).substr(question + 1), '&')) {
+    const std::pair<absl::string_view, absl::string_view> keyValue = absl::StrSplit(segment, absl::MaxSplits('=', 1));
+    if (keyValue.first.empty()) continue;  // as cpp-httplib skips "&&" and "=x"
+    std::string name = httplib::decode_query_component(std::string(keyValue.first));
+    if (!parameters.try_emplace(name, httplib::decode_query_component(std::string(keyValue.second))).second) {
+      return absl::InvalidArgumentError(absl::StrCat("parameter '", name, "' is given more than once"));
     }
   }
   return parameters;
+}
+
+// Whether `id` is a page id of the frame route: 1 to kMaxViewerIdLength lower-case hex digits.
+bool isViewerId(absl::string_view id) {
+  return !id.empty() && id.size() <= kMaxViewerIdLength && std::all_of(id.begin(), id.end(), [](char character) {
+    return absl::ascii_isdigit(character) || (character >= 'a' && character <= 'f');
+  });
+}
+
+// Whether `origin` is the page under `host` itself: over plain HTTP, or behind an HTTPS-terminating forward that keeps
+// the Host. Any other scheme, name or port is another page's.
+bool isOwnOrigin(absl::string_view origin, absl::string_view host) {
+  return absl::EqualsIgnoreCase(origin, absl::StrCat("http://", host)) || absl::EqualsIgnoreCase(origin, absl::StrCat("https://", host));
+}
+
+// The milliseconds since `frame` was published, on the monotonic clock.
+int64_t frameAgeMilliseconds(const EncodedFrame& frame) {
+  return absl::ToInt64Milliseconds(absl::FromChrono(std::chrono::steady_clock::now() - frame.publishSteadyTime));
 }
 
 std::string jsonNumber(double value) {
@@ -328,8 +390,9 @@ class WebViewerServer::Core {
   // The newest frame with a sequence above `afterSequence`, waiting up to `timeout` in slices of kWaitSlice; nullopt
   // on the timeout and once the server stops or the mailbox closes.
   std::optional<EncodedFrame> waitForFrame(int64_t afterSequence, absl::Duration timeout) const;
-  // Whether `frame` is older than two periods of the renderer's target rate: it was rendered before the renderer
-  // last went idle.
+  // Whether `frame` was published before the frame request that last found the renderer without demand
+  // (ViewerFrameMailbox::demandResumedAt()) and is older than two periods of the target rate (at most the demand
+  // lease): it was drawn before the renderer went idle. A frame of a busy renderer is never stale, however old.
   bool isStale(const EncodedFrame& frame) const;
   // GET /frame.jpg without after=: the newest frame if it is fresh, else the next one.
   std::optional<EncodedFrame> freshFrame() const;
@@ -350,11 +413,17 @@ class WebViewerServer::Core {
   absl::flat_hash_set<std::string> allowedHostnames_;
   httplib::Server server_;
   std::atomic<bool> stopping_ = false;
+  // The open GET /stream.mjpg responses, each a viewer of /state.
+  mutable std::atomic<int> openStreams_ = 0;
   // Written by the listen thread before bound_ is notified, read after: the bound port (0 until then) and the
   // result of the bind.
   int port_ = 0;
   absl::Status bindStatus_;
   absl::Notification bound_;
+  // Written by the listen thread before listening_ is notified, read after: OK once the request pool exists and the
+  // accept loop starts, the reason otherwise. Notified exactly once after a successful bind.
+  absl::Status listenStatus_;
+  absl::Notification listening_;
   std::thread listenThread_;
 };
 
@@ -371,10 +440,10 @@ absl::StatusOr<std::unique_ptr<WebViewerServer::Core>> WebViewerServer::Core::Cr
   }
   core->bound_.WaitForNotification();
   if (!core->bindStatus_.ok()) return core->bindStatus_;
-  core->server_.wait_until_ready();
-  if (!core->server_.is_running()) {
-    return absl::InternalError(absl::StrCat("the web viewer server bound ", core->url(), " but could not listen (see the log)"));
-  }
+  // Not server_.wait_until_ready(): cpp-httplib reports itself running before it builds its request pool, which can
+  // still fail.
+  core->listening_.WaitForNotification();
+  if (!core->listenStatus_.ok()) return core->listenStatus_;
   return core;
 }
 
@@ -407,10 +476,13 @@ void WebViewerServer::Core::configureServer() {
   // SO_REUSEADDR only: cpp-httplib's default also sets SO_REUSEPORT, which would let a second process bind the same
   // port and take half of the connections.
   server_.set_socket_options([](int socket) { httplib::set_socket_opt(socket, SOL_SOCKET, SO_REUSEADDR, /*optval=*/1); });
-  const size_t poolSize = static_cast<size_t>(3 * options_.maxClients + 2);
-  // cpp-httplib takes ownership of the pool it gets as a raw pointer.
-  server_.new_task_queue = [poolSize] {
-    return std::make_unique<httplib::ThreadPool>(poolSize, poolSize, kMaxQueuedConnections).release();
+  const size_t poolSize = static_cast<size_t>(kRequestThreadsPerClient * options_.maxClients + kExtraRequestThreads);
+  // cpp-httplib takes ownership of the pool it gets as a raw pointer. It builds the pool on the listen thread just
+  // before its accept loop, on a socket that already listens: once the pool exists, the server accepts.
+  server_.new_task_queue = [this, poolSize] {
+    std::unique_ptr<httplib::ThreadPool> pool = std::make_unique<httplib::ThreadPool>(poolSize, poolSize, kMaxQueuedConnections);
+    listening_.Notify();
+    return pool.release();
   };
   server_.set_tcp_nodelay(/*on=*/true);
   server_.set_keep_alive_timeout(kKeepAliveTimeoutSeconds);
@@ -440,9 +512,20 @@ void WebViewerServer::Core::runListenThread() {
   if (!bindStatus_.ok()) return;
   try {  // NOLINT(exceptions): cpp-httplib's thread pool rethrows the std::system_error of a thread that cannot start
     if (!server_.listen_after_bind() && !stopping_.load()) LOG(ERROR) << "[WebViewerServer] stopped accepting connections at " << url();
-  } catch (const std::exception& error) {  // NOLINT(exceptions): converted to a log line; Create() sees the server not running
+  } catch (const std::exception& error) {  // NOLINT(exceptions): converted to a log line, and to Create()'s Internal
     LOG(ERROR) << "[WebViewerServer] could not serve " << url() << ": " << error.what();
     server_.decommission();
+    if (!listening_.HasBeenNotified()) {
+      listenStatus_ = absl::InternalError(
+          absl::StrCat("the web viewer server bound ", url(), " but could not start its request threads: ", error.what()));
+      listening_.Notify();
+    }
+    return;
+  }
+  // listen_after_bind() returned without building the pool: stopped before it started.
+  if (!listening_.HasBeenNotified()) {
+    listenStatus_ = absl::InternalError(absl::StrCat("the web viewer server bound ", url(), " but could not listen (see the log)"));
+    listening_.Notify();
   }
 }
 
@@ -478,8 +561,9 @@ httplib::Server::HandlerResponse WebViewerServer::Core::checkRequest(const httpl
   const std::string host = request.get_header_value("Host");
   const std::optional<std::string> hostname = hostnameOf(host);
   if (!hostname.has_value() || !hostAllowed(*hostname)) {
-    LOG_EVERY_N_SEC(WARNING, 10) << "[WebViewerServer] refused a request for Host '" << host << "' (allowed: localhost, 127.0.0.1, ::1"
-                                 << (address_.isWildcard ? "" : absl::StrCat(", ", address_.canonical)) << " and the allowed hosts)";
+    LOG_EVERY_N_SEC(WARNING, kRefusedRequestLogPeriodSeconds)
+        << "[WebViewerServer] refused a request for Host '" << host << "' (allowed: localhost, 127.0.0.1, ::1"
+        << (address_.isWildcard ? "" : absl::StrCat(", ", address_.canonical)) << " and the allowed hosts)";
     answer(response, kForbidden,
            absl::StrCat("Host '", host, "' is not allowed: open the viewer at http://localhost:", port_,
                         "/ (an SSH or VS Code tunnel to it works), or add the name to the allowed hosts (--web_viewer_allowed_hosts)"));
@@ -507,7 +591,7 @@ httplib::Server::HandlerResponse WebViewerServer::Core::checkRequest(const httpl
       answer(response, kForbidden, absl::StrCat("a POST needs the header ", kViewerHeader, ": 1"));
       return httplib::Server::HandlerResponse::Handled;
     }
-    if (request.has_header("Origin") && !absl::EqualsIgnoreCase(request.get_header_value("Origin"), absl::StrCat("http://", host))) {
+    if (request.has_header("Origin") && !isOwnOrigin(request.get_header_value("Origin"), host)) {
       answer(response, kForbidden, absl::StrCat("a POST from origin '", request.get_header_value("Origin"), "' is refused"));
       return httplib::Server::HandlerResponse::Handled;
     }
@@ -544,8 +628,13 @@ std::optional<EncodedFrame> WebViewerServer::Core::waitForFrame(int64_t afterSeq
 }
 
 bool WebViewerServer::Core::isStale(const EncodedFrame& frame) const {
+  const std::optional<std::chrono::steady_clock::time_point> resumed = mailbox_->demandResumedAt();
+  if (!resumed.has_value() || frame.publishSteadyTime >= *resumed) return false;
+  // A frame the renderer finished just before it went idle is still current; one older than two frame periods (at most
+  // the demand lease, after which an idle renderer has drawn nothing) is not.
   const absl::Duration framePeriod = absl::Seconds(1) / std::max(mailbox_->status().render.targetFps, 1);
-  return absl::Now() - frame.publishTime >= 2 * framePeriod;
+  return absl::FromChrono(std::chrono::steady_clock::now() - frame.publishSteadyTime) >=
+         std::min(kStaleFramePeriods * framePeriod, ViewerFrameMailbox::kDemandLease);
 }
 
 std::optional<EncodedFrame> WebViewerServer::Core::freshFrame() const {
@@ -579,6 +668,14 @@ void WebViewerServer::Core::serveFrame(const httplib::Request& request, httplib:
     }
     after = value;
   }
+  std::optional<std::string> viewerId;
+  if (request.has_param(kViewerParameter)) {
+    viewerId = request.get_param_value(kViewerParameter);
+    if (!isViewerId(*viewerId)) {
+      answer(response, kBadRequest, absl::StrCat("parameter 'viewer' is 1 to ", kMaxViewerIdLength, " lower-case hex digits"));
+      return;
+    }
+  }
   if (stopped()) {
     answerUnavailable(response);
     return;
@@ -588,8 +685,13 @@ void WebViewerServer::Core::serveFrame(const httplib::Request& request, httplib:
            absl::StrCat("too many viewers (", mailbox_->maxClients(), "): close another viewer tab or stream"));
     return;
   }
-  absl::Cleanup release = [this] { mailbox_->releaseClient(); };
+  // A page counts as a viewer from its request on and for the lease after its answer, also after a 2 s long poll.
+  absl::Cleanup release = [this, &viewerId] {
+    if (viewerId.has_value()) mailbox_->noteViewer(*viewerId);
+    mailbox_->releaseClient();
+  };
   mailbox_->noteFrameRequest();
+  if (viewerId.has_value()) mailbox_->noteViewer(*viewerId);
   std::optional<EncodedFrame> frame = after.has_value() ? frameAfter(*after) : freshFrame();
   if (!frame.has_value()) {
     if (stopped()) {
@@ -604,7 +706,7 @@ void WebViewerServer::Core::serveFrame(const httplib::Request& request, httplib:
   }
   response.set_header("X-Frame-Sequence", absl::StrCat(frame->sequence));
   response.set_header("X-Sim-Time", jsonNumber(frame->simTime));
-  response.set_header("X-Frame-Age-Ms", absl::StrCat(absl::ToInt64Milliseconds(absl::Now() - frame->publishTime)));
+  response.set_header("X-Frame-Age-Ms", absl::StrCat(frameAgeMilliseconds(*frame)));
   response.set_header("Cache-Control", "no-store");
   const size_t size = frame->jpeg.size();
   // cpp-httplib calls the provider until `size` bytes are written, each call after its writability check.
@@ -647,13 +749,17 @@ void WebViewerServer::Core::serveStream(httplib::Response& response) const {
     return;
   }
   mailbox_->noteFrameRequest();
+  openStreams_.fetch_add(1);
   response.set_header("Cache-Control", "no-store");
   // The releaser runs once, when cpp-httplib destroys the response: after the stream ends, the client disconnects or
   // the request is a HEAD that never reads the provider.
   response.set_chunked_content_provider(
       absl::StrCat("multipart/x-mixed-replace; boundary=", kStreamBoundary),
       [this, lastSequence = int64_t{0}](size_t /*offset*/, httplib::DataSink& sink) mutable { return writeStreamPart(lastSequence, sink); },
-      [this](bool /*success*/) { mailbox_->releaseClient(); });
+      [this](bool /*success*/) {
+        openStreams_.fetch_sub(1);
+        mailbox_->releaseClient();
+      });
 }
 
 void WebViewerServer::Core::serveState(httplib::Response& response) const {
@@ -661,14 +767,14 @@ void WebViewerServer::Core::serveState(httplib::Response& response) const {
   const std::optional<EncodedFrame> latest = mailbox_->latestFrameMetadata();
   std::string frame = "null";
   if (latest.has_value()) {
-    frame =
-        absl::StrCat(R"({"sequence":)", latest->sequence, R"(,"simTime":)", jsonNumber(latest->simTime), R"(,"width":)", latest->width,
-                     R"(,"height":)", latest->height, R"(,"ageMs":)", absl::ToInt64Milliseconds(absl::Now() - latest->publishTime), "}");
+    frame = absl::StrCat(R"({"sequence":)", latest->sequence, R"(,"simTime":)", jsonNumber(latest->simTime), R"(,"width":)", latest->width,
+                         R"(,"height":)", latest->height, R"(,"ageMs":)", frameAgeMilliseconds(*latest), "}");
   }
   response.set_header("Cache-Control", "no-store");
   response.set_content(
-      absl::StrCat(R"({"clients":)", mailbox_->activeClients(), R"(,"maxClients":)", mailbox_->maxClients(), R"(,"droppedInputs":)",
-                   inputs_->droppedCount(), R"(,"frame":)", frame, R"(,"viewer":)", viewerStatusJson(status), "}"),
+      absl::StrCat(R"({"clients":)", mailbox_->activeClients(), R"(,"viewers":)", mailbox_->viewerCount() + openStreams_.load(),
+                   R"(,"maxClients":)", mailbox_->maxClients(), R"(,"droppedInputs":)", inputs_->droppedCount(), R"(,"frame":)", frame,
+                   R"(,"viewer":)", viewerStatusJson(status), "}"),
       "application/json");
 }
 
@@ -710,14 +816,18 @@ absl::StatusOr<std::unique_ptr<WebViewerServer>> WebViewerServer::Create(WebView
   absl::Status valid = checkOptions(options, *mailbox);
   if (!valid.ok()) return valid;
   if (!address->isLoopback) {
-    LOG(WARNING) << "[WebViewerServer] binding " << address->canonical << ":" << options.port
-                 << ": anyone who can reach this address can watch the simulation and move its camera; there is no authentication "
-                    "or TLS (robot_runtime/web_viewer/README.md, \"Trust model\")";
+    LOG(WARNING)
+        << "[WebViewerServer] binding " << address->canonical << ":" << options.port
+        << ": anyone who can reach this address can watch the simulation and move its camera, and can deny the viewer (not "
+           "the simulation) by holding its request threads; there is no authentication or TLS (robot_runtime/web_viewer/README.md, "
+           "\"Trust model\")";
   }
   absl::StatusOr<std::unique_ptr<Core>> core = Core::Create(std::move(options), *std::move(address), mailbox, inputs);
   if (!core.ok()) return core.status();
   std::unique_ptr<WebViewerServer> server = absl::WrapUnique(new WebViewerServer(*std::move(core)));
+  // LINT.IfChange(web_viewer_announcement)
   LOG(INFO) << "[WebViewerServer] serving the MuJoCo viewer at " << server->url();
+  // LINT.ThenChange(//tools/deploy/session.sh:web_viewer_announcement)
   return server;
 }
 

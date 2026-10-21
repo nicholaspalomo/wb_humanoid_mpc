@@ -216,8 +216,8 @@ def enumerator_name(value_name: str, prefix: str) -> str:
     stem = value_name[len(prefix) :]
     if re.fullmatch(r"[A-Z0-9_]+", stem):
         words = [word for word in stem.split("_") if word]
-        return "k" + "".join(word[0] + word[1:].lower() for word in words)
-    return "k" + camel_case(stem)
+        return f'k{"".join(word[0] + word[1:].lower() for word in words)}'
+    return f"k{camel_case(stem)}"
 
 
 def output_stem(proto_file_name: str) -> str:
@@ -233,7 +233,7 @@ def cpp_string_literal(data: bytes) -> str:
     for byte in data:
         character = chr(byte)
         if character in ('"', "\\"):
-            pieces.append("\\" + character)
+            pieces.append(f"\\{character}")
         elif character == "\n":
             pieces.append("\\n")
         elif 0x20 <= byte < 0x7F and character != "?":
@@ -358,7 +358,7 @@ def _comment_lines(text: str) -> list[str]:
             continue  # tools/hooks/proto_next_id.py's bookkeeping, which means nothing to the struct
         if _LINT_DIRECTIVE.fullmatch(stripped):
             continue
-        result.append(("// " + stripped) if stripped else "//")
+        result.append((f"// {stripped}") if stripped else "//")
     # A blank line closing a comment would leave a lone "//"; drop it, as clang-format leaves it alone but it adds noise.
     while result and result[-1] == "//":
         result.pop()
@@ -408,7 +408,7 @@ class TypeTable:
 
     def _proto_class(self, package: list[str], nesting: list[str]) -> str:
         """The C++ class protobuf generates for the type `nesting` of `package`: `::pkg::Outer_Inner`."""
-        return "::" + "::".join(package + ["_".join(nesting)])
+        return f'::{"::".join(package + ["_".join(nesting)])}'
 
     def _add_message(
         self,
@@ -458,7 +458,7 @@ class TypeTable:
         # The top-level definition that holds the type, to name what lacks the option.
         owner = None
         for file_proto in self.files.values():
-            prefix = file_proto.package + "." if file_proto.package else ""
+            prefix = f"{file_proto.package}." if file_proto.package else ""
             if not full_name.startswith(prefix):
                 continue
             top = full_name[len(prefix) :].split(".")[0]
@@ -574,7 +574,7 @@ def validate_option(file_proto: descriptor_pb2.FileDescriptorProto) -> tuple[str
             f"body, with 'import \"{OPTIONS_IMPORT}\";' ({README})."
         )
     path = validate_definition_option(file_proto, definition, value)
-    package = file_proto.package + "." if file_proto.package else ""
+    package = f"{file_proto.package}." if file_proto.package else ""
     nested = _nested_options(definition, package + definition.name)
     if nested:
         keyword, full_name, option = nested[0]
@@ -678,7 +678,64 @@ def _is_map(field: FieldDescriptor) -> bool:
 
 def _index_constant(field: _Field) -> str:
     """The struct's constant for the index of the oneof alternative `field` in its std::variant: `kSwingIndex`."""
-    return "k" + camel_case(field.name) + "Index"
+    return f"k{camel_case(field.name)}Index"
+
+
+def _has_default_constant(field: _Field) -> bool:
+    """Whether the struct names the default of `field` with a constant: a number member with a `[default = ...]`.
+
+    The repository names its magic numbers (`magic-number`, tools/hooks/magic_number.py), so the explicit default of a
+    number is `static constexpr T kDefault<Field> = <default>;` and the member's initializer is that constant. A bool,
+    string or enum default reads as what it is and stays the initializer.
+
+    Args:
+      field: A field of a message, as its struct holds it.
+
+    Returns:
+      True when the struct declares _default_constant(field) and initializes the member with it.
+    """
+    descriptor = field.descriptor
+    return (
+        field.kind == _KIND_SCALAR
+        and descriptor.type != FieldDescriptor.TYPE_BOOL
+        and descriptor.has_default_value
+        and not field.optional
+        and field.oneof is None
+    )
+
+
+def _default_constant(field: _Field) -> str:
+    """The struct's constant for the explicit default of the number field `field`: `kDefaultSwingHeight`."""
+    return f"kDefault{camel_case(field.name)}"
+
+
+def _constants(field: _Field) -> list[tuple[str, str]]:
+    """(name, what it is) of every constant the struct declares for `field`: its oneof index or its default."""
+    constants = []
+    if field.oneof:
+        constants.append((_index_constant(field), "oneof index constant"))
+    if _has_default_constant(field):
+        constants.append((_default_constant(field), "default constant"))
+    return constants
+
+
+def _declaration_lines(declaration: str, initializer: str | None) -> list[str]:
+    """`<declaration> = <initializer>;`, or `<declaration>;` without an initializer, wrapped as clang-format wraps it.
+
+    Args:
+      declaration: The declaration up to its initializer, its indentation included: `  double gain`.
+      initializer: The initializer, or None (or empty) for none.
+
+    Returns:
+      The declaration's lines: one, or two with the initializer on the second when one line would be too long.
+    """
+    if not initializer:
+        return [f"{declaration};"]
+    line = f"{declaration} = {initializer};"
+    if len(line) <= COLUMN_LIMIT:
+        return [line]
+    indent = declaration[: len(declaration) - len(declaration.lstrip())]
+    return [f"{declaration} =", f"{indent}{INDENT * 2}{initializer};"]
 
 
 def _note_value_includes(field: FieldDescriptor, includes: _Includes) -> None:
@@ -696,10 +753,11 @@ def _signature_lines(signature: str, suffix: str) -> list[str]:
         return [line]
     open_paren = signature.index("(")
     parameters = signature[open_paren + 1 : -1].split(", ")
-    lines = [signature[: open_paren + 1] + parameters[0] + ","]
+    indent = " " * (open_paren + 1)
+    lines = [f"{signature[: open_paren + 1]}{parameters[0]},"]
     for parameter in parameters[1:-1]:
-        lines.append(" " * (open_paren + 1) + parameter + ",")
-    lines.append(" " * (open_paren + 1) + parameters[-1] + ")" + suffix)
+        lines.append(f"{indent}{parameter},")
+    lines.append(f"{indent}{parameters[-1]}){suffix}")
     return lines
 
 
@@ -792,7 +850,11 @@ class _FileGenerator:
         for location in file_proto.source_code_info.location:
             text = location.leading_comments
             if location.trailing_comments:
-                text = (text + "\n" if text else "") + location.trailing_comments
+                text = (
+                    f"{text}\n{location.trailing_comments}"
+                    if text
+                    else location.trailing_comments
+                )
             if text.strip():
                 self.comments[tuple(location.path)] = text
         self.raw_fields: dict[str, descriptor_pb2.FieldDescriptorProto] = {}
@@ -814,12 +876,12 @@ class _FileGenerator:
         self.raw_messages[full_name] = message
         synthetic = set()
         for field in message.field:
-            self.raw_fields[full_name + "." + field.name] = field
+            self.raw_fields[f"{full_name}.{field.name}"] = field
             if field.proto3_optional:
                 synthetic.add(message.oneof_decl[field.oneof_index].name)
         self.synthetic_oneofs[full_name] = synthetic
         for nested in message.nested_type:
-            self._index_raw(nested, full_name + "." + nested.name)
+            self._index_raw(nested, f"{full_name}.{nested.name}")
 
     def _comment(self, path: tuple[int, ...]) -> list[str]:
         text = self.comments.get(path)
@@ -1008,7 +1070,7 @@ class _FileGenerator:
     # ----------------------------------------------------------------------------------------------------------------
 
     def _declared_names(self, message: Descriptor) -> set[str]:
-        """Every name the struct of `message` declares: nested types, members and oneof index constants."""
+        """Every name the struct of `message` declares: nested types, members, oneof index and default constants."""
         names: set[str] = set()
         for nested in message.nested_types:
             if not nested.GetOptions().map_entry:
@@ -1017,8 +1079,7 @@ class _FileGenerator:
             names.add(enum.name)
         for field in self._fields(message):
             names.add(field.oneof if field.oneof else field.name)
-            if field.oneof:
-                names.add(_index_constant(field))
+            names.update(constant for constant, _ in _constants(field))
         return names
 
     def render(self, target: tuple[str, ...], scope: Sequence[Descriptor]) -> str:
@@ -1035,7 +1096,7 @@ class _FileGenerator:
           The name to write: relative to the namespace and the enclosing structs, or qualified with a leading `::`.
         """
         namespace = self.namespace
-        qualified = "::" + "::".join(target)
+        qualified = f'::{"::".join(target)}'
         if target[: len(namespace)] != namespace:
             return qualified
         remainder = target[len(namespace) :]
@@ -1110,7 +1171,7 @@ class _FileGenerator:
         return element
 
     def _enum_prefix(self, enum: EnumDescriptor) -> str:
-        prefix = snake_case(enum.name).upper() + "_"
+        prefix = f"{snake_case(enum.name).upper()}_"
         if all(
             value.name.startswith(prefix) and len(value.name) > len(prefix)
             for value in enum.values
@@ -1266,7 +1327,7 @@ class _FileGenerator:
                 for other in by_name
                 if other != child.full_name
                 and any(
-                    reference == other or reference.startswith(other + ".")
+                    reference == other or reference.startswith(f"{other}.")
                     for reference in references
                 )
             }
@@ -1318,6 +1379,7 @@ class _FileGenerator:
             )
             blocks.append(constants)
 
+        defaults: list[str] = []
         members: list[str] = []
         emitted_oneofs: set[str] = set()
         for field in fields:
@@ -1337,14 +1399,23 @@ class _FileGenerator:
             default = None
             if not field.optional and not field.descriptor.is_repeated:
                 default = self._default(field, inner_scope)
-            declaration = f"{inner}{member_type} {field.name}" + (
-                f" = {default};" if default else ";"
+            if default and _has_default_constant(field):
+                defaults.extend(
+                    _declaration_lines(
+                        f"{inner}static constexpr {member_type} {_default_constant(field)}",
+                        default,
+                    )
+                )
+                default = _default_constant(field)
+            members.extend(
+                _declaration_lines(f"{inner}{member_type} {field.name}", default)
             )
-            if len(declaration) > COLUMN_LIMIT and default:
-                members.append(f"{inner}{member_type} {field.name} =")
-                members.append(f"{inner}{INDENT * 2}{default};")
-            else:
-                members.append(declaration)
+        if defaults:
+            defaults.insert(
+                0,
+                f"{inner}// The explicit defaults of the .proto file ([default = ...]), the initializers of the members.",
+            )
+            blocks.append(defaults)
         if members:
             blocks.append(members)
 
@@ -1384,7 +1455,7 @@ class _FileGenerator:
             f"{field.name} ({_index_constant(field)})" for field in members
         )
         lines.extend(
-            inner + "// " + line
+            f"{inner}// {line}"
             for line in _wrap_comment(f"oneof {oneof_descriptor.name}: {alternatives}.")
         )
         for field in members:
@@ -1481,7 +1552,7 @@ class _FileGenerator:
         return self.render(self.table.types[descriptor.full_name].struct_path, [])
 
     def _header_comment(self, lines: list[str]) -> list[str]:
-        return ["// " + line if line else "//" for line in lines]
+        return [f"// {line}" if line else "//" for line in lines]
 
     def _imports_with_structs(self) -> list[str]:
         stems = []
@@ -1525,10 +1596,10 @@ class _FileGenerator:
         if include_lines:
             lines += include_lines + [""]
         lines += self._namespace_open() + [""] + body + [""] + self._namespace_close()
-        return "\n".join(lines) + "\n"
+        return "".join(f"{line}\n" for line in lines)
 
     def _top_full_name(self) -> str:
-        package = self.proto.package + "." if self.proto.package else ""
+        package = f"{self.proto.package}." if self.proto.package else ""
         if self.proto.message_type:
             return package + self.proto.message_type[0].name
         return package + self.proto.enum_type[0].name
@@ -1574,7 +1645,7 @@ class _FileGenerator:
         includes.absl.add(NULLABILITY_HEADER)
         includes.absl.add("absl/status/status.h")
         includes.project.add(self.stem + STRUCT_HEADER_SUFFIX)
-        includes.project.add(self.stem + ".pb.h")
+        includes.project.add(f"{self.stem}.pb.h")
         body: list[str] = []
         for comment, to_proto, from_proto in self._declarations():
             if body:
@@ -1595,7 +1666,7 @@ class _FileGenerator:
         )
         lines = header + ["", "#pragma once", ""] + includes.lines() + [""]
         lines += self._namespace_open() + [""] + body + [""] + self._namespace_close()
-        return "\n".join(lines) + "\n"
+        return "".join(f"{line}\n" for line in lines)
 
     def conversions_source(self) -> str:
         """The content of `<file>.nproto.pb.cc`: the definitions of ToProto() and FromProto()."""
@@ -1622,7 +1693,7 @@ class _FileGenerator:
         lines = header + ["", f'#include "{self.stem}{CONVERSIONS_HEADER_SUFFIX}"', ""]
         lines += includes.lines() + [""]
         lines += self._namespace_open() + [""] + body + self._namespace_close()
-        return "\n".join(lines) + "\n"
+        return "".join(f"{line}\n" for line in lines)
 
     def _enum_conversion_lines(
         self, enum: EnumDescriptor, includes: _Includes
@@ -1649,7 +1720,14 @@ class _FileGenerator:
             if number in seen:
                 continue  # an alias (allow_alias): the first name of the number wins
             seen.add(number)
-            lines.append(f"{INDENT * 2}case {number}:")
+            # The enumerator names the number (`magic-number`): the enum class has the proto's numbers and int32_t.
+            label = f"{INDENT * 2}case static_cast<{INT32}>({struct}::{name}):"
+            if len(label) > COLUMN_LIMIT:
+                raise GenerationError(
+                    f"{self.name}: the enumerator {struct}::{name} of enum {enum.full_name} is too long for nproto's "
+                    "code."
+                )
+            lines.append(label)
             lines.append(f"{INDENT * 3}*value = {struct}::{name};")
             lines.append(f"{INDENT * 3}return absl::OkStatus();")
         lines.append(f"{INDENT * 2}default:")
@@ -1863,36 +1941,54 @@ class _FileGenerator:
 
     # ----------------------------------------------------------------------------------------------------------------
 
+    def _check_struct_names(self, message: Descriptor) -> None:
+        """Raises GenerationError unless the struct of `message` can declare each of its names once.
+
+        The names are C++ names; a member is not named like a nested type; no two fields give one constant (a oneof
+        index constant or a default constant), and no constant is named like a member or a nested type.
+
+        Args:
+          message: A message of the file, not a map entry.
+        """
+        self._check_name(message.name, f"message {message.full_name}")
+        nested_names = {nested.name for nested in message.nested_types} | {
+            enum.name for enum in message.enum_types
+        }
+        for enum in message.enum_types:
+            self._check_name(enum.name, f"enum {enum.full_name}")
+        fields = self._fields(message)
+        members = {field.oneof or field.name for field in fields}
+        constants: dict[str, str] = {}
+        for field in fields:
+            member = field.oneof or field.name
+            if member in nested_names:
+                raise GenerationError(
+                    f"{self.name}: {message.full_name} has a nested type and a "
+                    f"{'oneof' if field.oneof else 'field'} both named {member}, which one struct cannot hold."
+                )
+            if field.oneof:
+                self._check_name(
+                    field.oneof, f"oneof {message.full_name}.{field.oneof}"
+                )
+            for constant, what in _constants(field):
+                if constant in constants and constants[constant] != field.name:
+                    raise GenerationError(
+                        f"{self.name}: fields {constants[constant]} and {field.name} of {message.full_name} both "
+                        f"name the {what} {constant}; rename one of them."
+                    )
+                if constant in members or constant in nested_names:
+                    raise GenerationError(
+                        f"{self.name}: {message.full_name} has a member or nested type named {constant}, which is "
+                        f"also the {what} of field {field.name}; rename one of them."
+                    )
+                constants[constant] = field.name
+
     def generate(self) -> list[plugin_pb2.CodeGeneratorResponse.File]:
         """The three generated files of the .proto file; raises GenerationError when nproto cannot generate it."""
         self.check_recursion()
         self.check_retired_fields()
         for message in self._messages():
-            self._check_name(message.name, f"message {message.full_name}")
-            nested_names = {nested.name for nested in message.nested_types} | {
-                enum.name for enum in message.enum_types
-            }
-            names: dict[str, str] = {}
-            for enum in message.enum_types:
-                self._check_name(enum.name, f"enum {enum.full_name}")
-            for field in self._fields(message):
-                member = field.oneof or field.name
-                if member in nested_names:
-                    raise GenerationError(
-                        f"{self.name}: {message.full_name} has a nested type and a "
-                        f"{'oneof' if field.oneof else 'field'} both named {member}, which one struct cannot hold."
-                    )
-                if field.oneof:
-                    self._check_name(
-                        field.oneof, f"oneof {message.full_name}.{field.oneof}"
-                    )
-                    constant = _index_constant(field)
-                    if constant in names and names[constant] != field.name:
-                        raise GenerationError(
-                            f"{self.name}: fields {names[constant]} and {field.name} of {message.full_name} both "
-                            f"name the oneof index constant {constant}; rename one of them."
-                        )
-                    names[constant] = field.name
+            self._check_struct_names(message)
         files = []
         for suffix, content in (
             (STRUCT_HEADER_SUFFIX, self.struct_header()),
@@ -1915,10 +2011,10 @@ def _empty_files(
     note = f"// Generated by nproto ({README}) from {file_proto.name}, which defines no message or enum.\n"
     return [
         plugin_pb2.CodeGeneratorResponse.File(
-            name=stem + STRUCT_HEADER_SUFFIX, content=note + "\n#pragma once\n"
+            name=stem + STRUCT_HEADER_SUFFIX, content=f"{note}\n#pragma once\n"
         ),
         plugin_pb2.CodeGeneratorResponse.File(
-            name=stem + CONVERSIONS_HEADER_SUFFIX, content=note + "\n#pragma once\n"
+            name=stem + CONVERSIONS_HEADER_SUFFIX, content=f"{note}\n#pragma once\n"
         ),
         plugin_pb2.CodeGeneratorResponse.File(
             name=stem + CONVERSIONS_SOURCE_SUFFIX, content=note

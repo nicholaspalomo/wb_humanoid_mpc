@@ -90,7 +90,10 @@ inline scalar_t maxAbs(scalar_t t1, scalar_t t2) {
 /** Throws when more than `maxSteps` steps are taken between two observations (odeint's max_step_checker). */
 class MaxStepChecker {
  public:
-  explicit MaxStepChecker(int maxSteps = 500) : maxSteps_(maxSteps) {}
+  /** The default of `maxSteps`, as in odeint's max_step_checker. */
+  static constexpr int kDefaultMaxSteps = 500;
+
+  explicit MaxStepChecker(int maxSteps = kDefaultMaxSteps) : maxSteps_(maxSteps) {}
 
   void reset() { steps_ = 0; }
 
@@ -109,7 +112,10 @@ class MaxStepChecker {
 /** Throws when a controlled stepper has tried more than `maxSteps` step sizes in a row (odeint's failed_step_checker). */
 class FailedStepChecker {
  public:
-  explicit FailedStepChecker(int maxSteps = 500) : maxSteps_(maxSteps) {}
+  /** The default of `maxSteps`, as in odeint's failed_step_checker. */
+  static constexpr int kDefaultMaxFailedSteps = 500;
+
+  explicit FailedStepChecker(int maxSteps = kDefaultMaxFailedSteps) : maxSteps_(maxSteps) {}
 
   void reset() { steps_ = 0; }
 
@@ -313,7 +319,7 @@ class Integrator final : public IntegratorBase {
                          scalar_t dt) override {
     vector_t state = initialState;
     // Ensure that finalTime is included by adding a fraction of dt such that: N * dt <= finalTime < (N + 1) * dt.
-    finalTime += 0.1 * dt;
+    finalTime += kFinalTimeSlackStepFraction * dt;
     integration_internal::integrateConst(Stepper(), system, state, startTime, finalTime, dt, observer);
   }
 
@@ -363,7 +369,7 @@ class ODE45 final : public IntegratorBase {
                          scalar_t dt) override {
     vector_t state = initialState;
     // Ensure that finalTime is included by adding a fraction of dt such that: N * dt <= finalTime < (N + 1) * dt.
-    finalTime += 0.1 * dt;
+    finalTime += kFinalTimeSlackStepFraction * dt;
     integration_internal::integrateConst(steppers::DormandPrince5(), system, state, startTime, finalTime, dt, observer);
   }
 

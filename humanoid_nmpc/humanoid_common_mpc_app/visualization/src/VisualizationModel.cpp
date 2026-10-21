@@ -71,6 +71,10 @@ absl::Status checkVisualizationModel(const VisualizationModel& model) {
     return absl::InvalidArgumentError(absl::StrCat("the state manifold has states of ", model.stateManifold->getAmbientDim(),
                                                    " entries; the MPC's robot model has states of ", robotModel.getStateDim(), "."));
   }
+  if (model.nominalState.size() != 0 && static_cast<size_t>(model.nominalState.size()) != robotModel.getStateDim()) {
+    return absl::InvalidArgumentError(absl::StrCat("the nominal state has ", model.nominalState.size(),
+                                                   " entries; the MPC's robot model has states of ", robotModel.getStateDim(), "."));
+  }
   return absl::OkStatus();
 }
 

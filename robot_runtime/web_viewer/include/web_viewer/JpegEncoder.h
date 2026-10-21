@@ -40,6 +40,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace robot::web_viewer {
 
+/**
+ * The bytes of an RGB pixel, one per channel: of the frames the encoder takes, and of the frames the MuJoCo viewers read
+ * back from OpenGL to encode or capture.
+ */
+inline constexpr int kRgbBytesPerPixel = 3;
+
 // The order of the rows of an image in memory: top row first (a browser's), or bottom row first (OpenGL's, which
 // mjr_readPixels returns).
 enum class RowOrder {

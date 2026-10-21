@@ -60,7 +60,7 @@ struct SearchStatistics {
 struct SearchSetup {
   const ContactPlan* absl_nullable previousPlan = nullptr;
   const MiqpAssignment* absl_nullable previousAssignment = nullptr;
-  int previousPlanShift = -1;  // -1: no usable previous plan
+  std::optional<int> previousPlanShift;  // empty: no usable previous plan
   int numNodes = 0;
   std::optional<MiqpAssignment> warmStart;  // complete assignment tried first for an incumbent (warm_start_previous_plan)
   MiqpSettings miqpSettings;                // diving is off unless the diving stage turns it on
@@ -100,6 +100,8 @@ struct SearchRun {
 /**
  * A stage of the search around the branch-and-bound: something that provides an incumbent before it (a warm start, the
  * diving heuristic inside the solver) or refines the incumbent after it (local search, re-linearization).
+ *
+ * Not thread-safe, like every ContactPlanningTerm: the planner that owns it configures and evaluates it from one thread at a time.
  */
 class SearchStage : public ContactPlanningTerm {
  public:

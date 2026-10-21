@@ -188,7 +188,8 @@ VisualizationModel TestRobot::model() const {
                             .urdfFile = urdfFile_,
                             .pinocchioInterface = pinocchioInterface_.get(),
                             .mpcRobotModel = robotModel_.get(),
-                            .stateManifold = stateManifold_.get()};
+                            .stateManifold = stateManifold_.get(),
+                            .nominalState = nominalState_};
 }
 
 SystemObservation TestRobot::observation(scalar_t time, size_t mode) const {

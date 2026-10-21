@@ -41,6 +41,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
 #include "humanoid_centroidal_mpc/CentroidalMpcConfig.h"
@@ -55,6 +56,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
 #include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
 #include "humanoid_mpc_config/contact_planning_file.nproto.h"
+#include "humanoid_nmpc/humanoid_common_mpc/test/support/StatusTestMacros.h"
 #include "support/TypedConfigFiles.h"
 
 namespace ocs2::humanoid {
@@ -139,18 +141,22 @@ class ShippedContactPlanningFile : public ::testing::TestWithParam<ShippedPlanne
     const std::string urdfFile = runfilePath(GetParam().urdf);
     ASSERT_FALSE(urdfFile.empty()) << GetParam().robot << ": the URDF is not in the runfiles";
     const ModelSettings modelSettings =
-        ModelSettings::Create(files_.task, urdfFile, "testShippedContactPlanningFiles_", /*verbose=*/false).value();
+        checkedValue(ModelSettings::Create(files_.task, urdfFile, "testShippedContactPlanningFiles_", /*verbose=*/false));
     PinocchioInterface pinocchioInterface =
-        loadCustomPinocchioInterface(files_.task, urdfFile, modelSettings, /*scaleTotalMass=*/false).value();
-    const CentroidalModelInfo info = centroidalModelInfoOf(files_, pinocchioInterface, modelSettings).value();
+        checkedValue(loadCustomPinocchioInterface(files_.task, urdfFile, modelSettings, /*scaleTotalMass=*/false));
+    HUMANOID_ASSERT_OK_AND_ASSIGN(const CentroidalModelInfo info, centroidalModelInfoOf(files_, pinocchioInterface, modelSettings));
     const CentroidalMpcRobotModel<scalar_t> robotModel(modelSettings, pinocchioInterface, info);
-    const vector_t initialState = initialStateOnModel(files_.task, robotModel).value();
+    HUMANOID_ASSERT_OK_AND_ASSIGN(const vector_t initialState, initialStateOnModel(files_.task, robotModel));
     modelComHeight_ = computeComHeightAboveFeet(robotModel.getGeneralizedCoordinates(initialState), pinocchioInterface, robotModel);
     ASSERT_GT(modelComHeight_, 0.4) << GetParam().robot;
+    const absl::StatusOr<scalar_t> gravity = modelGravity(pinocchioInterface.getModel());
+    ASSERT_TRUE(gravity.ok()) << gravity.status();
+    modelGravity_ = *gravity;
 
-    // The configuration the planner runs: the file's, with the unset comHeight of a file without shared.com_height
-    // resolved as ContactPlanningModelParameters resolves it.
+    // The configuration the planner runs: the file's, with the model's gravity and the unset comHeight of a file
+    // without shared.com_height resolved as ContactPlanningModelParameters resolves them.
     config_ = fileConfig_;
+    config_.shared.gravity = modelGravity_;
     if (!config_.shared.comHeight.has_value()) config_.shared.comHeight = modelComHeight_;
   }
 
@@ -164,6 +170,7 @@ class ShippedContactPlanningFile : public ::testing::TestWithParam<ShippedPlanne
   ContactPlanningConfig fileConfig_;         // as the file writes it
   ContactPlanningConfig config_;             // with an unset comHeight resolved to the model's pendulum
   scalar_t modelComHeight_ = 0.0;
+  scalar_t modelGravity_ = 0.0;  // [m/s^2] modelGravity() of the robot's model
 };
 
 std::string joinWarnings(const std::vector<std::string>& warnings) {
@@ -196,7 +203,9 @@ TEST_P(ShippedContactPlanningFile, ValidatesWithNothingDocumentedToFallOrBlock) 
 
   if (canonicalPlannerName(config_.planner.type) == planner::kHlip) {
     EXPECT_TRUE(config_.formulation.hasExecutionRule(term::kPlannedComOverride)) << "README 3c: without it the robot falls";
-    EXPECT_LE(HlipContactPlanner::startUpLateralStep(config_), config_.hlip.maxStepWidth) << "README 3b: the first step must fit";
+    const absl::StatusOr<scalar_t> startUpStep = HlipContactPlanner::startUpLateralStep(config_);
+    ASSERT_TRUE(startUpStep.ok()) << startUpStep.status();
+    EXPECT_LE(*startUpStep, config_.hlip.maxStepWidth) << "README 3b: the first step must fit";
     EXPECT_FALSE(config_.planner.runInBackgroundThread) << "README 6: a feedback law must not run on a stale state";
   }
 
@@ -235,12 +244,13 @@ TEST_P(ShippedContactPlanningFile, NoPlannedSwingIsShorterThanTheSwingTimeScale)
  */
 TEST_P(ShippedContactPlanningFile, ThePlannerPendulumIsTheDcmCostPendulum) {
   EXPECT_EQ(plannerFile().shared.com_height, files_.task.dcm_terminal_cost.com_height);
-  EXPECT_DOUBLE_EQ(fileConfig_.shared.gravity, files_.task.dcm_terminal_cost.gravity);
   const absl::StatusOr<DcmTerminalCost::Config> dcmFile = dcmTerminalCostConfigFromConfig(files_.task.dcm_terminal_cost);
   ASSERT_TRUE(dcmFile.ok()) << dcmFile.status();
-  const absl::StatusOr<DcmTerminalCost::Config> dcm = DcmTerminalCost::resolveConfig(*dcmFile, modelComHeight_);
+  const absl::StatusOr<DcmTerminalCost::Config> dcm = DcmTerminalCost::resolveConfig(*dcmFile, modelComHeight_, modelGravity_);
   ASSERT_TRUE(dcm.ok()) << dcm.status();
-  EXPECT_NEAR(dcm->omega(), config_.omega(), 1.0e-12) << "the DCM cost and the planner would run on different pendulums";
+  EXPECT_EQ(dcm->gravity, config_.shared.gravity) << "the DCM cost and the planner would run on different gravities";
+  EXPECT_THAT(dcm->omega(), ::testing::Optional(::testing::DoubleNear(config_.omega(), /*max_abs_error=*/1.0e-12)))
+      << "the DCM cost and the planner would run on different pendulums";
 }
 
 // googletest's macro defines a static function and reads std::tuple_size<...>::value.

@@ -163,6 +163,9 @@ class Tuning:
       active_when: The conditions under which the field applies; all of them must hold.
       consumer: Who reads the field: "gui", "robot", "mpc"; empty: unspecified.
       formulations: The MPC formulations that read the field (FORMULATIONS); empty: every formulation.
+      minimum: The inclusive hard lower bound the GUI enforces; None: none.
+      base_controller_label: The label of the field's drop-down on the Base Controller tab; empty: it has none. The
+        field's own, never inherited.
     """
 
     slider_min: float | None = None
@@ -175,6 +178,8 @@ class Tuning:
     active_when: tuple[Condition, ...] = ()
     consumer: str = ""
     formulations: tuple[str, ...] = ()
+    minimum: float | None = None
+    base_controller_label: str = ""
 
 
 @dataclasses.dataclass(frozen=True)
@@ -335,12 +340,12 @@ def inherit(parent: Tuning, field: FieldDescriptor) -> Tuning:
       field: The field.
 
     Returns:
-      Its own options where it sets them (formulations: where it names any), the block's otherwise; its own registry;
-      every condition.
+      Its own options where it sets them (formulations: where it names any), the block's otherwise; its own registry
+      and base_controller_label; every condition.
     """
     own = own_tuning(field)
     if own is None:
-        return dataclasses.replace(parent, registry="")
+        return dataclasses.replace(parent, registry="", base_controller_label="")
     conditions = tuple(
         Condition(str(c.field_path), tuple(str(v) for v in c.values))
         for c in own.active_when
@@ -367,6 +372,8 @@ def inherit(parent: Tuning, field: FieldDescriptor) -> Tuning:
         active_when=parent.active_when + conditions,
         consumer=str(own.consumer) if own.HasField("consumer") else parent.consumer,
         formulations=formulations or parent.formulations,
+        minimum=(float(own.minimum) if own.HasField("minimum") else parent.minimum),
+        base_controller_label=str(own.base_controller_label),
     )
 
 

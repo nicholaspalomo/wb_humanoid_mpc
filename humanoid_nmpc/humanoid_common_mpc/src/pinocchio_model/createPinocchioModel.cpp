@@ -61,6 +61,15 @@ namespace ocs2::humanoid {
 
 namespace {
 
+/** The joints the floating base is composed of: the translation and the spherical joint. */
+constexpr int kNumBaseJointComponents = 2;
+
+/**
+ * The fraction of the footprint's front (x_max) and back (x_min) extent at which the two collision points of a foot
+ * sit, along the sole's x axis.
+ */
+constexpr scalar_t kCollisionPointFootprintFraction = 0.6;
+
 /**
  * The floating base of every MPC model: Composite(Translation, Spherical), 6 degrees of freedom with the configuration
  * q_b = [p_W, xi] (the position in the world and the unit quaternion (x, y, z, w) of the base orientation, 7 entries) and
@@ -68,7 +77,7 @@ namespace {
  * nq = nv + 1 (humanoid_nmpc/docs/quaternion_base_orientation/README.md, section 2.2).
  */
 pinocchio::JointModelComposite getBaseJointcomposite() {
-  pinocchio::JointModelComposite baseJointComposite(2);
+  pinocchio::JointModelComposite baseJointComposite(kNumBaseJointComponents);
   baseJointComposite.addJoint(pinocchio::JointModelTranslation());
   baseJointComposite.addJoint(pinocchio::JointModelSpherical());
   return baseJointComposite;
@@ -99,12 +108,14 @@ void addContactCenterFrames(const ContactPolygon& contactPolygon, pinocchio::Mod
 
 void addCollisionCenterFrames(const ContactPolygon& contactPolygon, pinocchio::ModelTpl<scalar_t>& model) {
   const ContactCenterPoint& ccp = contactPolygon.getContactCenterPoint();
-  pinocchio::SE3 relPoseToParentCP1(matrix3_t::Identity(),
-                                    ccp.translationFromParent + vector3_t(contactPolygon.getBounds().x_max * 0.6, 0.0, 0.0));
+  pinocchio::SE3 relPoseToParentCP1(
+      matrix3_t::Identity(),
+      ccp.translationFromParent + vector3_t(contactPolygon.getBounds().x_max * kCollisionPointFootprintFraction, 0.0, 0.0));
   pinocchio::Frame contactCenterFrameCP1(ccp.frameName + "_collision_p_1", model.getJointId(ccp.parentJointName),
                                          model.getFrameId(ccp.parentJointName), relPoseToParentCP1, pinocchio::FIXED_JOINT);
-  pinocchio::SE3 relPoseToParentCP2(matrix3_t::Identity(),
-                                    ccp.translationFromParent + vector3_t(contactPolygon.getBounds().x_min * 0.6, 0.0, 0.0));
+  pinocchio::SE3 relPoseToParentCP2(
+      matrix3_t::Identity(),
+      ccp.translationFromParent + vector3_t(contactPolygon.getBounds().x_min * kCollisionPointFootprintFraction, 0.0, 0.0));
   pinocchio::Frame contactCenterFrameCP2(ccp.frameName + "_collision_p_2", model.getJointId(ccp.parentJointName),
                                          model.getFrameId(ccp.parentJointName), relPoseToParentCP2, pinocchio::FIXED_JOINT);
   model.addFrame(contactCenterFrameCP1);
@@ -184,15 +195,22 @@ absl::StatusOr<PinocchioInterface> buildCustomPinocchioInterface(
 
   for (int i = 0; i < static_cast<int>(kNumContacts); ++i) {
     ASSIGN_OR_RETURN(const ContactRectangle rectangle, contactRectangle(i));
+    // The contact frames hang from model_settings' parent joint of the contact: a name the model does not have would
+    // give them an out-of-range parent (Pinocchio throws, without the name).
+    if (!model.existJointName(rectangle.getParentJointName())) {
+      return absl::NotFoundError(absl::StrCat("[loadCustomPinocchioInterface] the parent joint \"", rectangle.getParentJointName(),
+                                              "\" of contact ", i, " (model_settings.contact_parent_joint_names) is not a joint of the ",
+                                              "robot model."));
+    }
     addContactPolygonFrames(rectangle, model);
   }
 
   if (scaleTotalMass) {
-    scalePinocchioModelInertia(model, totalMass, /*verbose=*/true);
+    scalePinocchioModelInertia(model, totalMass, Verbosity::kVerbose);
   }
 
   PinocchioInterface pinocchioInterface(model);
-  RETURN_IF_ERROR(checkPinocchioJointNaming(pinocchioInterface, modelSettings, verbose));
+  RETURN_IF_ERROR(checkPinocchioJointNaming(pinocchioInterface, modelSettings, verbose ? Verbosity::kVerbose : Verbosity::kQuiet));
   return pinocchioInterface;
 }
 

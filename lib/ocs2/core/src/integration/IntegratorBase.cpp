@@ -38,7 +38,7 @@ IntegratorBase::system_func_t IntegratorBase::systemFunction(OdeBase& system, in
   return [&system, maxNumSteps](const vector_t& x, vector_t& dxdt, scalar_t t) {
     dxdt = system.computeFlowMap(t, x);
     // max number of function calls
-    if (system.incrementNumFunctionCalls() > maxNumSteps) {
+    if (system.incrementNumFunctionCalls() > static_cast<size_t>(maxNumSteps)) {
       std::stringstream msg;
       msg << "Integration terminated since the maximum number of function calls is reached. State at termination time " << t << ":\n["
           << x.transpose() << "]\n";

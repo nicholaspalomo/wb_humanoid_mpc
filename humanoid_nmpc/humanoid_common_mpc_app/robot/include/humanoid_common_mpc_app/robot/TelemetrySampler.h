@@ -33,10 +33,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
-#include <functional>
 #include <string>
 #include <vector>
 
+#include "absl/functional/function_ref.h"
 #include "absl/strings/string_view.h"
 
 #include "humanoid_common_mpc/common/Types.h"
@@ -62,12 +62,15 @@ namespace ocs2::humanoid {
 class TelemetrySampler {
  public:
   struct Config {
+    /** The default of capacity. */
+    static constexpr size_t kDefaultCapacity = 128;
+
     /** The robot's joints, by joint index (jointNamesByIndex()). */
     std::vector<std::string> jointNames;
     /** One sample every this many cycles: round(mpc.mrt_desired_frequency / telemetry_frequency), at least 1. */
     size_t decimation = 1;
     /** Slots of the queue: a second of telemetry at 100 Hz rides out a stalled communication thread. */
-    size_t capacity = 128;
+    size_t capacity = kDefaultCapacity;
   };
 
   explicit TelemetrySampler(const Config& config);
@@ -87,7 +90,7 @@ class TelemetrySampler {
               const std::array<vector3_t, kNumContacts>& measuredContactForces);
 
   /** Communication thread: hands every sample taken so far to `consumer`, oldest first; returns how many. */
-  size_t drain(const std::function<void(const msgs::RobotStateSample& sample)>& consumer);
+  size_t drain(absl::FunctionRef<void(const msgs::RobotStateSample& sample)> consumer);
 
   /** Samples dropped because the queue was full. Any thread. */
   uint64_t dropped() const { return queue_.droppedCount(); }

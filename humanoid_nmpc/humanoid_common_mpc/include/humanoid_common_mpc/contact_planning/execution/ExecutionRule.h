@@ -44,6 +44,8 @@ namespace ocs2::humanoid {
  * A heuristic applied between plans by the reference manager. The schedule hooks are called per foot, in the order of
  * the `execution` list, until a rule reports an event for that foot (the rules then do not stack on one foot in one
  * cycle); the foothold and target hooks run once per cycle.
+ *
+ * Not thread-safe, like every ContactPlanningTerm: the planner that owns it configures and evaluates it from one thread at a time.
  */
 class ExecutionRule : public ContactPlanningTerm {
  public:

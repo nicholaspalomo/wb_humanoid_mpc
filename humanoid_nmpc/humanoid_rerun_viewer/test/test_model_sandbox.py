@@ -33,7 +33,6 @@ over a loopback bus, and the slider window where Tk can open one.
 
 import math
 import os
-import socket
 import tempfile
 import threading
 import tkinter
@@ -192,19 +191,16 @@ class SliderRangeTest(unittest.TestCase):
         self.assertEqual(set(model_sandbox.JOINT_SOURCES), {"nominal", "sliders"})
 
 
-def free_port() -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
-        probe.bind(("127.0.0.1", 0))
-        return probe.getsockname()[1]
-
-
 class BinaryTest(unittest.TestCase):
     def test_the_nominal_pose_of_the_g1_reaches_the_bus(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             network_file = os.path.join(directory, "network.textproto")
             with open(network_file, "w", encoding="utf-8") as stream:
+                # The sandbox (in this process) and the listener share this test's own DDS domain.
                 stream.write(
-                    f'nodes {{ name: "mpc" host: "127.0.0.1" port: {free_port()} }}\n'
+                    robot_ipc.format_network_config(
+                        robot_ipc.isolated_test_network(["mpc"])
+                    )
                 )
             network = robot_ipc.load_network_config(network_file)
             received: list[visualization_scene_pb2.VisualizationScene] = []

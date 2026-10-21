@@ -45,6 +45,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_cat.h"
 #include "ocs2_core/manifold/StateManifold.h"
 
+#include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/StateManifoldFactory.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/common/ThreadAffinity.h"
@@ -81,8 +82,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 namespace {
 
-/** The modes of a humanoid MPC: the contact combinations of its two feet (MotionPhaseDefinition.h). */
-constexpr size_t kNumModes = 4;
+/** The control periods between two checks of the joint_pd_gains.textproto file watcher: ~1 Hz at ~500 Hz. */
+constexpr size_t kPdGainsFileCheckInterval = 500;
 
 /**
  * The models the controller needs, nothing more: no reference manager and no optimal control problem, so nothing is
@@ -186,8 +187,7 @@ absl::StatusOr<RobotStack> setUpRobot(const RobotAppOptions& options, const Robo
   stack.backend->registerContactEstimators(*stack.contactEstimators);
 
   RobotConfigurationCheckContext context =
-      robotConfigurationCheckContext(options, configuration.bundledRobotName, modelSettings, WBMpcMrtJointController::pdGainsDefaults(),
-                                     backendOptions, stack.contactEstimators.get());
+      robotConfigurationCheckContext(options, configuration.bundledRobotName, modelSettings, backendOptions, stack.contactEstimators.get());
   RETURN_IF_ERROR(checkRobotConfiguration(configuration.files, context));
   // A save is checked with the models of the saved files too; the set-up built them above.
   context.checkFormulation = [urdfFile](const RobotConfigFiles& saved) { return checkWholeBodyFiles(saved, urdfFile); };
@@ -200,13 +200,15 @@ absl::StatusOr<RobotStack> setUpRobot(const RobotAppOptions& options, const Robo
   // LINT.IfChange(robot_mpc_link)
   const WBAccelMpcRobotModel<scalar_t>& mpcRobotModel = models.getMpcRobotModel();
   const ipc::ModelDimensions dimensions{
-      .stateDim = mpcRobotModel.getStateDim(), .inputDim = mpcRobotModel.getInputDim(), .numModes = kNumModes};
+      .stateDim = mpcRobotModel.getStateDim(), .inputDim = mpcRobotModel.getInputDim(), .numModes = kNumModeNumbers};
   ASSIGN_OR_RETURN(std::shared_ptr<const StateManifold> stateManifold, stateManifoldOf(mpcRobotModel));
   ipc::RemoteMpcLink::Config linkConfig;
   linkConfig.dimensions = dimensions;
   linkConfig.stateManifold = std::move(stateManifold);
   linkConfig.policyTimeout = settings.mpcLinkPolicyTimeout;
-  ASSIGN_OR_RETURN(std::unique_ptr<RemoteMpcLinkAdapter> link, RemoteMpcLinkAdapter::Create(*stack.bus, linkConfig));
+  // A policy of another layout (equal dimensions, other joints) is refused, as one of other dimensions.
+  linkConfig.modelFingerprint = modelLayoutFingerprint(modelSettings);
+  ASSIGN_OR_RETURN(std::unique_ptr<RemoteMpcLinkAdapter> link, RemoteMpcLinkAdapter::Create(stack.bus.get(), linkConfig));
   RemoteMpcLinkAdapter* absl_nonnull const remoteLink = link.get();
   const MpcLinkFactory linkFactory = handOverMpcLink(std::move(link));
   // LINT.ThenChange(//humanoid_nmpc/humanoid_centroidal_mpc_app/src/CentroidalMpcRobotMain.cpp:robot_mpc_link)
@@ -214,16 +216,16 @@ absl::StatusOr<RobotStack> setUpRobot(const RobotAppOptions& options, const Robo
 
   const scalar_t mrtDesiredFrequency = models.mpcSettings().mrtDesiredFrequency_;
   RobotProcess::Config config = robotProcessConfig(options, directory, configuration, modelSettings);
-  config.controlFrequency = mrtDesiredFrequency > 0.0 ? mrtDesiredFrequency : 100.0;
+  config.controlFrequency = mrtDesiredFrequency > 0.0 ? mrtDesiredFrequency : kMrtFallbackControlFrequency;
   config.initialState.emplace(initState);
   // Whether a caught robot is at rest is judged on the joints of the MPC model: the ones JOINT_PD brings to the nominal
   // posture and the MPC starts from.
   config.restJointIndices = mpcJointIndices;
-  // The joint_pd_gains.textproto file watcher, every 500 control periods (~1 Hz at ~500 Hz).
-  config.pdGainsFileCheckInterval = 500;
+  config.pdGainsFileCheckInterval = kPdGainsFileCheckInterval;
 
-  ASSIGN_OR_RETURN(stack.process, RobotProcess::Create(*stack.bus, *stack.backend, *stack.controller, *stack.contactEstimators,
-                                                       std::move(config), robotProcessHooks(remoteLink, files, std::move(context))));
+  ASSIGN_OR_RETURN(stack.process,
+                   RobotProcess::Create(stack.bus.get(), stack.backend.get(), stack.controller.get(), stack.contactEstimators.get(),
+                                        std::move(config), robotProcessHooks(remoteLink, files, std::move(context))));
   return stack;
 }
 

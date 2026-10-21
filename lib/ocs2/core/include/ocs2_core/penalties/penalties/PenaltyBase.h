@@ -38,6 +38,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2 {
 
 /**
+ * The size of the parameter vector of setParameters() and getParameters(), (mu, delta), of the penalties parameterized
+ * by a scale mu and a relaxation delta: RelaxedBarrierPenalty, SquaredHingePenalty and PieceWisePolynomialBarrierPenalty.
+ */
+inline constexpr int kMuDeltaParameterCount = 2;
+
+/**
  * The penalty function interface class is used to penalize constraint violation by adding a penalty term to the cost function.
  * We assume that the penalty function is convex. In general, the penalty is a function of time and constraint violation.
  */

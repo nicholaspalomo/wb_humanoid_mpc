@@ -39,6 +39,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/str_format.h"
+#include "ocs2_core/Dimensions.h"
 
 namespace ocs2::humanoid {
 
@@ -149,6 +151,19 @@ vector_t ExternalTorqueQuadraticCostAD::getParameters(scalar_t time,
 /******************************************************************************************************/
 /******************************************************************************************************/
 
+absl::Status ExternalTorqueQuadraticCostAD::setWeights(const vector_t& weights) {
+  if (static_cast<size_t>(weights.size()) != activeJointNames_.size()) {
+    return absl::InvalidArgumentError(absl::StrFormat("ExternalTorqueQuadraticCostAD::setWeights: expected %d weights, got %d",
+                                                      activeJointNames_.size(), weights.size()));
+  }
+  sqrtWeights_ = weights.cwiseSqrt();
+  return absl::OkStatus();
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+
 ad_vector_t ExternalTorqueQuadraticCostAD::costVectorFunction(ad_scalar_t /*time*/,
                                                               const ad_vector_t& state,
                                                               const ad_vector_t& input,
@@ -157,7 +172,7 @@ ad_vector_t ExternalTorqueQuadraticCostAD::costVectorFunction(ad_scalar_t /*time
   PinocchioInterfaceCppAd::Data& data = pinocchioInterfaceCppAd_.getData();
 
   const ad_vector_t q = mpcRobotModelADPtr_->getGeneralizedCoordinates(state);
-  ad_matrix_t J_ee = ad_matrix_t::Zero(6, static_cast<Eigen::Index>(mpcRobotModelADPtr_->getVelocityDim()));
+  ad_matrix_t J_ee = ad_matrix_t::Zero(kTwistDim, static_cast<Eigen::Index>(mpcRobotModelADPtr_->getVelocityDim()));
   pinocchio::computeFrameJacobian(model, data, q, frameID_, pinocchio::ReferenceFrame::LOCAL_WORLD_ALIGNED, J_ee);
 
   // The Jacobian is LOCAL_WORLD_ALIGNED, so the wrench must be expressed in the world frame. The state-aware

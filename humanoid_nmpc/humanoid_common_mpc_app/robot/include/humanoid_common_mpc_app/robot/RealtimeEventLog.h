@@ -32,10 +32,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <array>
 #include <cstddef>
 #include <cstdint>
-#include <functional>
 #include <string>
 
 #include "absl/base/nullability.h"
+#include "absl/functional/function_ref.h"
 #include "absl/strings/string_view.h"
 
 #include "humanoid_common_mpc/mrt/ControllerEvent.h"
@@ -71,17 +71,27 @@ enum class RealtimeEventCode : uint8_t {
   kContactEstimatorSwapped,      ///< the controller's contact estimator was replaced; text: its name
   /** A report of the MRT joint controller (ControllerEvent.h). detail: the ControllerEventCode; source: its class. */
   kControllerEvent,
+  kGantryCommandIgnored,  ///< LOCK_GANTRY or UNLOCK_GANTRY on a robot whose gantry the process does not drive; text: the command
+  /** HardwareFallRecovery switched the torques off: the base tilted past its limit. values: the tilt and the limit [rad]. */
+  kFallTorquesOff,
 };
 
 /** One report of the realtime thread: plain data, so that posting it copies a few words and allocates nothing. */
 struct RealtimeEvent {
+  /**
+   * The number of `values`, and the characters `text` holds, its NUL terminator included: those of a ControllerEvent's
+   * text, which post() copies whole.
+   */
+  static constexpr size_t kNumValues = 3;
+  static constexpr size_t kTextCapacity = ControllerEvent::kTextCapacity;
+
   RealtimeEventCode code = RealtimeEventCode::kTorquesDisabled;
   /** A code-specific enumerator: the DiscontinuityCause, or the SimFallRecovery::Phase. */
   int32_t detail = 0;
-  std::array<double, 3> values{};
+  std::array<double, kNumValues> values{};
   uint64_t count = 0;
   /** A mode, command or estimator name, NUL-terminated and cut to fit. */
-  std::array<char, 32> text{};
+  std::array<char, kTextCapacity> text{};
   /** kControllerEvent: the class that reported it, a string literal (ControllerEvent::controller). */
   // NOLINTNEXTLINE(totw-string-constant): a field of the event, set per event; "" is its default, not a constant.
   const char* absl_nonnull source = "";
@@ -101,7 +111,10 @@ bool isWarningEvent(const RealtimeEvent& event);
  */
 class RealtimeEventLog final : public ControllerEventSink {
  public:
-  explicit RealtimeEventLog(size_t capacity = 64);
+  /** The default number of reports the queue holds. */
+  static constexpr size_t kDefaultCapacity = 64;
+
+  explicit RealtimeEventLog(size_t capacity = kDefaultCapacity);
 
   RealtimeEventLog(const RealtimeEventLog&) = delete;
   RealtimeEventLog& operator=(const RealtimeEventLog&) = delete;
@@ -120,7 +133,7 @@ class RealtimeEventLog final : public ControllerEventSink {
   bool post(const ControllerEvent& event) override;
 
   /** Communication thread: hands every report posted so far to `consumer`, oldest first; returns how many. */
-  size_t drain(const std::function<void(const RealtimeEvent&)>& consumer);
+  size_t drain(absl::FunctionRef<void(const RealtimeEvent&)> consumer);
 
   /** Communication thread: drain() into absl logging, each report at its severity. */
   size_t drainToLog();

@@ -42,17 +42,26 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "absl/strings/string_view.h"
+#include "ocs2_core/PhysicalConstants.h"
 
 #include "humanoid_common_mpc/common/ThreadAffinity.h"
 #include "humanoid_common_mpc/mrt/MpcResetSupervisor.h"
 
 namespace ocs2::humanoid {
+namespace {
+
+/** [microseconds] A solver loop iteration that ends later than its period by more than this is slow. */
+constexpr int kSlowIterationThreshold = 1000;
+/** Every this many slow iterations, one is logged. */
+constexpr int kSlowIterationsPerWarning = 20;
+
+}  // namespace
 
 InProcessMpcLink::InProcessMpcLink(MPC_BASE& mpc, ResetTargetFunction resetTarget, Config config)
     : mpcMrtInterface_(mpc),
       resetTarget_(std::move(resetTarget)),
       // Unused when realtime_; the frequency is not divided by then, so that no negative or infinite period is converted.
-      mpcDeltaTMicroSeconds_(config.mpcDesiredFrequency > 0 ? static_cast<size_t>(1000000 / config.mpcDesiredFrequency) : 0),
+      mpcDeltaTMicroSeconds_(config.mpcDesiredFrequency > 0 ? static_cast<size_t>(kMicrosecondsPerSecond / config.mpcDesiredFrequency) : 0),
       realtime_(config.mpcDesiredFrequency <= 0),
       solverThreadName_(std::move(config.solverThreadName)),
       solveObserver_(std::move(config.solveObserver)),
@@ -96,7 +105,7 @@ void InProcessMpcLink::start(const SystemObservation& initialObservation) {
   mpcMrtInterface_.setCurrentObservation(initialObservation);
   if (execution_ == Execution::kCaller) {
     // The start of the solver thread, on this thread; the caller runs the iterations (runSolverIteration()).
-    resetMpcToCurrentObservation(/*full=*/true, "start-up");
+    resetMpcToCurrentObservation(MpcResetSupervisor::ResetKind::kFull, "start-up");
     LOG(INFO) << "MPC is reset. NMPC solver started; the caller runs its iterations.";
     return;
   }
@@ -121,7 +130,7 @@ void InProcessMpcLink::solverWorker() {
   const SystemCoreAllocation coreAlloc = getDefaultCoreAllocation();
   setThreadCpuAffinity(coreAlloc.mpcCores, pthread_self(), solverThreadName_);
 
-  resetMpcToCurrentObservation(/*full=*/true, "start-up");
+  resetMpcToCurrentObservation(MpcResetSupervisor::ResetKind::kFull, "start-up");
   LOG(INFO) << "MPC is reset. NMPC solver started!";
 
   size_t slowWarningCount = 0;
@@ -140,7 +149,7 @@ void InProcessMpcLink::solverWorker() {
       const std::chrono::steady_clock::time_point currentTime = std::chrono::steady_clock::now();
       if (currentTime > targetTimeForNextIteration) {
         const int64_t delay = std::chrono::duration_cast<std::chrono::microseconds>(currentTime - targetTimeForNextIteration).count();
-        if (delay > 1000 && (++slowWarningCount % 20 == 0)) {
+        if (delay > kSlowIterationThreshold && (++slowWarningCount % kSlowIterationsPerWarning == 0)) {
           LOG(WARNING) << "MPC loop running slow by " << delay << " microseconds.";
         }
       } else {
@@ -169,7 +178,7 @@ InProcessMpcLink::SolverIterationResult InProcessMpcLink::runSolverIteration() {
 InProcessMpcLink::SolverIterationResult InProcessMpcLink::solveOnce() {
   // Serve a requested reset (a mode change, a discontinuity of the plant, a failed solve) before solving again.
   if (const std::optional<MpcResetSupervisor::ResetTicket> ticket = resetSupervisor().takeResetRequest()) {
-    resetMpcToCurrentObservation(ticket->full, "requested");
+    resetMpcToCurrentObservation(ticket->full ? MpcResetSupervisor::ResetKind::kFull : MpcResetSupervisor::ResetKind::kSolver, "requested");
     resetSupervisor().completeReset(*ticket);
   }
 
@@ -184,8 +193,9 @@ InProcessMpcLink::SolverIterationResult InProcessMpcLink::solveOnce() {
   return result;
 }
 
-void InProcessMpcLink::resetMpcToCurrentObservation(bool full, absl::string_view reason) {
+void InProcessMpcLink::resetMpcToCurrentObservation(MpcResetSupervisor::ResetKind kind, absl::string_view reason) {
   const SystemObservation observation = mpcMrtInterface_.getCurrentObservation();
+  const bool full = kind == MpcResetSupervisor::ResetKind::kFull;
   if (full) {
     mpcMrtInterface_.resetMpcNode(resetTarget_(observation));
   } else {

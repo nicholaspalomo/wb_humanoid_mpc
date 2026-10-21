@@ -154,6 +154,22 @@ TEST(OffscreenRender, MovingTheCameraChangesTheFrame) {
   EXPECT_GT(differingPixelFraction(*before, *after), 0.01) << "the camera turned and the picture did not";
 }
 
+// The wheel's sign, which the web route and the GLFW window share: positive notches (the wheel turned away from the
+// user) zoom out, as in MuJoCo's own viewers. The route's documentation used to say the opposite.
+TEST(OffscreenRender, PositiveScrollNotchesZoomOut) {
+  const std::unique_ptr<MujocoSimInterface> sim = makeSim(hingeSimConfig({kNoViewerName}), hingeUrdfPath());
+  ASSERT_NE(sim, nullptr);
+  const std::unique_ptr<OffscreenTestRenderer> renderer = makeRenderer(sim.get(), WebViewerOptions{});
+  ASSERT_NE(renderer, nullptr);
+  ASSERT_TRUE(renderer->render(/*width=*/320, /*height=*/240).ok());
+  renderer->frameRenderer().setCameraType(mjCAMERA_FREE);
+  const double distance = renderer->frameRenderer().camera().distance;
+  renderer->frameRenderer().scroll(/*notches=*/1.0);
+  EXPECT_GT(renderer->frameRenderer().camera().distance, distance);
+  renderer->frameRenderer().scroll(/*notches=*/-2.0);
+  EXPECT_LT(renderer->frameRenderer().camera().distance, distance);
+}
+
 TEST(OffscreenRender, TogglingTheContactTimelineChangesOnlyTheBottomBand) {
   const std::unique_ptr<MujocoSimInterface> sim = makeSteppedAtlas();
   ASSERT_NE(sim, nullptr);

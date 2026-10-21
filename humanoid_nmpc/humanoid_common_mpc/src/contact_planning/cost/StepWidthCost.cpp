@@ -35,6 +35,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <utility>
 
 #include "absl/strings/str_cat.h"
+#include "ocs2_core/Dimensions.h"
 
 namespace ocs2::humanoid {
 
@@ -50,16 +51,16 @@ void StepWidthCost::configure(const ContactPlanningConfig& config) {
 void StepWidthCost::addToStage(const ContactPlanningContext& ctx, int node, StageAccumulator& stage) const {
   const vector2_t& ey = ctx.axesAt(node)[1];
   Coefficients xc;
-  for (int axis = 0; axis < 2; ++axis) {
+  for (int axis = 0; axis < kHorizontalPositionDim; ++axis) {
     xc.emplace_back(idx_.foot[0][axis], ey(axis));
     xc.emplace_back(idx_.foot[1][axis], -ey(axis));
   }
   const vector2_t dNominal =
       ctx.hasHeading() ? vector2_t(ctx.nominal->feet[static_cast<size_t>(node)][0] - ctx.nominal->feet[static_cast<size_t>(node)][1])
                        : vector2_t(vector2_t::Zero());
-  const std::pair<scalar_t, scalar_t> frameTerm = ctx.frameTerm(node, /*axis=*/1, dNominal);
-  const scalar_t g = frameTerm.first;
-  const scalar_t offset = frameTerm.second;
+  const ContactPlanningContext::HeadingFrameTerm frameTerm = ctx.frameTerm(node, /*axis=*/1, dNominal);
+  const scalar_t g = frameTerm.gain;
+  const scalar_t offset = frameTerm.offset;
   if (ctx.hasHeading()) xc.emplace_back(idx_.heading, g);
   stage.addQuadraticResidual(xc, /*uCoefficients=*/{}, -nominalStepWidth_ + offset, weight_);
 }

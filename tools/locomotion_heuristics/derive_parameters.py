@@ -107,6 +107,8 @@ ROBOTS: dict[str, dict[str, str]] = {
 }
 # LINT.ThenChange(//humanoid_nmpc/docs/locomotion_heuristics/README.md:derive_parameters_usage, //Makefile:derive_heuristic_parameters_usage, //humanoid_nmpc/humanoid_centroidal_mpc/test/testNominalPendulum.cpp:nominal_pendulum_robots)
 
+# [m/s^2] The robot models' gravity: Pinocchio's default, which every shipped URDF and MuJoCo scene keeps
+# (humanoid_common_mpc_app/robot testShippedRobotGravity), and which the MPC reads from the model.
 GRAVITY = 9.81
 
 # The gait table every centroidal MPC reads, from the repository root.
@@ -177,8 +179,9 @@ RETIRED_DCM_TERMINAL_COST_KEY = "use_dcm_terminal_cost"
 # ---------------------------------------------------------------------------------------------------------------
 
 #: [rad] How far the base leans into the command at the maximum forward stick. A few degrees carries the center of
-#: mass towards the leading edge of the support and keeps the body inside the small-roll-and-pitch approximation the
-#: control model's yaw-only rotation is built on (dissertation section 4.3).
+#: mass towards the leading edge of the support (dissertation section 4.3) and keeps the body close to level, which on
+#: Bledt's model was also what kept its small-roll-and-pitch approximation valid; the control model here carries the
+#: full base rotation as a quaternion and makes no such approximation.
 PITCH_AT_MAX_FORWARD_SPEED = math.radians(2.8)
 
 #: [m] How far the base is lowered at the maximum forward stick. Buys the swing leg vertical room inside the same
@@ -189,14 +192,18 @@ CROUCH_AT_MAX_FORWARD_SPEED = 0.03
 #: 4-8 degrees; this is deliberately conservative.
 PELVIC_OBLIQUITY = math.radians(1.7)
 
-#: Fraction of the tilt clamp the reference is allowed to use, i.e. how much of the small-angle assumption of the
-#: yaw-only rotation matrix the base-pose reference may spend.
+#: [rad] The clamp on each of the roll and pitch the base-pose reference may ask for (orientation_compensation's
+#: maximum_tilt): 8.6 degrees, three times the lean at full stick, so the clamp stays off the derived lean and bounds
+#: only what a stick the operator has not rate limited, or a fitted coefficient, could otherwise ask a walking base to
+#: hold.
 MAXIMUM_TILT = math.radians(8.6)
 
 #: Fraction of one step along the heading the capture point may consume.
 CAPTURE_POINT_STEP_FRACTION = 0.4
 
-#: Fraction of a single stance foot's friction budget the centripetal force reference may use.
+#: Fraction of the friction budget the centripetal force reference may use. The clamp is on the total horizontal force,
+#: which the stance feet share as they share the weight, so it is this fraction of each foot's own budget mu W / n in
+#: single and in double support alike.
 CENTRIPETAL_FRICTION_FRACTION = 0.4
 
 #: Margin below the smallest duty factor of any shipped gait, for the 1/beta clamp.
@@ -514,17 +521,20 @@ def smallest_duty_factor(gaits: dict) -> tuple[str, float]:
     return worst_name, worst
 
 
-def largest_double_support_ratio(gaits: dict) -> tuple[str, float]:
+def largest_force_ratio(gaits: dict) -> tuple[str, float]:
     """The largest W/(F beta) that any shipped gait asks for, as a multiple of instantaneous weight compensation.
 
-    The binding case is always a double-support phase: there the baseline is W/2 while the reference stays at
-    W/(F beta), so the ratio is 1/beta. Single support gives 2/(F beta) * (F beta / 2) = 1 whenever beta = 1/2.
+    With n feet down the reference is W/(F beta) per foot against a baseline of W/n, a ratio of n/(F beta) with F = 2,
+    so a gait's largest ratio is in its phase with the most feet down: 1/beta in double support, 1/(2 beta) in single
+    support. The double support of the slowest-stepping walking gait usually binds, but not always: a gait without
+    double support whose duty factor is below 1/2 (a run, a hop) asks for more than weight compensation in single
+    support too, and is counted here.
 
     Args:
       gaits: The gait file's table (gait_table()).
 
     Returns:
-      The binding gait and its ratio; ("", 1.0) when no gait has a double support phase.
+      The binding gait and its ratio; ("", 1.0) when no gait asks for more than weight compensation.
     """
     worst_name, worst = "", 1.0
     for name in gaits.get("gait_list", []):
@@ -534,9 +544,10 @@ def largest_double_support_ratio(gaits: dict) -> tuple[str, float]:
             cadence = gait_cadence(gaits, name)
         except (KeyError, IndexError, ZeroDivisionError):
             continue
-        if not cadence.has_double_support or cadence.duty_factor <= 0.0:
+        if cadence.duty_factor <= 0.0:
             continue
-        ratio = 1.0 / cadence.duty_factor
+        most_feet_down = 2.0 if cadence.has_double_support else 1.0
+        ratio = most_feet_down / (2.0 * cadence.duty_factor)
         if ratio > worst:
             worst_name, worst = name, ratio
     return worst_name, worst
@@ -545,6 +556,27 @@ def largest_double_support_ratio(gaits: dict) -> tuple[str, float]:
 # ---------------------------------------------------------------------------------------------------------------
 # The coefficients
 # ---------------------------------------------------------------------------------------------------------------
+
+
+def nominal_stance_width(step_width: float, geometry: RobotGeometry) -> float:
+    """[m] The lateral distance between the feet that the robot walks with, which the stance-sized coefficients keep.
+
+    The task file's nominal_foothold.step_width where it sets one; otherwise the stance of the nominal posture, the
+    contact frames' lateral distance, because a robot with no nominal step stands and walks in that one; otherwise the
+    hips' own width.
+
+    Args:
+      step_width: nominal_foothold.step_width [m], 0 when the file sets none.
+      geometry: The robot's geometry at the nominal posture.
+
+    Returns:
+      The stance width, positive for any robot with hips or a stance.
+    """
+    if step_width > 0.0:
+        return step_width
+    if geometry.nominal_foot_separation > 0.0:
+        return geometry.nominal_foot_separation
+    return 2.0 * geometry.hip_half_width
 
 
 def friction_coefficient(task: dict) -> tuple[float, str | None]:
@@ -728,13 +760,12 @@ def derive_parameters(
     )
 
     # ---- foothold ----
-    # This heuristic REPLACES the stance-foot anchor, so the scale that changes nothing about the nominal geometry is
+    # This heuristic REPLACES the step-width anchor, so the scale that changes nothing about the nominal geometry is
     # the one reproducing the stance the robot already walks with. Listing it at 1.0 would resize the stance the
     # moment it is switched on, which is a different gait rather than a correction.
     hip_width = 2.0 * geometry.hip_half_width
-    lateral_scale = (
-        (step_width / hip_width) if (hip_width > 0 and step_width > 0) else 1.0
-    )
+    stance_width = nominal_stance_width(step_width, geometry)
+    lateral_scale = (stance_width / hip_width) if hip_width > 0 else 1.0
     out["hip_centered_stepping"] = {
         "lateral_scale": round(lateral_scale, 3),
         "longitudinal_scale": 1.0,
@@ -743,8 +774,8 @@ def derive_parameters(
         lateral_scale_note = "hip_centered_stepping.lateral_scale = nominal_foothold.step_width %.3f / hip width %.3f = %.3f%s"
     else:
         lateral_scale_note = (
-            "hip_centered_stepping.lateral_scale = 1.0: nominal_foothold.step_width is %.3f, so there is no stance "
-            "to reproduce and the hips' own %.3f m is the width%.0s%s"
+            "hip_centered_stepping.lateral_scale = nominal stance %.3f / hip width %.3f = %.3f: "
+            "nominal_foothold.step_width is 0, so the stance to reproduce is the one the robot stands in%s"
         )
     planner_comparison = ""
     if planner_step_width > 0 and hip_width > 0:
@@ -758,7 +789,8 @@ def derive_parameters(
             )
         )
     notes.append(
-        lateral_scale_note % (step_width, hip_width, lateral_scale, planner_comparison)
+        lateral_scale_note
+        % (stance_width, hip_width, lateral_scale, planner_comparison)
     )
     if abs(geometry.hip_offset[0][0] if geometry.hip_offset else 0.0) < 1e-6:
         notes.append(
@@ -775,7 +807,6 @@ def derive_parameters(
     out["capture_point"] = {
         "gain": 1.0,
         "com_height_override": round(lip_height, 4),
-        "gravity": GRAVITY,
         "maximum_offset": round(capture_clamp, 3),
     }
     notes.append(
@@ -830,7 +861,7 @@ def derive_parameters(
     # The same half-stance rule applied to the speed the HIP travels at rather than the body: a foot at lever arm r
     # from the center moves at r * psidot under a body yaw rate, so the lead is r * psidot * T_stance / 2, i.e. a
     # stance lever of r / 2 per unit of stance duration.
-    turn_radius = step_width / 2.0 if step_width > 0 else geometry.hip_half_width
+    turn_radius = stance_width / 2.0
     out["in_place_turning"] = {
         "forward_per_yaw_rate": 0.0,
         "forward_stance_lever": round(turn_radius / 2.0, 4),
@@ -876,7 +907,7 @@ def derive_parameters(
     # ---- wrench ----
     worst_gait, worst_duty = smallest_duty_factor(gaits)
     duty_clamp = max(0.05, round(worst_duty - DUTY_FACTOR_MARGIN, 2))
-    ratio_gait, ratio = largest_double_support_ratio(gaits)
+    ratio_gait, ratio = largest_force_ratio(gaits)
     out["impulse_scaling"] = {
         "scale": 1.0,
         "minimum_duty_factor": duty_clamp,
@@ -887,16 +918,17 @@ def derive_parameters(
         % (duty_clamp, worst_gait, worst_duty)
     )
     notes.append(
-        "impulse_scaling.maximum_force_ratio covers the binding gait `%s`, whose double support asks for %.2f x "
-        "weight compensation" % (ratio_gait, ratio)
+        "impulse_scaling.maximum_force_ratio covers the binding gait `%s`, which asks for %.2f x weight "
+        "compensation" % (ratio_gait, ratio)
     )
 
-    # A single stance foot carries the whole weight, so its friction budget is mu * W; take a fraction of it so the
-    # reference stays inside the cone the wrench-cone barrier enforces rather than fighting it.
+    # The stance feet together carry the whole weight, so their friction budget is mu * W in total and mu * W / n each;
+    # the clamp is on the total and is shared like the weight, so a fraction of mu * W is the same fraction of every
+    # foot's budget, and the reference stays inside the cone the wrench-cone barrier enforces rather than fighting it.
     needed = geometry.total_mass * max_forward * max_yaw_rate / geometry.total_weight
+    # maximum_force is left out (it has no 0 "off"): the ratio of weight below is the clamp.
     out["centripetal_acceleration"] = {
         "scale": 1.0,
-        "maximum_force": 0.0,
         "maximum_force_ratio_of_weight": round(
             CENTRIPETAL_FRICTION_FRACTION * friction, 3
         ),

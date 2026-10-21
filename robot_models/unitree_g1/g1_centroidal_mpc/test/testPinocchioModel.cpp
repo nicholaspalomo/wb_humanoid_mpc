@@ -47,15 +47,18 @@ Contact:  manuel.galliker@1x.tech
 #include "absl/log/globals.h"
 #include "absl/log/initialize.h"
 #include "absl/log/log.h"
+#include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_format.h"
 #include "absl/strings/string_view.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
 #include "ocs2_robotic_tools/common/RotationTransforms.h"
+#include "pinocchio/algorithm/crba.hpp"
 #include "pinocchio/algorithm/frames.hpp"
 #include "pinocchio/algorithm/joint-configuration.hpp"
 #include "pinocchio/algorithm/kinematics.hpp"
+#include "pinocchio/algorithm/rnea.hpp"
 #include "pinocchio/multibody/data.hpp"
 #include "pinocchio/multibody/model.hpp"
 
@@ -122,8 +125,40 @@ InverseDynamicsSamples randomInverseDynamicsSamples(const PinocchioInterface& pi
   return samples;
 }
 
-/** The mean time of computeJointTorques() and of computeJointTorquesRNEA() over random inputs. */
-void benchmarkInverseDynamics(PinocchioInterface& pinocchioInterface) {
+/**
+ * Returns the joint torques of the floating-base inverse dynamics by Pinocchio's RNEA alone: the world-frame wrenches at
+ * the origins of `soleFrames` reach RNEA as external forces on their parent joints, and the base acceleration is the one
+ * at which RNEA's unactuated base rows vanish (RNEA is affine in the acceleration: a_b = -M_bb^-1 tau_b(a_b = 0)).
+ */
+vector_t rneaJointTorques(const vector_t& q,
+                          const vector_t& qd,
+                          const vector_t& qddJoints,
+                          const std::array<VECTOR6_T<scalar_t>, 2>& footWrenches,
+                          const feet_array_t<pinocchio::FrameIndex>& soleFrames,
+                          PinocchioInterface& pinocchioInterface) {
+  const pinocchio::Model& model = pinocchioInterface.getModel();
+  pinocchio::Data& data = pinocchioInterface.getData();
+  pinocchio::framesForwardKinematics(model, data, q);
+  std::vector<pinocchio::Force> fext(static_cast<size_t>(model.njoints), pinocchio::Force::Zero());
+  for (size_t foot = 0; foot < soleFrames.size(); ++foot) {
+    const pinocchio::JointIndex joint = model.frames[soleFrames[foot]].parentJoint;
+    const matrix3_t rotation = data.oMi[joint].rotation();
+    const vector3_t lever = data.oMf[soleFrames[foot]].translation() - data.oMi[joint].translation();
+    const vector3_t force = footWrenches[foot].head<3>();
+    const vector3_t moment = footWrenches[foot].tail<3>() + lever.cross(force);
+    fext[joint] += pinocchio::Force(rotation.transpose() * force, rotation.transpose() * moment);
+  }
+  vector_t a = vector_t::Zero(model.nv);
+  a.tail(qddJoints.size()) = qddJoints;
+  const vector6_t baseForceAtZeroBaseAcceleration = pinocchio::rnea(model, data, q, qd, a, fext).head<6>();
+  pinocchio::crba(model, data, q);
+  const matrix6_t baseMassMatrix = data.M.topLeftCorner<6, 6>().selfadjointView<Eigen::Upper>();
+  a.head<6>() = -baseMassMatrix.ldlt().solve(baseForceAtZeroBaseAcceleration);
+  return pinocchio::rnea(model, data, q, qd, a, fext).tail(qddJoints.size());
+}
+
+/** The mean time of computeJointTorques() and of rneaJointTorques() over random inputs. */
+void benchmarkInverseDynamics(PinocchioInterface& pinocchioInterface, const feet_array_t<pinocchio::FrameIndex>& soleFrames) {
   constexpr int kNumIterations = 10000;
   constexpr int kBatch = 10;
   const InverseDynamicsSamples samples = randomInverseDynamicsSamples(pinocchioInterface, kNumIterations);
@@ -134,15 +169,15 @@ void benchmarkInverseDynamics(PinocchioInterface& pinocchioInterface) {
     std::chrono::high_resolution_clock::time_point start = std::chrono::high_resolution_clock::now();
     for (int j = 0; j < kBatch; ++j) {
       const vector_t result = computeJointTorques(samples.q[i + j], samples.qd[i + j], samples.qddJoints[i + j],
-                                                  samples.footWrenches[i + j], pinocchioInterface);
+                                                  samples.footWrenches[i + j], soleFrames, pinocchioInterface);
     }
     std::chrono::high_resolution_clock::time_point end = std::chrono::high_resolution_clock::now();
     customAverage += static_cast<double>(std::chrono::duration_cast<std::chrono::microseconds>(end - start).count());
 
     start = std::chrono::high_resolution_clock::now();
     for (int j = 0; j < kBatch; ++j) {
-      const vector_t result = computeJointTorquesRNEA(samples.q[i + j], samples.qd[i + j], samples.qddJoints[i + j],
-                                                      samples.footWrenches[i + j], pinocchioInterface);
+      const vector_t result = rneaJointTorques(samples.q[i + j], samples.qd[i + j], samples.qddJoints[i + j], samples.footWrenches[i + j],
+                                               soleFrames, pinocchioInterface);
     }
     end = std::chrono::high_resolution_clock::now();
     rneaAverage += static_cast<double>(std::chrono::duration_cast<std::chrono::microseconds>(end - start).count());
@@ -162,17 +197,18 @@ void benchmarkInverseDynamics(PinocchioInterface& pinocchioInterface) {
   }
 }
 
-/** Prints computeJointTorques() next to computeJointTorquesRNEA() for a few random inputs. */
-void compareInverseDynamics(PinocchioInterface& pinocchioInterface) {
+/** Prints computeJointTorques() next to rneaJointTorques() and their largest difference for a few random inputs. */
+void compareInverseDynamics(PinocchioInterface& pinocchioInterface, const feet_array_t<pinocchio::FrameIndex>& soleFrames) {
   constexpr int kNumIterations = 10;
   const InverseDynamicsSamples samples = randomInverseDynamicsSamples(pinocchioInterface, kNumIterations);
   for (int i = 0; i < kNumIterations; ++i) {
     const vector_t resultCustom =
-        computeJointTorques(samples.q[i], samples.qd[i], samples.qddJoints[i], samples.footWrenches[i], pinocchioInterface);
+        computeJointTorques(samples.q[i], samples.qd[i], samples.qddJoints[i], samples.footWrenches[i], soleFrames, pinocchioInterface);
     const vector_t resultRnea =
-        computeJointTorquesRNEA(samples.q[i], samples.qd[i], samples.qddJoints[i], samples.footWrenches[i], pinocchioInterface);
+        rneaJointTorques(samples.q[i], samples.qd[i], samples.qddJoints[i], samples.footWrenches[i], soleFrames, pinocchioInterface);
     LOG(INFO) << "Result custom:" << resultCustom.transpose();
     LOG(INFO) << "Result rnea  :" << resultRnea.transpose();
+    LOG(INFO) << "Largest difference: " << (resultCustom - resultRnea).cwiseAbs().maxCoeff();
   }
 }
 
@@ -333,8 +369,14 @@ int printModels() {
     return 1;
   }
   pinocchioInterface = *std::move(scaledInterface);
-  benchmarkInverseDynamics(pinocchioInterface);
-  compareInverseDynamics(pinocchioInterface);
+  if (const absl::Status frames = checkContactFramesExist(pinocchioInterface.getModel(), modelSettings->contactNames); !frames.ok()) {
+    LOG(ERROR) << *taskFile << ": " << frames;
+    return 1;
+  }
+  const feet_array_t<pinocchio::FrameIndex> soleFrames = {pinocchioInterface.getModel().getFrameId(modelSettings->contactNames[0]),
+                                                          pinocchioInterface.getModel().getFrameId(modelSettings->contactNames[1])};
+  benchmarkInverseDynamics(pinocchioInterface, soleFrames);
+  compareInverseDynamics(pinocchioInterface, soleFrames);
   return 0;
 }
 

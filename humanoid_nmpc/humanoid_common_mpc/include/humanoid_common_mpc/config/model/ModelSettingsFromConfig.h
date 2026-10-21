@@ -78,8 +78,8 @@ absl::string_view stanceConstraintName(const ModelSettings::FootConstraintConfig
  *
  * @return InvalidArgument naming model_settings.foot_constraint.stance_constraint and listing the names, for a name that
  *         is none of stanceConstraintNames(); InvalidArgument naming the field, for a soft_constraint_weight or
- *         normal_velocity_soft_constraint_weight that is not a finite positive number (the start-up and a hot reload
- *         refuse the same weights).
+ *         normal_velocity_soft_constraint_weight that is not a finite positive number, or for an error gain that is
+ *         not a finite number of at least 0 (the start-up and a hot reload refuse the same values).
  */
 absl::StatusOr<ModelSettings::FootConstraintConfig> footConstraintFromConfig(
     const mpc_config::ModelSettingsConfig::FootConstraintConfig& config);
@@ -90,7 +90,10 @@ absl::StatusOr<ModelSettings::FootConstraintConfig> footConstraintFromConfig(
  */
 ModelSettings::ContactImplicitConfig contactImplicitFromConfig(const mpc_config::ContactImplicitConfig& config);
 
-/** nominal_foothold: the step width of the nominal foothold reference. */
-ModelSettings::NominalFootholdConfig nominalFootholdFromConfig(const mpc_config::NominalFootholdConfig& config);
+/**
+ * nominal_foothold: the step width of the nominal foothold reference; InvalidArgument when it is not a finite number of
+ * at least 0.
+ */
+absl::StatusOr<ModelSettings::NominalFootholdConfig> nominalFootholdFromConfig(const mpc_config::NominalFootholdConfig& config);
 
 }  // namespace ocs2::humanoid

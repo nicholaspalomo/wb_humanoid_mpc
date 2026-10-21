@@ -35,6 +35,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/string_view.h"
 #include "google/protobuf/message.h"
 
+#include "humanoid_mpc_config/joint_pd_gains_update.pb.h"
 #include "humanoid_mpc_config/mpc_parameter_update.pb.h"
 
 /**
@@ -69,5 +70,19 @@ std::string mpcParameterUpdateSchemaFingerprint();
 absl::Status checkMpcParameterUpdate(const humanoid_mpc_config::MpcParameterUpdate& message,
                                      absl::string_view robotName,
                                      absl::string_view taskFileIdentity);
+
+/** The schema fingerprint of JointPdGainsFile in this build (nproto::SchemaFingerprint()), which a sender stamps. */
+std::string jointPdGainsFileSchemaFingerprint();
+
+/**
+ * checkPayloadSchema() of `message`, and that its schema_fingerprint is this build's JointPdGainsFile fingerprint, and
+ * that it is the running configuration's: config_path equals `pdGainsFileIdentity` (configFileIdentity() of the
+ * receiver's joint PD gains file; empty: not checked). Two configurations of one robot share its joint names (unitree_g1's
+ * centroidal and whole-body MPCs), so only the path tells a centroidal G1 GUI's update from the whole-body one's; a
+ * receiver with an identity refuses an update without a config_path, which a sender of this build always fills.
+ *
+ * @return OK, or FailedPrecondition naming the unknown fields, the two fingerprints, or the two paths.
+ */
+absl::Status checkJointPdGainsUpdate(const humanoid_mpc_config::JointPdGainsUpdate& message, absl::string_view pdGainsFileIdentity);
 
 }  // namespace ocs2::humanoid

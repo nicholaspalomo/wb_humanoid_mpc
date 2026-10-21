@@ -43,6 +43,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
+#include "ocs2_core/Dimensions.h"
 #include "ocs2_core/manifold/UnitQuaternionMath.h"
 #include "ocs2_core/misc/LinearInterpolation.h"
 #include "ocs2_core/reference/TargetTrajectories.h"
@@ -75,6 +77,14 @@ struct BaseAngularVelocityJacobian {
   /** d w_B / d(the angular-velocity state slots): the identity, for the same reason. */
   matrix3_t angularVelocitySlots = matrix3_t::Zero();
 };
+
+/**
+ * The z component of the angular part of a base velocity whose linear part comes first: the yaw rate of the world twist
+ * [dp_W, R(xi) w_B] of getBaseTwistInWorldFrame(). In getBaseComVelocity() it is the vertical angular momentum per mass
+ * L_z / m only on the centroidal layout; on the whole body that entry is the body roll rate w_x (design defect D18), so
+ * a yaw rate is read through getTargetPlanarCommand() instead.
+ */
+inline constexpr int kTwistYawRateIndex = kPositionDim + kZAxisIndex;
 
 /**
  * The state and input layout of one MPC formulation: where the base pose, the joints and the contact wrenches sit in
@@ -154,7 +164,7 @@ class MpcRobotModelBase {
   // Assumes contact wrench [f_x, f_y, f_z, M_x, M_y, M_z]^T
   virtual size_t getContactWrenchStartIndices(size_t contactIndex) const = 0;
   virtual size_t getContactForceStartIndices(size_t contactIndex) const { return getContactWrenchStartIndices(contactIndex); }
-  virtual size_t getContactMomentStartIndices(size_t contactIndex) const { return 6 * contactIndex + 3; }
+  virtual size_t getContactMomentStartIndices(size_t contactIndex) const { return kWrenchDim * contactIndex + kForceDim; }
 
   /**
    * Number of input variables that parameterize the contact wrench of one contact, occupying the input block that
@@ -316,6 +326,9 @@ class MpcRobotModelBase {
    */
   virtual vector3_t getTargetPlanarCommand(const vector_t& targetState, scalar_t compositeYawInertia) const = 0;
 
+  /** The entry of getTargetPlanarCommand()'s (v_x, v_y, yaw rate) that holds the yaw rate. */
+  static constexpr int kPlanarCommandYawRateIndex = 2;
+
   /******************************************************************************************************/
   /*                                 Tuning layout and state values                                     */
   /******************************************************************************************************/
@@ -469,6 +482,18 @@ class MpcRobotModelBase {
   }
 
   /**
+   * Returns getContactWrenchInWorldFrame(state, input, contactIndex) with `contactFrameRotation`, the orientation
+   * (contact frame to world) of the contact's frame at the state, given instead of computed from the state: for the
+   * realtime controllers, which read it off kinematics of their own, and must not allocate - nor does this, for any
+   * model. The default ignores the rotation: the input stores a world-frame wrench.
+   */
+  virtual VECTOR6_T<SCALAR_T> getContactWrenchInWorldFrameGivenRotation(const VECTOR_T<SCALAR_T>& input,
+                                                                        const MATRIX3_T<SCALAR_T>& /*contactFrameRotation*/,
+                                                                        size_t contactIndex) const {
+    return getContactWrench(input, contactIndex);
+  }
+
+  /**
    * Writes a world-frame contact wrench into the input vector, converting into the input
    * parameterization (and local contact frame) where necessary.
    */
@@ -491,7 +516,7 @@ class MpcRobotModelBase {
   /******************************************************************************************************/
 
   /** The index of `jointName` among the MPC joints, or NotFound when it is not an active joint of the MPC model. */
-  absl::StatusOr<size_t> findJointIndex(const std::string& jointName) const {
+  absl::StatusOr<size_t> findJointIndex(absl::string_view jointName) const {
     const absl::flat_hash_map<std::string, size_t>::const_iterator found = modelSettings.jointIndexMap.find(jointName);
     if (found == modelSettings.jointIndexMap.end()) {
       return absl::NotFoundError(absl::StrCat("Joint name ", jointName, " is not contained in MPC model!"));
@@ -510,16 +535,17 @@ class MpcRobotModelBase {
    */
   vector_t interpolateWithSlerpedOrientation(scalar_t time, const scalar_array_t& times, const vector_array_t& states) const {
     vector_t interpolated = LinearInterpolation::interpolate(time, times, states);
-    if (states.size() < 2) return interpolated;
+    if (states.size() <= 1) return interpolated;
     const LinearInterpolation::index_alpha_t indexAlpha = LinearInterpolation::timeSegment(time, times);
     const vector_t& left = states[static_cast<size_t>(indexAlpha.first)];
     const vector_t& right = states[static_cast<size_t>(indexAlpha.first) + 1];
     // LinearInterpolation's alpha weighs the left state: 1 at its time, 0 at the right state's.
     if (left.size() != right.size() || indexAlpha.second >= 1.0 || indexAlpha.second <= 0.0) return interpolated;
     const Eigen::Index start = static_cast<Eigen::Index>(getBaseOrientationStartIndex());
-    const vector4_t leftOrientation = left.segment<4>(start);
-    const vector4_t rightOrientation = right.segment<4>(start);
-    interpolated.segment<4>(start) = quaternionSlerp<scalar_t>(leftOrientation, rightOrientation, 1.0 - indexAlpha.second);
+    const vector4_t leftOrientation = left.segment<kQuaternionCoefficients>(start);
+    const vector4_t rightOrientation = right.segment<kQuaternionCoefficients>(start);
+    interpolated.segment<kQuaternionCoefficients>(start) =
+        quaternionSlerp<scalar_t>(leftOrientation, rightOrientation, 1.0 - indexAlpha.second);
     return interpolated;
   }
 

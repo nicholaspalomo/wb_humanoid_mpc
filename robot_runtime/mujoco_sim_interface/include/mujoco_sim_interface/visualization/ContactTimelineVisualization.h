@@ -40,6 +40,8 @@ namespace robot::mujoco_sim_interface {
 /**
  * Barcode along the bottom edge: per contact point, the contact state the controller plans (top strip) against the
  * simulator's ground truth (bottom strip) over a sliding window of time (MujocoSimInterface::copyContactTimeline).
+ *
+ * Not thread-safe: the viewer drives it from one thread.
  */
 class ContactTimelineVisualization final : public MujocoVisualization {
  public:

@@ -25,16 +25,20 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-"""Export trained JAX policy weights to ONNX format for C++ runtime deployment."""
+"""Export a trained policy checkpoint to ONNX format for C++ runtime deployment.
+
+The graph is the whole deterministic policy actor_critic.policy_action(): the observation normalizer, the two ELU torso
+layers, the actor's mean and the tanh that squashes it into (-1, 1), so that the runtime feeds it raw observations.
+"""
 
 import argparse
+from collections.abc import Sequence
 import os
 from typing import Any
 
-import jax
-import jax.numpy as jnp
 import numpy as np
 import onnx
+import onnx.numpy_helper
 
 from humanoid_learning.training import actor_critic
 
@@ -42,108 +46,129 @@ from humanoid_learning.training import actor_critic
 _POLICY_LAYERS = ("Dense_0", "Dense_1", "Dense_2")
 
 
-def parse_args() -> argparse.Namespace:
-    """The command line of the export."""
+def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
+    """Returns the command line of the export; `argv` None reads sys.argv."""
     parser = argparse.ArgumentParser(description="Export JAX Actor Policy to ONNX")
     parser.add_argument(
-        "--checkpoint_path", type=str, default="", help="Path to checkpoint"
+        "--checkpoint_path",
+        type=str,
+        required=True,
+        help="The checkpoint bc_warmstart.py wrote (actor_critic.save_checkpoint())",
     )
     parser.add_argument(
         "--output_path", type=str, default="policy.onnx", help="Output ONNX file path"
     )
-    parser.add_argument("--obs_dim", type=int, default=25, help="Observation dimension")
-    parser.add_argument("--act_dim", type=int, default=12, help="Action dimension")
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
 def actor_weights(params: Any) -> dict[str, np.ndarray]:
-    """The weights of the deterministic policy, keyed as export_dense_mlp_to_onnx reads them.
+    """Returns the weights of the deterministic policy, keyed as export_policy_to_onnx reads them.
 
     Args:
         params: ActorCritic parameters, as `ActorCritic.init` returns them.
 
     Returns:
-        `<layer>/kernel` and `<layer>/bias` of every layer in _POLICY_LAYERS.
+        `<layer>/kernel` and `<layer>/bias` of every layer in _POLICY_LAYERS, float32.
+
+    Raises:
+        KeyError: When `params` lacks a layer.
     """
     weights: dict[str, np.ndarray] = {}
     for layer in _POLICY_LAYERS:
         dense = params["params"][layer]
-        weights[f"{layer}/kernel"] = np.array(dense["kernel"])
-        weights[f"{layer}/bias"] = np.array(dense["bias"])
+        weights[f"{layer}/kernel"] = np.asarray(dense["kernel"], dtype=np.float32)
+        weights[f"{layer}/bias"] = np.asarray(dense["bias"], dtype=np.float32)
     return weights
 
 
-def export_dense_mlp_to_onnx(
-    weights_dict: dict[str, np.ndarray], obs_dim: int, act_dim: int, output_path: str
+def _checked_layers(
+    weights: dict[str, np.ndarray]
+) -> list[tuple[np.ndarray, np.ndarray]]:
+    """Returns the (kernel, bias) of every layer of `weights`, whose shapes are checked to chain."""
+    missing: list[str] = []
+    for layer in _POLICY_LAYERS:
+        missing.extend(
+            f"{layer}/{leaf}"
+            for leaf in ("kernel", "bias")
+            if f"{layer}/{leaf}" not in weights
+        )
+    if missing:
+        raise KeyError(f"the policy weights lack {', '.join(missing)}")
+    layers = [
+        (weights[f"{layer}/kernel"], weights[f"{layer}/bias"])
+        for layer in _POLICY_LAYERS
+    ]
+    for index, (kernel, bias) in enumerate(layers):
+        if kernel.ndim != 2 or bias.shape != (kernel.shape[1],):
+            raise ValueError(
+                f"{_POLICY_LAYERS[index]}: kernel {kernel.shape} and bias {bias.shape} are no dense layer"
+            )
+        if index > 0 and kernel.shape[0] != layers[index - 1][0].shape[1]:
+            raise ValueError(
+                f"{_POLICY_LAYERS[index]} takes {kernel.shape[0]} inputs, its predecessor gives {layers[index - 1][0].shape[1]}"
+            )
+    return layers
+
+
+def export_policy_to_onnx(
+    weights: dict[str, np.ndarray],
+    normalizer: actor_critic.ObservationNormalizer,
+    output_path: str,
 ) -> None:
-    """Builds a pure ONNX graph from MLP weight matrices."""
-    # Inputs & outputs
+    """Writes the deterministic policy tanh(MLP((observation - mean) / std)) as an ONNX graph.
+
+    Args:
+        weights: The policy's layers, as actor_weights() returns them.
+        normalizer: The normalizer the weights were trained through.
+        output_path: The ONNX file to write; its directory is created.
+
+    Raises:
+        KeyError: When `weights` lacks a layer.
+        ValueError: When the layers' shapes do not chain or the normalizer is not of the observation's size.
+    """
+    layers = _checked_layers(weights)
+    obs_dim = layers[0][0].shape[0]
+    act_dim = layers[-1][0].shape[1]
+    if normalizer.mean.shape != (obs_dim,) or normalizer.std.shape != (obs_dim,):
+        raise ValueError(
+            f"the normalizer ({normalizer.mean.shape}, {normalizer.std.shape}) is not of the observation's size {obs_dim}"
+        )
+
     input_tensor = onnx.helper.make_tensor_value_info(
         "observation", onnx.TensorProto.FLOAT, [1, obs_dim]
     )
     output_tensor = onnx.helper.make_tensor_value_info(
         "action", onnx.TensorProto.FLOAT, [1, act_dim]
     )
-
-    nodes = []
-    initializers = []
-
-    # Layer 1
-    w1 = weights_dict.get(
-        "Dense_0/kernel", np.random.randn(obs_dim, 256).astype(np.float32)
-    )
-    b1 = weights_dict.get("Dense_0/bias", np.zeros((256,), dtype=np.float32))
-    initializers.append(
-        onnx.helper.make_tensor(
-            "W1", onnx.TensorProto.FLOAT, [obs_dim, 256], w1.flatten()
+    initializers = [
+        onnx.numpy_helper.from_array(
+            np.asarray(normalizer.mean, dtype=np.float32), "observation_mean"
+        ),
+        onnx.numpy_helper.from_array(
+            np.asarray(normalizer.std, dtype=np.float32), "observation_std"
+        ),
+    ]
+    nodes = [
+        onnx.helper.make_node("Sub", ["observation", "observation_mean"], ["centered"]),
+        onnx.helper.make_node("Div", ["centered", "observation_std"], ["normalized"]),
+    ]
+    layer_input = "normalized"
+    for index, (kernel, bias) in enumerate(layers):
+        initializers.append(onnx.numpy_helper.from_array(kernel, f"W{index}"))
+        initializers.append(onnx.numpy_helper.from_array(bias, f"B{index}"))
+        nodes.append(
+            onnx.helper.make_node(
+                "Gemm",
+                [layer_input, f"W{index}", f"B{index}"],
+                [f"h{index}"],
+                alpha=1.0,
+                beta=1.0,
+            )
         )
-    )
-    initializers.append(
-        onnx.helper.make_tensor("B1", onnx.TensorProto.FLOAT, [256], b1.flatten())
-    )
-    nodes.append(
-        onnx.helper.make_node(
-            "Gemm", ["observation", "W1", "B1"], ["h1"], alpha=1.0, beta=1.0
-        )
-    )
-    nodes.append(onnx.helper.make_node("Elu", ["h1"], ["h1_act"]))
-
-    # Layer 2
-    w2 = weights_dict.get(
-        "Dense_1/kernel", np.random.randn(256, 256).astype(np.float32)
-    )
-    b2 = weights_dict.get("Dense_1/bias", np.zeros((256,), dtype=np.float32))
-    initializers.append(
-        onnx.helper.make_tensor("W2", onnx.TensorProto.FLOAT, [256, 256], w2.flatten())
-    )
-    initializers.append(
-        onnx.helper.make_tensor("B2", onnx.TensorProto.FLOAT, [256], b2.flatten())
-    )
-    nodes.append(
-        onnx.helper.make_node(
-            "Gemm", ["h1_act", "W2", "B2"], ["h2"], alpha=1.0, beta=1.0
-        )
-    )
-    nodes.append(onnx.helper.make_node("Elu", ["h2"], ["h2_act"]))
-
-    # Action Head
-    w3 = weights_dict.get(
-        "Dense_2/kernel", np.random.randn(256, act_dim).astype(np.float32)
-    )
-    b3 = weights_dict.get("Dense_2/bias", np.zeros((act_dim,), dtype=np.float32))
-    initializers.append(
-        onnx.helper.make_tensor(
-            "W3", onnx.TensorProto.FLOAT, [256, act_dim], w3.flatten()
-        )
-    )
-    initializers.append(
-        onnx.helper.make_tensor("B3", onnx.TensorProto.FLOAT, [act_dim], b3.flatten())
-    )
-    nodes.append(
-        onnx.helper.make_node(
-            "Gemm", ["h2_act", "W3", "B3"], ["action"], alpha=1.0, beta=1.0
-        )
-    )
+        if index + 1 < len(layers):
+            nodes.append(onnx.helper.make_node("Elu", [f"h{index}"], [f"h{index}_act"]))
+            layer_input = f"h{index}_act"
+    nodes.append(onnx.helper.make_node("Tanh", [f"h{len(layers) - 1}"], ["action"]))
 
     graph = onnx.helper.make_graph(
         nodes=nodes,
@@ -161,23 +186,28 @@ def export_dense_mlp_to_onnx(
     print(f"✅ ONNX model successfully saved to: {output_path}")
 
 
-def main() -> None:
-    args = parse_args()
+def _resolved(path: str) -> str:
+    """Returns `path`, a relative one taken relative to the workspace under bazel run."""
+    if os.path.isabs(path):
+        return path
+    return os.path.join(
+        os.environ.get("BUILD_WORKSPACE_DIRECTORY", os.path.abspath(".")), path
+    )
+
+
+def main(argv: Sequence[str] | None = None) -> None:
+    """Exports the checkpoint of the command line."""
+    args = parse_args(argv)
+    checkpoint_path = _resolved(args.checkpoint_path)
+    output_path = _resolved(args.output_path)
     print("=" * 60)
     print("🚀 Exporting JAX Policy to ONNX for C++ Real-Time Bridge")
-    print(f"   Obs Dim:     {args.obs_dim}")
-    print(f"   Act Dim:     {args.act_dim}")
-    print(f"   Output File: {args.output_path}")
+    print(f"   Checkpoint:  {checkpoint_path}")
+    print(f"   Output File: {output_path}")
     print("=" * 60)
 
-    # Initialize model weights
-    network = actor_critic.ActorCritic(action_dim=args.act_dim)
-    rng = jax.random.PRNGKey(0)
-    params = network.init(rng, jnp.zeros((1, args.obs_dim)))
-
-    export_dense_mlp_to_onnx(
-        actor_weights(params), args.obs_dim, args.act_dim, args.output_path
-    )
+    params, normalizer = actor_critic.load_checkpoint(checkpoint_path)
+    export_policy_to_onnx(actor_weights(params), normalizer, output_path)
 
 
 if __name__ == "__main__":

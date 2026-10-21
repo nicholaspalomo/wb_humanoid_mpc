@@ -243,6 +243,16 @@ def _hip_width(geometry):
     return 2.0 * max(abs(y) for _, y in geometry.hip_offset)
 
 
+def _stance_width(task, geometry):
+    """The stance the robot walks in, read independently of the script: the nominal step's, else the posture's."""
+    step_width = _step_width(task)
+    if step_width > 0.0:
+        return step_width
+    if geometry.nominal_foot_separation > 0.0:
+        return geometry.nominal_foot_separation
+    return _hip_width(geometry)
+
+
 def _listed_names(block):
     """The names each of the three lists of a `locomotion_heuristics` block turns on; an absent list is none."""
     return {kind: derive.as_list(block.get(kind)) for kind in EXPECTED_HEURISTIC_NAMES}
@@ -439,7 +449,6 @@ def _derive(geometry, task, limits, planning, gait="trot"):
 # came to be missing before.
 MUST_BE_POSITIVE = (
     "orientation_compensation.maximum_tilt",
-    "capture_point.gravity",
     "capture_point.maximum_offset",
 )
 MUST_NOT_BE_NEGATIVE = (
@@ -452,6 +461,14 @@ MUST_NOT_BE_NEGATIVE = (
     "centripetal_acceleration.scale",
     "centripetal_acceleration.maximum_force",
     "centripetal_acceleration.maximum_force_ratio_of_weight",
+)
+
+# The keys a derivation or a task file may leave out, whose absence is a setting of its own (no 0 sentinel in the
+# schema): without centripetal_acceleration.maximum_force, maximum_force_ratio_of_weight is the clamp; without
+# capture_point.com_height_override, the CoM height measured each solve is the pendulum.
+OPTIONAL_KEYS = (
+    "centripetal_acceleration.maximum_force",
+    "capture_point.com_height_override",
 )
 
 
@@ -473,6 +490,8 @@ class _DerivedBlockAssertions(unittest.TestCase):
             self.assertGreater(parameters[name][key], 0.0, dotted)
         for dotted in MUST_NOT_BE_NEGATIVE:
             name, key = dotted.split(".")
+            if dotted in OPTIONAL_KEYS and key not in parameters[name]:
+                continue
             self.assertGreaterEqual(parameters[name][key], 0.0, dotted)
         duty = parameters["impulse_scaling"]["minimum_duty_factor"]
         self.assertTrue(
@@ -483,7 +502,7 @@ class _DerivedBlockAssertions(unittest.TestCase):
         )
         centripetal = parameters["centripetal_acceleration"]
         self.assertTrue(
-            centripetal["maximum_force"] > 0.0
+            centripetal.get("maximum_force", 0.0) > 0.0
             or centripetal["maximum_force_ratio_of_weight"] > 0.0,
             "both centripetal clamps at zero would remove the clamp",
         )
@@ -491,29 +510,26 @@ class _DerivedBlockAssertions(unittest.TestCase):
     def assert_lateral_scale_reproduces_the_stance(
         self, parameters: dict[str, dict[str, float]], geometry: Any, task: dict
     ) -> None:
-        """hip_centered_stepping REPLACES the stance-foot anchor, so the scale must give back the stance it replaces.
+        """hip_centered_stepping REPLACES the step-width anchor, so the scale must give back the stance it replaces.
 
-        Catches a hip_width / hip_half_width mix-up, which doubles lateral_scale (Atlas's 0.45 m stance becomes 0.9 m).
-        The tolerance is exactly what rounding lateral_scale to three decimals can cost.
+        Catches a hip_width / hip_half_width mix-up, which doubles lateral_scale (Atlas's 0.45 m stance becomes 0.9 m),
+        and, on a robot with no nominal step, a scale of 1 that narrows the stance the robot stands in to its hips (G1:
+        0.237 m to 0.129 m). The tolerance is exactly what rounding lateral_scale to three decimals can cost.
 
         Args:
           parameters: The derived block.
           geometry: The geometry it was derived from.
-          task: The task file, whose nominal_foothold.step_width is the stance.
+          task: The task file, whose nominal_foothold.step_width is the stance, else the nominal posture's.
         """
         scale = parameters["hip_centered_stepping"]["lateral_scale"]
-        step_width = _step_width(task)
+        stance_width = _stance_width(task, geometry)
         hip_width = _hip_width(geometry)
-        if step_width > 0.0:
-            self.assertLessEqual(
-                abs(hip_width * scale - step_width),
-                0.5e-3 * hip_width + 1e-12,
-                "lateral_scale %s spreads hips %.4f m apart to %.4f m, not the %.4f m nominal_foothold.step_width"
-                % (scale, hip_width, hip_width * scale, step_width),
-            )
-        else:
-            # No stance to reproduce, so the hips' own width is the width.
-            self.assertEqual(scale, 1.0)
+        self.assertLessEqual(
+            abs(hip_width * scale - stance_width),
+            0.5e-3 * hip_width + 1e-12,
+            "lateral_scale %s spreads hips %.4f m apart to %.4f m, not the %.4f m stance"
+            % (scale, hip_width, hip_width * scale, stance_width),
+        )
 
     def assert_pendulum_is_the_configured_one(
         self,
@@ -541,10 +557,10 @@ class _DerivedBlockAssertions(unittest.TestCase):
         self.assertEqual(
             turning["forward_per_cross_term"], turning["lateral_per_cross_term"]
         )
-        # Bledt eq. 4.31: the lean is z / g, with the same g the capture point uses.
+        # Bledt eq. 4.31: the lean is z / g, with the model's g, which the capture point uses too.
         self.assertAlmostEqual(
             turning["forward_per_cross_term"],
-            lip / capture["gravity"],
+            lip / derive.GRAVITY,
             delta=ROUNDING_4,
         )
         self.assertEqual(turning["forward_offset"], 0.0)
@@ -574,8 +590,7 @@ class _DerivedBlockAssertions(unittest.TestCase):
         ):
             self.assertEqual(stepping[key], 0.0, "translational_stepping.%s" % key)
 
-        step_width = _step_width(task)
-        lever = step_width / 2.0 if step_width > 0.0 else _hip_width(geometry) / 2.0
+        lever = _stance_width(task, geometry) / 2.0
         turning = parameters["in_place_turning"]
         self.assertAlmostEqual(
             turning["forward_stance_lever"], lever / 2.0, delta=ROUNDING_4
@@ -1042,13 +1057,15 @@ class ShippedConfigurationTest(unittest.TestCase):
                 for name, values in block.items():
                     if isinstance(values, dict):
                         shipped.update("%s.%s" % (name, key) for key in values)
+                # An optional key (OPTIONAL_KEYS) is spelled or left out: its absence is a setting of its own.
+                required = set(cpp_keys) - set(OPTIONAL_KEYS)
                 self.assertEqual(
-                    shipped,
-                    set(cpp_keys),
+                    shipped - set(OPTIONAL_KEYS),
+                    required,
                     "not in the schema: %s; missing from the file: %s"
                     % (
                         sorted(shipped - set(cpp_keys)),
-                        sorted(set(cpp_keys) - shipped),
+                        sorted(required - shipped),
                     ),
                 )
 
@@ -1119,19 +1136,21 @@ class ShippedConfigurationTest(unittest.TestCase):
                 self.assertAlmostEqual(cadence.duty_factor, 0.5, places=9)
                 self.assertTrue(cadence.has_double_support)
 
-    def test_largest_double_support_ratio_is_walks_one_over_beta(self):
-        # Of the gaits with double support, walk has the smallest duty factor (0.8 / 1.4 = 0.571; slow_walk 1.05 / 1.7,
-        # fast_walk 0.7, very_slow_walk 1.5 / 2.2, jump 0.3 / 0.5), so it is the one impulse_scaling's force clamp
-        # has to cover. run and skip have lower duty factors but no double support, and must not be counted.
+    def test_largest_force_ratio_is_walks_one_over_beta(self):
+        # Walk's double support asks for 1/beta = 1.4 / 0.8 = 1.75 x weight compensation, the most of the shipped gaits:
+        # slow_walk 1.7 / 1.05 = 1.62, fast_walk 1.43, very_slow_walk 1.47, jump 1.67; the flight gaits ask for their
+        # single support's 1/(2 beta): run 1 / 0.75 = 1.33, skip 1 / 0.9 = 1.11.
         gaits = _gaits()
-        name, ratio = derive.largest_double_support_ratio(gaits)
+        name, ratio = derive.largest_force_ratio(gaits)
         self.assertEqual(name, "walk")
         self.assertAlmostEqual(ratio, 1.4 / 0.8, places=9)
 
-    def test_largest_double_support_ratio_skips_flight_gaits(self):
-        # A synthetic table, so the rule is pinned whatever the gait file becomes. `hop` has the lowest duty factor
-        # (0.2 / 0.8 = 0.25, ratio 4) but no double support; `amble` is down 0.4 + 0.2 + 0.2 = 0.8 s of 1.2 s (ratio
-        # 1.5); `stroll` 0.3 + 0.5 + 0.5 = 1.3 s of 1.6 s (ratio 1.23).
+    def test_largest_force_ratio_counts_the_single_support_of_a_flight_gait(self):
+        # A synthetic table, so the rule is pinned whatever the gait file becomes. With n feet down the reference is
+        # W/(2 beta) per foot against W/n, a ratio of n/(2 beta), so a flight gait binds in single support: each foot of
+        # `hop` is down 0.2 s of 0.8 s, beta = 0.25, ratio 1/(2 * 0.25) = 2; `amble` (double support, beta = 0.8 / 1.2)
+        # 1.5; `stroll` 1.6 / 1.3 = 1.23. The script used to skip every gait
+        # without double support, on the claim that the binding phase is always a double support, and named amble.
         gaits = {
             "gait_list": ["hop", "amble", "stroll"],
             "hop": {
@@ -1147,13 +1166,44 @@ class ShippedConfigurationTest(unittest.TestCase):
                 "switching_times": [0.0, 0.3, 0.8, 1.1, 1.6],
             },
         }
-        name, ratio = derive.largest_double_support_ratio(gaits)
+        name, ratio = derive.largest_force_ratio(gaits)
+        self.assertEqual(name, "hop")
+        self.assertAlmostEqual(ratio, 2.0, places=9)
+        # Without the flight gait the double support of amble binds, at 1/beta.
+        gaits["gait_list"] = ["amble", "stroll"]
+        name, ratio = derive.largest_force_ratio(gaits)
         self.assertEqual(name, "amble")
         self.assertAlmostEqual(ratio, 1.5, places=9)
-        # Positive control: the flight gait IS the smallest duty factor, so skipping it above was the rule at work.
-        smallest_name, smallest_duty = derive.smallest_duty_factor(gaits)
+        smallest_name, smallest_duty = derive.smallest_duty_factor(
+            {**gaits, "gait_list": ["hop", "amble", "stroll"]}
+        )
         self.assertEqual(smallest_name, "hop")
         self.assertAlmostEqual(smallest_duty, 0.25, places=9)
+
+    def test_largest_force_ratio_is_what_impulse_scaling_asks_for(self):
+        # An independent oracle: walk each gait's phases and take the largest per-foot reference W/(2 beta) over the
+        # baseline W/n of the phase, over every phase that has a foot down.
+        gaits = _gaits()
+        worst = 1.0
+        for gait_name in gaits["gait_list"]:
+            if gait_name not in gaits:
+                continue
+            modes = gaits[gait_name]["mode_sequence"]
+            times = [float(t) for t in gaits[gait_name]["switching_times"]]
+            stride = times[-1] - times[0]
+            down = [0.0, 0.0]
+            for mode, start, end in zip(modes, times, times[1:]):
+                for foot, in_contact in enumerate(MODE_CONTACTS[mode]):
+                    if in_contact:
+                        down[foot] += end - start
+            if stride <= 0.0 or min(down) <= 0.0:
+                continue
+            beta = down[0] / stride
+            for mode in modes:
+                feet_down = sum(MODE_CONTACTS[mode])
+                if feet_down > 0:
+                    worst = max(worst, (1.0 / (2.0 * beta)) / (1.0 / feet_down))
+        self.assertAlmostEqual(derive.largest_force_ratio(gaits)[1], worst, places=9)
 
     def test_an_unknown_gait_is_reported_rather_than_guessed(self):
         with self.assertRaises(SystemExit):
@@ -1211,13 +1261,16 @@ class DerivationPropertiesTest(_DerivedBlockAssertions):
         for robot in sorted(derive.ROBOTS):
             with self.subTest(robot=robot):
                 derived = _derived_keys(self._derive_robot(robot)[3])
+                # An optional key (OPTIONAL_KEYS) is derived or left out: its absence is a setting of its own.
+                required = set(cpp_keys) - set(OPTIONAL_KEYS)
+                self.assertTrue(set(OPTIONAL_KEYS) <= set(cpp_keys))
                 self.assertEqual(
-                    derived,
-                    set(cpp_keys),
+                    derived - set(OPTIONAL_KEYS),
+                    required,
                     "not in the schema: %s; not derived: %s"
                     % (
                         sorted(derived - set(cpp_keys)),
-                        sorted(set(cpp_keys) - derived),
+                        sorted(required - derived),
                     ),
                 )
 
@@ -1762,7 +1815,7 @@ class DeriveParametersTest(_DerivedBlockAssertions):
                     )
                     checked += 1
                 turning = block.get("high_speed_turning") or {}
-                gravity = float(capture.get("gravity", derive.GRAVITY))
+                gravity = derive.GRAVITY
                 for key in ("forward_per_cross_term", "lateral_per_cross_term"):
                     value = float(turning.get(key, 0.0))
                     if value > 0.0:

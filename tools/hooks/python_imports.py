@@ -122,7 +122,7 @@ def _is_first_party_module(module: str, here: str) -> bool:
     parts = module.split(".")
     for base in (here,) + _roots(ROOT):
         candidate = os.path.join(base, *parts)
-        if os.path.isfile(candidate + ".py") or os.path.isdir(candidate):
+        if os.path.isfile(f"{candidate}.py") or os.path.isdir(candidate):
             return True
     return False
 
@@ -145,7 +145,7 @@ def _is_module(package: str, name: str, here: str) -> bool:
         return True
     directory = _first_party_package(package, here)
     if directory is not None:
-        return os.path.isfile(os.path.join(directory, name + ".py")) or os.path.isdir(
+        return os.path.isfile(os.path.join(directory, f"{name}.py")) or os.path.isdir(
             os.path.join(directory, name)
         )
     if _is_first_party_module(package, here):

@@ -36,6 +36,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2 {
 
+namespace {
+
+constexpr scalar_t kSecondsPerMillisecond = 1e-3;
+
+}  // namespace
+
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
@@ -148,7 +154,7 @@ absl::Status MPC_MRT_Interface::advanceMpc() {
   if (mpc_.settings().solutionTimeWindow_ < 0) {
     timeWindow = mpc_.getSolverPtr()->getFinalTime() - currentObservation.time;
   }
-  if (timeWindow < 2.0 * mpcTimer_.getAverageInMilliseconds() * 1e-3) {
+  if (timeWindow < 2.0 * mpcTimer_.getAverageInMilliseconds() * kSecondsPerMillisecond) {
     LOG(WARNING) << "The solution time window might be shorter than the MPC delay!";
   }
 

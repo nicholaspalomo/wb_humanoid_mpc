@@ -36,7 +36,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-/** `foothold_regularization`: w sum_i ||dp_{i,k}||^2 on the running nodes, prefers short steps. */
+/**
+ * `foothold_regularization`: w sum_i ||dp_{i,k}||^2 on the running nodes, prefers short steps.
+ *
+ * Not thread-safe, like every ContactPlanningTerm: the planner that owns it configures and evaluates it from one thread at a time.
+ */
 class FootholdRegularizationCost final : public LipWeightedCost {
  public:
   std::string describe() const override;

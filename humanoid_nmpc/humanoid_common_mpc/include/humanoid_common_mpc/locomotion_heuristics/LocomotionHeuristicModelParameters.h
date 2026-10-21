@@ -32,6 +32,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 
 #include "absl/status/statusor.h"
+#include "ocs2_core/PhysicalConstants.h"
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
 
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
@@ -48,8 +49,9 @@ namespace ocs2::humanoid {
  * heuristic be a pure function with no access to Pinocchio - see LocomotionHeuristic.
  */
 struct LocomotionHeuristicModelParameters {
-  scalar_t totalMass = 0.0;    // [kg]
-  scalar_t gravity = 9.81;     // [m/s^2]
+  scalar_t totalMass = 0.0;  // [kg]
+  // [m/s^2] the model's gravity (modelGravity()), the g of the capture point's sqrt(z / g).
+  scalar_t gravity = kGravitationalAcceleration;
   scalar_t totalWeight = 0.0;  // [N] totalMass * gravity, precomputed because every wrench heuristic divides by it
   /** [m] center of mass above the mean foot height in the nominal standing posture: the pendulum length. */
   scalar_t nominalComHeight = 0.0;
@@ -72,12 +74,10 @@ struct LocomotionHeuristicModelParameters {
  * Derives the model parameters from the robot model at the nominal standing state.
  *
  * `nominalState` is the same default posture the rest of the interface uses (the `default_joint_state` of reference.textproto
- * on a level base), because these are the constants of the gait's neighbourhood rather than of any one instant.
+ * on a level base), because these are the constants of the gait's neighborhood rather than of any one instant. The
+ * gravity is the model's (modelGravity()), the one its dynamics use; InvalidArgument when it does not point down.
  */
 absl::StatusOr<LocomotionHeuristicModelParameters> deriveLocomotionHeuristicModelParameters(
-    PinocchioInterface& pinocchioInterface,
-    const MpcRobotModelBase<scalar_t>& mpcRobotModel,
-    const vector_t& nominalState,
-    scalar_t gravity = 9.81);
+    PinocchioInterface& pinocchioInterface, const MpcRobotModelBase<scalar_t>& mpcRobotModel, const vector_t& nominalState);
 
 }  // namespace ocs2::humanoid

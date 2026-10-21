@@ -133,6 +133,8 @@ _BOOST_HEADER = re.compile(r'[ \t]*([<"]boost/[^>"\n]*[>"]?)')
 # The directives other than #include that can name a header: a macro an #include expands, and __has_include.
 _HEADER_NAMING_DIRECTIVE = re.compile(r"[ \t]*#[ \t]*(?:define|if|elif)\b")
 _BOOST_HEADER_ANYWHERE = re.compile(r'[<"]boost/[^>"\n]*[>"]?')
+# Whitespace, which the finding's text of an include directive drops (`# include` -> `#include`).
+_WHITESPACE = re.compile(r"\s+")
 _CPP_CODE = re.compile(
     r"\bnamespace\s+boost\b"
     # An alias of the namespace itself; an alias of a nested one (= boost::python) is reported at its `boost::`.
@@ -174,7 +176,7 @@ def _check_cpp(without_comments: str, code: str) -> list[tuple[int, int, str, st
                         number,
                         header.start(1) + 1,
                         "include",
-                        re.sub(r"\s+", "", directive.group(0)) + " " + header.group(1),
+                        f"{_WHITESPACE.sub('', directive.group(0))} {header.group(1)}",
                     )
                 )
         naming = _HEADER_NAMING_DIRECTIVE.match(code_line)

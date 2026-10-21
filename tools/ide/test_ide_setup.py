@@ -136,7 +136,7 @@ class CompileCommandsRefreshTest(unittest.TestCase):
         for path in ("tools/deploy/session.sh", "tools/deploy/deploy_robot.sh"):
             source = _read(path)
             with self.subTest(path=path):
-                self.assertIn(_RUNNER + " build", source)
+                self.assertIn(f"{_RUNNER} build", source)
                 for number, line in enumerate(source.splitlines(), start=1):
                     if line.lstrip().startswith("#"):
                         continue

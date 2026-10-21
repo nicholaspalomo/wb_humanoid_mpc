@@ -235,7 +235,7 @@ class ShellInitTest(unittest.TestCase):
         with open(fake, "w", encoding="utf-8") as f:
             f.write('#!/bin/sh\necho "$*" >> "%s"\n' % self.calls)
         os.chmod(fake, os.stat(fake).st_mode | stat.S_IXUSR)
-        self.path = bin_directory + ":" + os.environ.get("PATH", "/usr/bin:/bin")
+        self.path = f'{bin_directory}:{os.environ.get("PATH", "/usr/bin:/bin")}'
 
     def tearDown(self):
         self.directory.cleanup()
@@ -312,10 +312,10 @@ class ShellInitCheckoutTest(unittest.TestCase):
     def test_the_checkout_of_the_working_directory_is_set_up(self):
         first = self.make_checkout("first")
         second = self.make_checkout("second")
-        self.assertEqual(self.sourced_from(first), "first|" + first)
+        self.assertEqual(self.sourced_from(first), f"first|{first}")
         deep = os.path.join(second, "some", "package")
         # From anywhere inside it, and the shell is left where it started.
-        self.assertEqual(self.sourced_from(deep), "second|" + deep)
+        self.assertEqual(self.sourced_from(deep), f"second|{deep}")
 
     def test_a_directory_with_a_setup_script_but_no_module_is_not_a_checkout(self):
         stray = os.path.join(self.directory, "stray")

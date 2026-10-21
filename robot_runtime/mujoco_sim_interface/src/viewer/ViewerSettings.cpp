@@ -51,6 +51,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace robot::mujoco_sim_interface {
 namespace {
 
+// The fewest llvmpipe rasterizer threads softwareRasterizerThreads() asks for, however few cores the viewer has.
+constexpr int kMinSoftwareRasterizerThreads = 2;
+
 bool isKnownViewer(absl::string_view name) {
   for (const ViewerInfo& viewer : availableViewers()) {
     if (viewer.name == name) return true;
@@ -93,7 +96,7 @@ absl::Status checkRendering(const WebViewerOptions& web) {
 
 absl::Status checkServing(const WebViewerOptions& web) {
   if (web.address.empty()) return absl::InvalidArgumentError("the web viewer's address is empty; 127.0.0.1 serves this machine only");
-  if (absl::Status status = checkRange("port", web.port, /*minimum=*/0, /*maximum=*/65535); !status.ok()) {
+  if (absl::Status status = checkRange("port", web.port, /*minimum=*/0, WebViewerOptions::kMaxPort); !status.ok()) {
     return status;
   }
   for (const std::string& host : web.allowedHosts) {
@@ -204,7 +207,7 @@ absl::Status validateViewerSettings(const ViewerSettings& settings) {
 }
 
 int softwareRasterizerThreads(const WebViewerOptions& web) {
-  return std::max(static_cast<int>(web.cores.size()), 2);
+  return std::max(static_cast<int>(web.cores.size()), kMinSoftwareRasterizerThreads);
 }
 
 }  // namespace robot::mujoco_sim_interface

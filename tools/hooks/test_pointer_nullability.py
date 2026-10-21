@@ -85,12 +85,12 @@ class MissingAnnotationTest(unittest.TestCase):
 
     def test_a_right_aligned_declarator(self):
         # The first declarator of `Foo *a, *b` is reported; the second looks like a dereference in an argument list.
-        messages = _messages(INCLUDE + "Foo *a, *b;\n")
+        messages = _messages(f"{INCLUDE}Foo *a, *b;\n")
         self.assertEqual(len(messages), 1)
         self.assertIn("right-aligned", messages[0])
-        self.assertIn("right-aligned", _messages(INCLUDE + "void f(Foo *a);\n")[0])
+        self.assertIn("right-aligned", _messages(f"{INCLUDE}void f(Foo *a);\n")[0])
         self.assertEqual(
-            _messages(INCLUDE + "int x = a *b;\n"),
+            _messages(f"{INCLUDE}int x = a *b;\n"),
             [],
             "an expression is not a declaration",
         )
@@ -168,12 +168,12 @@ class NotFlaggedTest(unittest.TestCase):
 class RulesTest(unittest.TestCase):
     def test_misplaced_annotations(self):
         self.assertIn(
-            "misplaced", _messages(INCLUDE + "void f(absl_nonnull Foo* p);")[0]
+            "misplaced", _messages(f"{INCLUDE}void f(absl_nonnull Foo* p);")[0]
         )
         self.assertTrue(
             any(
                 "misplaced" in m
-                for m in _messages(INCLUDE + "void f(Foo* const absl_nonnull p);")
+                for m in _messages(f"{INCLUDE}void f(Foo* const absl_nonnull p);")
             )
         )
 
@@ -350,9 +350,9 @@ class WiringTest(unittest.TestCase):
         check_test_support.assert_check_behaves(
             self,
             "pointer-nullability",
-            INCLUDE + "void f(Foo* foo);\n",
+            f"{INCLUDE}void f(Foo* foo);\n",
             "src/a.cpp",
-            clean=INCLUDE + "void f(Foo* absl_nonnull foo);\n",
+            clean=f"{INCLUDE}void f(Foo* absl_nonnull foo);\n",
         )
 
     def test_the_scope_is_first_party_and_lib_ocs2(self):
