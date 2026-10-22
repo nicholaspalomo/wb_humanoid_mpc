@@ -98,9 +98,11 @@ compile-commands:
 # Test targets
 ############################################################
 
-## Run all tests
+## Run all tests, or a batch of them: make test-all TEST_TARGETS="//robot_runtime/... -//robot_runtime/robot_ipc/..."
+## (CI runs its package batches this way: .github/workflows/build_test.yml)
+TEST_TARGETS ?= //...
 test-all:
-	$(source_env) && $(bazel_indexed) test //...
+	$(source_env) && $(bazel_indexed) test -- $(TEST_TARGETS)
 
 ## Run local CI emulator (matches GitHub Actions clean container setup)
 ci-local:

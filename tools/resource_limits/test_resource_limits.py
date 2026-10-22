@@ -38,6 +38,8 @@ import subprocess
 import tempfile
 import unittest
 
+import yaml
+
 
 def _runfile(relative_path):
     """A data file of this test, found in the runfiles when run by Bazel and in the source tree otherwise."""
@@ -196,6 +198,112 @@ class LocalCiEmulatorTest(unittest.TestCase):
         # Written where Bazel reads it after the workspace's .bazelrc, never into the checkout's own user.bazelrc.
         self.assertIn("> ~/.bazelrc", self.emulator)
         self.assertNotRegex(self.emulator, r">\s*\S*user\.bazelrc")
+
+
+def _step(job, name):
+    """The step of a parsed workflow job with this name."""
+    for step in job["steps"]:
+        if step.get("name") == name:
+            return step
+    raise KeyError(name)
+
+
+class WorkflowJobsTest(unittest.TestCase):
+    """.github/workflows/build_test.yml builds once, saves the build's cache, then tests and lints on it in parallel.
+
+    One job that built, tested and linted in sequence ran into GitHub's job time limit and was canceled before it saved
+    its cache, so every run started cold.
+    """
+
+    def setUp(self):
+        with open(_runfile(".github/workflows/build_test.yml"), encoding="utf-8") as f:
+            self.workflow = yaml.safe_load(f)
+        self.jobs = self.workflow["jobs"]
+        with open(_runfile("Makefile"), encoding="utf-8") as f:
+            self.makefile = f.read()
+
+    def test_every_job_runs_on_the_same_runner_container_and_environment(self):
+        self.assertEqual(sorted(self.jobs), ["build", "lint-tidy", "test"])
+        build = self.jobs["build"]
+        # The longest a GitHub-hosted job may run.
+        self.assertEqual(build["timeout-minutes"], 360)
+        for name, job in self.jobs.items():
+            for key in ("runs-on", "timeout-minutes", "container", "env"):
+                with self.subTest(job=name, key=key):
+                    self.assertEqual(job[key], build[key])
+
+    def test_the_test_and_lint_jobs_restore_the_build_after_its_setup(self):
+        setup = self.jobs["build"]["steps"]
+        build_step = setup.index(
+            _step(self.jobs["build"], "Build All (Bazel Monorepo)")
+        )
+        setup = setup[:build_step]
+        self.assertEqual(setup[-1]["uses"], "actions/cache/restore@v4")
+        for name in ("test", "lint-tidy"):
+            with self.subTest(job=name):
+                job = self.jobs[name]
+                self.assertEqual(job["needs"], "build")
+                self.assertEqual(job["steps"][: len(setup)], setup)
+
+    def test_the_build_saves_its_cache_even_when_it_fails_or_is_canceled(self):
+        build = self.jobs["build"]
+        restore = _step(build, "Restore the Bazel Caches")
+        save = _step(build, "Save the Bazel Caches")
+        trim = _step(build, "Trim the Bazel Disk Cache")
+        steps = build["steps"]
+        self.assertLess(
+            steps.index(_step(build, "Build All (Bazel Monorepo)")), steps.index(trim)
+        )
+        self.assertLess(steps.index(trim), steps.index(save))
+        self.assertEqual(save["uses"], "actions/cache/save@v4")
+        self.assertTrue(save["if"].startswith("always() && "))
+        self.assertEqual(trim["if"], save["if"])
+        self.assertEqual(save["with"]["path"], restore["with"]["path"])
+        self.assertEqual(
+            save["with"]["key"],
+            "${{ steps.restore_bazel_cache.outputs.cache-primary-key }}",
+        )
+        # One cache per commit, falling back to the newest of the same toolchain.
+        key = restore["with"]["key"]
+        self.assertTrue(key.endswith("-${{ github.sha }}"))
+        self.assertEqual(
+            restore["with"]["restore-keys"].strip(), key[: -len("${{ github.sha }}")]
+        )
+        configure = _step(build, "Configure the Bazel Caches")["run"]
+        for path in restore["with"]["path"].split():
+            self.assertIn(path.replace("~", "$HOME"), configure)
+
+    def test_the_last_batch_tests_exactly_what_the_others_leave_out(self):
+        batches = self.jobs["test"]["strategy"]["matrix"]["batch"]
+        self.assertIs(self.jobs["test"]["strategy"]["fail-fast"], False)
+        patterns = []
+        for batch in batches[:-1]:
+            patterns += batch["targets"].split()
+        self.assertTrue(patterns)
+        self.assertEqual(
+            len(patterns), len(set(patterns)), "a pattern is in two batches"
+        )
+        for pattern in patterns:
+            self.assertRegex(pattern, r"^//[\w/]*(:all|/\.\.\.)$")
+        self.assertEqual(
+            batches[-1]["targets"].split(), ["//..."] + ["-" + p for p in patterns]
+        )
+
+    def test_each_batch_runs_through_make_test_all(self):
+        run = _step(self.jobs["test"], "Run the Tests of the Batch")["run"].strip()
+        self.assertEqual(
+            run, 'make test-all TEST_TARGETS="${{ matrix.batch.targets }}"'
+        )
+        # `--` before the patterns, so that Bazel reads a leading `-` as an exclusion and not as a flag.
+        self.assertRegex(self.makefile, r"(?m)^TEST_TARGETS \?= //\.\.\.$")
+        self.assertRegex(
+            self.makefile, r"(?m)^\t.*\$\(bazel_indexed\) test -- \$\(TEST_TARGETS\)$"
+        )
+
+    def test_a_second_run_of_one_branch_cancels_the_first(self):
+        concurrency = self.workflow["concurrency"]
+        self.assertIs(concurrency["cancel-in-progress"], True)
+        self.assertIn("github.head_ref || github.ref_name", concurrency["group"])
 
 
 class ContainerMemoryCapTest(unittest.TestCase):

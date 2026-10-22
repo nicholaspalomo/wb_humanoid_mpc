@@ -164,6 +164,9 @@ make build-all
 # Run all unit and integration tests
 make test-all
 
+# Run a batch of them, as each of CI's test jobs does (Bazel target patterns; a leading - excludes)
+make test-all TEST_TARGETS="//robot_runtime/... //config/..."
+
 # Run code formatters (Clang-Format, Black, whitespace)
 make format
 
