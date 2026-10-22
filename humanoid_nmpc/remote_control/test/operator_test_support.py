@@ -42,6 +42,7 @@ import functools
 import os
 import select
 import shutil
+import signal
 import subprocess
 import threading
 import time
@@ -330,3 +331,77 @@ def requires_display(test_item: Any) -> Any:
             f"{reason}; on CI the Tk tests must run, not be skipped: install xvfb (dependencies.txt)"
         )
     return unittest.skip(reason)(test_item)
+
+
+# The DRC Atlas files the robot process of the end-to-end tests runs (humanoid_centroidal_mpc_robot), relative to
+# REPO_ROOT, which the tests run in.
+ATLAS_PACKAGE = os.path.join("robot_models", "drc_atlas", "drc_atlas_centroidal_mpc")
+ATLAS_ROBOT_FLAGS = (
+    "--robot_name=drc_atlas",
+    f"--task_file={os.path.join(ATLAS_PACKAGE, 'config', 'mpc', 'task.textproto')}",
+    f"--reference_file={os.path.join(ATLAS_PACKAGE, 'config', 'command', 'reference.textproto')}",
+    "--urdf_file=robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf",
+    "--mjcf_file=robot_models/drc_atlas/drc_atlas_description/urdf/atlas.xml",
+)
+# How long the robot process may take to end after SIGTERM before it is killed [s].
+_ROBOT_STOP_TIMEOUT_S = 20.0
+
+
+class RobotProcess:
+    """The robot process of the simulation on the DRC Atlas files, as docker-compose.robot.sim.yaml runs it.
+
+    The MuJoCo backend without a viewer, its configuration store at `store` (seeded from the bundled files), on the
+    network file `network_file`; its output goes to `log_path`. Not thread-safe.
+
+    Args:
+        binary: The humanoid_centroidal_mpc_robot binary.
+        network_file: The network file both sides of the test share.
+        store: The robot's configuration store (--config_store_dir).
+        log_path: Where the process's output goes (appended).
+    """
+
+    def __init__(
+        self, binary: str, network_file: str, store: str, log_path: str
+    ) -> None:
+        self.log_path = log_path
+        # pylint: disable-next=consider-using-with  # The log outlives this call; stop() closes it.
+        self._log = open(log_path, "ab")
+        # pylint: disable-next=consider-using-with  # The process outlives this call; stop() ends it.
+        self._process = subprocess.Popen(
+            [
+                binary,
+                *ATLAS_ROBOT_FLAGS,
+                f"--network_config={network_file}",
+                "--viewer=none",
+                "--realtime_cores=none",
+                "--backend_cores=none",
+                f"--config_store_dir={store}",
+                "--config_seed=when_bundle_changes",
+            ],
+            stdout=self._log,
+            stderr=subprocess.STDOUT,
+        )
+
+    def running(self) -> bool:
+        return self._process.poll() is None
+
+    def log_text(self) -> str:
+        """What the process has written so far."""
+        self._log.flush()
+        with open(self.log_path, encoding="utf-8", errors="replace") as handle:
+            return handle.read()
+
+    def stop(self) -> int | None:
+        """Ends the process with SIGTERM (SIGKILL after 20 s); its exit code, None when it had to be killed."""
+        code: int | None = None
+        if self.running():
+            self._process.send_signal(signal.SIGTERM)
+            try:
+                code = self._process.wait(timeout=_ROBOT_STOP_TIMEOUT_S)
+            except subprocess.TimeoutExpired:
+                self._process.kill()
+                self._process.wait()
+        else:
+            code = self._process.returncode
+        self._log.close()
+        return code

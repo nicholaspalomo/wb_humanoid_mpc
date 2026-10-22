@@ -450,6 +450,31 @@ py_test(
     ],
 )
 
+# Every control of the operator GUI against the robot process of the simulation (humanoid_centroidal_mpc_robot on the
+# DRC Atlas files, MuJoCo without a viewer) over the shipped network file's topics on a DDS domain of the test's own:
+# the FSM cycle, the gantry, the height slider, joint targets, PD gains, the contact estimator, Save and the dodgeball.
+py_test(
+    name = "test_gui_controls_end_to_end",
+    size = "medium",
+    srcs = ["test/test_gui_controls_end_to_end.py"],
+    data = _ROBOT_CONFIGS + [
+        "//config/ipc:network.textproto",
+        "//humanoid_nmpc/humanoid_centroidal_mpc_app:humanoid_centroidal_mpc_robot",
+        "//robot_models/drc_atlas/drc_atlas_description",
+    ],
+    env = dict(
+        _HERMETIC_ENV,
+        ROBOT_BINARY = "$(rootpath //humanoid_nmpc/humanoid_centroidal_mpc_app:humanoid_centroidal_mpc_robot)",
+    ),
+    env_inherit = _TK_ENV,
+    main = "test/test_gui_controls_end_to_end.py",
+    deps = _TEST_DEPS + [
+        "//humanoid_nmpc/humanoid_mpc_ipc:topics_py",
+        "//humanoid_nmpc/humanoid_mpc_msgs:messages_py_proto",
+        "//robot_runtime/robot_ipc:robot_ipc_py",
+    ],
+)
+
 # What the C++ side reads of the tuning options of every configuration file (configLeaves()), one line per field, for the
 # comparison with the GUI's walk of the same schema (test/test_tuning_inheritance_parity.py).
 cc_binary(

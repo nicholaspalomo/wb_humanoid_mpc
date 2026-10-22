@@ -44,6 +44,18 @@ A robot clock that goes back by more than NEW_RUN_REWIND_S is a new run of the r
 simulation). Given `new_run`, the bridge then records it as a recording of its own, which the viewer shows apart from
 the previous run's: one recording would put both runs on one robot_time timeline, where the time panel, which follows
 the latest time, would show the previous run's end until the new run's clock passed it.
+
+The robot's clock is the times of one stream, the clock topic: viz/telemetry, one message per robot/state sample in the
+order the robot sampled them, or viz/scene while no telemetry arrives. A message of another topic never starts a run:
+an MpcStatus trails the robot by a solve, and a scene of "latest" delivery may have overtaken older telemetry in the
+queues. A run starts when NEW_RUN_CONFIRMATIONS messages of the clock topic in a row are behind the clock by more than
+NEW_RUN_REWIND_S. Until then, every message that far behind waits (at most MAX_HELD_MESSAGES of them): once the clock
+topic confirms the new run they are recorded into it, and once it shows that the robot's clock did not go back, into
+the current run, at their own times. A single late message (a straggler) therefore never starts a recording.
+
+viz/telemetry is recorded at most at `telemetry_rate` [Hz] of robot time (the first sample of every 1 / rate interval)
+and only for the groups `telemetry_selection` names, the groups the plots draw: the viewer ingests every row it is
+sent, whether a view shows it or not.
 """
 
 from collections.abc import Callable, Sequence
@@ -90,6 +102,17 @@ NEW_RUN_REWIND_S = 1.0
 # For this long after a new run began [wall s], a message whose time is back near the previous run's is one of that
 # run that was still on its way (the bus keeps the order of a topic, not across topics): it is dropped and counted.
 PREVIOUS_RUN_WINDOW_S = 2.0
+# How many messages of the clock topic in a row, each behind the robot's clock by more than NEW_RUN_REWIND_S, start a
+# new run: one late message (a straggler) does not.
+NEW_RUN_CONFIRMATIONS = 3
+# The most messages that wait for the clock topic to confirm or refute a new run; one more refutes it.
+MAX_HELD_MESSAGES = 64
+# viz/telemetry is the clock topic while one of its messages arrived within this long [wall s]; viz/scene otherwise. A
+# held message that waited this long is recorded into the current run (flush()).
+CLOCK_TIMEOUT_S = 1.0
+# The fraction of a telemetry interval (1 / telemetry_rate) a sample's time may fall short of the interval's start and
+# still be its first: the robot samples on a period, and its times carry rounding errors.
+_TELEMETRY_INTERVAL_TOLERANCE = 1e-6
 # How many link names a warning lists at most.
 _LISTED_LINKS = 8
 
@@ -136,6 +159,11 @@ class BridgeStatistics:
     # arrived after a new run began and were dropped.
     new_runs: int = 0
     previous_run_dropped: int = 0
+    # Messages behind the robot's clock by more than NEW_RUN_REWIND_S that the clock topic then showed to be late, not
+    # of a new run, and that were recorded into the current run at their own times.
+    late_messages: int = 0
+    # viz/telemetry samples not recorded because an earlier one of their interval was (telemetry_rate).
+    telemetry_decimated: int = 0
 
     def malformed_count(self, topic: str | None = None) -> int:
         """The malformed messages or parts counted under `topic`, or under every topic when it is None."""
@@ -148,6 +176,23 @@ class BridgeStatistics:
     def handler_error_count(self) -> int:
         """The unexpected handler exceptions, over every topic."""
         return sum(self.handler_errors.values())
+
+
+@dataclasses.dataclass(frozen=True)
+class _HeldMessage:
+    """A message behind the robot's clock that waits for the clock topic to confirm or refute a new run.
+
+    Attributes:
+        robot_time: the message's robot time [s].
+        is_clock: whether it is of the clock topic.
+        held_at: when it began to wait [wall s].
+        handle: handles the message again, once it is known which run it belongs to.
+    """
+
+    robot_time: float
+    is_clock: bool
+    held_at: float
+    handle: Callable[[], None]
 
 
 @dataclasses.dataclass(frozen=True)
@@ -209,7 +254,10 @@ def _guarded(topic: str) -> Callable[[_Handler], _Handler]:
         @functools.wraps(handler)
         def guarded(self: "RerunBridge", message: Any) -> None:
             statistics = self.statistics
-            statistics.handled[topic] = statistics.handled.get(topic, 0) + 1
+            # pylint: disable-next=protected-access  # `self` is the RerunBridge whose own method this wraps.
+            if not self._replaying:
+                # A message that waited for the clock (_place_in_run) was counted when it came.
+                statistics.handled[topic] = statistics.handled.get(topic, 0) + 1
             # pylint: disable-next=protected-access  # `self` is the RerunBridge whose own method this wraps.
             self._run_guarded(topic, functools.partial(handler, self), message)
 
@@ -269,6 +317,9 @@ class RerunBridge:
         allowed_instances: if given, only these robot instance names are logged in viz/scene.
         new_run: makes the recording of a new run of the robot, attached to the same sink (and given the blueprint);
             None records every run into `recording`.
+        telemetry_rate: the most viz/telemetry samples recorded per second of robot time [Hz]; 0.0 records every one.
+        telemetry_selection: whether to record the telemetry group of a path (relative to telemetry/); None records
+            every group.
 
     Attributes:
         model: The robot's URDF geometry; None draws no robot.
@@ -289,9 +340,21 @@ class RerunBridge:
         max_scene_frequency: float = 0.0,
         allowed_instances: Sequence[str] | None = None,
         new_run: Callable[[], rr.RecordingStream] | None = None,
+        telemetry_rate: float = 0.0,
+        telemetry_selection: Callable[[str], bool] | None = None,
     ) -> None:
         if not (max_scene_frequency >= 0.0 and math.isfinite(max_scene_frequency)):
             raise ValueError("max_scene_frequency must be non-negative and finite")
+        if not (telemetry_rate >= 0.0 and math.isfinite(telemetry_rate)):
+            raise ValueError(
+                f"telemetry_rate must be non-negative and finite, got {telemetry_rate}"
+            )
+        self._telemetry_rate = telemetry_rate
+        self._telemetry_selection = telemetry_selection
+        # Per telemetry group path: whether telemetry_selection records it (asked once per path).
+        self._telemetry_recorded: dict[str, bool] = {}
+        # The interval (robot time * telemetry_rate, floored) of the last telemetry sample recorded; None: none yet.
+        self._telemetry_interval: int | None = None
         self.recording = recording
         self._new_run = new_run
         self._max_pending_rows = max_pending_rows
@@ -338,11 +401,18 @@ class RerunBridge:
         self._series_names: dict[str, tuple[str, ...]] = {}
         self._status_series_logged: set[str] = set()
         self._latest_robot_time: float | None = None
-        # The latest robot time of the current run (scenes, telemetry, MpcStatus); None before the first.
+        # The robot's clock: the latest time of the clock topic in the current run; None before its first message.
         self._run_time: float | None = None
         # Once a new run began: the previous run's latest robot time, and when the new run began [wall s].
         self._previous_run_time: float | None = None
         self._run_wall_start = -math.inf
+        # When the last viz/telemetry message came [wall s]: it is the clock topic for CLOCK_TIMEOUT_S after.
+        self._last_telemetry_wall_time = -math.inf
+        # The messages behind the robot's clock that wait for the clock topic, in arrival order, and how many of them
+        # are of the clock topic. True while they are handled again, which places them without waiting.
+        self._held: list[_HeldMessage] = []
+        self._held_clock_messages = 0
+        self._replaying = False
         self._last_fsm_state: tuple[Any, ...] | None = None
         self._last_mpc_health: tuple[Any, ...] | None = None
         self._last_mpc_resets: tuple[int, int] | None = None
@@ -434,40 +504,128 @@ class RerunBridge:
             self._warned.add(key)
             _LOGGER.warning("%s", text)
 
-    def _place_in_run(self, topic: str, robot_time: float) -> bool:
-        """Follows the run of the robot that `robot_time` belongs to, starting a new one when the clock went back.
+    def _is_clock_topic(self, topic: str) -> bool:
+        """Whether `topic` is the robot's clock: viz/telemetry, or viz/scene while no telemetry arrives."""
+        if topic == topics.VIZ_TELEMETRY:
+            return True
+        return (
+            topic == topics.VIZ_SCENE
+            and self._clock() - self._last_telemetry_wall_time >= CLOCK_TIMEOUT_S
+        )
+
+    def _place_in_run(
+        self, topic: str, robot_time: float, handle: Callable[[], None]
+    ) -> bool:
+        """Follows the run of the robot that `robot_time` belongs to; the clock topic confirms a new one.
+
+        A message behind the robot's clock by more than NEW_RUN_REWIND_S waits (the module's docstring): `handle` handles
+        it again once the clock topic confirmed a new run or showed it late.
 
         Args:
-            topic: The message topic being processed.
-            robot_time: The timestamp of the message according to the robot clock.
+            topic: the message's topic.
+            robot_time: the message's robot time [s].
+            handle: handles the message again; called later, after this returned False, for a message that waits.
 
         Returns:
-            False for a message of the previous run that arrived after the new run began, which is dropped and counted.
+            True when the caller records the message now; False for one that waits, or one of the previous run that
+            arrived after the new run began, which is dropped and counted.
         """
+        is_clock = self._is_clock_topic(topic)
+        if topic == topics.VIZ_TELEMETRY:
+            self._last_telemetry_wall_time = self._clock()
         latest = self._run_time
         if latest is None:
-            self._run_time = robot_time
+            if is_clock:
+                self._run_time = robot_time
             return True
-        if robot_time < latest - NEW_RUN_REWIND_S:
-            if self._new_run is not None:
-                self._start_new_run(latest, robot_time)
-            self._run_time = robot_time
-            return True
-        if (
-            self._previous_run_time is not None
-            and latest + NEW_RUN_REWIND_S
-            < robot_time
-            <= self._previous_run_time + NEW_RUN_REWIND_S
-            and self._clock() - self._run_wall_start < PREVIOUS_RUN_WINDOW_S
-        ):
+        if robot_time < latest - NEW_RUN_REWIND_S and not self._replaying:
+            self._hold(robot_time, is_clock, handle)
+            return False
+        if self._is_of_previous_run(robot_time, latest):
             self.statistics.previous_run_dropped += 1
             self._log.warning(
                 ("previous_run", topic),
                 f"dropped a '{topic}' message of the previous run of the robot, which arrived after the new run began",
             )
             return False
-        self._run_time = max(latest, robot_time)
+        if is_clock and not self._replaying:
+            # The clock is where it was: whatever waited was late, not of a new run.
+            self._release_held()
+        if is_clock:
+            clock = self._run_time
+            self._run_time = robot_time if clock is None else max(clock, robot_time)
         return True
+
+    def _is_of_previous_run(self, robot_time: float, latest: float) -> bool:
+        """Whether `robot_time` is back near the previous run's clock, shortly after a new run began."""
+        return (
+            self._previous_run_time is not None
+            and latest + NEW_RUN_REWIND_S
+            < robot_time
+            <= self._previous_run_time + NEW_RUN_REWIND_S
+            and self._clock() - self._run_wall_start < PREVIOUS_RUN_WINDOW_S
+        )
+
+    def _hold(
+        self, robot_time: float, is_clock: bool, handle: Callable[[], None]
+    ) -> None:
+        """Makes a message behind the robot's clock wait; enough of the clock topic in a row start the new run."""
+        self._held.append(
+            _HeldMessage(
+                robot_time=robot_time,
+                is_clock=is_clock,
+                held_at=self._clock(),
+                handle=handle,
+            )
+        )
+        if is_clock:
+            self._held_clock_messages += 1
+        if self._held_clock_messages >= NEW_RUN_CONFIRMATIONS:
+            self._confirm_new_run()
+        elif len(self._held) > MAX_HELD_MESSAGES:
+            self._release_held()
+
+    def _take_held(self) -> list[_HeldMessage]:
+        held = self._held
+        self._held = []
+        self._held_clock_messages = 0
+        return held
+
+    def _handle_again(self, held: Sequence[_HeldMessage]) -> None:
+        """Handles the messages that waited, in the order they came, without making them wait again."""
+        self._replaying = True
+        try:
+            for message in held:
+                message.handle()
+        finally:
+            self._replaying = False
+
+    def _release_held(self) -> None:
+        """Records the messages that waited into the current run, at their own times: they were late."""
+        held = self._take_held()
+        if held:
+            self.statistics.late_messages += len(held)
+            self._log.warning(
+                "late",
+                f"{len(held)} message(s) came more than {NEW_RUN_REWIND_S} s behind the robot's clock, which did not go "
+                "back: recorded at their own times in the current run",
+            )
+            self._handle_again(held)
+
+    def _release_stale_held(self) -> None:
+        """Releases the messages that waited CLOCK_TIMEOUT_S or more: the clock topic went quiet."""
+        if self._held and self._clock() - self._held[0].held_at >= CLOCK_TIMEOUT_S:
+            self._release_held()
+
+    def _confirm_new_run(self) -> None:
+        """The clock topic went back: starts the new run at its first message that waited, and records them into it."""
+        held = self._take_held()
+        previous_time = self._run_time
+        robot_time = next(message.robot_time for message in held if message.is_clock)
+        if previous_time is not None:
+            self._start_new_run(previous_time, robot_time)
+        self._run_time = robot_time
+        self._handle_again(held)
 
     def _start_new_run(self, previous_time: float, robot_time: float) -> None:
         """Sends what the previous run buffered, then records from a recording of new_run's with the static data again."""
@@ -492,6 +650,7 @@ class RerunBridge:
             recording, self._max_pending_rows
         )
         self._forget_sent()
+        self._telemetry_interval = None
         self._previous_run_time = previous_time
         self._run_wall_start = self._clock()
         self._latest_robot_time = robot_time
@@ -527,7 +686,9 @@ class RerunBridge:
         """
         if not _finite(scene.time):
             raise MalformedMessageError("the scene's time is not finite")
-        if not self._place_in_run(topics.VIZ_SCENE, scene.time):
+        if not self._place_in_run(
+            topics.VIZ_SCENE, scene.time, functools.partial(self.handle_scene, scene)
+        ):
             return
         if scene.time < self._last_scene_time:
             # The robot's clock went back (a restarted simulation): poses at the new times must all be logged.
@@ -837,18 +998,27 @@ class RerunBridge:
 
     @_guarded(topics.VIZ_TELEMETRY)
     def handle_telemetry(self, series: telemetry_series_pb2.TelemetrySeries) -> None:
-        """Buffers every ScalarGroup at telemetry/<path>; flush() sends them."""
+        """Buffers the selected ScalarGroups at telemetry/<path>, at most at telemetry_rate; flush() sends them."""
         if not _finite(series.time):
             raise MalformedMessageError("the telemetry's time is not finite")
         robot_time = series.time
-        if not self._place_in_run(topics.VIZ_TELEMETRY, robot_time):
+        if not self._place_in_run(
+            topics.VIZ_TELEMETRY,
+            robot_time,
+            functools.partial(self.handle_telemetry, series),
+        ):
             return
         self._latest_robot_time = robot_time
+        if not self._takes_telemetry_sample(robot_time):
+            self.statistics.telemetry_decimated += 1
+            return
         wall_time = self._clock()
         rows: list[tuple[str, Sequence[float]]] = []
         paths: set[str] = set()
         for group in series.groups:
             path = group.path
+            if not self._records_group(path):
+                continue
             if path in paths:
                 self._count_malformed(
                     topics.VIZ_TELEMETRY, f"group '{path}' appears twice in one message"
@@ -871,6 +1041,30 @@ class RerunBridge:
             rows.append((f"{scene_contract.TELEMETRY_ROOT}/{path}", group.values))
         self.telemetry_batcher.append(robot_time, wall_time, rows)
         self.statistics.telemetry_groups += len(rows)
+
+    def _takes_telemetry_sample(self, robot_time: float) -> bool:
+        """Whether the sample at `robot_time` is the first of its 1 / telemetry_rate interval (always at rate 0)."""
+        if self._telemetry_rate <= 0.0:
+            return True
+        interval = math.floor(
+            robot_time * self._telemetry_rate + _TELEMETRY_INTERVAL_TOLERANCE
+        )
+        if interval == self._telemetry_interval:
+            return False
+        # A later interval, or an earlier one after the clock went back within the run (a sample that was late).
+        self._telemetry_interval = interval
+        return True
+
+    def _records_group(self, path: str) -> bool:
+        """Whether telemetry_selection records the group at `path`."""
+        selection = self._telemetry_selection
+        if selection is None:
+            return True
+        recorded = self._telemetry_recorded.get(path)
+        if recorded is None:
+            recorded = bool(selection(path))
+            self._telemetry_recorded[path] = recorded
+        return recorded
 
     def _declare_series(self, group: Any) -> bool:
         """Logs the static SeriesLines of a group seen for the first time, or whose size changed.
@@ -915,9 +1109,12 @@ class RerunBridge:
     def flush(self) -> int:
         """Draws the scene the throttle held back once its interval passed, and sends the buffered scalars.
 
+        Messages that waited CLOCK_TIMEOUT_S for the clock topic, which went quiet, are recorded into the current run.
+
         Returns:
             How many scalar rows were sent.
         """
+        self._release_stale_held()
         if self._pending_scene is not None and self._last_scene_wall_time is not None:
             wall_now = self._clock()
             if wall_now - self._last_scene_wall_time >= self._min_scene_interval:
@@ -929,7 +1126,11 @@ class RerunBridge:
         return self._flush_batchers()
 
     def draw_pending_scene(self) -> None:
-        """Draws the scene the throttle held back now, whatever the interval: the last scene before a shutdown."""
+        """Draws the scene the throttle held back now, whatever the interval: the last scene before a shutdown.
+
+        Messages that still wait for the clock topic are recorded into the current run first.
+        """
+        self._release_held()
         if self._pending_scene is not None:
             self._run_guarded(
                 topics.VIZ_SCENE,
@@ -1017,7 +1218,11 @@ class RerunBridge:
             status.observation_time if _finite(status.observation_time) else None
         )
         if robot_time is not None:
-            if not self._place_in_run(topics.MPC_STATUS, robot_time):
+            if not self._place_in_run(
+                topics.MPC_STATUS,
+                robot_time,
+                functools.partial(self.handle_mpc_status, status),
+            ):
                 return
             latest = self._latest_robot_time
             if (
@@ -1175,6 +1380,9 @@ class RerunBridge:
             "rejected by the bus": bus_rejected,
             "dropped while the Rerun sink took no data": sink_dropped,
             "messages of a previous run dropped": self.statistics.previous_run_dropped,
+            f"messages more than {NEW_RUN_REWIND_S:g} s behind the robot's clock": (
+                self.statistics.late_messages
+            ),
         }
         new = {
             name: total - self._last_report.get(name, 0)

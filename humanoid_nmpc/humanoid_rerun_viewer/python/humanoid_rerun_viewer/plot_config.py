@@ -29,13 +29,16 @@
 
 A plot configuration selects which topics, signals, wildcards, contract tabs or panels to display on 2D line graphs in
 the Rerun viewer, either from a typed textproto file (humanoid_rerun_viewer_proto.PlotConfig) or a line-delimited text
-file. A textproto also names the MuJoCo viewer of the robot process (mujoco_viewer), which the robot reads from the same
-file (humanoid_nmpc/humanoid_common_mpc_app/robot/README.md, --plot_config); this module checks it as the robot does.
+file. It also bounds what the bridge records of viz/telemetry: the plotted groups only (telemetry_selection()), at most
+at telemetry_rate_hz. A textproto also names the MuJoCo viewer of the robot process (mujoco_viewer), which the robot
+reads from the same file (humanoid_nmpc/humanoid_common_mpc_app/robot/README.md, --plot_config); this module checks it
+as the robot does.
 """
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 import dataclasses
 import fnmatch
+import math
 
 from google.protobuf import text_format
 from humanoid_rerun_viewer_proto import plot_config_pb2
@@ -46,6 +49,11 @@ from humanoid_rerun_viewer import telemetry_contract
 
 DEFAULT_CUSTOM_TAB_TITLE = "Signals"
 STATUS_TAB_NAME = "Status"
+# The rate at which the bridge records viz/telemetry when a configuration names none [Hz]: half the robots' 100 Hz,
+# which halves what the viewer ingests and still resolves a 20 ms step (README.md, "Cost").
+# LINT.IfChange(default_telemetry_rate)
+DEFAULT_TELEMETRY_RATE_HZ = 50.0
+# LINT.ThenChange(//humanoid_nmpc/humanoid_rerun_viewer/proto/plot_config.proto:default_telemetry_rate)
 
 # The MuJoCo viewers of the robot process, by registry name: what mujoco_viewer may list.
 # LINT.IfChange(mujoco_viewer_names)
@@ -73,6 +81,9 @@ class PlotConfig:
             robot_instances says; True or None leaves the choice to robot_instances.
         mujoco_viewer: The robot process's MuJoCo viewer by registry name, a preference list (empty: the robot
             process's built-in default, which proto/plot_config.proto names).
+        telemetry_rate_hz: The most viz/telemetry samples per second of robot time the bridge records [Hz]; 0 records
+            every sample. Finite and non-negative.
+        record_unplotted_telemetry: Whether the bridge records every viz/telemetry group, also the unplotted ones.
     """
 
     signals: tuple[str, ...] = ()
@@ -80,6 +91,8 @@ class PlotConfig:
     robot_instances: tuple[str, ...] = ()
     draw_terminal_state: bool | None = None
     mujoco_viewer: tuple[str, ...] = ()
+    telemetry_rate_hz: float = DEFAULT_TELEMETRY_RATE_HZ
+    record_unplotted_telemetry: bool = False
 
 
 def _clean_str(value: str) -> str:
@@ -128,6 +141,32 @@ def check_mujoco_viewer(names: Sequence[str], source: str = "") -> tuple[str, ..
 
 
 # LINT.ThenChange(//robot_runtime/mujoco_sim_interface/src/viewer/ViewerSettings.cpp:viewer_list_rules)
+
+
+def check_telemetry_rate(rate: float, source: str = "") -> float:
+    """Checks a telemetry_rate_hz: finite and non-negative (0 records every sample).
+
+    Args:
+        rate: The rate [Hz].
+        source: Optional file path or source identifier for error messages.
+
+    Returns:
+        The rate.
+
+    Raises:
+        PlotConfigError: The rate is negative, infinite or NaN.
+    """
+    # The not-form rejects NaN, which `rate < 0.0` would let through.
+    if not (rate >= 0.0 and math.isfinite(rate)):
+        prefix = f"{source}: " if source else ""
+        raise PlotConfigError(
+            f"{prefix}telemetry_rate_hz must be finite and non-negative (0: every sample), got {rate}"
+        )
+    return rate
+
+
+def _parse_bool(text: str) -> bool:
+    return text.lower() in ("true", "1", "yes")
 
 
 def parse_plot_config(text: str, source: str = "") -> PlotConfig:
@@ -181,12 +220,23 @@ def parse_plot_config(text: str, source: str = "") -> PlotConfig:
             ),
             draw_terminal_state=draw_terminal,
             mujoco_viewer=check_mujoco_viewer(tuple(message.mujoco_viewer), source),
+            telemetry_rate_hz=check_telemetry_rate(
+                (
+                    message.telemetry_rate_hz
+                    if message.HasField("telemetry_rate_hz")
+                    else DEFAULT_TELEMETRY_RATE_HZ
+                ),
+                source,
+            ),
+            record_unplotted_telemetry=message.record_unplotted_telemetry,
         )
 
     signals: list[str] = []
     robot_instances: list[str] = []
     draw_terminal_state: bool | None = None
     custom_title = DEFAULT_CUSTOM_TAB_TITLE
+    telemetry_rate_hz = DEFAULT_TELEMETRY_RATE_HZ
+    record_unplotted_telemetry = False
     for line in text.splitlines():
         line = line.strip()
         if not line or line.startswith("#"):
@@ -203,8 +253,21 @@ def parse_plot_config(text: str, source: str = "") -> PlotConfig:
                         robot_instances.append(item_stripped)
             continue
         if line.startswith("draw_terminal_state:"):
-            val = _clean_str(line.split(":", 1)[1]).lower()
-            draw_terminal_state = val in ("true", "1", "yes")
+            draw_terminal_state = _parse_bool(_clean_str(line.split(":", 1)[1]))
+            continue
+        if line.startswith("telemetry_rate_hz:"):
+            value = _clean_str(line.split(":", 1)[1])
+            try:
+                rate = float(value)
+            except ValueError as error:
+                prefix = f"{source}: " if source else ""
+                raise PlotConfigError(
+                    f"{prefix}telemetry_rate_hz is not a number: {value!r}"
+                ) from error
+            telemetry_rate_hz = check_telemetry_rate(rate, source)
+            continue
+        if line.startswith("record_unplotted_telemetry:"):
+            record_unplotted_telemetry = _parse_bool(_clean_str(line.split(":", 1)[1]))
             continue
         signals.append(line)
     return PlotConfig(
@@ -212,6 +275,8 @@ def parse_plot_config(text: str, source: str = "") -> PlotConfig:
         custom_tab_title=custom_title,
         robot_instances=tuple(robot_instances),
         draw_terminal_state=draw_terminal_state,
+        telemetry_rate_hz=telemetry_rate_hz,
+        record_unplotted_telemetry=record_unplotted_telemetry,
     )
 
 
@@ -413,6 +478,50 @@ def has_telemetry_signals(config: PlotConfig | None) -> bool:
         return True
     contract_tabs, _ = filter_contract_tabs(telemetry_contract.TABS, config.signals)
     return bool(contract_tabs)
+
+
+def _plots_path(plotted: str, path: str) -> bool:
+    """Whether a view's content `plotted` (relative to telemetry/; "x/**" a subtree) shows the group at `path`."""
+    if plotted.endswith("/**"):
+        base = plotted[: -len("/**")]
+        return path == base or path.startswith(f"{base}/")
+    return path == plotted
+
+
+def telemetry_selection(config: PlotConfig | None) -> Callable[[str], bool] | None:
+    """The telemetry groups the bridge records under `config`: those its plots draw.
+
+    These are the groups of the contract panels the configuration shows (filter_contract_tabs()), and those its
+    custom signals name (a path or a wildcard, as the custom tab plots them).
+
+    Args:
+        config: The plot configuration; None plots every tab, and records every group.
+
+    Returns:
+        Whether to record the group at a path (relative to telemetry/), or None to record every group: without a
+        configuration, or with record_unplotted_telemetry.
+    """
+    if config is None or config.record_unplotted_telemetry:
+        return None
+    tabs, matched = filter_contract_tabs(telemetry_contract.TABS, config.signals)
+    plotted_paths: set[str] = set()
+    for tab in tabs:
+        for panel in tab.panels():
+            plotted_paths.update(panel.paths)
+    plotted = tuple(sorted(plotted_paths))
+    _, status_matched = filter_status_series(config.signals)
+    custom = tuple(
+        signal
+        for signal in unmatched_signals(config.signals, matched | status_matched)
+        if not signal.strip().lstrip("/").startswith(f"{scene_contract.STATUS_ROOT}/")
+    )
+
+    def records(path: str) -> bool:
+        return any(_plots_path(entry, path) for entry in plotted) or any(
+            _path_matches(path, signal) for signal in custom
+        )
+
+    return records
 
 
 def resolve_allowed_instances(

@@ -45,8 +45,6 @@ here.
 from collections.abc import Callable
 import os
 import shutil
-import signal
-import subprocess
 import tempfile
 import threading
 import time
@@ -72,13 +70,11 @@ from remote_control.tk_app import mpc_params_tab
 import robot_ipc
 
 ROBOT_BINARY = os.environ["ROBOT_BINARY"]
-ATLAS_PACKAGE = os.path.join("robot_models", "drc_atlas", "drc_atlas_centroidal_mpc")
+ATLAS_PACKAGE = operator_test_support.ATLAS_PACKAGE
 ATLAS_TASK = os.path.join(ATLAS_PACKAGE, "config", "mpc", "task.textproto")
 ATLAS_REFERENCE = os.path.join(
     ATLAS_PACKAGE, "config", "command", "reference.textproto"
 )
-ATLAS_URDF = "robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf"
-ATLAS_SCENE = "robot_models/drc_atlas/drc_atlas_description/urdf/atlas.xml"
 G1_WB_PACKAGE = os.path.join("robot_models", "unitree_g1", "g1_wb_mpc")
 # The robot's store layout (RobotConfigDirectory), whatever the bundled files are called.
 STORED_TASK = os.path.join("mpc", "task.textproto")
@@ -166,51 +162,6 @@ _UNPARSABLE_TASK = (
 )
 
 
-class RobotProcess:
-    """The robot binary on the Atlas files with the store `store`, its output in `log_path`."""
-
-    def __init__(self, network_file: str, store: str, log_path: str) -> None:
-        # pylint: disable-next=consider-using-with  # The log outlives this call; stop() closes it.
-        self._log = open(log_path, "ab")
-        # pylint: disable-next=consider-using-with  # The process outlives this call; stop() ends it.
-        self._process = subprocess.Popen(
-            [
-                ROBOT_BINARY,
-                "--robot_name=drc_atlas",
-                f"--task_file={ATLAS_TASK}",
-                f"--reference_file={ATLAS_REFERENCE}",
-                f"--urdf_file={ATLAS_URDF}",
-                f"--mjcf_file={ATLAS_SCENE}",
-                f"--network_config={network_file}",
-                "--viewer=none",
-                "--realtime_cores=none",
-                "--backend_cores=none",
-                f"--config_store_dir={store}",
-                "--config_seed=when_bundle_changes",
-            ],
-            stdout=self._log,
-            stderr=subprocess.STDOUT,
-        )
-
-    def running(self) -> bool:
-        return self._process.poll() is None
-
-    def stop(self) -> int | None:
-        """Ends the process with SIGTERM (SIGKILL after 20 s); its exit code, None when it had to be killed."""
-        code: int | None = None
-        if self.running():
-            self._process.send_signal(signal.SIGTERM)
-            try:
-                code = self._process.wait(timeout=20.0)
-            except subprocess.TimeoutExpired:
-                self._process.kill()
-                self._process.wait()
-        else:
-            code = self._process.returncode
-        self._log.close()
-        return code
-
-
 class _SkewedPublisher:
     """Publishes the saves of another build: the publisher of operator/config_save, with another schema fingerprint."""
 
@@ -252,7 +203,7 @@ class TwoCopySaveEndToEndTest(unittest.TestCase):
         self.operator.start()
         self.addCleanup(self.operator.close)
         self.saver = self._saver(self.operator.config_save)
-        self.robot: RobotProcess | None = None
+        self.robot: operator_test_support.RobotProcess | None = None
         self.addCleanup(self._stop_robot)
 
     def _saver(
@@ -268,8 +219,11 @@ class TwoCopySaveEndToEndTest(unittest.TestCase):
 
     def _start_robot(self) -> None:
         """Starts the robot process on the store and waits until its FSM state reaches the GUI's bus."""
-        self.robot = RobotProcess(
-            self.network_file, self.store, os.path.join(self.logs, "robot.log")
+        self.robot = operator_test_support.RobotProcess(
+            ROBOT_BINARY,
+            self.network_file,
+            self.store,
+            os.path.join(self.logs, "robot.log"),
         )
 
         def reported() -> bool:

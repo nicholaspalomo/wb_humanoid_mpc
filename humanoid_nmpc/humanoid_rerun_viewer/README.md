@@ -92,7 +92,7 @@ exits without it (rerun-sdk 0.38 would wait without end).
 | `--robot_instances` | all | comma-separated robot instances to draw (e.g. `measured`, `measured,terminal_state`) |
 | `--app_id` | `humanoid_nmpc` | the Rerun application id; recordings of one id share the viewer's layout |
 | `--follow_robot` / `--no-follow_robot` | on | the 3D view's eye follows the measured robot's root link |
-| `--flush_period` | `0.1` (`serve_web`) / `0.05` | how often the buffered plots are sent [s] |
+| `--flush_period` | `0.2` (`serve_web`) / `0.05` | how often the buffered plots are sent [s]; every flush sends one chunk per plotted entity ("Cost") |
 | `--duration` | `0` | stop after this many seconds; 0 runs until Ctrl-C |
 | `--log_level` | `INFO` | of the bridge's own messages |
 <!-- LINT.ThenChange(//humanoid_nmpc/humanoid_rerun_viewer/python/humanoid_rerun_viewer/cli.py:sink_flags) -->
@@ -111,6 +111,8 @@ for the bridge and, in `make launch-<robot>-sim`, for the robot.
 | `robot_instances` | all | the robot instances to draw in the 3D scene (`measured`, `terminal_state`, `terminal_target`) |
 | `draw_terminal_state` | true | `false` draws only `measured`: no end-of-trajectory robots (`terminal_state`, `terminal_target`), whatever `robot_instances` says; the shipped file sets it `false` |
 | `mujoco_viewer` | `web` | the MuJoCo viewer of the robot process, by registry name, or several tried in order: `web` (a browser tab at `http://localhost:6090`), `glfw` (a window on `DISPLAY`), `none` |
+| `telemetry_rate_hz` | `50` | the most `viz/telemetry` samples per second of robot time the bridge records: the first sample of every 1 / rate interval; `0` records every one (the robot's 100 Hz) |
+| `record_unplotted_telemetry` | `false` | `true` records every `viz/telemetry` group, also those no tab, panel or signal of the file plots (for a view added by hand in the viewer); `false` records only the plotted groups (`plot_config.telemetry_selection()`) |
 
 `mujoco_viewer` is the robot's, not the bridge's: the robot process reads it from its own `--plot_config` when no
 `--viewer` is given (`VIEWER=`, `WB_ROBOT_VIEWER`), so `make launch-<robot>-sim` opens the MuJoCo viewer in a browser
@@ -130,13 +132,14 @@ the path the robot's errors give.
 | Topic | Message | Delivery | Drawn as |
 |---|---|---|---|
 | `viz/scene` | `VisualizationScene` | latest | link poses and markers under `world/` |
-| `viz/telemetry` | `TelemetrySeries` | all: every sample is plotted | scalars under `telemetry/`, sent every `--flush_period` (50 ms) as one Arrow record batch |
+| `viz/telemetry` | `TelemetrySeries` | all: every sample, recorded at most at `telemetry_rate_hz` | the plotted groups' scalars under `telemetry/`, sent every `--flush_period` as one Arrow record batch |
 | `robot/fsm_state` | `FsmState` | latest | a text line on every change |
 | `mpc/status` | `MpcStatus` | all: every solve time is plotted | scalars, and a text line when the solver's health, error or resets change |
 | `robot/loop_timing` | `LoopTiming` | all | scalars and one text line per report |
 
 Every 5 s the bridge reports what went wrong since the last report (malformed parts, handler errors, messages the bus
-rejected, messages dropped while the sink took no data, messages of a previous run) to `status/bridge` and to its log.
+rejected, messages dropped while the sink took no data, messages of a previous run, messages more than 1 s behind the
+robot's clock) to `status/bridge` and to its log.
 The handlers run on the bridge's writer thread, whose queue holds 512 messages (a topic of "latest" delivery keeps only
 its newest one waiting); at shutdown the writer drains it for at most 2 s, and the last flush waits at most 5 s for
 the sink.
@@ -167,6 +170,22 @@ the latest time, would show the old run's end until the new clock passed it. `sp
 recording to the same viewer, `serve_web` to its own server, and `save` writes it next to the first file as
 `<stem>.run<N>.rrd`. For 2 s after a new run began, a message whose time is back near the old run's (one still on its
 way) is dropped and counted. A smaller step back stays in the run: the scene is logged in full again at the new times.
+
+The robot's clock is one stream's, the clock topic's: `viz/telemetry`, one message per `robot/state` sample in the
+order the robot took them, or `viz/scene` while no telemetry arrives (`bridge.CLOCK_TIMEOUT_S`, 1 s). Only it starts a
+run, once `bridge.NEW_RUN_CONFIRMATIONS` (3) of its messages in a row are more than 1 s behind the clock. A message
+that far behind waits (at most `bridge.MAX_HELD_MESSAGES`, 64, and at most 1 s): once the clock topic confirms the new
+run it is recorded into it, and once the clock topic shows that the clock did not go back, into the current run at its
+own time, counted as late. A single late message therefore never starts a recording: an `MpcStatus` whose solve took
+more than a second, or a scene of "latest" delivery that overtook older telemetry in the bus's and the writer's queues.
+Before this, every such message started a recording of its own and the 2 s window above then dropped every current
+message: in a live `serve_web` session the bridge made a recording every 35 to 40 s without a restart of the robot,
+each with the meshes and the layout sent again and none ever released, and its memory grew from 1.4 GB to 3 GB in 10
+minutes while the browser switched to each new recording and froze for 2 s.
+
+`serve_web` disconnects the recording of every run but the first (whose recording owns the gRPC server) and the newest
+two (`rerun_sinks.MAX_ATTACHED_RUNS`), which frees its gRPC client and buffers; rerun-sdk 0.38 keeps two idle threads
+of every recording it made until the process exits.
 
 `--max_scene_frequency` throttles the scenes by wall clock; the latest scene it held back is drawn by the next flush
 once the interval passed (and at shutdown), so that the last scene of a stream is drawn too.
@@ -433,6 +452,27 @@ The telemetry is cheap because a flush sends every group of every buffered messa
 the SDK; a pose that has not changed is not logged again. A record batch of all transforms was slower, because Rerun
 then builds one chunk per link from it. `rerun_scene_frequency` in the task file bounds the scene's rate.
 
+### What the viewer ingests
+
+The bridge's CPU is not what limits a session; the viewer is, above all the browser's: it ingests and keeps every
+chunk it is sent, plotted or not, and its cost grows with the chunks more than with the rows. A 60 s synthetic stream at
+the live rates (an Atlas-sized `TelemetrySeries` of 114 groups at 100 Hz, a 32-link scene at 30 Hz, `MpcStatus` at
+50 Hz), saved with `serve_web`'s scene rate (12.5 Hz) and counted with `rerun rrd stats`:
+
+| Configuration | Telemetry groups | Rows per second | Chunks per second | Bytes per second |
+|---|---|---|---|---|
+| before: every group, every sample, flushed every 0.1 s | 114 | 12 000 | 1 380 | 2.2 MB |
+| the shipped file (its 31 plotted groups, Balance and MPC Solution included) at 50 Hz, flushed every 0.1 s | 31 | 2 160 | 550 | 0.87 MB |
+| the same, flushed every 0.2 s (`serve_web`'s default) | 31 | 2 160 | 380 | 0.66 MB |
+| the same, flushed every 0.25 s | 31 | 2 160 | 350 | 0.62 MB |
+
+Every flush sends one chunk per plotted entity, so the groups recorded and the flush period set the chunks; the rate
+only sets the rows. With the shipped file's first panels (18 groups), 100, 50 and 25 Hz gave 1.00, 0.98 and 0.96 MB/s.
+A headless native viewer (`rerun --headless`) connected to `serve_web` grew by 2.7 MB/s before and by 1.0 MB/s after,
+and the bridge took 0.21 and 0.14 of a core. The bridge's memory stays at 180 to 190 MB over these runs; a stream with
+a 1.5 s late `MpcStatus` every 35 s, which before made a recording and dropped 2 s of messages each time (734 messages
+in 150 s, the bridge 70 MB larger), now records them late and stays at 190 MB.
+
 ## The model sandbox
 
 `:model_sandbox` draws a robot's URDF without an MPC or a simulator: `make launch-<robot>-sandbox` runs it with this
@@ -466,13 +506,13 @@ The sandbox draws no TF frames, interactive markers or collision geometry.
 | `:test_urdf_model` | URDF parsing, `package://` resolution, materials, primitives, `.dae` twins and errors on a sample package; every mesh of every URDF in `robot_models/` resolves |
 | `:test_robot_meshes` | the static model of every instance: one `Asset3D` per mesh, primitives, tints and alphas; the EngineAI SA01 in full |
 | `:test_blueprint` | the blueprint builds; its tabs, views and hidden entities; it survives a round trip through an `.rrd` file |
-| `:test_plot_config` | the plot configuration: textproto and plain-text files, the filtering of tabs, panels and status series, the robot instances, and `mujoco_viewer` (a name or a list, the default `web`, unknown names and lists the robot refuses, the shipped files' `web`); the shipped file plots the Euler angles, the Euler rates and the body angular velocity |
+| `:test_plot_config` | the plot configuration: textproto and plain-text files, the filtering of tabs, panels and status series, the robot instances, and `mujoco_viewer` (a name or a list, the default `web`, unknown names and lists the robot refuses, the shipped files' `web`), `telemetry_rate_hz` (default, refused negative or not finite) and `record_unplotted_telemetry`, the groups `telemetry_selection()` records against the plotted panels; the shipped file plots the Euler angles, the Euler rates, the body angular velocity, the balance quantities and the per-term costs and constraints, at 50 Hz |
 | `:test_scalar_batcher` | rows are sent in one `send_columns` per entity, or as one record batch per flush whose chunks equal those of `send_columns`, on both timelines, in order |
-| `:test_bridge` | every handler, driven with synthetic messages and read back from an `.rrd` file: entities, components, clearing, change detection, the throttled scene drawn by the flush, link names the URDF lacks, status lines (a failed solve, loop events since the previous report, the latest robot time), malformed parts, a NaN value plotted as a gap, a new run of the robot as a recording of its own |
+| `:test_bridge` | every handler, driven with synthetic messages and read back from an `.rrd` file: entities, components, clearing, change detection, the throttled scene drawn by the flush, link names the URDF lacks, status lines (a failed solve, loop events since the previous report, the latest robot time), malformed parts, a NaN value plotted as a gap, a new run of the robot as a recording of its own, confirmed by the clock topic (the scene without telemetry); late messages of any topic (fewer than the confirmations, a slow solve's `MpcStatus`, an overtaking scene) recorded at their own times in the current run, at most 64 waiting and none longer than 1 s, and ten minutes of periodic late messages leaving one recording; the telemetry rate (the first sample of every interval against a bisection oracle, on jittered times) and the group selection |
 | `:test_bus_bridge` | the writer thread: the handlers in order off the bus's thread, a blocked handler that blocks neither the bus nor the stop, a "latest" topic's newest message, pause and resume |
 | `:test_viewer_watch` | the viewer probe: gone after 3 s, back at once; a spawned viewer that is gone ends the run, a `connect` one pauses and reconnects |
 | `:test_period_flags` | the flush, report and scene-rate flags, and the defaults of `--plots`, `--terminal_state`, `--robot_instances` and `--plot_config` |
-| `:test_rerun_sinks` | the sink registry, `save` and its numbered files of later runs, the viewers the sinks stream to, the viewer binary of the wheel |
+| `:test_rerun_sinks` | the sink registry, `save` and its numbered files of later runs, `serve_web` disconnecting the recordings of old runs, the viewers the sinks stream to, the viewer binary of the wheel |
 | `:test_serve_web_sink` | `serve_web` answering HTTP, refusing a busy gRPC or web port and taking one in TIME_WAIT, in a process of its own |
 | `:test_end_to_end` | scene, telemetry and status published with `robot_ipc` on a loopback bus and bridged into an `.rrd` file, a message of the wrong type rejected; the binary stopped with SIGINT and SIGTERM, ended by `--duration`, exiting promptly when its `connect` viewer is not there, not wedged by an absent viewer, reconnecting to one that comes back, ended when its spawned viewer is gone, saving a restarted robot clock as a second run, and exiting 2 on configuration errors |
 | `:test_bridge_cost` | the cost per message above, with a generous bound |

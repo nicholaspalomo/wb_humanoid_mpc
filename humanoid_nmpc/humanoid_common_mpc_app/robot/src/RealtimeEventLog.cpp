@@ -57,6 +57,8 @@ std::string formatRealtimeEvent(const RealtimeEvent& event) {
       return absl::StrCat("FSM command received: ", text, " - zero-torque mode.");
     case RealtimeEventCode::kTorquesEnabled:
       return absl::StrCat("FSM command received: ", text, " - enabling torques.");
+    case RealtimeEventCode::kModeCommanded:
+      return absl::StrCat("FSM command received: ", text, ".");
     case RealtimeEventCode::kGantryLockCommanded:
       return "FSM command received: Locking gantry.";
     case RealtimeEventCode::kGantryUnlockCommanded:
@@ -114,6 +116,7 @@ bool isWarningEvent(const RealtimeEvent& event) {
       return isWarningControllerEvent(makeControllerEvent(static_cast<ControllerEventCode>(event.detail), event.source));
     case RealtimeEventCode::kTorquesDisabled:
     case RealtimeEventCode::kTorquesEnabled:
+    case RealtimeEventCode::kModeCommanded:
     case RealtimeEventCode::kGantryLockCommanded:
     case RealtimeEventCode::kGantryUnlockCommanded:
     case RealtimeEventCode::kGantryUnlockedMpcReset:

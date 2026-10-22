@@ -516,6 +516,34 @@ class TestSliderRowEntry(unittest.TestCase):
         row._on_entry_submit()
         self.assertEqual(len(self.changes), 1)
 
+    def test_text_that_is_not_a_finite_number_reverts_the_entry(self):
+        row = self._slider(1406.25)
+        for text in ("abc", "nan", "inf"):
+            with self.subTest(text=text):
+                row.entry_var.set(text)
+                row._on_entry_submit()
+                self.assertEqual(row.get_value(), 1406.25)
+                self.assertEqual(row.entry_var.get(), "1.41e+03")
+        self.assertEqual(self.changes, [])
+
+    def test_a_callback_that_raises_is_not_taken_for_a_typing_mistake(self):
+        def refuse(name: str, value: float | None) -> None:
+            raise ValueError(f"{name} refuses {value}")
+
+        row = slider_row.SliderRow(
+            self.root, name="gain", initial_value=1.0, on_change=refuse
+        )
+        row.entry_var.set("2")
+        # The error reaches the caller (Tk's report_callback_exception in the GUI), not a silent revert.
+        with self.assertRaisesRegex(ValueError, "gain refuses 2.0"):
+            row._on_entry_submit()
+        self.assertEqual(row.get_value(), 2.0)
+        self.assertEqual(row.entry_var.get(), "2.000")
+        # The row still takes the slider: the guard against its own updates was released.
+        row.on_change = None
+        row._on_scale_change("3.0")
+        self.assertEqual(row.get_value(), 3.0)
+
     def test_an_unset_row_shows_no_value_until_one_is_given_and_resets_to_none(self):
         row = self._slider(0.1, unset=True)
         self.assertFalse(row.has_value())

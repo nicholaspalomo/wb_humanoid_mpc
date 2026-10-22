@@ -53,6 +53,7 @@ namespace ocs2::humanoid {
 enum class RealtimeEventCode : uint8_t {
   kTorquesDisabled,         ///< an FSM command switched the torques off; text: the command
   kTorquesEnabled,          ///< an FSM command switched the torques on; text: the command
+  kModeCommanded,           ///< an FSM command changed the mode, the torques on already; text: the command
   kGantryLockCommanded,     ///< LOCK_GANTRY
   kGantryUnlockCommanded,   ///< UNLOCK_GANTRY
   kGantryUnlockedMpcReset,  ///< the gantry was released: the MPC is reset, the policy in use carries the robot

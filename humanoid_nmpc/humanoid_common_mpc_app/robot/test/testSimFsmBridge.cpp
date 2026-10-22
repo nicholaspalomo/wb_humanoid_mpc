@@ -128,11 +128,12 @@ TEST_F(SimFsmBridgeTest, ModeCommandsSwitchTheTorquesAndPublishTheMode) {
   EXPECT_TRUE(bridge_->processCommands(mode));
   EXPECT_EQ(mode, "WB_MPC");
   EXPECT_FALSE(sim_->isZeroTorqueMode());
-  // The torque switch was reported for the communication thread to log.
+  // Every command was reported for the communication thread to log: the torque switches, and the mode change between
+  // two active modes (JOINT_PD to WB_MPC), which switches nothing.
   std::vector<RealtimeEventCode> codes;
   log_.drain([&](const RealtimeEvent& event) { codes.push_back(event.code); });
-  EXPECT_EQ(codes, (std::vector<RealtimeEventCode>{RealtimeEventCode::kTorquesEnabled, RealtimeEventCode::kTorquesDisabled,
-                                                   RealtimeEventCode::kTorquesEnabled}));
+  EXPECT_EQ(codes, (std::vector<RealtimeEventCode>{RealtimeEventCode::kTorquesEnabled, RealtimeEventCode::kModeCommanded,
+                                                   RealtimeEventCode::kTorquesDisabled, RealtimeEventCode::kTorquesEnabled}));
 }
 
 TEST_F(SimFsmBridgeTest, OneCommandPerCycleInTheOrderTheyWereSent) {

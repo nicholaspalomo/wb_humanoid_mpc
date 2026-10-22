@@ -51,13 +51,15 @@ TEST(RealtimeEventLog, DrainsTheReportsInTheOrderTheyWerePosted) {
   RealtimeEventLog log(/*capacity=*/8);
   ASSERT_TRUE(log.post(RealtimeEventCode::kTorquesEnabled, /*detail=*/0, "JOINT_PD"));
   ASSERT_TRUE(log.post(RealtimeEventCode::kGantryUnlockCommanded));
+  ASSERT_TRUE(log.post(RealtimeEventCode::kModeCommanded, /*detail=*/0, "WB_MPC"));
   ASSERT_TRUE(log.post(RealtimeEventCode::kTorquesDisabled, /*detail=*/0, "ZERO_TORQUE"));
   std::vector<std::string> lines;
-  EXPECT_EQ(log.drain([&](const RealtimeEvent& event) { lines.push_back(formatRealtimeEvent(event)); }), 3u);
-  ASSERT_EQ(lines.size(), 3u);
+  EXPECT_EQ(log.drain([&](const RealtimeEvent& event) { lines.push_back(formatRealtimeEvent(event)); }), 4u);
+  ASSERT_EQ(lines.size(), 4u);
   EXPECT_EQ(lines[0], "FSM command received: JOINT_PD - enabling torques.");
   EXPECT_EQ(lines[1], "FSM command received: Unlocking gantry.");
-  EXPECT_EQ(lines[2], "FSM command received: ZERO_TORQUE - zero-torque mode.");
+  EXPECT_EQ(lines[2], "FSM command received: WB_MPC.");
+  EXPECT_EQ(lines[3], "FSM command received: ZERO_TORQUE - zero-torque mode.");
   EXPECT_EQ(log.drain([](const RealtimeEvent&) {}), 0u) << "drained once";
 }
 

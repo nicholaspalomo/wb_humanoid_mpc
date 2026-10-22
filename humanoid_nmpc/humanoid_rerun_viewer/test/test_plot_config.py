@@ -301,6 +301,119 @@ class ShippedPlotConfigTest(unittest.TestCase):
             self.assertIn(f"base_pose/angular_velocity_{axis}", plotted)
 
 
+class TelemetryRecordingConfigTest(unittest.TestCase):
+    """telemetry_rate_hz and record_unplotted_telemetry, and the groups telemetry_selection() records."""
+
+    def test_the_rate_is_parsed_and_defaults_when_unset(self) -> None:
+        cfg = plot_config.parse_plot_config(f"{_HEADER}telemetry_rate_hz: 25\n")
+        self.assertEqual(cfg.telemetry_rate_hz, 25.0)
+        cfg = plot_config.parse_plot_config(f"{_HEADER}telemetry_rate_hz: 0\n")
+        self.assertEqual(cfg.telemetry_rate_hz, 0.0)
+        cfg = plot_config.parse_plot_config(f'{_HEADER}signals: "base_pose/*"\n')
+        self.assertEqual(cfg.telemetry_rate_hz, plot_config.DEFAULT_TELEMETRY_RATE_HZ)
+        self.assertEqual(
+            plot_config.PlotConfig().telemetry_rate_hz,
+            plot_config.DEFAULT_TELEMETRY_RATE_HZ,
+        )
+        cfg = plot_config.parse_plot_config("base_pose/*\ntelemetry_rate_hz: 12.5\n")
+        self.assertEqual(cfg.telemetry_rate_hz, 12.5)
+        self.assertEqual(cfg.signals, ("base_pose/*",))
+
+    def test_a_negative_or_non_finite_rate_is_refused(self) -> None:
+        for value in ("-1", "nan", "inf"):
+            for text in (
+                f"{_HEADER}telemetry_rate_hz: {value}\n",
+                f"base_pose/*\ntelemetry_rate_hz: {value}\n",
+            ):
+                with self.subTest(text=text):
+                    with self.assertRaises(plot_config.PlotConfigError) as raised:
+                        plot_config.parse_plot_config(text, source="my.textproto")
+                    self.assertIn("telemetry_rate_hz", str(raised.exception))
+                    self.assertIn("my.textproto", str(raised.exception))
+        with self.assertRaises(plot_config.PlotConfigError):
+            plot_config.parse_plot_config("base_pose/*\ntelemetry_rate_hz: fast\n")
+
+    def test_record_unplotted_telemetry_is_parsed(self) -> None:
+        self.assertFalse(plot_config.PlotConfig().record_unplotted_telemetry)
+        cfg = plot_config.parse_plot_config(
+            f"{_HEADER}record_unplotted_telemetry: true\n"
+        )
+        self.assertTrue(cfg.record_unplotted_telemetry)
+        cfg = plot_config.parse_plot_config(
+            "base_pose/*\nrecord_unplotted_telemetry: true\n"
+        )
+        self.assertTrue(cfg.record_unplotted_telemetry)
+        self.assertEqual(cfg.signals, ("base_pose/*",))
+
+    def test_the_selection_records_exactly_the_plotted_groups(self) -> None:
+        cfg = plot_config.PlotConfig(
+            signals=("Base Pose & Euler", "frames/pose/*", "my/custom", "status/mpc/*")
+        )
+        records = plot_config.telemetry_selection(cfg)
+        assert records is not None
+        tabs, _ = plot_config.filter_contract_tabs(telemetry_contract.TABS, cfg.signals)
+        panel_paths: list[str] = []
+        for tab in tabs:
+            for panel in tab.panels():
+                panel_paths.extend(panel.paths)
+        frames = ("foot_l_contact", "pelvis")
+        for group in telemetry_contract.all_groups(frames):
+            plotted = any(
+                group.path == path
+                or (path.endswith("/**") and group.path.startswith(path[: -len("**")]))
+                for path in panel_paths
+            )
+            with self.subTest(path=group.path):
+                self.assertEqual(records(group.path), plotted)
+        self.assertTrue(records("base_pose/roll"))
+        frame_poses = [
+            group.path
+            for group in telemetry_contract.frame_groups("pelvis")
+            if group.path.startswith("frames/pose/")
+        ]
+        self.assertTrue(frame_poses)
+        for path in frame_poses:
+            self.assertTrue(records(path), path)
+        self.assertTrue(records("my/custom"))
+        self.assertFalse(records("joints/position/measured"))
+        self.assertFalse(records("mpc/status"))
+
+    def test_without_a_selection_every_group_is_recorded(self) -> None:
+        self.assertIsNone(plot_config.telemetry_selection(None))
+        self.assertIsNone(
+            plot_config.telemetry_selection(
+                plot_config.PlotConfig(
+                    signals=("base_pose/*",), record_unplotted_telemetry=True
+                )
+            )
+        )
+
+    def test_the_shipped_file_records_its_plots_at_50_hz(self) -> None:
+        cfg = plot_config.load_plot_config(
+            "humanoid_nmpc/humanoid_rerun_viewer/config/plot_config.textproto"
+        )
+        self.assertEqual(cfg.telemetry_rate_hz, 50.0)
+        self.assertFalse(cfg.record_unplotted_telemetry)
+        records = plot_config.telemetry_selection(cfg)
+        assert records is not None
+        # The plots the user asked for: Euler angles and rates, the balance quantities, the per-term costs and
+        # constraints.
+        for path in (
+            "base_pose/roll",
+            "base_pose/yaw_rate",
+            "base_pose/angular_velocity_x",
+            "com/position_x",
+            "dcm/x",
+            "zmp/x",
+            "acom/roll",
+            "mpc_solution/costs",
+            "mpc_solution/constraints",
+        ):
+            with self.subTest(path=path):
+                self.assertTrue(records(path), path)
+        self.assertFalse(records("dofs/position/measured"))
+
+
 class ResolveAllowedInstancesTest(unittest.TestCase):
     def test_default_returns_none(self) -> None:
         self.assertIsNone(plot_config.resolve_allowed_instances(None))

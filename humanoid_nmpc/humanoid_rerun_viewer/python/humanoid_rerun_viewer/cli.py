@@ -89,7 +89,9 @@ DEFAULT_PLOT_CONFIG = os.path.join(
 # LINT.ThenChange(//Makefile:plot_config_variable, //tools/deploy/session.sh:default_plot_config, //docker-compose.robot.sim.yaml:sim_plot_config_mount)
 DEFAULT_APP_ID = "humanoid_nmpc"
 DEFAULT_WEB_MAX_SCENE_FREQUENCY = 12.5
-DEFAULT_WEB_FLUSH_PERIOD_S = 0.1
+# Every flush sends one chunk per plotted entity, and the browser's cost is per chunk more than per row (README.md,
+# "Cost"): 0.2 s halves the chunks of 0.1 s for a plot that trails the robot by 0.2 s more.
+DEFAULT_WEB_FLUSH_PERIOD_S = 0.2
 # How often the main thread checks for a stop request and the duration [s].
 _POLL_PERIOD_S = 0.1
 # LINT.IfChange(viewer_watch)
@@ -611,12 +613,20 @@ def run(args: argparse.Namespace, stop: threading.Event | None = None) -> RunRes
     else:
         flush_period = bus_bridge.DEFAULT_FLUSH_PERIOD_S
 
+    telemetry_rate = (
+        plot_config.telemetry_rate_hz
+        if plot_config is not None
+        else plot_config_module.DEFAULT_TELEMETRY_RATE_HZ
+    )
+    telemetry_selection = plot_config_module.telemetry_selection(plot_config)
     the_bridge = bridge_module.RerunBridge(
         recording,
         model,
         max_scene_frequency=max_scene_frequency,
         allowed_instances=allowed_instances,
         new_run=functools.partial(_attach_new_run, sink, args.app_id),
+        telemetry_rate=telemetry_rate,
+        telemetry_selection=telemetry_selection,
     )
     telemetry_enabled = plots and (
         plot_config is None or plot_config_module.has_telemetry_signals(plot_config)
@@ -641,6 +651,16 @@ def run(args: argparse.Namespace, stop: threading.Event | None = None) -> RunRes
         feed.bus.domain_id,
         ", ".join(feed.bus.discovery_peers),
     )
+    if telemetry_enabled:
+        _LOGGER.info(
+            "recording viz/telemetry %s, %s",
+            (
+                f"at most at {telemetry_rate:g} Hz of robot time"
+                if telemetry_rate > 0.0
+                else "at every sample"
+            ),
+            "every group" if telemetry_selection is None else "the plotted groups",
+        )
     deadline = time.monotonic() + args.duration if args.duration > 0.0 else None
     stall_warning = _StallWarning()
     feed.start()

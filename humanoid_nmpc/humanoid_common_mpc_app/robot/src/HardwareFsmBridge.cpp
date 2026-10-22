@@ -64,9 +64,12 @@ bool HardwareFsmBridge::processCommands(std::string& currentModeName) {
     case FsmCommandKind::kGravityComp:
     case FsmCommandKind::kWbMpc:
     case FsmCommandKind::kSafety: {
+      // Every mode command is reported, also one between two active modes (JOINT_PD to WB_MPC), which switches nothing.
       if (!backend_->acceptsJointAction()) {
         if (eventLog_ != nullptr) eventLog_->post(RealtimeEventCode::kTorquesEnabled, /*detail=*/0, name);
         backend_->enableTorques();
+      } else if (eventLog_ != nullptr) {
+        eventLog_->post(RealtimeEventCode::kModeCommanded, /*detail=*/0, name);
       }
       const absl::string_view mode = fsmCommandModeName(command.kind);
       currentModeName.assign(mode.data(), mode.size());

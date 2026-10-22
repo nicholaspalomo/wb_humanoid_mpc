@@ -27,8 +27,11 @@
 
 """The bridge's handlers, driven directly with synthetic messages; the recording is read back from an .rrd file."""
 
+import bisect
+from collections.abc import Callable
 import math
 import os
+import random
 import shutil
 import tempfile
 import unittest
@@ -63,6 +66,25 @@ LINKS = synthetic_messages.link_names_with_visuals()
 def packed(rgba8) -> int:
     red, green, blue, alpha = rgba8
     return (red << 24) | (green << 16) | (blue << 8) | alpha
+
+
+def rounded(times: list[float]) -> list[float]:
+    """`times` to the microsecond: the recording keeps nanoseconds, which a float in seconds rounds."""
+    return [round(time_s, 6) for time_s in times]
+
+
+def one_group_telemetry(robot_time: float) -> telemetry_series_pb2.TelemetrySeries:
+    """A TelemetrySeries of one group, for tests of many messages."""
+    return telemetry_series_pb2.TelemetrySeries(
+        time=robot_time,
+        groups=[
+            scalar_group_pb2.ScalarGroup(
+                path="base_pose/position_x",
+                names=list(telemetry_contract.MEASURED_VS_REFERENCE),
+                values=[robot_time, 0.0],
+            )
+        ],
+    )
 
 
 class FakeClock:
@@ -265,8 +287,9 @@ class SceneTest(BridgeTestCase):
         statistics = self.bridge.statistics
         self.assertEqual(statistics.link_poses_logged, links_logged)
         self.assertEqual(statistics.link_poses_unchanged, links_logged)
-        # A restarted simulation: the same poses at an earlier time are all logged again.
-        scene.time = 0.1
+        # The clock went back (by less than a new run's NEW_RUN_REWIND_S): the same poses at an earlier time are all
+        # logged again.
+        scene.time = 0.5
         self.bridge.handle_scene(scene)
         self.assertEqual(statistics.link_poses_logged, 2 * links_logged)
 
@@ -899,21 +922,24 @@ class RunTest(unittest.TestCase):
 
     def test_a_clock_that_goes_back_starts_a_new_recording(self) -> None:
         self.bridge.log_static()
-        for robot_time in (0.0, 1.0, 2.0, 3.0, 0.5, 1.5):
+        # A restarted simulation: its clock starts over and goes on.
+        for robot_time in (0.0, 1.0, 2.0, 3.0, 0.5, 0.6, 0.7, 1.5):
             self.step(robot_time)
         self.assertEqual(self.runs_started, 1)
         self.assertEqual(self.bridge.statistics.new_runs, 1)
+        self.assertEqual(self.bridge.statistics.late_messages, 0)
         self.assertIs(self.bridge.recording, self.recordings[1])
         first, second = self.contents()
         link = scene_contract.link_path(scene_contract.MEASURED, "base_link")
         plot = f"{scene_contract.TELEMETRY_ROOT}/base_pose/position_x"
-        for entity, times in (
-            (link, [0.0, 1.0, 2.0, 3.0]),
-            (plot, [0.0, 1.0, 2.0, 3.0]),
-        ):
-            self.assertEqual(first.entities[entity].times(ROBOT_TIMELINE), times)
         for entity in (link, plot):
-            self.assertEqual(second.entities[entity].times(ROBOT_TIMELINE), [0.5, 1.5])
+            self.assertEqual(
+                first.entities[entity].times(ROBOT_TIMELINE), [0.0, 1.0, 2.0, 3.0]
+            )
+            # The messages that waited for the clock to confirm the new run are in it, in order.
+            self.assertEqual(
+                second.entities[entity].times(ROBOT_TIMELINE), [0.5, 0.6, 0.7, 1.5]
+            )
         # The new recording holds everything a viewer needs: the world's axes, every instance's meshes, the series.
         self.assertIn("ViewCoordinates:xyz", second.entities["world"].static_components)
         for style in scene_contract.ROBOT_INSTANCES:
@@ -943,22 +969,273 @@ class RunTest(unittest.TestCase):
         link = scene_contract.link_path(scene_contract.MEASURED, "base_link")
         self.assertEqual(only.entities[link].times(ROBOT_TIMELINE), [1.5, 2.0, 2.1])
 
+    def test_late_messages_of_other_topics_never_start_a_run(self) -> None:
+        # What the live session showed: an MpcStatus whose solve took longer than NEW_RUN_REWIND_S, and a scene of
+        # "latest" delivery that overtook older telemetry, each behind the robot's clock by more than it.
+        times = [index / 100 for index in range(301)]
+        for robot_time in times:
+            self.step(robot_time)
+        self.bridge.handle_mpc_status(mpc_status_pb2.MpcStatus(observation_time=1.5))
+        self.bridge.handle_scene(synthetic_messages.full_scene(1.6, LINKS))
+        self.bridge.handle_mpc_status(mpc_status_pb2.MpcStatus(observation_time=1.7))
+        self.assertEqual(self.bridge.statistics.handled[topics.MPC_STATUS], 2)
+        self.step(3.01)
+        self.assertEqual(self.runs_started, 0)
+        self.assertEqual(self.bridge.statistics.new_runs, 0)
+        self.assertEqual(self.bridge.statistics.late_messages, 3)
+        self.assertEqual(self.bridge.statistics.previous_run_dropped, 0)
+        # Each handled once, as it came.
+        self.assertEqual(self.bridge.statistics.handled[topics.MPC_STATUS], 2)
+        (only,) = self.contents()
+        # Recorded at their own times, before the message that showed them late.
+        self.assertEqual(
+            rounded(
+                only.entities[status_contract.MPC_SOLVE_TIME.path].times(ROBOT_TIMELINE)
+            ),
+            [1.5, 1.7],
+        )
+        link = scene_contract.link_path(scene_contract.MEASURED, "base_link")
+        self.assertEqual(
+            rounded(only.entities[link].times(ROBOT_TIMELINE)),
+            rounded(sorted([*times, 1.6, 3.01])),
+        )
+        plot = f"{scene_contract.TELEMETRY_ROOT}/base_pose/position_x"
+        self.assertEqual(
+            rounded(only.entities[plot].times(ROBOT_TIMELINE)), rounded([*times, 3.01])
+        )
+
+    def test_fewer_clock_messages_than_the_confirmations_are_late(self) -> None:
+        for robot_time in (0.0, 1.0, 2.0, 3.0):
+            self.step(robot_time)
+        late = [0.5 + index / 100 for index in range(bridge.NEW_RUN_CONFIRMATIONS - 1)]
+        for robot_time in late:
+            self.bridge.handle_telemetry(synthetic_messages.full_telemetry(robot_time))
+        self.bridge.handle_telemetry(synthetic_messages.full_telemetry(3.01))
+        self.assertEqual(self.runs_started, 0)
+        self.assertEqual(self.bridge.statistics.late_messages, len(late))
+        (only,) = self.contents()
+        plot = f"{scene_contract.TELEMETRY_ROOT}/base_pose/position_x"
+        self.assertEqual(
+            rounded(only.entities[plot].times(ROBOT_TIMELINE)),
+            rounded(sorted([0.0, 1.0, 2.0, 3.0, 3.01, *late])),
+        )
+
+    def test_the_scene_is_the_clock_without_telemetry(self) -> None:
+        for robot_time in (0.0, 1.0, 2.0, 3.0, 0.5, 0.6, 0.7):
+            self.bridge.handle_scene(synthetic_messages.full_scene(robot_time, LINKS))
+        self.assertEqual(self.runs_started, 1)
+        _, second = self.contents()
+        link = scene_contract.link_path(scene_contract.MEASURED, "base_link")
+        self.assertEqual(second.entities[link].times(ROBOT_TIMELINE), [0.5, 0.6, 0.7])
+
     def test_a_message_of_the_previous_run_after_the_new_one_began_is_dropped(
         self,
     ) -> None:
         for robot_time in (0.0, 1.0, 2.0, 3.0):
             self.step(robot_time)
-        self.bridge.handle_scene(synthetic_messages.full_scene(0.5, LINKS))
+        restarted = [0.5 + index / 100 for index in range(bridge.NEW_RUN_CONFIRMATIONS)]
+        for robot_time in restarted:
+            self.bridge.handle_telemetry(synthetic_messages.full_telemetry(robot_time))
+        self.assertEqual(self.runs_started, 1)
         # Still on its way when the robot restarted: telemetry and a status of the previous run.
         self.bridge.handle_telemetry(synthetic_messages.full_telemetry(3.01))
         self.bridge.handle_mpc_status(mpc_status_pb2.MpcStatus(observation_time=2.99))
-        self.bridge.handle_telemetry(synthetic_messages.full_telemetry(0.51))
+        self.bridge.handle_telemetry(synthetic_messages.full_telemetry(0.6))
         self.assertEqual(self.runs_started, 1)
         self.assertEqual(self.bridge.statistics.previous_run_dropped, 2)
         _, second = self.contents()
         plot = f"{scene_contract.TELEMETRY_ROOT}/base_pose/position_x"
-        self.assertEqual(second.entities[plot].times(ROBOT_TIMELINE), [0.51])
+        self.assertEqual(
+            rounded(second.entities[plot].times(ROBOT_TIMELINE)),
+            rounded([*restarted, 0.6]),
+        )
         self.assertNotIn(status_contract.MPC_SOLVE_TIME.path, second.entities)
+
+    def test_messages_wait_for_a_quiet_clock_at_most_the_clock_timeout(self) -> None:
+        clock = ManualClock()
+        the_bridge = bridge.RerunBridge(
+            self.new_recording(), None, clock=clock, new_run=self.next_run
+        )
+        self.bridge = the_bridge
+        the_bridge.handle_telemetry(synthetic_messages.full_telemetry(3.0))
+        the_bridge.handle_mpc_status(mpc_status_pb2.MpcStatus(observation_time=1.0))
+        the_bridge.flush()
+        self.assertEqual(the_bridge.statistics.late_messages, 0)
+        clock.now += bridge.CLOCK_TIMEOUT_S
+        the_bridge.flush()
+        self.assertEqual(the_bridge.statistics.late_messages, 1)
+        self.assertEqual(self.runs_started, 0)
+        self.assertEqual(
+            rounded(
+                self.contents()[1]
+                .entities[status_contract.MPC_SOLVE_TIME.path]
+                .times(ROBOT_TIMELINE)
+            ),
+            [1.0],
+        )
+
+    def test_the_messages_that_wait_are_bounded(self) -> None:
+        # Messages behind a clock topic that no longer comes: no more than MAX_HELD_MESSAGES wait at any time.
+        self.step(3.0)
+        count = 10 * bridge.MAX_HELD_MESSAGES
+        for index in range(count):
+            self.bridge.handle_mpc_status(
+                mpc_status_pb2.MpcStatus(observation_time=1.0 + 1e-3 * index)
+            )
+            self.assertLessEqual(
+                len(self.bridge._held),
+                bridge.MAX_HELD_MESSAGES,  # pylint: disable=protected-access  # The bound.
+            )
+        self.bridge.draw_pending_scene()
+        self.assertEqual(self.bridge.statistics.late_messages, count)
+        self.assertEqual(self.runs_started, 0)
+
+    def test_periodic_late_messages_over_a_long_stream_leave_one_recording(
+        self,
+    ) -> None:
+        # Ten minutes of 100 Hz telemetry with a status 1.5 s late every 35 s, the live session's rate of new
+        # recordings before the fix: nothing accumulates.
+        rate = 100
+        duration = 600
+        late = range(rate * 30, rate * duration, rate * 35)
+        for index in range(rate * duration):
+            robot_time = index / rate
+            self.bridge.handle_telemetry(one_group_telemetry(robot_time))
+            if index in late:
+                self.bridge.handle_mpc_status(
+                    mpc_status_pb2.MpcStatus(observation_time=robot_time - 1.5)
+                )
+            if index % 20 == 0:
+                self.bridge.flush()
+        self.assertEqual(self.runs_started, 0)
+        self.assertEqual(len(self.recordings), 1)
+        self.assertEqual(self.bridge.statistics.late_messages, len(late))
+        self.assertEqual(self.bridge.statistics.previous_run_dropped, 0)
+        self.assertEqual(
+            len(self.bridge._held), 0
+        )  # pylint: disable=protected-access  # Nothing left waiting.
+
+
+def sample_times(source_rate: float, rate: float, seed: int) -> list[float]:
+    """Three seconds of increasing sample times at `source_rate` with jitter, none within 1e-4 of an interval's start."""
+    generator = random.Random(seed)
+    times: list[float] = []
+    for index in range(int(3 * source_rate)):
+        while True:
+            time_s = (index + generator.uniform(-0.3, 0.3)) / source_rate
+            offset = time_s * rate - math.floor(time_s * rate)
+            if 1e-4 < offset < 1.0 - 1e-4:
+                break
+        times.append(time_s)
+    return times
+
+
+class TelemetryRecordingTest(unittest.TestCase):
+    """telemetry_rate records the first sample of every 1 / rate interval of robot time; telemetry_selection the groups."""
+
+    PLOT = f"{scene_contract.TELEMETRY_ROOT}/base_pose/position_x"
+
+    def record(
+        self,
+        messages: list[telemetry_series_pb2.TelemetrySeries],
+        rate: float = 0.0,
+        selection: Callable[[str], bool] | None = None,
+    ) -> tuple[bridge.RerunBridge, rrd_contents.RrdContents]:
+        """Feeds `messages` to a bridge of `rate` and `selection`; returns it and its recording, read back."""
+        directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, directory)
+        path = os.path.join(directory, "telemetry.rrd")
+        recording = bridge.new_recording("test_bridge_telemetry")
+        recording.save(path)
+        the_bridge = bridge.RerunBridge(
+            recording,
+            None,
+            clock=FakeClock(),
+            telemetry_rate=rate,
+            telemetry_selection=selection,
+        )
+        for message in messages:
+            the_bridge.handle_telemetry(message)
+        the_bridge.flush()
+        recording.flush()
+        recording.disconnect()
+        return the_bridge, rrd_contents.RrdContents(path)
+
+    def test_every_interval_records_its_first_sample_and_only_that(self) -> None:
+        for source_rate, rate in (
+            (100.0, 50.0),
+            (100.0, 30.0),
+            (250.0, 7.5),
+            (33.0, 50.0),
+        ):
+            with self.subTest(source_rate=source_rate, rate=rate):
+                times = sample_times(source_rate, rate, seed=int(source_rate * rate))
+                the_bridge, contents = self.record(
+                    [one_group_telemetry(time_s) for time_s in times], rate=rate
+                )
+                # The oracle: the interval [k / rate, (k + 1) / rate) of each sample, by bisection on the boundaries.
+                boundaries = [index / rate for index in range(int(4 * rate) + 2)]
+                first_of_interval: dict[int, float] = {}
+                for time_s in times:
+                    interval = bisect.bisect_right(boundaries, time_s) - 1
+                    first_of_interval.setdefault(interval, time_s)
+                expected = sorted(first_of_interval.values())
+                self.assertEqual(
+                    rounded(contents.entities[self.PLOT].times(ROBOT_TIMELINE)),
+                    rounded(expected),
+                )
+                self.assertEqual(
+                    the_bridge.statistics.telemetry_decimated,
+                    len(times) - len(expected),
+                )
+                # Never more than the rate, and every interval with a sample has one: the mean rate is the lesser.
+                self.assertLessEqual(len(expected), math.ceil(3 * rate) + 1)
+
+    def test_rate_zero_records_every_sample(self) -> None:
+        times = [index / 100 for index in range(100)]
+        the_bridge, contents = self.record(
+            [one_group_telemetry(time_s) for time_s in times]
+        )
+        self.assertEqual(
+            rounded(contents.entities[self.PLOT].times(ROBOT_TIMELINE)), rounded(times)
+        )
+        self.assertEqual(the_bridge.statistics.telemetry_decimated, 0)
+
+    def test_a_rate_must_be_finite_and_not_negative(self) -> None:
+        for rate in (-1.0, math.nan, math.inf):
+            with self.subTest(rate=rate):
+                with self.assertRaises(ValueError):
+                    bridge.RerunBridge(
+                        bridge.new_recording("test_bridge_rate"),
+                        None,
+                        telemetry_rate=rate,
+                    )
+
+    def test_only_the_selected_groups_are_recorded(self) -> None:
+        asked: list[str] = []
+
+        def selection(path: str) -> bool:
+            asked.append(path)
+            return path.startswith("base_pose/")
+
+        messages = [
+            synthetic_messages.full_telemetry(index / 100) for index in range(5)
+        ]
+        _, contents = self.record(messages, selection=selection)
+        recorded = {
+            entity
+            for entity in contents.entities
+            if entity.startswith(f"{scene_contract.TELEMETRY_ROOT}/")
+        }
+        expected = {
+            f"{scene_contract.TELEMETRY_ROOT}/{group.path}"
+            for group in messages[0].groups
+            if group.path.startswith("base_pose/")
+        }
+        self.assertTrue(expected)
+        self.assertEqual(recorded, expected)
+        # Asked once per group, not once per message.
+        self.assertEqual(len(asked), len(messages[0].groups))
 
 
 class MarkerHelpersTest(unittest.TestCase):

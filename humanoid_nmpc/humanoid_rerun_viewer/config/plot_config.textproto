@@ -22,11 +22,19 @@
 #   preference list tried in order: mujoco_viewer: ["web", "none"] runs without a viewer where the web viewer cannot
 #   start (default: "web")
 # LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_app/robot/include/humanoid_common_mpc_app/robot/RobotAppOptions.h:default_viewer)
+#
+# What the bridge records of viz/telemetry (README.md, "Cost": the viewer ingests and keeps every row it is sent):
+# - telemetry_rate_hz: the most samples per second of robot time (0: every sample, 100 Hz; default 50)
+# - record_unplotted_telemetry: true records every group, also those no tab, panel or signal here plots (default: only
+#   the plotted groups)
 
 signals: "Base Pose & Euler"
 signals: "contact_forces/*"
 signals: "joints/position/measured"
+signals: "Balance (CoM, DCM, ZMP, ACoM)"
+signals: "MPC Solution"
 signals: "status/mpc/solve_time"
 custom_tab_title: "Signals"
 draw_terminal_state: false
 mujoco_viewer: "web"
+telemetry_rate_hz: 50

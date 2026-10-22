@@ -35,7 +35,10 @@ process could not.
 import os
 import shutil
 import tempfile
+import typing
+from typing import Any
 import unittest
+from unittest import mock
 
 import rerun as rr
 
@@ -43,6 +46,16 @@ from humanoid_rerun_viewer import blueprint
 from humanoid_rerun_viewer import bridge
 from humanoid_rerun_viewer import rerun_sinks
 import rrd_contents
+
+
+class _RecordingStub:
+    """Counts the disconnect() calls a sink makes on a recording it was given."""
+
+    def __init__(self) -> None:
+        self.disconnects = 0
+
+    def disconnect(self) -> None:
+        self.disconnects += 1
 
 
 class SinkRegistryTest(unittest.TestCase):
@@ -98,13 +111,34 @@ class SinkRegistryTest(unittest.TestCase):
         )
         second.log("world/second", rr.Points3D([[0.0, 0.0, 0.0]]))
         sink.disconnect_all()
-        self.assertEqual(sink.recordings, (first, second))
+        # The first run's file was closed when the second began: the sink keeps only the second's recording.
+        self.assertEqual(sink.recordings, (second,))
+        self.assertEqual(sink.runs, 2)
         first_contents = rrd_contents.RrdContents(path)
         second_contents = rrd_contents.RrdContents(rerun_sinks.run_path(path, 2))
         self.assertIn("world/first", first_contents.entities)
         self.assertNotIn("world/second", first_contents.entities)
         self.assertIn("world/second", second_contents.entities)
         self.assertIn(blueprint.SCENE_VIEW_NAME, second_contents.view_names())
+
+    def test_serve_web_disconnects_the_recordings_of_old_runs(self) -> None:
+        # The first recording owns the gRPC server and stays; of the later ones, the newest MAX_ATTACHED_RUNS stay.
+        sink = rerun_sinks.make_sink(
+            "serve_web", self.layout, rerun_sinks.SinkOptions()
+        )
+        stubs = [_RecordingStub() for _ in range(rerun_sinks.MAX_ATTACHED_RUNS + 4)]
+        sink_class = type(sink)
+        with (
+            mock.patch.object(sink_class, "_attach_first", return_value="first"),
+            mock.patch.object(sink_class, "_attach_next", return_value="next"),
+        ):
+            for stub in stubs:
+                sink.attach(typing.cast(Any, stub))
+        kept = [stubs[0], *stubs[-rerun_sinks.MAX_ATTACHED_RUNS :]]
+        self.assertEqual(list(sink.recordings), kept)
+        self.assertEqual(sink.runs, len(stubs))
+        for stub in stubs:
+            self.assertEqual(stub.disconnects, 0 if stub in kept else 1)
 
     def test_the_run_paths(self) -> None:
         self.assertEqual(rerun_sinks.run_path("/tmp/walk.rrd", 1), "/tmp/walk.rrd")

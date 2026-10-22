@@ -265,28 +265,33 @@ class SliderRow(ttk.Frame):
             return  # nothing typed: the shown text is the value rounded (or empty for an unset row), not a new value
         try:
             val = self._whole(float(text))
-            if not math.isfinite(val):
-                raise ValueError(f"{val} is not a finite number")
-            if self.hard_min is not None and val < self.hard_min:
-                val = self.hard_min
-            if self.clamp_to_range:
-                val = min(max(val, self.min_val), self.max_val)
-            else:
-                self._widen_to(val)
+        except ValueError:
+            val = math.nan
+        if not math.isfinite(val):
+            # Not a number: the entry reverts and the value stays.
+            self._show_current()
+            return
+        if self.hard_min is not None and val < self.hard_min:
+            val = self.hard_min
+        if self.clamp_to_range:
+            val = min(max(val, self.min_val), self.max_val)
+        else:
+            self._widen_to(val)
 
-            self.current_value = val
-            self._unset = False
-            self._updating = True
+        self.current_value = val
+        self._unset = False
+        self._updating = True
+        try:
             self.scale_var.set(self._position(val))
             # Shows what was accepted, which differs from what was typed when it was clamped.
             self._format_entry(val)
+        finally:
             self._updating = False
-            self._update_highlight()
-            if self.on_change:
-                self.on_change(self.name, self.current_value)
-        except ValueError:
-            # Revert on invalid entry
-            self._show_current()
+        self._update_highlight()
+        # Outside any handler: an exception of the callback reaches Tk's report_callback_exception, as the slider's
+        # does, instead of being taken for a typing mistake and reverting the entry of a value already taken.
+        if self.on_change:
+            self.on_change(self.name, self.current_value)
 
     def _widen_to(self, value: float) -> None:
         """Widens the slider's range to take `value` (a typed or set value beyond it)."""
@@ -314,9 +319,11 @@ class SliderRow(ttk.Frame):
         self._unset = True
         self.current_value = self.default_value
         self._updating = True
-        self.scale_var.set(self._position(self.current_value))
-        self._show_current()
-        self._updating = False
+        try:
+            self.scale_var.set(self._position(self.current_value))
+            self._show_current()
+        finally:
+            self._updating = False
         self._update_highlight()
         if self.on_change:
             self.on_change(self.name, None)
@@ -354,9 +361,11 @@ class SliderRow(ttk.Frame):
         self._widen_to(val)
 
         self._updating = True
-        self.scale_var.set(self._position(self.current_value))
-        self._format_entry(self.current_value)
-        self._updating = False
+        try:
+            self.scale_var.set(self._position(self.current_value))
+            self._format_entry(self.current_value)
+        finally:
+            self._updating = False
         self._update_highlight()
         if self.on_change:
             self.on_change(self.name, self.current_value)

@@ -64,6 +64,9 @@ DEFAULT_CONNECT_URL = f"rerun+http://127.0.0.1:{DEFAULT_GRPC_PORT}/proxy"
 
 # serve_web: how long the flush after the gRPC server started may take [s]; it takes milliseconds when the server runs.
 _SERVER_START_TIMEOUT_S = 1.0
+# serve_web: how many recordings of the latest runs stay attached besides the first, which owns the server. An older
+# one is disconnected, which frees its threads and buffers in the bridge; the viewer keeps what it was sent.
+MAX_ATTACHED_RUNS = 2
 
 
 @dataclasses.dataclass(frozen=True)
@@ -154,12 +157,19 @@ class Sink:
     def __init__(self, blueprint: rrb.Blueprint, options: SinkOptions) -> None:
         self._blueprint = blueprint
         self.options = options
+        # The recordings still attached, oldest first, and how many were attached in all (the runs).
         self._recordings: list[rr.RecordingStream] = []
+        self._runs = 0
 
     @property
     def recordings(self) -> tuple[rr.RecordingStream, ...]:
-        """Every recording attached so far, oldest first."""
+        """The recordings still attached, oldest first (serve_web disconnects old runs': _release_old_runs())."""
         return tuple(self._recordings)
+
+    @property
+    def runs(self) -> int:
+        """How many recordings were attached so far."""
+        return self._runs
 
     @property
     def viewer_endpoint(self) -> tuple[str, int] | None:
@@ -185,16 +195,21 @@ class Sink:
             OSError: serve_web: its gRPC or web port is in use (the message names the port and its flag).
             RuntimeError: another failure of rerun-sdk to start the sink.
         """
-        if self._recordings:
-            description = self._attach_next(recording, run=len(self._recordings) + 1)
+        if self._runs:
+            description = self._attach_next(recording, run=self._runs + 1)
         else:
             description = self._attach_first(recording)
         self._recordings.append(recording)
+        self._runs += 1
+        self._release_old_runs()
         return description
 
     def reattach(self, recording: rr.RecordingStream) -> str:
         """Connects `recording`, attached before, to the viewer again after it was gone (spawn and connect only)."""
-        return self._attach_next(recording, run=len(self._recordings))
+        return self._attach_next(recording, run=self._runs)
+
+    def _release_old_runs(self) -> None:
+        """Disconnects the recordings of old runs the sink no longer needs; by default none."""
 
     def disconnect_all(self) -> None:
         """Flushes and closes every recording, newest first, so that the one that owns a server goes last."""
@@ -297,6 +312,16 @@ class _ServeWebSink(Sink):
         self._send_blueprint(recording)
         return f"serving run {run} at {self._grpc_url}"
 
+    def _release_old_runs(self) -> None:
+        """Disconnects all but the first (the server's) and the newest MAX_ATTACHED_RUNS recordings.
+
+        Each run's recording is a gRPC client of the bridge's own server, with threads and buffers of its own; without
+        this, a bridge whose robot restarts often would keep every run's in memory. The server cannot go away, so the
+        disconnect, which flushes, does not wait for a viewer.
+        """
+        while len(self._recordings) > MAX_ATTACHED_RUNS + 1:
+            self._recordings.pop(1).disconnect()
+
 
 class _SaveSink(Sink):
     """save: writes the first recording to --rrd_path, and run N after it to run_path(--rrd_path, N) next to it."""
@@ -310,6 +335,10 @@ class _SaveSink(Sink):
         # The previous run's file is complete: close it now rather than at exit.
         self._recordings[-1].disconnect()
         return self._save(recording, run_path(self.options.rrd_path, run))
+
+    def _release_old_runs(self) -> None:
+        """Forgets the previous runs' recordings, whose files _attach_next() closed."""
+        del self._recordings[:-1]
 
     def _save(self, recording: rr.RecordingStream, path: str) -> str:
         directory = os.path.dirname(os.path.abspath(path))

@@ -155,7 +155,7 @@ TEST(HardwareFsmBridge, TheFsmCommandsSwitchTheBackendsTorquesAndTheGantryComman
   EXPECT_FALSE(state.gantry_locked);
 
   EXPECT_EQ(drainCodes(log), (std::vector<RealtimeEventCode>{RealtimeEventCode::kTorquesEnabled, RealtimeEventCode::kGantryCommandIgnored,
-                                                             RealtimeEventCode::kTorquesDisabled}));
+                                                             RealtimeEventCode::kModeCommanded, RealtimeEventCode::kTorquesDisabled}));
 
   bridge.publishControllerReset(mode);
   ASSERT_TRUE(states.take(state));

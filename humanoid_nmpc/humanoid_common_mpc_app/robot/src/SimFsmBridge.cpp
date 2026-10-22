@@ -84,9 +84,12 @@ bool SimFsmBridge::processCommands(std::string& currentModeName) {
     case FsmCommandKind::kWbMpc:
     case FsmCommandKind::kSafety: {
       // 2. Active torque modes (JOINT_PD, GRAVITY_COMP, WB_MPC, SAFETY, MPC_ACTIVE, ENABLE_TORQUES)
+      // Every mode command is reported, also one between two active modes (JOINT_PD to WB_MPC), which switches nothing.
       if (simulator_->isZeroTorqueMode()) {
         if (eventLog_ != nullptr) eventLog_->post(RealtimeEventCode::kTorquesEnabled, /*detail=*/0, name);
         simulator_->enableTorques();
+      } else if (eventLog_ != nullptr) {
+        eventLog_->post(RealtimeEventCode::kModeCommanded, /*detail=*/0, name);
       }
       const absl::string_view mode = fsmCommandModeName(command.kind);
       currentModeName.assign(mode.data(), mode.size());
