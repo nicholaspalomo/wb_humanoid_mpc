@@ -44,6 +44,12 @@ services:
     # container. A zombie cannot be killed, so no `make kill-*` target can clear them; only reaping or a container
     # restart does.
     init: true
+
+    # The MPC's solver threads run SCHED_FIFO at the task file's multiple_shooting.thread_priority. The container's user
+    # is not root, so `privileged` gives it no CAP_SYS_NICE: without this limit (Docker's default is 0) the threads stay
+    # at normal priority, and a build or test next to the MPC makes its loop overrun ("The MPC loop runs slow by ...").
+    ulimits:
+      rtprio: 99
     stdin_open: true
     tty: true
     working_dir: /wb_humanoid_mpc_ws/workspace/wb_humanoid_mpc

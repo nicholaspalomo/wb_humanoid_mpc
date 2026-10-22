@@ -429,6 +429,14 @@ class HostNetworkTest(unittest.TestCase):
         self.assertRegex(override, r"(?m)^\s+dns:")
 
 
+class RealtimePriorityTest(unittest.TestCase):
+    """The container's non-root user may give the MPC's solver threads a realtime priority."""
+
+    def test_the_dev_container_allows_every_realtime_priority(self):
+        compose = _without_comment_lines(_read("docker-compose.yaml"))
+        self.assertRegex(compose, r"(?m)^    ulimits:\n      rtprio: 99$")
+
+
 class PublishedPortsParserTest(unittest.TestCase):
     """The parser of compose's `ports:` entries, on entries with and without a host address."""
 
