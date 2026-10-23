@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -26,6 +30,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/cost/TerminalDcmCost.h"
 
 #include <cmath>
+#include <string>
+
+#include "ocs2_core/Dimensions.h"
 
 namespace ocs2::humanoid {
 
@@ -45,7 +52,7 @@ void TerminalDcmCost::addToStage(const ContactPlanningContext& ctx, int /*node*/
   // w e^{2 omega dt} ||xi_{N-1} - zmp_{N-1} - e^{-omega dt} r||^2 exactly.
   const scalar_t omega = ctx.omega;
   const scalar_t growth = std::exp(omega * ctx.dt);
-  for (int axis = 0; axis < 2; ++axis) {
+  for (int axis = 0; axis < kHorizontalPositionDim; ++axis) {
     // With trackCommandedVelocity the target of the terminal DCM is zmp_{N-1} + v_cmd / omega, the offset of a CoM
     // over the foot that keeps moving at the commanded velocity, instead of the rest condition xi_N = zmp_{N-1}. The
     // residual used to apply that offset to xi_{N-1} instead, which put the target of xi_N at e^{omega dt} v_cmd /

@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -23,15 +27,16 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <gtest/gtest.h>
-
 #include <array>
 #include <cmath>
 #include <cstddef>
 #include <functional>
 #include <string>
 
+#include "absl/base/nullability.h"
 #include "absl/status/status.h"
+#include "gtest/gtest.h"
+
 #include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
 #include "humanoid_common_mpc/contact_planning/hlip/HlipStandingBlend.h"
 
@@ -60,7 +65,7 @@ constexpr std::array<BlendComponent, 5> kAllComponents = {BlendComponent::kComma
                                                           BlendComponent::kCommandedYawRate, BlendComponent::kComVelocityX,
                                                           BlendComponent::kComVelocityY};
 
-const char* componentName(BlendComponent component) {
+const char* absl_nonnull componentName(BlendComponent component) {
   switch (component) {
     case BlendComponent::kCommandedVelocityX:
       return "commanded velocity x";
@@ -276,7 +281,7 @@ TEST(HlipStandingBlend, alphaIsTheDocumentedSigmoidInSharpnessAndThreshold) {
       const BlendInput input = makeInput(BlendComponent::kCommandedVelocityX, std::sqrt(phi));
       ASSERT_DOUBLE_EQ(activityOf(blend, input), phi) << "the test itself must realize phi exactly";
       const scalar_t expected = 0.5 * std::tanh(sharpness * (phi - parameters.threshold)) + 0.5;
-      EXPECT_NEAR(weightOf(blend, input), expected, 1e-15) << "phi = " << phi << ", sharpness = " << sharpness;
+      EXPECT_NEAR(weightOf(blend, input), expected, 1.0e-15) << "phi = " << phi << ", sharpness = " << sharpness;
     }
   }
 }
@@ -348,12 +353,12 @@ TEST(HlipStandingBlend, alphaLandsOnBothOfItsAsymptotes) {
   const HlipStandingBlend blend(parameters);
 
   const BlendInput rest{};  // every command and every measured velocity exactly zero
-  EXPECT_NEAR(weightOf(blend, rest), 0.0, 1e-12) << "a robot at rest with no command must be given the standing reference";
+  EXPECT_NEAR(weightOf(blend, rest), 0.0, 1.0e-12) << "a robot at rest with no command must be given the standing reference";
   EXPECT_GE(weightOf(blend, rest), 0.0);
   EXPECT_FALSE(isWalkingOf(blend, rest));
 
   const BlendInput fullStick = makeInput(BlendComponent::kCommandedVelocityX, 2.0 * parameters.maxCommandedVelocityX);
-  EXPECT_NEAR(weightOf(blend, fullStick), 1.0, 1e-12) << "a saturated command must be given the full walking gait";
+  EXPECT_NEAR(weightOf(blend, fullStick), 1.0, 1.0e-12) << "a saturated command must be given the full walking gait";
   EXPECT_LE(weightOf(blend, fullStick), 1.0);
   EXPECT_TRUE(isWalkingOf(blend, fullStick));
 }
@@ -448,9 +453,9 @@ TEST(HlipStandingBlend, theShippedDefaultsPutTheHalfPointAtATenthOfAMeterPerSeco
   // The half point itself, phi = rho_2, is at maxCommandedVelocityX * sqrt(threshold) = 0.7 * sqrt(0.02) m/s: 14 % of
   // the range, not a tenth of it.
   const scalar_t halfPoint = defaults.maxCommandedVelocityX * std::sqrt(defaults.threshold);
-  EXPECT_NEAR(halfPoint, 0.099, 1e-3);
+  EXPECT_NEAR(halfPoint, 0.099, 1.0e-3);
   EXPECT_NEAR(halfPoint / defaults.maxCommandedVelocityX, 0.14, 0.005);
-  EXPECT_NEAR(blend.weight(vector2_t(halfPoint, 0.0), /*yawRateCommand=*/0.0, atRest), 0.5, 1e-12);
+  EXPECT_NEAR(blend.weight(vector2_t(halfPoint, 0.0), /*yawRateCommand=*/0.0, atRest), 0.5, 1.0e-12);
 
   // "about 0.83 at a fifth of the range": most of the way to the full gait, and NOT saturated there.
   const scalar_t atAFifth = blend.weight(vector2_t(0.2 * defaults.maxCommandedVelocityX, 0.0), /*yawRateCommand=*/0.0, atRest);
@@ -459,7 +464,7 @@ TEST(HlipStandingBlend, theShippedDefaultsPutTheHalfPointAtATenthOfAMeterPerSeco
   EXPECT_LT(blend.weight(vector2_t(0.27 * defaults.maxCommandedVelocityX, 0.0), /*yawRateCommand=*/0.0, atRest), 0.99);
   EXPECT_GT(blend.weight(vector2_t(0.29 * defaults.maxCommandedVelocityX, 0.0), /*yawRateCommand=*/0.0, atRest), 0.99);
   // At the maximum command it is on the walking asymptote.
-  EXPECT_NEAR(blend.weight(vector2_t(defaults.maxCommandedVelocityX, 0.0), /*yawRateCommand=*/0.0, atRest), 1.0, 1e-12);
+  EXPECT_NEAR(blend.weight(vector2_t(defaults.maxCommandedVelocityX, 0.0), /*yawRateCommand=*/0.0, atRest), 1.0, 1.0e-12);
 }
 
 TEST(HlipStandingBlend, theConfigurationRejectsANonPositiveMaximumSoTheBlendNeverDividesByZero) {
@@ -479,15 +484,15 @@ TEST(HlipStandingBlend, theConfigurationRejectsANonPositiveMaximumSoTheBlendNeve
   const std::function<std::string(BlendComponent)> keyOf = [](BlendComponent component) -> std::string {
     switch (component) {
       case BlendComponent::kCommandedVelocityX:
-        return "hlip.blend.maxCommandedVelocityX";
+        return "hlip.blend.max_commanded_velocity_x";
       case BlendComponent::kCommandedVelocityY:
-        return "hlip.blend.maxCommandedVelocityY";
+        return "hlip.blend.max_commanded_velocity_y";
       case BlendComponent::kCommandedYawRate:
-        return "hlip.blend.maxCommandedYawRate";
+        return "hlip.blend.max_commanded_yaw_rate";
       case BlendComponent::kComVelocityX:
-        return "hlip.blend.maxComVelocityX";
+        return "hlip.blend.max_com_velocity_x";
       case BlendComponent::kComVelocityY:
-        return "hlip.blend.maxComVelocityY";
+        return "hlip.blend.max_com_velocity_y";
     }
     return std::string();
   };

@@ -29,11 +29,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <robot_model/ContactEstimatorRegistry.h>
-
 #include <cstdint>
 #include <string>
 #include <vector>
+
+#include "absl/base/nullability.h"
+
+#include "robot_model/ContactEstimatorRegistry.h"
 
 namespace robot::mujoco_sim_interface {
 
@@ -50,11 +52,16 @@ class MujocoSimInterface;
  */
 class CheaterSimContactEstimator final : public robot::model::ContactEstimator {
  public:
-  explicit CheaterSimContactEstimator(const MujocoSimInterface& sim);
+  /**
+   * Reads the contact masks of `sim`, which must outlive the estimator. Logs once, here, when the simulator has no
+   * contact detection: estimateContactFlags() runs on the control thread.
+   */
+  explicit CheaterSimContactEstimator(const MujocoSimInterface* absl_nonnull sim);
 
-  std::vector<bool> estimateContactFlags(const robot::model::RobotState& robotState) override;
+  /** Reads the simulator's masks (atomics); allocates nothing once `flags` holds the contact points. */
+  void estimateContactFlags(const robot::model::RobotState& robotState, std::vector<bool>& flags) override;
 
-  std::string getName() const override { return "CheaterSimContactEstimator"; }
+  absl::string_view getName() const override { return "CheaterSimContactEstimator"; }
 
   /**
    * The flag vector for the given masks; exposed for tests.
@@ -68,15 +75,21 @@ class CheaterSimContactEstimator final : public robot::model::ContactEstimator {
                                           size_t numDetectedContacts,
                                           size_t numContactPoints);
 
+  /** flagsFromMasks() into `flags`, resized to `numContactPoints`. */
+  static void writeFlagsFromMasks(
+      uint32_t groundTruthMask, uint32_t unresolvedMask, size_t numDetectedContacts, size_t numContactPoints, std::vector<bool>& flags);
+
  private:
-  const MujocoSimInterface& sim_;
-  bool warnedNoContactDetection_{false};
+  const MujocoSimInterface* absl_nonnull sim_;
 };
 
-/** Name of the CheaterSimContactEstimator in the ContactEstimatorRegistry (task file `contactEstimator: cheater_sim`). */
-constexpr const char* kCheaterSimContactEstimatorName = "cheater_sim";
+/** Name of the CheaterSimContactEstimator in the ContactEstimatorRegistry (task file `contact_estimator: "cheater_sim"`). */
+inline constexpr char kCheaterSimContactEstimatorName[] = "cheater_sim";
 
-/** Adds the CheaterSimContactEstimator of `sim` to `registry` under kCheaterSimContactEstimatorName. */
-void registerCheaterSimContactEstimator(robot::model::ContactEstimatorRegistry& registry, const MujocoSimInterface& sim);
+/**
+ * Adds the CheaterSimContactEstimator of `sim` to `registry` under kCheaterSimContactEstimatorName. `sim` must outlive
+ * `registry` and every estimator it creates.
+ */
+void registerCheaterSimContactEstimator(robot::model::ContactEstimatorRegistry& registry, const MujocoSimInterface* absl_nonnull sim);
 
 }  // namespace robot::mujoco_sim_interface

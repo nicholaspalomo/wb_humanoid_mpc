@@ -1,0 +1,64 @@
+/******************************************************************************
+Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+* Redistributions of source code must retain the above copyright notice, this
+  list of conditions and the following disclaimer.
+
+* Redistributions in binary form must reproduce the above copyright notice,
+  this list of conditions and the following disclaimer in the documentation
+  and/or other materials provided with the distribution.
+
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+******************************************************************************/
+
+#include "pinocchio/fwd.hpp"  // forward declarations must be included first.
+
+#include "humanoid_centroidal_mpc/mrt/CentroidalMpcResetTarget.h"
+
+#include "ocs2_centroidal_model/AccessHelperFunctions.h"
+
+#include "humanoid_common_mpc/mrt/MpcLink.h"
+#include "humanoid_common_mpc/orientation/BaseOrientation.h"
+#include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
+
+namespace ocs2::humanoid {
+
+TargetTrajectories centroidalMpcResetTargetTrajectories(const SystemObservation& observation,
+                                                        const CentroidalModelInfo& info,
+                                                        const MpcRobotModelBase<scalar_t>& effectiveModel,
+                                                        const PinocchioInterface& pinocchioInterface) {
+  vector_t targetState = observation.state;
+
+  // Zero out the normalized momentum (linear and angular momentum: the first 6 entries).
+  centroidal_model::getNormalizedMomentum(targetState, info).setZero();
+
+  // The base upright at the observed heading: the heading quaternion of the observed attitude, its twist about the world
+  // z axis with the tilt dropped (design decision D9). A measured attitude, so it is written as one (setBaseOrientation).
+  effectiveModel.setBaseOrientation(targetState, headingQuaternion(effectiveModel.getBaseOrientation(targetState)));
+
+  // Weight-compensating vertical contact forces (mg/2 per foot in stance). The state-aware overload expresses the
+  // world-frame force in the effective model's input parameterization at the target configuration.
+  const vector_t targetInput = weightCompensatingInput(pinocchioInterface, {true, true}, effectiveModel, targetState);
+
+  const scalar_t startTime = observation.time;
+  const scalar_t endTime = startTime + kResetTargetDuration;
+  return TargetTrajectories({startTime, endTime}, {targetState, targetState}, {targetInput, targetInput});
+}
+
+}  // namespace ocs2::humanoid

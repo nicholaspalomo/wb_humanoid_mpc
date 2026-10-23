@@ -29,6 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include "absl/base/nullability.h"
+
 #include <ocs2_core/Types.h>
 #include <ocs2_pinocchio_interface/PinocchioInterface.h>
 
@@ -45,7 +47,7 @@ class PinocchioStateInputMapping {
   PinocchioStateInputMapping() = default;
   virtual ~PinocchioStateInputMapping() = default;
   PinocchioStateInputMapping<SCALAR>& operator=(const PinocchioStateInputMapping<SCALAR>& rhs) = delete;
-  virtual PinocchioStateInputMapping<SCALAR>* clone() const = 0;
+  virtual PinocchioStateInputMapping<SCALAR>* absl_nonnull clone() const = 0;
 
   /** Get the pinocchio joint configuration from OCS2 state and input vectors. */
   virtual vector_t getPinocchioJointPosition(const vector_t& state) const = 0;

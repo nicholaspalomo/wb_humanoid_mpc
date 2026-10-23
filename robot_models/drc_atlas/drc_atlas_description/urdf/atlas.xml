@@ -71,7 +71,8 @@
     <!-- Atlas robot - pelvis is the floating base body -->
     <body name="pelvis" pos="0 0 0.895">
       <freejoint name="root"/>
-      <inertial pos="-0.0346 0.00 0.02" mass="17.882" diaginertia="0.126 0.099 0.117"/>
+      <!-- The URDF's pelvis inertial, as Pinocchio loads it for the MPC (tests/test_urdf_mjcf_inertial_consistency.py). -->
+      <inertial pos="0.0111 0 0.0271" mass="17.882" fullinertia="0.1244 0.0958 0.1167 0.0008 -0.0007 -0.0005"/>
       <geom class="visual" type="mesh" mesh="pelvis_mesh"/>
       <geom class="collision" type="box" size="0.12 0.15 0.08" pos="-0.02 0 0.01"/>
 

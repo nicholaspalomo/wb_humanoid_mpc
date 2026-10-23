@@ -27,12 +27,8 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <pinocchio/fwd.hpp>  // forward declarations must be included first.
+#include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
-#include <gtest/gtest.h>
-
-#include <Eigen/Core>
-#include <Eigen/Geometry>
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -40,21 +36,22 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <memory>
 #include <stdexcept>
 #include <string>
+#include <utility>
 
-#include <pinocchio/multibody/data.hpp>
-#include <pinocchio/multibody/model.hpp>
-
-#include <ament_index_cpp/get_package_share_directory.hpp>
-
-#include <ocs2_centroidal_model/CentroidalModelInfo.h>
-#include <ocs2_centroidal_model/FactoryFunctions.h>
-#include <ocs2_pinocchio_interface/PinocchioInterface.h>
-
+#include "Eigen/Core"
+#include "Eigen/Geometry"
+#include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "gtest/gtest.h"
+#include "ocs2_centroidal_model/CentroidalModelInfo.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
+#include "pinocchio/multibody/data.hpp"
+#include "pinocchio/multibody/model.hpp"
 
+#include "humanoid_centroidal_mpc/CentroidalMpcConfig.h"
 #include "humanoid_centroidal_mpc/common/CentroidalMpcRobotModel.h"
 #include "humanoid_centroidal_mpc/dynamics/CentroidalDynamicsBasisInputsAD.h"
 #include "humanoid_centroidal_mpc/dynamics/DynamicsHelperFunctions.h"
@@ -67,22 +64,22 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact/ContactWrenchConeBasisMatrix.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
 #include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
+#include "humanoid_nmpc/humanoid_common_mpc/test/support/StatusTestMacros.h"
+#include "support/TypedConfigFiles.h"
 
 namespace ocs2::humanoid {
 namespace {
 
-static constexpr size_t kNumContacts = 2;
-
 /// Base yaw used by the frame tests: at +90deg the world x/y axes of the contact frames are swapped, which makes
 /// any missing or transposed rotation in the world-frame accessors visible.
-static constexpr scalar_t kYaw90 = M_PI / 2.0;
+constexpr scalar_t kYaw90 = M_PI / 2.0;
 /// Nominal standing height of the Atlas pelvis; only there to keep the test configuration physically plausible,
 /// the frame *orientations* do not depend on it.
-static constexpr scalar_t kBaseHeight = 0.8952;
+constexpr scalar_t kBaseHeight = 0.8952;
 /// Relative tolerance for comparisons that are exact up to floating-point round-off (rotations, pseudoinverse).
-static constexpr scalar_t kTol = 1e-9;
-/// Index of the base yaw in the centroidal state [momentum(6), base position(3), base euler ZYX(3), joints].
-static constexpr Eigen::Index kBaseYawStateIndex = 9;
+constexpr scalar_t kTol = 1.0e-9;
+/// Index of the base quaternion in the centroidal state [momentum(6), base position(3), base quaternion (x, y, z, w), joints].
+constexpr Eigen::Index kBaseOrientationStateIndex = 9;
 
 /// Cone parameters of the test bases (approximately the Atlas foot).
 ContactWrenchConeConstraint::Config makeTestConeConfig() {
@@ -140,22 +137,21 @@ vector6_t rotateWrench(const matrix3_t& R, const vector6_t& wrench) {
 class BasisInputsModelDecoratorTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    // Resolve config paths from the installed drc_atlas packages
-    const std::string configDir = ament_index_cpp::get_package_share_directory("drc_atlas_centroidal_mpc");
-    const std::string descriptionDir = ament_index_cpp::get_package_share_directory("drc_atlas_description");
-
-    const std::string taskFile = absl::StrCat(configDir, "/config/mpc/task.yaml");
-    const std::string referenceFile = absl::StrCat(configDir, "/config/command/reference.yaml");
-    const std::string urdfFile = absl::StrCat(descriptionDir, "/urdf/atlas.urdf");
+    // The typed DRC Atlas files, from the test's runfiles.
+    const CentroidalRobotFiles files = atlasFiles();
+    urdfFile_ = files.urdfFile;
+    absl::StatusOr<CentroidalMpcConfig> config = loadConfigOf(files);
+    ASSERT_TRUE(config.ok()) << config.status();
+    atlas_ = *std::move(config);
 
     // Create model settings and pinocchio interface — stored as members to avoid dangling references.
     // MpcRobotModelBase stores modelSettings as `const ModelSettings&`, so the object must outlive the model.
-    modelSettings_ = std::make_unique<ModelSettings>(taskFile, urdfFile, "basis_decorator_test", /*verbose=*/false);
-    pinocchioInterface_ = std::make_unique<PinocchioInterface>(createCustomPinocchioInterface(taskFile, urdfFile, *modelSettings_));
-    centroidalModelInfo_ = std::make_unique<CentroidalModelInfo>(centroidal_model::createCentroidalModelInfo(
-        *pinocchioInterface_, centroidal_model::loadCentroidalType(taskFile),
-        centroidal_model::loadDefaultJointState(pinocchioInterface_->getModel().nq - 6, referenceFile), modelSettings_->contactNames3DoF,
-        modelSettings_->contactNames6DoF));
+    modelSettings_ = std::make_unique<ModelSettings>(
+        checkedValue(ModelSettings::Create(atlas_.task, urdfFile_, "basis_decorator_test", /*verbose=*/false)));
+    pinocchioInterface_ = std::make_unique<PinocchioInterface>(
+        checkedValue(loadCustomPinocchioInterface(atlas_.task, urdfFile_, *modelSettings_, /*scaleTotalMass=*/false)));
+    centroidalModelInfo_ =
+        std::make_unique<CentroidalModelInfo>(checkedValue(centroidalModelInfoOf(atlas_, *pinocchioInterface_, *modelSettings_)));
 
     // Create the wrapped model
     std::unique_ptr<CentroidalMpcRobotModel<scalar_t>> wrappedModel =
@@ -179,9 +175,9 @@ class BasisInputsModelDecoratorTest : public ::testing::Test {
   /// angles the Atlas leg chain has no rotational offsets, so the contact frames are aligned with the base and
   /// the base orientation alone determines their orientation in the world.
   vector_t makeState(scalar_t yaw, scalar_t pitch = 0.0) const {
-    vector_t state = vector_t::Zero(stateDim_);
+    vector_t state = decorator_->getNeutralState();
     decorator_->setBasePosition(state, vector3_t(0.0, 0.0, kBaseHeight));
-    decorator_->setBaseOrientationEulerZYX(state, vector3_t(yaw, pitch, 0.0));
+    decorator_->setBaseOrientationEulerZyx(state, vector3_t(yaw, pitch, 0.0));
     decorator_->setJointAngles(state, vector_t::Zero(jointDim_));
     return state;
   }
@@ -190,7 +186,9 @@ class BasisInputsModelDecoratorTest : public ::testing::Test {
   /// Data, forward kinematics on the generalized coordinates taken straight from the state layout, and the
   /// frame placement of the contact frame looked up by name.
   matrix3_t computeContactFrameRotationWithPinocchio(const vector_t& state, size_t contactIndex) const {
-    const vector_t q = state.tail(6 + jointDim_);  // [base position, base euler ZYX, joint angles]
+    // The centroidal state ends with the configuration q: [base position, base quaternion (x, y, z, w), joint angles], the
+    // quaternion unit as the Euler boundary writes it.
+    const vector_t q = state.tail(static_cast<Eigen::Index>(decorator_->getConfigurationDim()));
     const pinocchio::Model& model = pinocchioInterface_->getModel();
     pinocchio::Data data(model);
     updateFramePlacements<scalar_t>(q, model, data);
@@ -203,6 +201,9 @@ class BasisInputsModelDecoratorTest : public ::testing::Test {
     return input.segment(decorator_->getContactWrenchStartIndices(contactIndex), numBasisPerFoot_);
   }
 
+  std::string urdfFile_;
+  // The typed DRC Atlas files.
+  CentroidalMpcConfig atlas_;
   // These must outlive the model due to const-reference semantics in MpcRobotModelBase.
   std::unique_ptr<ModelSettings> modelSettings_;
   std::unique_ptr<PinocchioInterface> pinocchioInterface_;
@@ -268,7 +269,7 @@ TEST_F(BasisInputsModelDecoratorTest, SetGetContactWrenchRoundTrip) {
   vector6_t W_projected = B * (B_pinv * wrench0);
 
   vector6_t wrench0_recovered = decorator_->getContactWrench(input, /*contactIndex=*/0);
-  EXPECT_TRUE(wrench0_recovered.isApprox(W_projected, 1e-9))
+  EXPECT_TRUE(wrench0_recovered.isApprox(W_projected, 1.0e-9))
       << "setContactWrench → getContactWrench should round-trip (modulo projection):\n"
       << "  set = " << wrench0.transpose() << "\n  got = " << wrench0_recovered.transpose()
       << "\n  expected (projected) = " << W_projected.transpose();
@@ -285,7 +286,7 @@ TEST_F(BasisInputsModelDecoratorTest, SetContactWrenchReproducesConeWrenchesWhos
   ASSERT_LT(minimumNormLambda.minCoeff(), 0.0) << "this test needs a wrench whose minimum-norm scalings are not all non-negative";
   ASSERT_GE(makeTestConeRows().evaluateCone(wrench).minCoeff(), 0.0) << "this test needs a wrench the wrench-space cone admits";
   ASSERT_TRUE(isInConeOfBasis(B, wrench)) << "this test needs a wrench the basis can reproduce, which is more than the rows admitting it";
-  ASSERT_GT((B * minimumNormLambda.cwiseMax(0.0) - wrench).norm(), 1e-3 * wrench.norm()) << "the old clamp must be visibly wrong here";
+  ASSERT_GT((B * minimumNormLambda.cwiseMax(0.0) - wrench).norm(), 1.0e-3 * wrench.norm()) << "the old clamp must be visibly wrong here";
 
   vector_t input = vector_t::Zero(decorator_->getInputDim());
   decorator_->setContactWrench(input, wrench, /*contactIndex=*/0);
@@ -303,7 +304,7 @@ TEST_F(BasisInputsModelDecoratorTest, SetContactWrenchProjectsAWrenchOutsideTheC
   vector_t input = vector_t::Zero(decorator_->getInputDim());
   decorator_->setContactWrench(input, outside, /*contactIndex=*/0);
   EXPECT_GE(getLambda(input, /*contactIndex=*/0).minCoeff(), 0.0);
-  EXPECT_GE(rows.evaluateCone(vector6_t(decorator_->getContactWrench(input, /*contactIndex=*/0))).minCoeff(), -1e-9 * outside.norm());
+  EXPECT_GE(rows.evaluateCone(vector6_t(decorator_->getContactWrench(input, /*contactIndex=*/0))).minCoeff(), -1.0e-9 * outside.norm());
 }
 
 TEST_F(BasisInputsModelDecoratorTest, PitchedStanceFootWeightRoundTripsThroughTheWorldFrameSetter) {
@@ -332,7 +333,7 @@ TEST_F(BasisInputsModelDecoratorTest, PitchedStanceFootWeightRoundTripsThroughTh
     // The same through the helper that builds the whole weight-compensating input.
     const vector_t compensating = weightCompensatingInput(*pinocchioInterface_, {true, true}, *decorator_, state);
     for (size_t i = 0; i < kNumContacts; ++i) {
-      EXPECT_LE((decorator_->getContactForceInWorldFrame(state, compensating, i) - weight).norm(), 1e-6) << "pitch " << pitch;
+      EXPECT_LE((decorator_->getContactForceInWorldFrame(state, compensating, i) - weight).norm(), 1.0e-6) << "pitch " << pitch;
     }
   }
 }
@@ -343,7 +344,7 @@ TEST_F(BasisInputsModelDecoratorTest, ExactGeneratorSetDecoratesTheSameModel) {
   BasisInputsModelDecorator<scalar_t> exact(
       std::make_unique<CentroidalMpcRobotModel<scalar_t>>(*modelSettings_, *pinocchioInterface_, *centroidalModelInfo_), exactBases,
       *pinocchioInterface_);
-  const size_t numBasisPerFoot = 8 * makeTestConeConfig().numBasisVectors;
+  const size_t numBasisPerFoot = 4 * makeTestConeConfig().numBasisVectors;  // corner forces along the pyramid edges
   EXPECT_EQ(exact.getNumBasisPerFoot(), numBasisPerFoot);
   EXPECT_EQ(exact.getInputDim(), numBasisPerFoot * kNumContacts + jointDim_);
   EXPECT_EQ(exact.getJointVelocitiesStartindex(), numBasisPerFoot * kNumContacts);
@@ -385,7 +386,7 @@ TEST_F(BasisInputsModelDecoratorTest, SetGetContactForceRoundTrip) {
   const matrix_t& B_pinv = basisMatrices_[1].getBasisMatrixPseudoInverse();
   vector3_t force_projected = (B * (B_pinv * wrench_padded)).head<3>();
 
-  EXPECT_TRUE(force1_recovered.isApprox(force_projected, 1e-9))
+  EXPECT_TRUE(force1_recovered.isApprox(force_projected, 1.0e-9))
       << "setContactForce → getContactForce round-trip:\n"
       << "  set = " << force1.transpose() << "\n  got = " << force1_recovered.transpose();
 }
@@ -401,7 +402,7 @@ TEST_F(BasisInputsModelDecoratorTest, ContactsAreIndependent) {
   decorator_->setContactWrench(input, wrench0, /*contactIndex=*/0);
 
   vector6_t wrench1 = decorator_->getContactWrench(input, /*contactIndex=*/1);
-  EXPECT_TRUE(wrench1.isZero(1e-12)) << "Setting contact 0 wrench should not affect contact 1:\n  wrench1 = " << wrench1.transpose();
+  EXPECT_TRUE(wrench1.isZero(1.0e-12)) << "Setting contact 0 wrench should not affect contact 1:\n  wrench1 = " << wrench1.transpose();
 }
 
 // ==================== Joint velocity pass-through ====================
@@ -409,20 +410,20 @@ TEST_F(BasisInputsModelDecoratorTest, ContactsAreIndependent) {
 TEST_F(BasisInputsModelDecoratorTest, JointVelocitiesPassThrough) {
   const size_t inputDim = decorator_->getInputDim();
 
-  vector_t state = vector_t::Zero(stateDim_);
+  vector_t state = decorator_->getNeutralState();
   vector_t input = vector_t::Zero(inputDim);
 
   vector_t jointVels = vector_t::LinSpaced(jointDim_, 0.1, 1.0);
   decorator_->setJointVelocities(state, input, jointVels);
 
   vector_t jointVels_recovered = decorator_->getJointVelocities(state, input);
-  EXPECT_TRUE(jointVels_recovered.isApprox(jointVels, 1e-12)) << "Joint velocities should pass through unchanged";
+  EXPECT_TRUE(jointVels_recovered.isApprox(jointVels, 1.0e-12)) << "Joint velocities should pass through unchanged";
 }
 
 // ==================== Clone test ====================
 
 TEST_F(BasisInputsModelDecoratorTest, CloneProducesWorkingCopy) {
-  MpcRobotModelBase<scalar_t>* cloned = decorator_->clone();
+  MpcRobotModelBase<scalar_t>* absl_nonnull cloned = decorator_->clone();
   ASSERT_NE(cloned, nullptr);
 
   EXPECT_EQ(cloned->getInputDim(), decorator_->getInputDim());
@@ -436,7 +437,7 @@ TEST_F(BasisInputsModelDecoratorTest, CloneProducesWorkingCopy) {
   cloned->setContactWrench(input, wrench, /*contactIndex=*/0);
 
   vector6_t wrench_recovered = cloned->getContactWrench(input, /*contactIndex=*/0);
-  EXPECT_FALSE(wrench_recovered.isZero(1e-6));
+  EXPECT_FALSE(wrench_recovered.isZero(1.0e-6));
 
   // The clone must carry its own pinocchio copy so that the world-frame accessors keep working after cloning.
   const vector_t state = makeState(kYaw90);
@@ -449,19 +450,19 @@ TEST_F(BasisInputsModelDecoratorTest, CloneProducesWorkingCopy) {
 // ==================== State delegate tests ====================
 
 TEST_F(BasisInputsModelDecoratorTest, StateDelegatesMatchWrappedModel) {
-  vector_t state = vector_t::Zero(stateDim_);
+  vector_t state = decorator_->getNeutralState();
 
   vector3_t pos;
   pos << 1.0, 2.0, 0.95;
   decorator_->setBasePosition(state, pos);
 
   vector3_t pos_recovered = decorator_->getBasePosition(state);
-  EXPECT_TRUE(pos_recovered.isApprox(pos, 1e-12)) << "Base position should delegate to wrapped model";
+  EXPECT_TRUE(pos_recovered.isApprox(pos, 1.0e-12)) << "Base position should delegate to wrapped model";
 
   vector_t jointAngles = vector_t::LinSpaced(jointDim_, -0.5, 0.5);
   decorator_->setJointAngles(state, jointAngles);
   vector_t jointAngles_recovered = decorator_->getJointAngles(state);
-  EXPECT_TRUE(jointAngles_recovered.isApprox(jointAngles, 1e-12)) << "Joint angles should delegate to wrapped model";
+  EXPECT_TRUE(jointAngles_recovered.isApprox(jointAngles, 1.0e-12)) << "Joint angles should delegate to wrapped model";
 }
 
 // ==================== Basis matrix accessor ====================
@@ -472,9 +473,10 @@ TEST_F(BasisInputsModelDecoratorTest, BasisMatrixAccessor) {
     EXPECT_EQ(B.rows(), 6);
     EXPECT_EQ(B.cols(), static_cast<int>(numBasisPerFoot_));
 
-    EXPECT_TRUE(B.isApprox(basisMatrices_[i].getBasisMatrix(), 1e-12)) << "Accessor should return the same basis matrix for contact " << i;
-    EXPECT_TRUE(decorator_->getBasisMatrices()[i].isApprox(B, 1e-12));
-    EXPECT_TRUE(decorator_->getBasisMatrixPseudoInverse(i).isApprox(basisMatrices_[i].getBasisMatrixPseudoInverse(), 1e-12));
+    EXPECT_TRUE(B.isApprox(basisMatrices_[i].getBasisMatrix(), 1.0e-12))
+        << "Accessor should return the same basis matrix for contact " << i;
+    EXPECT_TRUE(decorator_->getBasisMatrices()[i].isApprox(B, 1.0e-12));
+    EXPECT_TRUE(decorator_->getBasisMatrixPseudoInverse(i).isApprox(basisMatrices_[i].getBasisMatrixPseudoInverse(), 1.0e-12));
   }
 }
 
@@ -516,7 +518,7 @@ TEST_F(BasisInputsModelDecoratorTest, LocalBasisToWrenchMapHasBlockDiagonalStruc
   // the pass-through joint velocities.
   const vector_t basisInput = vector_t::Random(expectedCols);
   const vector_t wrenchInput = M * basisInput;
-  const vector_t state = vector_t::Zero(stateDim_);
+  const vector_t state = decorator_->getNeutralState();
   for (size_t i = 0; i < kNumContacts; ++i) {
     EXPECT_TRUE(wrenchInput.segment(6 * i, 6).isApprox(decorator_->getContactWrench(basisInput, i), kTol));
   }
@@ -549,12 +551,15 @@ TEST_F(BasisInputsModelDecoratorTest, WorldFrameAccessorsRotateLocalWrenchWithCo
         << "World-frame wrench must equal blkdiag(w_R_l, w_R_l) * B * lambda for contact " << i << ":\n  got      = " << W_world.transpose()
         << "\n  expected = " << W_world_expected.transpose();
     EXPECT_TRUE(W_world.isApprox(decorator_->rotateWrenchLocalToWorld(state, W_local, i), kTol));
+    // The realtime accessor, with the contact frame's orientation handed in, is the same wrench, through the base class.
+    const MpcRobotModelBase<scalar_t>& base = *decorator_;
+    EXPECT_TRUE(base.getContactWrenchInWorldFrameGivenRotation(input, w_R_l, i).isApprox(W_world_expected, kTol)) << "contact " << i;
     EXPECT_TRUE(decorator_->getContactForceInWorldFrame(state, input, i).isApprox(W_world_expected.head<3>(), kTol));
     EXPECT_TRUE(decorator_->getContactMomentInWorldFrame(state, input, i).isApprox(W_world_expected.tail<3>(), kTol));
 
     // Sanity: for a yawed base the tangential components genuinely differ between the two frames, i.e. the
     // world-frame accessor is not silently returning the local wrench.
-    EXPECT_FALSE(W_world.head<3>().isApprox(W_local.head<3>(), 1e-6))
+    EXPECT_FALSE(W_world.head<3>().isApprox(W_local.head<3>(), 1.0e-6))
         << "Yawed contact frame should change the tangential force components for contact " << i;
 
     // Rotating back must recover the local wrench.
@@ -565,7 +570,12 @@ TEST_F(BasisInputsModelDecoratorTest, WorldFrameAccessorsRotateLocalWrenchWithCo
 TEST_F(BasisInputsModelDecoratorTest, YawedBaseRotatesLocalXForceIntoWorldY) {
   const vector_t stateZeroYaw = makeState(0.0);
   const vector_t stateYaw90 = makeState(kYaw90);
-  EXPECT_DOUBLE_EQ(stateYaw90(kBaseYawStateIndex), kYaw90) << "Base yaw is expected at state index " << kBaseYawStateIndex;
+  // The base quaternion (x, y, z, w) of the yaw, at the state's orientation slots: (0, 0, sin(yaw / 2), cos(yaw / 2)).
+  EXPECT_LT((stateYaw90.segment<4>(kBaseOrientationStateIndex) - vector4_t(0.0, 0.0, std::sin(0.5 * kYaw90), std::cos(0.5 * kYaw90)))
+                .cwiseAbs()
+                .maxCoeff(),
+            1.0e-16)
+      << "The base quaternion is expected at state index " << kBaseOrientationStateIndex;
 
   const matrix3_t Rz90 = Eigen::AngleAxis<scalar_t>(kYaw90, vector3_t::UnitZ()).toRotationMatrix();
 
@@ -664,7 +674,7 @@ TEST_F(BasisInputsModelDecoratorTest, SetGetContactForceInWorldFrameRoundTrip) {
     EXPECT_TRUE(decorator_->getContactForceInWorldFrame(state, input, i).isApprox(f_world_in, kTol))
         << "World-frame force round trip failed for contact " << i << ":\n  set = " << f_world_in.transpose()
         << "\n  got = " << decorator_->getContactForceInWorldFrame(state, input, i).transpose();
-    EXPECT_TRUE(decorator_->getContactMomentInWorldFrame(state, input, i).isZero(1e-9)) << "A pure force must not produce a moment";
+    EXPECT_TRUE(decorator_->getContactMomentInWorldFrame(state, input, i).isZero(1.0e-9)) << "A pure force must not produce a moment";
   }
 }
 
@@ -686,6 +696,9 @@ TEST_F(BasisInputsModelDecoratorTest, WrenchSpaceModelWorldFrameAccessorsEqualIn
       EXPECT_TRUE((model.getContactWrenchInWorldFrame(state, input, i) - model.getContactWrench(input, i)).isZero(0.0));
       EXPECT_TRUE((model.getContactForceInWorldFrame(state, input, i) - model.getContactForce(input, i)).isZero(0.0));
       EXPECT_TRUE((model.getContactMomentInWorldFrame(state, input, i) - model.getContactMoment(input, i)).isZero(0.0));
+      // The realtime accessor ignores the contact frame's orientation as well.
+      const matrix3_t anyRotation = Eigen::AngleAxisd(0.7, vector3_t(1.0, -2.0, 0.5).normalized()).toRotationMatrix();
+      EXPECT_TRUE((model.getContactWrenchInWorldFrameGivenRotation(input, anyRotation, i) - model.getContactWrench(input, i)).isZero(0.0));
 
       vector6_t wrench;
       wrench << 10.0, 5.0, 100.0, 1.0, -1.0, 0.5;
@@ -709,7 +722,7 @@ TEST_F(BasisInputsModelDecoratorTest, WeightCompensatingInputIsVerticalInWorldFr
   const vector_t state = makeState(kYaw90);
   const scalar_t totalGravitationalForce = centroidalModelInfo_->robotMass * 9.81;
   // Looser than kTol: the result is a least-squares solve of an O(1e3) N wrench, compare with an absolute tolerance.
-  static constexpr scalar_t kForceTol = 1e-6;
+  static constexpr scalar_t kForceTol = 1.0e-6;
 
   const vector_t inputDoubleContact = weightCompensatingInput(*pinocchioInterface_, {true, true}, *decorator_, state);
   ASSERT_EQ(static_cast<size_t>(inputDoubleContact.size()), decorator_->getInputDim());
@@ -751,16 +764,14 @@ TEST_F(BasisInputsModelDecoratorTest, BasisDynamicsValidationNamesTheKeyToChange
   EXPECT_TRUE(CentroidalDynamicsBasisInputsAD::validate(*pinocchioInterface_, *centroidalModelInfo_, *modelSettings_, bases).ok());
 
   // A contact frame the URDF does not have. Create() must report it instead of compiling a tape around a bad index.
-  const std::string configDir = ament_index_cpp::get_package_share_directory("drc_atlas_centroidal_mpc");
-  const std::string descriptionDir = ament_index_cpp::get_package_share_directory("drc_atlas_description");
-  ModelSettings brokenSettings(absl::StrCat(configDir, "/config/mpc/task.yaml"), absl::StrCat(descriptionDir, "/urdf/atlas.urdf"),
-                               "basis_decorator_test", /*verbose=*/false);
+  HUMANOID_ASSERT_OK_AND_ASSIGN(ModelSettings brokenSettings,
+                                ModelSettings::Create(atlas_.task, urdfFile_, "basis_decorator_test", /*verbose=*/false));
   brokenSettings.contactNames[1] = "no_such_frame";
   const absl::StatusOr<std::unique_ptr<CentroidalDynamicsBasisInputsAD>> missingFrame =
       CentroidalDynamicsBasisInputsAD::Create(*pinocchioInterface_, *centroidalModelInfo_, "dynamics", brokenSettings, bases);
   ASSERT_FALSE(missingFrame.ok());
   EXPECT_EQ(missingFrame.status().code(), absl::StatusCode::kInvalidArgument);
-  EXPECT_NE(missingFrame.status().message().find("model_settings.contactNames6DoF"), absl::string_view::npos) << missingFrame.status();
+  EXPECT_NE(missingFrame.status().message().find("model_settings.contact_names_6dof"), absl::string_view::npos) << missingFrame.status();
   EXPECT_NE(missingFrame.status().message().find("no_such_frame"), absl::string_view::npos) << missingFrame.status();
 
   // A contact count the basis-vector formulation does not support.
@@ -768,7 +779,7 @@ TEST_F(BasisInputsModelDecoratorTest, BasisDynamicsValidationNamesTheKeyToChange
   oneContact.numSixDofContacts = 1;
   const absl::Status wrongCount = CentroidalDynamicsBasisInputsAD::validate(*pinocchioInterface_, oneContact, *modelSettings_, bases);
   EXPECT_EQ(wrongCount.code(), absl::StatusCode::kInvalidArgument);
-  EXPECT_NE(wrongCount.message().find("model_settings.contactNames6DoF"), absl::string_view::npos) << wrongCount;
+  EXPECT_NE(wrongCount.message().find("model_settings.contact_names_6dof"), absl::string_view::npos) << wrongCount;
 
   // Bases of different sizes are a programming error, not a configuration one.
   std::array<matrix_t, kNumContacts> mismatched = bases;

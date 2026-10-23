@@ -1,19 +1,69 @@
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
-load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
 load("@rules_cc//cc:cc_test.bzl", "cc_test")
+load("@rules_python//python:defs.bzl", "py_test")
+load("//bazel:copts.bzl", "FIRST_PARTY_COPTS")
+
 # mujoco_sim_interface - MuJoCo simulation interface library
 
 package(default_visibility = ["//visibility:public"])
+
+# The viewer names and settings (include/mujoco_sim_interface/viewer/{ViewerNames,WebViewerOptions,ViewerSettings}.h),
+# without MuJoCo, OpenGL or EGL, so that the robot app's flags can parse and check --viewer.
+VIEWER_SETTINGS_HDRS = [
+    "include/mujoco_sim_interface/viewer/ViewerNames.h",
+    "include/mujoco_sim_interface/viewer/ViewerSettings.h",
+    "include/mujoco_sim_interface/viewer/WebViewerOptions.h",
+]
+
+cc_library(
+    name = "viewer_settings",
+    srcs = [
+        "src/viewer/ViewerNames.cpp",
+        "src/viewer/ViewerSettings.cpp",
+    ],
+    hdrs = VIEWER_SETTINGS_HDRS,
+    includes = ["include"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        "//robot_runtime/web_viewer:viewer_thread_priority",
+        # The server's defaults, which WebViewerOptions takes, without the server's HTTP and JPEG libraries.
+        "//robot_runtime/web_viewer:web_viewer_server_options",
+        "@abseil-cpp//absl/container:flat_hash_set",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
+        "@abseil-cpp//absl/time",
+        "@abseil-cpp//absl/types:span",
+    ],
+)
+
+# The Khronos EGL headers, with EGL_NO_X11 for every translation unit that sees an EGL type: eglplatform.h then
+# includes no Xlib, and its native types agree in all of them. Nothing links EGL: EglLibrary dlopen()s libEGL.so.1.
+cc_library(
+    name = "egl_headers",
+    copts = FIRST_PARTY_COPTS,
+    defines = ["EGL_NO_X11"],
+    deps = ["@egl-registry//:EGL_headers"],
+)
 
 cc_library(
     name = "mujoco_sim_interface",
     srcs = [
         "src/MujocoContactUtils.cpp",
+        "src/MjRuntimeModelFields.cpp",
         "src/Projectile.cpp",
         "src/MujocoContactPatch.cpp",
         "src/CheaterSimContactEstimator.cpp",
         "src/MujocoSimInterface.cpp",
-        "src/MujocoRenderer.cpp",
+        "src/StepLatenessHistogram.cpp",
+        "src/viewer/EglContext.cpp",
+        "src/viewer/EglLibrary.cpp",
+        "src/viewer/GlCapabilities.cpp",
+        "src/viewer/GlfwMujocoViewer.cpp",
+        "src/viewer/MujocoFrameRenderer.cpp",
+        "src/viewer/MujocoViewerRegistry.cpp",
+        "src/viewer/WebMujocoViewer.cpp",
         "src/visualization/VisualizationRegistry.cpp",
         "src/visualization/MetricsOverlay.cpp",
         "src/visualization/ExternalForceVisualization.cpp",
@@ -27,43 +77,43 @@ cc_library(
         "src/visualization/DcmVisualization.cpp",
         "src/visualization/MujocoOptionFlagVisualization.cpp",
     ],
-    hdrs = glob(["include/**"], allow_empty = True),
+    hdrs = glob(
+        ["include/**"],
+        allow_empty = True,
+        exclude = VIEWER_SETTINGS_HDRS,
+    ),
     includes = ["include"],
-    copts = [
-        "-std=c++20",
-        "-Wall",
-        "-Wextra",
-        "-Wpedantic",
-        "-Werror=return-type",
-    ],
+    copts = FIRST_PARTY_COPTS,
     deps = [
+        ":egl_headers",
+        ":viewer_settings",
         "//lib/mujoco_vendor",
+        "//lib/ocs2:ocs2_dimensions",
+        "//lib/ocs2:ocs2_physical_constants",
+        "//robot_runtime/web_viewer",
         "//robot_runtime/robot_core",
         "//robot_runtime/robot_model",
         "@eigen",
-        "@boost",
+        "@abseil-cpp//absl/base:core_headers",
+        "@abseil-cpp//absl/base:no_destructor",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/container:flat_hash_map",
         "@abseil-cpp//absl/log:check",
+        "@abseil-cpp//absl/log:die_if_null",
         "@abseil-cpp//absl/log:log",
         "@abseil-cpp//absl/log:globals",
         "@abseil-cpp//absl/log:initialize",
+        "@abseil-cpp//absl/memory",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:str_format",
+        "@abseil-cpp//absl/synchronization",
+        "@abseil-cpp//absl/time",
+        "@abseil-cpp//absl/types:span",
         "@urdf",
         "@glfw",
         "@glew",
-        "@ros2_ament_index_cpp",
-    ],
-)
-
-cc_binary(
-    name = "mujoco_sim_no_torques",
-    srcs = ["exe/mujocoSimNoTorques.cpp"],
-    copts = ["-std=c++20"],
-    deps = [
-        ":mujoco_sim_interface",
-        "@boost",
-        "@glfw",
     ],
 )
 
@@ -71,13 +121,30 @@ cc_test(
     name = "test_mujoco_contact_utils",
     size = "small",
     srcs = ["test/testMujocoContactUtils.cpp"],
-    copts = [
-        "-std=c++20",
-        "-Wall",
-        "-Wextra",
-    ],
+    copts = FIRST_PARTY_COPTS,
     deps = [
         ":mujoco_sim_interface",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The model arrays the simulator writes while it runs, carried with every state snapshot to a viewer's private model
+# copy: complete for the changes of a gantry weld, the ragdoll damping and a ball, and allocation-free.
+cc_test(
+    name = "test_mj_runtime_model_fields",
+    size = "small",
+    srcs = ["test/testMjRuntimeModelFields.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    linkstatic = True,  # the allocation counter interposes malloc in the executable
+    deps = [
+        ":mujoco_sim_interface",
+        "//lib/mujoco_vendor",
+        "//robot_runtime/robot_realtime:allocation_counter",
+        "@abseil-cpp//absl/base:nullability",
         "@googletest//:gtest_main",
     ],
 )
@@ -86,13 +153,10 @@ cc_test(
     name = "test_projectile",
     size = "medium",  # drops and rolls balls for a few simulated seconds
     srcs = ["test/testProjectile.cpp"],
-    copts = [
-        "-std=c++20",
-        "-Wall",
-        "-Wextra",
-    ],
+    copts = FIRST_PARTY_COPTS,
     deps = [
         ":mujoco_sim_interface",
+        "@abseil-cpp//absl/base:nullability",
         "@googletest//:gtest_main",
     ],
 )
@@ -101,14 +165,33 @@ cc_test(
     name = "test_mujoco_sim_interface_dodgeball",
     size = "medium",  # constructs the Atlas simulator a few times and runs ~11 simulated seconds
     srcs = ["test/testMujocoSimInterfaceDodgeball.cpp"],
-    copts = [
-        "-std=c++20",
-        "-Wall",
-        "-Wextra",
-    ],
+    copts = FIRST_PARTY_COPTS,
     data = ["//robot_models/drc_atlas/drc_atlas_description"],
     deps = [
         ":mujoco_sim_interface",
+        ":viewer_settings",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/log:absl_check",
+        "@abseil-cpp//absl/status:statusor",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The torque switch: no action applied before the torques came back on is executed, and only the physics thread writes
+# the damping it swaps.
+cc_test(
+    name = "test_mujoco_sim_interface_torque_switch",
+    size = "small",
+    srcs = ["test/testMujocoSimInterfaceTorqueSwitch.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = ["//robot_models/drc_atlas/drc_atlas_description"],
+    deps = [
+        ":mujoco_sim_interface",
+        ":viewer_settings",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/log:absl_check",
+        "@abseil-cpp//absl/status:statusor",
+        "//robot_runtime/robot_model",
         "@googletest//:gtest_main",
     ],
 )
@@ -117,14 +200,23 @@ cc_test(
     name = "test_mujoco_sim_interface_gantry",
     size = "small",
     srcs = ["test/testMujocoSimInterfaceGantry.cpp"],
-    copts = [
-        "-std=c++20",
-        "-Wall",
-        "-Wextra",
+    copts = FIRST_PARTY_COPTS,
+    # Every shipped scene: each declares the gantry weld.
+    data = [
+        "//robot_models/drc_atlas/drc_atlas_description",
+        "//robot_models/engineai_sa01/engineai_sa01_description",
+        "//robot_models/unitree_g1/g1_description",
+        "//robot_models/unitree_r1/unitree_r1_description",
     ],
-    data = ["//robot_models/drc_atlas/drc_atlas_description"],
     deps = [
         ":mujoco_sim_interface",
+        ":viewer_settings",
+        "//robot_runtime/robot_model",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/log",
+        "@abseil-cpp//absl/log:absl_check",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings:string_view",
         "@googletest//:gtest_main",
     ],
 )
@@ -133,13 +225,10 @@ cc_test(
     name = "test_mujoco_contact_patch",
     size = "small",
     srcs = ["test/testMujocoContactPatch.cpp"],
-    copts = [
-        "-std=c++20",
-        "-Wall",
-        "-Wextra",
-    ],
+    copts = FIRST_PARTY_COPTS,
     deps = [
         ":mujoco_sim_interface",
+        "@abseil-cpp//absl/base:nullability",
         "@googletest//:gtest_main",
     ],
 )
@@ -148,13 +237,56 @@ cc_test(
     name = "test_visualization_registry",
     size = "small",
     srcs = ["test/testVisualizationRegistry.cpp"],
-    copts = [
-        "-std=c++20",
-        "-Wall",
-        "-Wextra",
-    ],
+    copts = FIRST_PARTY_COPTS,
     deps = [
         ":mujoco_sim_interface",
+        "@abseil-cpp//absl/base:nullability",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The base velocity arrows of the viewer: the measured velocity, already in world axes, is not rotated by the base again.
+cc_test(
+    name = "test_base_velocity_visualization",
+    size = "small",
+    srcs = ["test/testBaseVelocityVisualization.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":mujoco_sim_interface",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings:string_view",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The hotkey tables of the READMEs against the visualizations the shipped task files list.
+py_test(
+    name = "test_viewer_hotkey_docs",
+    size = "small",
+    srcs = ["test/test_viewer_hotkey_docs.py"],
+    data = [
+        "//:.devcontainer/README.md",
+        "//:README.md",
+        "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+        "//robot_models/engineai_sa01/engineai_sa01_centroidal_mpc",
+        "//robot_models/unitree_g1/g1_centroidal_mpc",
+        "//robot_models/unitree_g1/g1_wb_mpc",
+        "//robot_models/unitree_r1/unitree_r1_centroidal_mpc",
+    ],
+    main = "test/test_viewer_hotkey_docs.py",
+)
+
+# The contact force arrows of the viewer: the force on the body resting on its support, whichever geom of the pair is first.
+cc_test(
+    name = "test_contact_force_visualization",
+    size = "small",
+    srcs = ["test/testContactForceVisualization.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":mujoco_sim_interface",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/strings:string_view",
         "@googletest//:gtest_main",
     ],
 )
@@ -163,13 +295,316 @@ cc_test(
     name = "test_cheater_sim_contact_estimator",
     size = "small",
     srcs = ["test/testCheaterSimContactEstimator.cpp"],
-    copts = [
-        "-std=c++20",
-        "-Wall",
-        "-Wextra",
-    ],
+    copts = FIRST_PARTY_COPTS,
     deps = [
         ":mujoco_sim_interface",
+        "@abseil-cpp//absl/base:nullability",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# How the simulator fails to start: Create()'s Status for every scene and configuration error; which scenes can hold the
+# robot by the gantry weld (checkSceneSupportsGantryHold()), and the hold a scene without one falls back to.
+cc_test(
+    name = "test_mujoco_sim_startup",
+    size = "small",
+    srcs = ["test/testMujocoSimStartup.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":mujoco_sim_interface",
+        ":viewer_settings",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:status_matchers",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# What the viewer tests share: the hinge and Atlas scenes, thread ids, image comparisons and an offscreen EGL renderer
+# (test/ViewerTestSupport.h).
+cc_library(
+    name = "viewer_test_support",
+    testonly = True,
+    srcs = ["test/ViewerTestSupport.cpp"],
+    hdrs = ["test/ViewerTestSupport.h"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":mujoco_sim_interface",
+        ":viewer_settings",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/memory",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
+        "@abseil-cpp//absl/types:span",
+        "@googletest//:gtest",
+    ],
+)
+
+# The EGL tests render with llvmpipe, two threads of it, as the robot-sim image does; they link like the robot binary
+# (GLEW, and so libGL, before EglLibrary's RTLD_LOCAL dlopen of libEGL).
+VIEWER_TEST_ENV = {"LP_NUM_THREADS": "2"}
+
+# The EGL context of the web viewer: its display, a thread that never bound the API, two contexts, a missing library
+# and a missing device.
+cc_test(
+    name = "test_egl_context",
+    size = "small",
+    srcs = ["test/testEglContext.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    env = VIEWER_TEST_ENV,
+    deps = [
+        ":mujoco_sim_interface",
+        ":viewer_settings",
+        ":viewer_test_support",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:status_matchers",
+        "@abseil-cpp//absl/status:statusor",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The GL preflight on synthetic capabilities: everything MuJoCo would end the process for is refused first.
+cc_test(
+    name = "test_gl_capabilities",
+    size = "small",
+    srcs = ["test/testGlCapabilities.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":mujoco_sim_interface",
+        ":viewer_settings",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:status_matchers",
+        "@abseil-cpp//absl/strings:string_view",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# Offscreen frames of the hinge and Atlas scenes: their size, content, determinism, camera and visualizations.
+cc_test(
+    name = "test_offscreen_render",
+    size = "medium",  # renders the Atlas scene with llvmpipe a few dozen times
+    srcs = ["test/testOffscreenRender.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = ["//robot_models/drc_atlas/drc_atlas_description"],
+    env = VIEWER_TEST_ENV,
+    deps = [
+        ":mujoco_sim_interface",
+        ":viewer_settings",
+        ":viewer_test_support",
+        "//lib/mujoco_vendor",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status:statusor",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The viewer names, the lists and options the settings accept, and what initSim() starts for a list: `none` starts no
+# thread, `web` without EGL refuses, and `web,none` falls back with the port free again.
+cc_test(
+    name = "test_mujoco_viewer_registry",
+    size = "small",
+    srcs = ["test/testMujocoViewerRegistry.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    env = VIEWER_TEST_ENV,
+    deps = [
+        ":mujoco_sim_interface",
+        ":viewer_settings",
+        ":viewer_test_support",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:status_matchers",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/time",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The GLFW viewer: its failure without a display, its keys, and its window against the offscreen buffer on an Xvfb of
+# the test's own, which is skipped without Xvfb and fails instead on CI (the CI variable set).
+cc_test(
+    name = "test_glfw_mujoco_viewer",
+    size = "medium",  # starts an Xvfb and renders a 1920x1024 window and offscreen buffer with llvmpipe
+    srcs = ["test/testGlfwMujocoViewer.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    env = VIEWER_TEST_ENV,
+    env_inherit = ["CI"],
+    deps = [
+        ":mujoco_sim_interface",
+        ":viewer_settings",
+        ":viewer_test_support",
+        "//lib/mujoco_vendor",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/memory",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
+        "@abseil-cpp//absl/synchronization",
+        "@abseil-cpp//absl/time",
+        "@glfw",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# A browser's side of the web viewer for the tests (test/WebViewerTestClient.h).
+cc_library(
+    name = "web_viewer_test_client",
+    testonly = True,
+    srcs = ["test/WebViewerTestClient.cpp"],
+    hdrs = ["test/WebViewerTestClient.h"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
+        "@cpp-httplib//:httplib",
+    ],
+)
+
+WEB_VIEWER_TEST_DEPS = [
+    ":mujoco_sim_interface",
+    ":viewer_settings",
+    ":viewer_test_support",
+    ":web_viewer_test_client",
+    "//robot_runtime/web_viewer",
+    "//robot_runtime/web_viewer:jpeg_decoder",
+    "@abseil-cpp//absl/base:log_severity",
+    "@abseil-cpp//absl/base:nullability",
+    "@abseil-cpp//absl/log:scoped_mock_log",
+    "@abseil-cpp//absl/status",
+    "@abseil-cpp//absl/status:status_matchers",
+    "@abseil-cpp//absl/status:statusor",
+    "@abseil-cpp//absl/strings",
+    "@abseil-cpp//absl/strings:string_view",
+    "@abseil-cpp//absl/time",
+    "@googletest//:gtest_main",
+]
+
+# The web viewer end to end on an ephemeral port: frames, camera input and keys, no rendering without a client, the
+# start-up timeout, the live GL preflight and a prompt teardown with a stream open.
+cc_test(
+    name = "test_web_mujoco_viewer",
+    size = "medium",  # renders with llvmpipe and waits out the demand lease
+    srcs = ["test/testWebMujocoViewer.cpp"],
+    args = ["--gtest_filter=-WebMujocoViewerPlacement.*"],
+    copts = FIRST_PARTY_COPTS,
+    env = VIEWER_TEST_ENV,
+    deps = WEB_VIEWER_TEST_DEPS,
+)
+
+# Every thread the web viewer starts - render, listen, request pool, llvmpipe - on its cores under SCHED_IDLE. A process
+# of its own, so that it is the first to initialize EGL and llvmpipe's threads are its own.
+cc_test(
+    name = "test_web_mujoco_viewer_placement",
+    size = "small",
+    srcs = ["test/testWebMujocoViewer.cpp"],
+    args = ["--gtest_filter=WebMujocoViewerPlacement.*"],
+    copts = FIRST_PARTY_COPTS,
+    env = VIEWER_TEST_ENV,
+    deps = WEB_VIEWER_TEST_DEPS,
+)
+
+# The physics' per-step lateness and real-time factor with the web viewer and a pulling browser, against no viewer
+# (README.md, "Viewers"). Timing tests: alone on the machine (exclusive), with 4 allowed cores or skipped.
+WEB_VIEWER_SIM_RATE_DEPS = [
+    ":mujoco_sim_interface",
+    ":viewer_settings",
+    ":viewer_test_support",
+    ":web_viewer_test_client",
+    "@abseil-cpp//absl/status:statusor",
+    "@abseil-cpp//absl/strings",
+    "@abseil-cpp//absl/strings:str_format",
+    "@abseil-cpp//absl/strings:string_view",
+    "@abseil-cpp//absl/time",
+    "@googletest//:gtest_main",
+]
+
+# LINT.IfChange(sim_rate_targets)
+# One target per placement of ThreadAffinity.h's default viewer cores, each a process of its own: llvmpipe's rasterizer
+# threads, started once per process, keep the cores and the scheduling of the first render thread. The viewer on cores
+# of its own (above 16 cores), on the physics' two simulation cores (8 to 16) and on its one (4 to 7), each with as many
+# rasterizer threads as viewer cores (at least 2), as the robot binaries set LP_NUM_THREADS; _oversubscribed runs 8 on
+# the viewer's own two cores. More rasterizer threads than cores on the physics' cores is not a default (README.md).
+cc_test(
+    name = "test_web_viewer_sim_rate",
+    size = "medium",
+    srcs = ["test/testWebViewerSimRate.cpp"],
+    args = ["--gtest_filter=WebViewerSimRate.TheWebViewerOnCoresOfItsOwnDoesNotDelayThePhysics"],
+    copts = FIRST_PARTY_COPTS,
+    data = ["//robot_models/drc_atlas/drc_atlas_description"],
+    env = {"LP_NUM_THREADS": "2"},
+    tags = ["exclusive"],
+    deps = WEB_VIEWER_SIM_RATE_DEPS,
+)
+
+cc_test(
+    name = "test_web_viewer_sim_rate_oversubscribed",
+    size = "medium",
+    srcs = ["test/testWebViewerSimRate.cpp"],
+    args = ["--gtest_filter=WebViewerSimRate.TheWebViewerOnCoresOfItsOwnDoesNotDelayThePhysics"],
+    copts = FIRST_PARTY_COPTS,
+    data = ["//robot_models/drc_atlas/drc_atlas_description"],
+    env = {"LP_NUM_THREADS": "8"},
+    tags = ["exclusive"],
+    deps = WEB_VIEWER_SIM_RATE_DEPS,
+)
+
+cc_test(
+    name = "test_web_viewer_sim_rate_on_the_physics_cores",
+    size = "medium",
+    srcs = ["test/testWebViewerSimRate.cpp"],
+    args = ["--gtest_filter=WebViewerSimRate.TheWebViewerOnThePhysicsCoresDoesNotDelayThePhysics"],
+    copts = FIRST_PARTY_COPTS,
+    data = ["//robot_models/drc_atlas/drc_atlas_description"],
+    env = {"LP_NUM_THREADS": "2"},
+    tags = ["exclusive"],
+    deps = WEB_VIEWER_SIM_RATE_DEPS,
+)
+
+cc_test(
+    name = "test_web_viewer_sim_rate_on_the_physics_core",
+    size = "medium",
+    srcs = ["test/testWebViewerSimRate.cpp"],
+    args = ["--gtest_filter=WebViewerSimRate.TheWebViewerOnThePhysicsCoreDoesNotDelayThePhysics"],
+    copts = FIRST_PARTY_COPTS,
+    data = ["//robot_models/drc_atlas/drc_atlas_description"],
+    env = {"LP_NUM_THREADS": "2"},
+    tags = ["exclusive"],
+    deps = WEB_VIEWER_SIM_RATE_DEPS,
+)
+# LINT.ThenChange(//robot_runtime/mujoco_sim_interface/test/testWebViewerSimRate.cpp:default_placements, //robot_runtime/mujoco_sim_interface/README.md:sim_rate_targets)
+
+# The physics loop's lateness histogram: percentiles, maximum, late steps and reset.
+cc_test(
+    name = "test_step_lateness_histogram",
+    size = "small",
+    srcs = ["test/testStepLatenessHistogram.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":mujoco_sim_interface",
+        "@abseil-cpp//absl/time",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The free joint's state in the robot state's frames, the scene's joints and actuators at their own addresses, and the
+# dodgeball's impact without a ball: each against MuJoCo's own integration of it.
+cc_test(
+    name = "test_mujoco_sim_interface_state",
+    size = "small",
+    srcs = ["test/testMujocoSimInterfaceState.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":mujoco_sim_interface",
+        ":viewer_settings",
+        "//robot_runtime/robot_model",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status:statusor",
+        "@eigen",
         "@googletest//:gtest_main",
     ],
 )

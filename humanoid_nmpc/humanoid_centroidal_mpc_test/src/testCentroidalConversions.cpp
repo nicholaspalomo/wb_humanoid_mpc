@@ -28,20 +28,20 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <pinocchio/fwd.hpp>  // forward declarations must be included first.
-
-#include <gtest/gtest.h>
+#include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
 #include <cmath>
 #include <functional>
 
-#include <pinocchio/algorithm/center-of-mass.hpp>
-#include <pinocchio/algorithm/centroidal.hpp>
-#include <pinocchio/algorithm/frames.hpp>
-
-#include <ocs2_centroidal_model/AccessHelperFunctions.h>
-#include <ocs2_centroidal_model/CentroidalModelPinocchioMapping.h>
-#include <ocs2_centroidal_model/ModelHelperFunctions.h>
+#include "Eigen/Core"
+#include "Eigen/Geometry"
+#include "gtest/gtest.h"
+#include "ocs2_centroidal_model/AccessHelperFunctions.h"
+#include "ocs2_centroidal_model/CentroidalModelPinocchioMapping.h"
+#include "ocs2_centroidal_model/ModelHelperFunctions.h"
+#include "pinocchio/algorithm/center-of-mass.hpp"
+#include "pinocchio/algorithm/centroidal.hpp"
+#include "pinocchio/algorithm/frames.hpp"
 
 #include "humanoid_centroidal_mpc_test/CentroidalTestingModelInterface.h"
 #include "humanoid_common_mpc/common/Types.h"
@@ -61,12 +61,20 @@ scalar_t spread(size_t i, scalar_t phase) {
   return std::sin(1.7 * static_cast<scalar_t>(i) + phase);
 }
 
-/** A walking-like state: momentum, a displaced and tilted base, and every joint away from zero. */
+/**
+ * A walking-like state: momentum, a displaced and tilted base (the unit quaternion of yaw 0.4, pitch 0.1, roll -0.05) and
+ * every joint away from zero.
+ */
 vector_t makeState(const CentroidalModelInfo& info) {
-  vector_t state = vector_t::Zero(info.stateDim);
+  vector_t state = vector_t::Zero(static_cast<Eigen::Index>(info.stateDim));
   centroidal_model::getNormalizedMomentum(state, info) << 0.4, -0.1, 0.05, 0.03, -0.02, 0.08;
-  state.segment<6>(6) << 0.1, -0.2, 0.75, 0.4, 0.1, -0.05;
-  for (size_t i = 0; i < info.actuatedDofNum; ++i) state(12 + static_cast<Eigen::Index>(i)) = 0.3 * spread(i, /*phase=*/0.7);
+  centroidal_model::getBasePosition(state, info) << 0.1, -0.2, 0.75;
+  const Eigen::Quaterniond orientation = Eigen::AngleAxisd(0.4, vector3_t::UnitZ()) * Eigen::AngleAxisd(0.1, vector3_t::UnitY()) *
+                                         Eigen::AngleAxisd(-0.05, vector3_t::UnitX());
+  centroidal_model::getBaseQuaternion(state, info) = orientation.coeffs();
+  for (size_t i = 0; i < info.actuatedDofNum; ++i) {
+    centroidal_model::getJointAngles(state, info)(static_cast<Eigen::Index>(i)) = 0.3 * spread(i, /*phase=*/0.7);
+  }
   return state;
 }
 
@@ -89,11 +97,18 @@ TEST(TestCentroidalConversions, theStateAndInputDimensionsFollowTheModel) {
   const CentroidalModelInfo info = testingModelInterface.getCentroidalModelInfo();
   const pinocchio::Model& model = testingModelInterface.getPinocchioInterface().getModel();
   EXPECT_EQ(static_cast<Eigen::Index>(info.actuatedDofNum), model.nv - 6);
-  // [normalized centroidal momentum (6), base pose (6), joint angles]
-  EXPECT_EQ(info.stateDim, 12 + info.actuatedDofNum);
+  // Pinocchio's q = [p_W, xi, q_j] and v = [dp_W, w_B, dq_j] of the Composite(Translation, Spherical) root.
+  EXPECT_EQ(static_cast<Eigen::Index>(info.configurationDim), model.nq);
+  EXPECT_EQ(static_cast<Eigen::Index>(info.velocityDim), model.nv);
+  EXPECT_EQ(info.configurationDim, info.velocityDim + 1);
+  // [normalized centroidal momentum (6), base position (3), base quaternion (4), joint angles], on a tangent of one less.
+  EXPECT_EQ(info.stateDim, 13 + info.actuatedDofNum);
+  EXPECT_EQ(info.stateTangentDim, 12 + info.actuatedDofNum);
+  EXPECT_EQ(info.stateDim, 6 + info.configurationDim);
   // [contact forces (3 per point contact), contact wrenches (6 per foot), joint velocities]
   EXPECT_EQ(info.inputDim, 3 * info.numThreeDofContacts + 6 * info.numSixDofContacts + info.actuatedDofNum);
   EXPECT_EQ(testingModelInterface.getMpcRobotModel().getStateDim(), info.stateDim);
+  EXPECT_EQ(testingModelInterface.getMpcRobotModel().getStateTangentDim(), info.stateTangentDim);
   EXPECT_EQ(testingModelInterface.getMpcRobotModel().getInputDim(), info.inputDim);
 }
 
@@ -115,7 +130,7 @@ TEST(TestCentroidalConversions, theBaseTwistOfTheMappingCarriesTheMomentumOfTheS
   const vector6_t momentum = info.robotMass * centroidal_model::getNormalizedMomentum(state, info);
   pinocchio::Data data(model);
   const vector6_t wholeBodyMomentum = pinocchio::computeCentroidalMomentum(model, data, q, v).toVector();
-  EXPECT_LT((wholeBodyMomentum - momentum).norm(), 1e-9 * momentum.norm())
+  EXPECT_LT((wholeBodyMomentum - momentum).norm(), 1.0e-9 * momentum.norm())
       << "state: " << momentum.transpose() << "\nwhole body: " << wholeBodyMomentum.transpose();
   EXPECT_TRUE(v.tail(info.actuatedDofNum) == centroidal_model::getJointVelocities(input, info)) << "the joints move as the input says";
 
@@ -123,7 +138,32 @@ TEST(TestCentroidalConversions, theBaseTwistOfTheMappingCarriesTheMomentumOfTheS
   vector_t withoutBaseTwist = v;
   withoutBaseTwist.head<6>().setZero();
   const vector6_t jointsOnly = pinocchio::computeCentroidalMomentum(model, data, q, withoutBaseTwist).toVector();
-  EXPECT_GT((jointsOnly - momentum).norm(), 1e-2 * momentum.norm());
+  EXPECT_GT((jointsOnly - momentum).norm(), 1.0e-2 * momentum.norm());
+}
+
+TEST(TestCentroidalConversions, theConfigurationReadsTheStatesQuaternionSafelyNormalized) {
+  CentroidalTestingModelInterface testingModelInterface;
+  const PinocchioInterface& pinocchioInterface = testingModelInterface.getPinocchioInterface();
+  const CentroidalModelInfo info = testingModelInterface.getCentroidalModelInfo();
+  CentroidalModelPinocchioMapping mapping(info);
+  mapping.setPinocchioInterface(pinocchioInterface);
+
+  const vector_t state = makeState(info);
+  const vector_t q = mapping.getPinocchioJointPosition(state);
+  ASSERT_EQ(static_cast<size_t>(q.size()), info.configurationDim);
+  EXPECT_EQ(vector3_t(q.head<3>()), vector3_t(centroidal_model::getBasePosition(state, info)));
+  EXPECT_LT((q.segment<4>(3) - centroidal_model::getBaseQuaternion(state, info)).cwiseAbs().maxCoeff(), 1.0e-15);
+  EXPECT_EQ(q.tail(static_cast<Eigen::Index>(info.actuatedDofNum)), centroidal_model::getJointAngles(state, info));
+
+  // The solver's quaternion drifts off the unit sphere between projections: Pinocchio reads it normalized, so a scaled
+  // or negated quaternion is the same configuration.
+  for (const scalar_t scale : {0.5, 2.0, -1.0}) {
+    vector_t scaled = state;
+    centroidal_model::getBaseQuaternion(scaled, info) *= scale;
+    const vector_t scaledQ = mapping.getPinocchioJointPosition(scaled);
+    EXPECT_NEAR(scaledQ.segment<4>(3).norm(), 1.0, 1.0e-15) << "scale " << scale;
+    EXPECT_LT((scaledQ.segment<4>(3) - std::copysign(1.0, scale) * q.segment<4>(3)).cwiseAbs().maxCoeff(), 1.0e-15) << "scale " << scale;
+  }
 }
 
 TEST(TestCentroidalConversions, theMomentumRateIsTheNewtonEulerSumOfTheContactWrenchesAndGravity) {
@@ -156,7 +196,8 @@ TEST(TestCentroidalConversions, theMomentumRateIsTheNewtonEulerSumOfTheContactWr
   const vector_t input = makeInput(info);
   const vector6_t rate = info.robotMass * getNormalizedCentroidalMomentumRate(pinocchioInterface, info, input);
   const vector6_t expected = expectedRate(input);
-  EXPECT_LT((rate - expected).norm(), 1e-9 * expected.norm()) << "rate: " << rate.transpose() << "\nNewton-Euler: " << expected.transpose();
+  EXPECT_LT((rate - expected).norm(), 1.0e-9 * expected.norm())
+      << "rate: " << rate.transpose() << "\nNewton-Euler: " << expected.transpose();
 
   // Positive control: the moments depend on where each foot is, so exchanging the feet's forces changes the rate.
   vector_t exchanged = input;

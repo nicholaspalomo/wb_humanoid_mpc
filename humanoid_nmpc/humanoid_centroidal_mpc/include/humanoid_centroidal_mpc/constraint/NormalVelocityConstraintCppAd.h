@@ -30,7 +30,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <ocs2_core/constraint/StateInputConstraint.h>
+#include <memory>
+
+#include "absl/base/nullability.h"
+#include "ocs2_core/constraint/StateInputConstraint.h"
 
 #include "humanoid_common_mpc/constraint/EndEffectorKinematicsLinearVelConstraint.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
@@ -42,6 +45,9 @@ namespace ocs2::humanoid {
  * Constructs the member EndEffectorKinematicsLinearVelConstraint object with number of constraints of 1.
  *
  * See also EndEffectorKinematicsLinearVelConstraint for the underlying computation.
+ *
+ * Not thread-safe: its end-effector kinematics evaluate on the Pinocchio data of one worker's PreComputation, so the
+ * solver gives each worker thread its own clone().
  */
 class NormalVelocityConstraintCppAd final : public StateInputConstraint {
  public:
@@ -56,12 +62,16 @@ class NormalVelocityConstraintCppAd final : public StateInputConstraint {
                                 size_t contactPointIndex);
 
   ~NormalVelocityConstraintCppAd() override = default;
-  NormalVelocityConstraintCppAd* clone() const override { return new NormalVelocityConstraintCppAd(*this); }
+  NormalVelocityConstraintCppAd* absl_nonnull clone() const override { return new NormalVelocityConstraintCppAd(*this); }
+  // Copied only by clone(), whose copy constructor is private; never assigned or moved.
+  NormalVelocityConstraintCppAd& operator=(const NormalVelocityConstraintCppAd&) = delete;
+  NormalVelocityConstraintCppAd(NormalVelocityConstraintCppAd&&) = delete;
+  NormalVelocityConstraintCppAd& operator=(NormalVelocityConstraintCppAd&&) = delete;
 
   bool isActive(scalar_t time) const override;
   void setActive(bool isActive) override { isActive_ = isActive; }
   bool getActive() const override { return isActive_; }
-  size_t getNumConstraints(scalar_t time) const override { return 1; }
+  size_t getNumConstraints(scalar_t /*time*/) const override { return 1; }
   vector_t getValue(scalar_t time, const vector_t& state, const vector_t& input, const PreComputation& preComp) const override;
   VectorFunctionLinearApproximation getLinearApproximation(scalar_t time,
                                                            const vector_t& state,
@@ -71,7 +81,7 @@ class NormalVelocityConstraintCppAd final : public StateInputConstraint {
  private:
   NormalVelocityConstraintCppAd(const NormalVelocityConstraintCppAd& rhs);
 
-  const SwitchedModelReferenceManager* referenceManagerPtr_;
+  const SwitchedModelReferenceManager* absl_nonnull referenceManagerPtr_;
   std::unique_ptr<EndEffectorKinematicsLinearVelConstraint> eeLinearConstraintPtr_;
   const size_t contactPointIndex_;
   bool isActive_ = true;

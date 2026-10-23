@@ -52,7 +52,7 @@
           solref="0.004 1.0"/>
 
     <!-- EngineAI SA01 - base_link is the floating base body. The spawn height is the nominal standing base height
-         (reference.yaml defaultBaseHeight), which is also the height the gantry catches the robot at after a fall
+         (reference.textproto default_base_height), which is also the height the gantry catches the robot at after a fall
          (MujocoSimInterface reads qpos[2] at load time). -->
     <body name="base_link" pos="0 0 0.8135">
       <freejoint name="root"/>
@@ -89,7 +89,7 @@
             <joint name="leg_l3_joint" pos="0 0 0" axis="0 1 0" range="-1.204 1.204" actuatorfrcrange="-140 140" armature="0.042"/>
             <geom class="visual" type="mesh" mesh="left_leg_link_03"/>
             <!-- Hip axis to knee axis. Radius 0.045 fits inside the mesh (y half-width 0.057) and equals
-                 task.yaml collision_constraint.knee.kneeCollisionSphereRadius, so the simulator and the MPC
+                 task.textproto collision_constraint.knee.knee_collision_sphere_radius, so the simulator and the MPC
                  agree on how close the thighs may come. -->
             <geom class="collision" type="capsule" size="0.045" fromto="0 0 0 0 0 -0.30"/>
             <body name="leg_l4_link" pos="0 5.9998e-05 -0.3">
@@ -116,7 +116,7 @@
                   <!-- Foot sole contact geoms - 4 corner spheres only (no box) for clean point contacts. Their centres
                        are the corners of the MPC contact rectangle: the sole plane is 0.055 below the ankle, the
                        spheres have radius 0.010, so their centres sit at z = -0.045 and are inset by one radius from
-                       the 0.27 x 0.10 m sole. See task.yaml contacts.contact_frame_translation / contact_rectangle. -->
+                       the 0.27 x 0.10 m sole. See task.textproto contacts.contact_frame_translation / contact_rectangle. -->
                   <geom class="collision" type="sphere" size="0.010" pos="-0.065 0.045 -0.045"/>
                   <geom class="collision" type="sphere" size="0.010" pos="-0.065 -0.035 -0.045"/>
                   <geom class="collision" type="sphere" size="0.010" pos="0.185 0.045 -0.045"/>
@@ -151,7 +151,7 @@
             <joint name="leg_r3_joint" pos="0 0 0" axis="0 1 0" range="-1.204 1.204" actuatorfrcrange="-140 140" armature="0.042"/>
             <geom class="visual" type="mesh" mesh="right_leg_link_03"/>
             <!-- Hip axis to knee axis. Radius 0.045 fits inside the mesh (y half-width 0.057) and equals
-                 task.yaml collision_constraint.knee.kneeCollisionSphereRadius, so the simulator and the MPC
+                 task.textproto collision_constraint.knee.knee_collision_sphere_radius, so the simulator and the MPC
                  agree on how close the thighs may come. -->
             <geom class="collision" type="capsule" size="0.045" fromto="0 0 0 0 0 -0.30"/>
             <body name="leg_r4_link" pos="0 -5.9998e-05 -0.3">

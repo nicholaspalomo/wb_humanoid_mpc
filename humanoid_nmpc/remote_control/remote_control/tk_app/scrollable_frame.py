@@ -1,44 +1,52 @@
-"""****************************************************************************
-Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-Redistribution and use in source and binary forms, with or without
-modification, are permitted provided that the following conditions are met:
+"""A ttk frame whose content scrolls vertically, with mouse-wheel support on Linux, Windows and macOS."""
 
-* Redistributions of source code must retain the above copyright notice, this
-  list of conditions and the following disclaimer.
-
-* Redistributions in binary form must reproduce the above copyright notice,
-  this list of conditions and the following disclaimer in the documentation
-  and/or other materials provided with the distribution.
-
-* Neither the name of the copyright holder nor the names of its
-  contributors may be used to endorse or promote products derived from
-  this software without specific prior written permission.
-
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
-FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
-DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
-SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
-CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
-OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-****************************************************************************"""
-
-import tkinter as tk
 from tkinter import ttk
+import tkinter as tk
+from typing import Any
 
 
 class ScrollableFrame(ttk.Frame):
-    """
-    A reusable frame that embeds a scrollable canvas with a vertical scrollbar,
-    full cross-platform mouse wheel support (Linux, Windows, macOS), and dynamic resizing.
+    """A frame whose content (`scrollable_content`) scrolls vertically, with a scrollbar and the mouse wheel.
+
+    The canvas the content lives on resizes with the frame, and the mouse wheel scrolls it on Linux, Windows and macOS.
+
+    Args:
+        parent: the widget the frame is packed into.
+        bg_color: the background of the canvas behind the content.
+        **kwargs: the options of the ttk.Frame.
     """
 
-    def __init__(self, parent, bg_color="#2c2c2c", *args, **kwargs):
-        super().__init__(parent, *args, **kwargs)
+    def __init__(
+        self, parent: tk.Misc, bg_color: str = "#2c2c2c", **kwargs: Any
+    ) -> None:
+        super().__init__(parent, **kwargs)
         self.configure(style="TFrame")
 
         # Canvas with matching dark background
@@ -73,31 +81,33 @@ class ScrollableFrame(ttk.Frame):
         self._bind_mousewheel(self.canvas)
         self._bind_mousewheel(self.scrollable_content)
 
-    def _on_canvas_configure(self, event):
+    def _on_canvas_configure(self, event: tk.Event) -> None:
         self.canvas.itemconfig(self.canvas_window, width=event.width)
 
-    def _bind_mousewheel(self, widget):
+    def _bind_mousewheel(self, widget: tk.Misc) -> None:
         widget.bind("<Enter>", lambda _: self._activate_mousewheel(widget))
         widget.bind("<Leave>", lambda _: self._deactivate_mousewheel(widget))
 
-    def _activate_mousewheel(self, widget):
+    def _activate_mousewheel(self, widget: tk.Misc) -> None:
         # Linux (X11) mouse wheel buttons
         widget.bind_all("<Button-4>", self._on_mousewheel_up)
         widget.bind_all("<Button-5>", self._on_mousewheel_down)
         # Windows / macOS mouse wheel
         widget.bind_all("<MouseWheel>", self._on_mousewheel)
 
-    def _deactivate_mousewheel(self, widget):
+    def _deactivate_mousewheel(self, widget: tk.Misc) -> None:
         widget.unbind_all("<Button-4>")
         widget.unbind_all("<Button-5>")
         widget.unbind_all("<MouseWheel>")
 
-    def _on_mousewheel(self, event):
+    def _on_mousewheel(self, event: tk.Event) -> None:
         delta = -1 if event.delta < 0 else 1
         self.canvas.yview_scroll(-delta * 2, "units")
 
-    def _on_mousewheel_up(self, event):
+    def _on_mousewheel_up(self, event: tk.Event) -> None:
+        del event  # Unused.
         self.canvas.yview_scroll(-2, "units")
 
-    def _on_mousewheel_down(self, event):
+    def _on_mousewheel_down(self, event: tk.Event) -> None:
+        del event  # Unused.
         self.canvas.yview_scroll(2, "units")

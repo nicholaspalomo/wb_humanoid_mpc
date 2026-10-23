@@ -30,10 +30,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <pinocchio/fwd.hpp>
+#include "pinocchio/fwd.hpp"
 
-#include <ocs2_pinocchio_interface/PinocchioInterface.h>
-#include <ocs2_robotic_tools/common/RotationTransforms.h>
+#include "ocs2_core/Dimensions.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
+#include "ocs2_robotic_tools/common/RotationTransforms.h"
+#include "pinocchio/multibody/fwd.hpp"
 
 #include "humanoid_common_mpc/common/Types.h"
 
@@ -71,7 +73,7 @@ inline VECTOR3_T<SCALAR_T> rotateVectorWorldToLocal(const VECTOR3_T<SCALAR_T>& v
                                                     const pinocchio::DataTpl<SCALAR_T>& data,
                                                     const pinocchio::FrameIndex& localFrameIndex) {
   const MATRIX3_T<SCALAR_T>& R_WorldToLocal = getRotationMatrixLocalToWorld(data, localFrameIndex).transpose();
-  return (R_WorldToLocal * vectorInWorldFrame);
+  return R_WorldToLocal * vectorInWorldFrame;
 }
 
 ///
@@ -90,7 +92,7 @@ inline VECTOR3_T<SCALAR_T> rotateVectorLocalToWorld(const VECTOR3_T<SCALAR_T>& v
                                                     const pinocchio::DataTpl<SCALAR_T>& data,
                                                     const pinocchio::FrameIndex& localFrameIndex) {
   const MATRIX3_T<SCALAR_T>& R_WorldToLocal = getRotationMatrixLocalToWorld(data, localFrameIndex);
-  return (R_WorldToLocal * vectorInLocalFrame);
+  return R_WorldToLocal * vectorInLocalFrame;
 }
 
 ///
@@ -108,9 +110,12 @@ template <typename SCALAR_T>
 inline VECTOR6_T<SCALAR_T> rotateVectorWorldToLocal(const VECTOR6_T<SCALAR_T>& vectorInWorldFrame,
                                                     const pinocchio::DataTpl<SCALAR_T>& data,
                                                     const pinocchio::FrameIndex& localFrameIndex) {
-  VECTOR6_T<SCALAR_T> vectorInLocalFrame(6);
-  vectorInLocalFrame.head(3) = rotateVectorWorldToLocal(VECTOR3_T<SCALAR_T>(vectorInWorldFrame.head(3)), data, localFrameIndex),
-  vectorInLocalFrame.tail(3) = rotateVectorWorldToLocal(VECTOR3_T<SCALAR_T>(vectorInWorldFrame.tail(3)), data, localFrameIndex);
+  // A spatial vector - a twist, or a wrench - is two vectors of space, each rotated on its own.
+  VECTOR6_T<SCALAR_T> vectorInLocalFrame(kTwistDim);
+  vectorInLocalFrame.head(kPositionDim) =
+      rotateVectorWorldToLocal(VECTOR3_T<SCALAR_T>(vectorInWorldFrame.head(kPositionDim)), data, localFrameIndex),
+  vectorInLocalFrame.tail(kPositionDim) =
+      rotateVectorWorldToLocal(VECTOR3_T<SCALAR_T>(vectorInWorldFrame.tail(kPositionDim)), data, localFrameIndex);
   return vectorInLocalFrame;
 }
 
@@ -129,9 +134,12 @@ template <typename SCALAR_T>
 inline VECTOR6_T<SCALAR_T> rotateVectorLocalToWorld(const VECTOR6_T<SCALAR_T>& vectorInLocalFrame,
                                                     const pinocchio::DataTpl<SCALAR_T>& data,
                                                     const pinocchio::FrameIndex& localFrameIndex) {
-  VECTOR6_T<SCALAR_T> vectorInWorldFrame(6);
-  vectorInWorldFrame.head(3) = rotateVectorLocalToWorld(VECTOR3_T<SCALAR_T>(vectorInLocalFrame.head(3)), data, localFrameIndex),
-  vectorInWorldFrame.tail(3) = rotateVectorLocalToWorld(VECTOR3_T<SCALAR_T>(vectorInLocalFrame.tail(3)), data, localFrameIndex);
+  // A spatial vector - a twist, or a wrench - is two vectors of space, each rotated on its own.
+  VECTOR6_T<SCALAR_T> vectorInWorldFrame(kTwistDim);
+  vectorInWorldFrame.head(kPositionDim) =
+      rotateVectorLocalToWorld(VECTOR3_T<SCALAR_T>(vectorInLocalFrame.head(kPositionDim)), data, localFrameIndex),
+  vectorInWorldFrame.tail(kPositionDim) =
+      rotateVectorLocalToWorld(VECTOR3_T<SCALAR_T>(vectorInLocalFrame.tail(kPositionDim)), data, localFrameIndex);
   return vectorInWorldFrame;
 }
 
@@ -148,7 +156,7 @@ inline VECTOR6_T<SCALAR_T> rotateVectorLocalToWorld(const VECTOR6_T<SCALAR_T>& v
 template <typename SCALAR_T>
 inline MATRIX4_T<SCALAR_T> getTransformationMatrixLocalToWorld(const pinocchio::DataTpl<SCALAR_T>& data,
                                                                const pinocchio::FrameIndex localFrameIndex) {
-  return (data.oMf[localFrameIndex].toHomogeneousMatrix_impl());
+  return data.oMf[localFrameIndex].toHomogeneousMatrix_impl();
 }
 
 ///
@@ -165,8 +173,10 @@ template <typename SCALAR_T>
 inline MATRIX4_T<SCALAR_T> getTransformationMatrixWorldToLocal(const pinocchio::DataTpl<SCALAR_T>& data,
                                                                const pinocchio::FrameIndex localFrameIndex) {
   MATRIX4_T<SCALAR_T> transformWorldToLocal = MATRIX4_T<SCALAR_T>::Identity();
-  transformWorldToLocal.block(0, 0, 3, 3) = data.oMf[localFrameIndex].rotation().transpose();
-  transformWorldToLocal.block(0, 3, 3, 1) = -data.oMf[localFrameIndex].rotation().transpose() * data.oMf[localFrameIndex].translation();
+  // [R^T, -R^T p; 0, 1]: the rotation block and the translation column of the homogeneous transform.
+  transformWorldToLocal.block(0, 0, kPositionDim, kPositionDim) = data.oMf[localFrameIndex].rotation().transpose();
+  transformWorldToLocal.block(0, kPositionDim, kPositionDim, 1) =
+      -data.oMf[localFrameIndex].rotation().transpose() * data.oMf[localFrameIndex].translation();
   return transformWorldToLocal;
 }
 
@@ -187,7 +197,7 @@ inline VECTOR3_T<SCALAR_T> transformPointLocalToWorld(const VECTOR3_T<SCALAR_T>&
                                                       const pinocchio::FrameIndex& localFrameIndex) {
   VECTOR4_T<SCALAR_T> homogeniousPoint;
   homogeniousPoint << pointInLocalFrame, 1.0;
-  return (getTransformationMatrixLocalToWorld(data, localFrameIndex) * homogeniousPoint).head(3);
+  return (getTransformationMatrixLocalToWorld(data, localFrameIndex) * homogeniousPoint).head(kPositionDim);
 }
 
 ///
@@ -207,7 +217,7 @@ inline VECTOR3_T<SCALAR_T> transformPointWorldToLocal(const VECTOR3_T<SCALAR_T>&
                                                       const pinocchio::FrameIndex& localFrameIndex) {
   VECTOR4_T<SCALAR_T> homogeniousPoint;
   homogeniousPoint << pointInWorldFrame, 1.0;
-  return (getTransformationMatrixWorldToLocal(data, localFrameIndex) * homogeniousPoint).head(3);
+  return (getTransformationMatrixWorldToLocal(data, localFrameIndex) * homogeniousPoint).head(kPositionDim);
 }
 
 }  // namespace ocs2::humanoid

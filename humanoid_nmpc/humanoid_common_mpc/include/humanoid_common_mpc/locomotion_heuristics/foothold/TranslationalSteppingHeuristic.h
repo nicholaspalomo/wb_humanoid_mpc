@@ -50,6 +50,9 @@ namespace ocs2::humanoid {
  *
  * The lateral offset is applied to this foot's own side, so one number in the task file widens the stance rather than
  * shifting the whole robot sideways.
+ *
+ * Like every LocomotionHeuristic, its const methods are safe to call concurrently; configure() is not, and must not run
+ * while they do.
  */
 class TranslationalSteppingHeuristic final : public FootholdHeuristic {
  public:

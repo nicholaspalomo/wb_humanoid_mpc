@@ -1,0 +1,83 @@
+# proto-file: humanoid_nmpc/humanoid_mpc_config/reference_file.proto
+# proto-message: humanoid_mpc_config.ReferenceFile
+# EngineAI SA01 command reference limits and nominal posture.
+#
+# Every length here is derived from the URDF (robot_models/engineai_sa01/engineai_sa01_description/urdf/zq_sa01.urdf):
+# hip roll/yaw at +-0.075 m from the base, hip pitch 0.1311 m below it, a 0.30 m thigh, a 0.37 m shank and a sole
+# 0.055 m below the ankle. The leg is therefore 0.8561 m from base_link to the sole fully extended, and the sole is a
+# 0.27 x 0.10 m rectangle. Total mass 33.11 kg.
+
+target_displacement_velocity: 0.5
+target_rotation_velocity: 0.5
+
+# Joystick command limits. These are deliberately below what the leg could deliver: SA01 has not been tuned in
+# simulation yet, and the gait schedule (no contact planner - contact_schedule_source is gait_schedule in task.textproto) fixes
+# the cadence, so the stride length alone has to absorb the command. Raise them once the robot walks.
+# With the default walk of gait.textproto the stride period is 0.7 s, so 0.8 m/s asks for a 0.28 m step out of a 0.67 m
+# leg - about 42% of the leg length, which is already a long step for a first bring-up.
+# These three are the joypad range contact_planning.textproto hlip.blend.max_commanded_* normalizes by, and the sidestep the
+# H-LIP orbit has to absorb (ContactPlanningConfig::warnings() checks it against hlip.step_width / min_step_width).
+# LINT.IfChange(sa01_command_ranges)
+max_displacement_velocity_x: 0.8
+# Sideways travel is bounded by geometry rather than by the leg: with an alternating gait each foot must move
+# v_y * T_stride per stride, and the feet may not come closer than the 0.15 m hip spacing plus a sole width. At the
+# 0.7 s stride of the default walk, 0.2 m/s already swings the foot separation through 0.14 m.
+max_displacement_velocity_y: 0.2
+# The crouch has 0.043 m of extension left above it and roughly 0.16 m of travel below it before the knee passes
+# 1.2 rad, so the operator gets a symmetric 0.15 m about the nominal height rather than the 0.3 - 0.4 m the taller
+# robots allow.
+max_delta_pelvis_height: 0.15
+max_rotation_velocity: 1.0
+# LINT.ThenChange(//robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/contact_planning.textproto:sa01_hlip_step_bounds)
+# Acceleration limits of the velocity reference the MPC target follows (0 = off, an unramped reference). A stick jump
+# becomes a ramp, so the steps lengthen progressively instead of answering a step change in the command with short
+# quick steps.
+max_linear_acceleration: 1.0  # [m/s^2] 0 to 0.8 m/s in 0.8 s, about one stride
+max_angular_acceleration: 2.0  # [rad/s^2]
+# First-order low-pass filter on the operator's velocity command, run on the solver time ahead of the acceleration
+# ramps: break frequency f_c [Hz], time constant 1 / (2 pi f_c). 0 switches it off and the command passes through
+# unchanged, which is what every robot has effectively run so far: the "5 Hz" filter this key replaces never updated
+# its state and scaled the command by t / (t + 0.032 s), t the wall-clock time since start-up - within 3% of the
+# identity after a second. A filter lags every command, a stop included, by about its time constant: try e.g. 2.0
+# (80 ms) in simulation before a robot. Reloaded with the limits above while the controller runs.
+velocity_command_filter_break_frequency: 0.0  # [Hz] command low-pass filter, 0 = off
+target_joint_state_interpolation_time_constant: 2.0
+
+# Base height above the sole in the nominal standing pose below. Measured with MuJoCo on zq_sa01.xml: the sole sits
+# 0.8561 m below base_link with every joint at zero, and the crouch below lowers it by 0.0426 m (5.0%, matching the
+# 5.2% crouch Atlas stands at).
+default_base_height: 0.8135
+
+# The nominal standing crouch. The three sagittal angles of each leg sum to zero, so the sole stays parallel to the
+# ground, and the split between them is chosen so that the center of mass falls 4 mm behind the center of the support
+# polygon - the thigh and the shank are unequal (0.30 m against 0.37 m), so an even -q/2q/-q split would leave the
+# feet 2 cm ahead of the hips and the robot standing on its heels.
+# The knee never goes near its 0.0 rad lower limit at 0.70 rad, which keeps the leg Jacobian well away from the
+# straight-leg singularity.
+# Joint order is the Pinocchio order of the URDF: the left leg from the hip out, then the right leg.
+# LINT.IfChange(sa01_nominal_pose)
+default_joint_state { joint: "leg_l1_joint" value: 0.0 }  # left hip roll
+default_joint_state { joint: "leg_l2_joint" value: 0.0 }  # left hip yaw
+default_joint_state { joint: "leg_l3_joint" value: -0.30 }  # left hip pitch
+default_joint_state { joint: "leg_l4_joint" value: 0.70 }  # left knee
+default_joint_state { joint: "leg_l5_joint" value: -0.40 }  # left ankle pitch
+default_joint_state { joint: "leg_l6_joint" value: 0.0 }  # left ankle roll
+default_joint_state { joint: "leg_r1_joint" value: 0.0 }  # right hip roll
+default_joint_state { joint: "leg_r2_joint" value: 0.0 }  # right hip yaw
+default_joint_state { joint: "leg_r3_joint" value: -0.30 }  # right hip pitch
+default_joint_state { joint: "leg_r4_joint" value: 0.70 }  # right knee
+default_joint_state { joint: "leg_r5_joint" value: -0.40 }  # right ankle pitch
+default_joint_state { joint: "leg_r6_joint" value: 0.0 }  # right ankle roll
+# LINT.ThenChange(//robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/test/testPinocchioModel.cpp:sa01_nominal_pose)
+
+initial_mode_schedule {
+  mode_sequence: "STANCE"
+  mode_sequence: "STANCE"
+  event_times: 0.5
+}
+
+default_mode_sequence_template {
+  mode_sequence: "STANCE"
+  switching_times: 0.0
+  switching_times: 0.5
+}

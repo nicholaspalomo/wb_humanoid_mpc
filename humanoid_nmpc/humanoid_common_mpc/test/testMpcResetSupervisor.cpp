@@ -27,9 +27,6 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <gmock/gmock.h>
-#include <gtest/gtest.h>
-
 #include <atomic>
 #include <chrono>
 #include <cstdint>
@@ -39,6 +36,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/log/scoped_mock_log.h"
 #include "absl/status/status.h"
+#include "gmock/gmock.h"
+#include "gtest/gtest.h"
 
 #include "humanoid_common_mpc/mrt/MpcResetSupervisor.h"
 
@@ -54,7 +53,10 @@ namespace {
 using ::testing::_;
 using ::testing::HasSubstr;
 
-const absl::Status kFailure = absl::InternalError("MPC solver crashed: [SqpSolver] Failed to solve QP");
+/** The status of a failed solve. A function, since an absl::Status is not trivially destructible. */
+absl::Status solverFailure() {
+  return absl::InternalError("MPC solver crashed: [SqpSolver] Failed to solve QP");
+}
 
 MpcResetSupervisor::Config testConfig() {
   MpcResetSupervisor::Config config;
@@ -91,7 +93,9 @@ TEST(MpcResetSupervisor, AResetIsOutstandingFromTheRequestUntilItIsServed) {
   supervisor.requestReset();
   EXPECT_TRUE(supervisor.hasOutstandingReset());
   const std::optional<ResetTicket> ticket = supervisor.takeResetRequest();
-  ASSERT_TRUE(ticket.has_value());
+  if (!ticket.has_value()) {
+    FAIL() << "ticket has no value";
+  }
   EXPECT_TRUE(supervisor.hasOutstandingReset()) << "taking a request is not serving it";
   supervisor.completeReset(*ticket);
   EXPECT_FALSE(supervisor.hasOutstandingReset());
@@ -104,7 +108,9 @@ TEST(MpcResetSupervisor, ARequestMadeWhileAResetIsServedIsServedNext) {
   MpcResetSupervisor supervisor;
   supervisor.requestReset();
   const std::optional<ResetTicket> first = supervisor.takeResetRequest();
-  ASSERT_TRUE(first.has_value());
+  if (!first.has_value()) {
+    FAIL() << "first has no value";
+  }
   supervisor.requestReset();
   supervisor.completeReset(*first);
   EXPECT_TRUE(supervisor.hasOutstandingReset());
@@ -135,7 +141,9 @@ TEST(MpcResetSupervisor, AFullAndASolverResetOutstandingTogetherAreServedAsOneFu
   // A full request is not taken as served by a solver reset that was already under way.
   supervisor.requestReset(ResetKind::kSolver);
   const std::optional<ResetTicket> solverOnly = supervisor.takeResetRequest();
-  ASSERT_TRUE(solverOnly.has_value());
+  if (!solverOnly.has_value()) {
+    FAIL() << "solverOnly has no value";
+  }
   EXPECT_FALSE(solverOnly->full);
   supervisor.requestReset(ResetKind::kFull);
   supervisor.completeReset(*solverOnly);
@@ -146,13 +154,13 @@ TEST(MpcResetSupervisor, TheFirstFailuresResetTheSolverAndTheEscalationResetsEve
   // A robot in mid-stride keeps the schedule it is executing through a failed solve; failures that persist come from
   // state the solves inherit, which only the full reset clears.
   MpcResetSupervisor supervisor(testConfig());
-  supervisor.onSolveResult(kFailure);
+  supervisor.onSolveResult(solverFailure());
   EXPECT_EQ(serveKind(supervisor), std::optional<bool>(false));
-  supervisor.onSolveResult(kFailure);
+  supervisor.onSolveResult(solverFailure());
   EXPECT_EQ(serveKind(supervisor), std::optional<bool>(false));
-  supervisor.onSolveResult(kFailure);
+  supervisor.onSolveResult(solverFailure());
   EXPECT_EQ(serveKind(supervisor), std::optional<bool>(true));
-  supervisor.onSolveResult(kFailure);
+  supervisor.onSolveResult(solverFailure());
   EXPECT_EQ(serveKind(supervisor), std::optional<bool>(true));
 }
 
@@ -160,7 +168,7 @@ TEST(MpcResetSupervisor, FailuresRetryAtOnceThenBackOffExponentiallyUpToTheCap) 
   MpcResetSupervisor supervisor(testConfig());
   std::vector<scalar_t> waits;
   for (int failure = 0; failure < 7; ++failure) {
-    waits.push_back(supervisor.onSolveResult(kFailure).count());
+    waits.push_back(supervisor.onSolveResult(solverFailure()).count());
     EXPECT_TRUE(serve(supervisor)) << "every failure requests a reset, failure " << failure + 1;
   }
   EXPECT_DOUBLE_EQ(waits[0], 0.0);
@@ -176,20 +184,20 @@ TEST(MpcResetSupervisor, FailuresRetryAtOnceThenBackOffExponentiallyUpToTheCap) 
 TEST(MpcResetSupervisor, TheMpcIsUnhealthyFromTheLastImmediateRetryUntilASolveSucceeds) {
   MpcResetSupervisor supervisor(testConfig());
   EXPECT_TRUE(supervisor.isHealthy());
-  supervisor.onSolveResult(kFailure);
-  supervisor.onSolveResult(kFailure);
+  supervisor.onSolveResult(solverFailure());
+  supervisor.onSolveResult(solverFailure());
   EXPECT_TRUE(supervisor.isHealthy()) << "two failures in a row are still retried at once";
-  supervisor.onSolveResult(kFailure);
+  supervisor.onSolveResult(solverFailure());
   EXPECT_FALSE(supervisor.isHealthy());
   EXPECT_EQ(supervisor.numConsecutiveFailures(), 3u);
-  supervisor.onSolveResult(kFailure);
+  supervisor.onSolveResult(solverFailure());
   EXPECT_FALSE(supervisor.isHealthy());
 
   EXPECT_DOUBLE_EQ(supervisor.onSolveResult(absl::OkStatus()).count(), 0.0);
   EXPECT_TRUE(supervisor.isHealthy());
   EXPECT_EQ(supervisor.numConsecutiveFailures(), 0u);
   // A failure after the recovery starts a new count.
-  EXPECT_DOUBLE_EQ(supervisor.onSolveResult(kFailure).count(), 0.0);
+  EXPECT_DOUBLE_EQ(supervisor.onSolveResult(solverFailure()).count(), 0.0);
   EXPECT_TRUE(supervisor.isHealthy());
 }
 
@@ -202,14 +210,14 @@ TEST(MpcResetSupervisor, APersistentFailureLogsOneErrorNotOnePerAttempt) {
   EXPECT_CALL(log, Log(absl::LogSeverity::kWarning, _, HasSubstr("Failed to solve QP"))).Times(2);
   EXPECT_CALL(log, Log(absl::LogSeverity::kInfo, _, HasSubstr("recovered"))).Times(1);
   log.StartCapturingLogs();
-  for (int failure = 0; failure < 200; ++failure) supervisor.onSolveResult(kFailure);
+  for (int failure = 0; failure < 200; ++failure) supervisor.onSolveResult(solverFailure());
   supervisor.onSolveResult(absl::OkStatus());
   log.StopCapturingLogs();
 }
 
 TEST(MpcResetSupervisor, TheBackOffEndsEarlyWhenAResetIsRequestedFromOutside) {
   MpcResetSupervisor supervisor(testConfig());
-  for (int failure = 0; failure < 3; ++failure) supervisor.onSolveResult(kFailure);
+  for (int failure = 0; failure < 3; ++failure) supervisor.onSolveResult(solverFailure());
   serve(supervisor);
 
   // Nothing requested: the whole wait.
@@ -218,7 +226,7 @@ TEST(MpcResetSupervisor, TheBackOffEndsEarlyWhenAResetIsRequestedFromOutside) {
   EXPECT_GE(std::chrono::steady_clock::now() - start, std::chrono::milliseconds(190));
 
   // An operator re-entering WB_MPC asks for a reset: the wait ends at once.
-  supervisor.onSolveResult(kFailure);
+  supervisor.onSolveResult(solverFailure());
   start = std::chrono::steady_clock::now();
   std::thread requester([&supervisor]() {
     std::this_thread::sleep_for(std::chrono::milliseconds(20));
@@ -229,7 +237,7 @@ TEST(MpcResetSupervisor, TheBackOffEndsEarlyWhenAResetIsRequestedFromOutside) {
   EXPECT_LT(std::chrono::steady_clock::now() - start, std::chrono::seconds(1));
 
   // And so does a stop request (the controller being destroyed).
-  supervisor.onSolveResult(kFailure);
+  supervisor.onSolveResult(solverFailure());
   std::atomic<bool> stop{false};
   start = std::chrono::steady_clock::now();
   std::thread stopper([&stop]() {
@@ -241,6 +249,25 @@ TEST(MpcResetSupervisor, TheBackOffEndsEarlyWhenAResetIsRequestedFromOutside) {
   EXPECT_LT(std::chrono::steady_clock::now() - start, std::chrono::seconds(1));
 }
 
+TEST(MpcResetSupervisor, AResetRequestedSinceTheLastFailureIsWhatEndsABackOff) {
+  // What a caller that waits out the back-off on its own clock polls (InProcessMpcLink::Execution::kCaller).
+  MpcResetSupervisor supervisor(testConfig());
+  for (int failure = 0; failure < 3; ++failure) supervisor.onSolveResult(solverFailure());
+  EXPECT_FALSE(supervisor.resetRequestedSinceLastFailure()) << "the failure's own request does not count";
+  serve(supervisor);
+  EXPECT_FALSE(supervisor.resetRequestedSinceLastFailure()) << "serving it does not either";
+  supervisor.requestReset(MpcResetSupervisor::ResetKind::kSolver);
+  EXPECT_TRUE(supervisor.resetRequestedSinceLastFailure());
+  // The next failure starts the count again; the wait then ends at once on a request, as the flag says.
+  supervisor.onSolveResult(solverFailure());
+  EXPECT_FALSE(supervisor.resetRequestedSinceLastFailure());
+  supervisor.requestReset();
+  EXPECT_TRUE(supervisor.resetRequestedSinceLastFailure());
+  const std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
+  supervisor.waitBeforeRetry(std::chrono::duration<scalar_t>(5.0), []() { return false; });
+  EXPECT_LT(std::chrono::steady_clock::now() - start, std::chrono::seconds(1));
+}
+
 TEST(MpcResetSupervisor, AClockThatRunsBackwardsRequestsOneReset) {
   MpcResetSupervisor supervisor;
   EXPECT_DOUBLE_EQ(supervisor.observeTime(10.0), 0.0);
@@ -248,11 +275,72 @@ TEST(MpcResetSupervisor, AClockThatRunsBackwardsRequestsOneReset) {
   EXPECT_DOUBLE_EQ(supervisor.observeTime(10.01), 0.0) << "a repeated time is not a rewind";
   EXPECT_FALSE(supervisor.hasOutstandingReset());
 
-  EXPECT_NEAR(supervisor.observeTime(2.0), 8.01, 1e-12);
+  EXPECT_NEAR(supervisor.observeTime(2.0), 8.01, 1.0e-12);
   EXPECT_EQ(serveKind(supervisor), std::optional<bool>(true)) << "a rewind is a full reset";
   EXPECT_FALSE(serve(supervisor)) << "one rewind, one reset";
   EXPECT_DOUBLE_EQ(supervisor.observeTime(2.01), 0.0) << "the new clock runs forward from there";
   EXPECT_FALSE(supervisor.hasOutstandingReset());
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// The link to a remote solver (RemoteMpcLink)
+// ---------------------------------------------------------------------------------------------------------------------
+
+TEST(MpcResetSupervisor, TheRequestCountersOnlyGrowAndCountFullRequestsApart) {
+  MpcResetSupervisor supervisor;
+  EXPECT_EQ(supervisor.resetsRequested().requested, 0u);
+  EXPECT_EQ(supervisor.resetsRequested().fullRequested, 0u);
+  supervisor.requestReset(ResetKind::kSolver);
+  supervisor.requestReset(ResetKind::kFull);
+  supervisor.requestReset(ResetKind::kSolver);
+  EXPECT_EQ(supervisor.resetsRequested().requested, 3u);
+  EXPECT_EQ(supervisor.resetsRequested().fullRequested, 1u);
+  // Serving a reset changes what is served, never what was requested: a lost observation carrying the counters is
+  // replaced by any later one.
+  EXPECT_TRUE(serve(supervisor));
+  EXPECT_EQ(supervisor.resetsRequested().requested, 3u);
+  EXPECT_EQ(supervisor.resetsRequested().fullRequested, 1u);
+  EXPECT_EQ(supervisor.numResetsServed(), 3u);
+  EXPECT_EQ(supervisor.numFullResetsServed(), 1u);
+}
+
+TEST(MpcResetSupervisor, TheRemoteHealthIsWhatIsHealthyReports) {
+  MpcResetSupervisor supervisor(testConfig());
+  supervisor.setRemoteHealth(/*healthy=*/false, /*consecutiveFailures=*/4);
+  EXPECT_FALSE(supervisor.isHealthy());
+  EXPECT_EQ(supervisor.numConsecutiveFailures(), 4u);
+  EXPECT_FALSE(supervisor.hasOutstandingReset()) << "the remote health requests nothing: the MPC side resets itself";
+  supervisor.setRemoteHealth(/*healthy=*/true, /*consecutiveFailures=*/0);
+  EXPECT_TRUE(supervisor.isHealthy());
+  EXPECT_EQ(supervisor.numConsecutiveFailures(), 0u);
+}
+
+TEST(MpcResetSupervisor, AnExpiredRemotePolicyIsUnhealthyWhateverTheRemoteHealthSays) {
+  MpcResetSupervisor supervisor(testConfig());
+  supervisor.setRemoteHealth(/*healthy=*/true, /*consecutiveFailures=*/0);
+  supervisor.setRemotePolicyExpired(/*expired=*/true);
+  EXPECT_FALSE(supervisor.isHealthy());
+  // The link's IO thread, which may not have seen the expiry yet, does not overrule the control thread.
+  supervisor.setRemoteHealth(/*healthy=*/true, /*consecutiveFailures=*/0);
+  EXPECT_FALSE(supervisor.isHealthy());
+  EXPECT_EQ(supervisor.numConsecutiveFailures(), 0u) << "an expired policy is not a failed solve";
+  EXPECT_FALSE(supervisor.hasOutstandingReset());
+  supervisor.setRemotePolicyExpired(/*expired=*/false);
+  EXPECT_TRUE(supervisor.isHealthy());
+  // Both must agree for the MPC to be healthy.
+  supervisor.setRemoteHealth(/*healthy=*/false, /*consecutiveFailures=*/3);
+  EXPECT_FALSE(supervisor.isHealthy());
+}
+
+TEST(MpcResetSupervisor, SettingTheRemoteHealthLogsNothing) {
+  // The link logs each transition once, with its cause; the supervisor must not add a line per update, which the link
+  // makes at every poll of the bus.
+  MpcResetSupervisor supervisor(testConfig());
+  absl::ScopedMockLog log(absl::MockLogDefault::kIgnoreUnexpected);
+  EXPECT_CALL(log, Log(_, _, _)).Times(0);
+  log.StartCapturingLogs();
+  for (int update = 0; update < 100; ++update) supervisor.setRemoteHealth(/*healthy=*/update % 2 == 0, /*consecutiveFailures=*/update);
+  log.StopCapturingLogs();
 }
 
 }  // namespace

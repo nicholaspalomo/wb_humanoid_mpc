@@ -52,6 +52,9 @@ namespace ocs2::humanoid {
  *
  * The result is an OFFSET to the reference height and never an absolute height, because the same channel is what
  * adaptToCurrentGroundHeight() writes the terrain into.
+ *
+ * Like every LocomotionHeuristic, its const methods are safe to call concurrently; configure() is not, and must not run
+ * while they do.
  */
 class HeightCompensationHeuristic final : public BasePoseHeuristic {
  public:

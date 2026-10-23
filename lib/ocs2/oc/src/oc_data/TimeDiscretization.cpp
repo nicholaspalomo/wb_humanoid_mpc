@@ -29,13 +29,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "ocs2_oc/oc_data/TimeDiscretization.h"
 
+#include <ocs2_core/NumericTraits.h>
 #include <ocs2_core/misc/Lookup.h>
 
 namespace ocs2 {
 
-scalar_t getInterpolationTime(const AnnotatedTime& annotatedTime) {
-  return annotatedTime.time + numeric_traits::limitEpsilon<scalar_t>();
-}
+namespace {
+
+/** A pre-event node is followed by a copy of it as the post-event node, so every node appears at most this often. */
+constexpr int kMaxCopiesPerNode = 2;
+
+}  // namespace
 
 scalar_t getIntervalStart(const AnnotatedTime& start) {
   scalar_t adaptedStart = start.time;
@@ -100,7 +104,7 @@ std::vector<AnnotatedTime> timeDiscretizationWithEvents(scalar_t initTime, scala
 
   // Duplicate all preEvents to postEvents
   std::vector<AnnotatedTime> timeDiscretizationWithDoubleEvents;
-  timeDiscretizationWithDoubleEvents.reserve(2 * timeDiscretization.size());  // upper bound on size
+  timeDiscretizationWithDoubleEvents.reserve(kMaxCopiesPerNode * timeDiscretization.size());  // upper bound on size
 
   for (const auto& t : timeDiscretization) {
     timeDiscretizationWithDoubleEvents.push_back(t);
@@ -119,24 +123,6 @@ scalar_array_t toTime(const std::vector<AnnotatedTime>& annotatedTime) {
   for (size_t i = 0; i < annotatedTime.size(); i++) {
     timeTrajectory.push_back(annotatedTime[i].time);
   }
-  return timeTrajectory;
-}
-
-scalar_array_t toInterpolationTime(const std::vector<AnnotatedTime>& annotatedTime) {
-  if (annotatedTime.empty()) {
-    return scalar_array_t();
-  }
-  scalar_array_t timeTrajectory;
-  timeTrajectory.reserve(annotatedTime.size());
-  timeTrajectory.push_back(annotatedTime.back().time - numeric_traits::limitEpsilon<scalar_t>());
-  for (int i = 1; i < annotatedTime.size() - 1; i++) {
-    if (annotatedTime[i].event == AnnotatedTime::Event::PostEvent) {
-      timeTrajectory.push_back(getInterpolationTime(annotatedTime[i]));
-    } else {
-      timeTrajectory.push_back(annotatedTime[i].time);
-    }
-  }
-  timeTrajectory.push_back(annotatedTime.back().time - numeric_traits::limitEpsilon<scalar_t>());
   return timeTrajectory;
 }
 

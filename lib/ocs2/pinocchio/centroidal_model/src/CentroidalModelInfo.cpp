@@ -56,9 +56,11 @@ CentroidalModelInfoCppAd CentroidalModelInfo::toCppAd() const {
   cppAdInfo.numThreeDofContacts = this->numThreeDofContacts;
   cppAdInfo.numSixDofContacts = this->numSixDofContacts;
   cppAdInfo.endEffectorFrameIndices = this->endEffectorFrameIndices;
-  cppAdInfo.generalizedCoordinatesNum = this->generalizedCoordinatesNum;
+  cppAdInfo.configurationDim = this->configurationDim;
+  cppAdInfo.velocityDim = this->velocityDim;
   cppAdInfo.actuatedDofNum = this->actuatedDofNum;
   cppAdInfo.stateDim = this->stateDim;
+  cppAdInfo.stateTangentDim = this->stateTangentDim;
   cppAdInfo.inputDim = this->inputDim;
   cppAdInfo.robotMass = ad_scalar_t(this->robotMass);
   cppAdInfo.qPinocchioNominal = this->qPinocchioNominal.cast<ad_scalar_t>();

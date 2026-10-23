@@ -27,39 +27,43 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <pinocchio/fwd.hpp>  // forward declarations must be included first.
-
-#include <gtest/gtest.h>
+#include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
 #include <memory>
-#include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
+#include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "gtest/gtest.h"
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
+#include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc/config/ConfigFiles.h"
 #include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
 #include "humanoid_common_mpc/pinocchio_model/pinocchioUtils.h"
+#include "humanoid_mpc_config/task_file.nproto.h"
+#include "humanoid_nmpc/humanoid_common_mpc/test/support/StatusTestMacros.h"
 
 /**
  * The MPC indexes its state, its joint limits and its joint weights by the order of ModelSettings::mpcModelJointNames,
  * and takes the Pinocchio model's actuated joints to be in that order. checkPinocchioJointNaming() is the check that
  * they are. It used to be an assert(), which the optimized build every test and every robot runs compiles out, so a
- * model built from another URDF or another fixedJointNames than its ModelSettings went through unchecked.
+ * model built from another URDF or another fixed_joint_names than its ModelSettings went through unchecked.
  */
 namespace ocs2::humanoid {
 namespace {
 
-constexpr absl::string_view kTaskFile = "robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.yaml";
+constexpr absl::string_view kTaskFile = "robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.textproto";
 constexpr absl::string_view kUrdfFile = "robot_models/unitree_g1/g1_description/urdf/g1_29dof.urdf";
 // An actuated joint of the shipped whole-body MPC that is neither an arm-swing joint nor a contact parent, so fixing
 // or renaming it changes nothing but the joint list.
@@ -67,7 +71,7 @@ constexpr absl::string_view kJoint = "waist_roll_joint";
 
 std::string runfilePath(absl::string_view relativePath) {
   std::vector<std::filesystem::path> roots;
-  if (const char* srcDir = std::getenv("TEST_SRCDIR")) {
+  if (const char* absl_nullable srcDir = std::getenv("TEST_SRCDIR")) {
     roots.emplace_back(std::filesystem::path(srcDir) / "_main");
   }
   roots.emplace_back(std::filesystem::current_path());
@@ -104,23 +108,24 @@ std::string replacedAll(std::string content, absl::string_view from, absl::strin
 class PinocchioJointNamingTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    taskFile_ = runfilePath(kTaskFile);
+    const std::string taskFile = runfilePath(kTaskFile);
     urdfFile_ = runfilePath(kUrdfFile);
-    ASSERT_FALSE(taskFile_.empty() || urdfFile_.empty()) << "the G1 whole-body files are not in the runfiles";
-    settings_ = std::make_unique<ModelSettings>(taskFile_, urdfFile_, "wb_mpc_", /*verbose=*/false);
+    ASSERT_FALSE(taskFile.empty() || urdfFile_.empty()) << "the G1 whole-body files are not in the runfiles";
+    absl::StatusOr<mpc_config::TaskFile> task = loadTaskFile(taskFile);
+    ASSERT_TRUE(task.ok()) << task.status();
+    task_ = *std::move(task);
+    settings_ = std::make_unique<ModelSettings>(checkedValue(ModelSettings::Create(task_, urdfFile_, "wb_mpc_", /*verbose=*/false)));
     // The same task file with one more joint fixed: the ModelSettings of another joint list.
-    const std::string shipped = readFile(taskFile_);
-    const std::string fixedJoints = "\n  fixedJointNames:\n";
-    ASSERT_NE(shipped.find(fixedJoints), std::string::npos);
-    const std::string moreFixed = replacedAll(shipped, fixedJoints, absl::StrCat(fixedJoints, "    - ", kJoint, "\n"));
-    moreFixedTaskFile_ = writeFile("testPinocchioJointNaming_moreFixed.yaml", moreFixed);
-    moreFixedSettings_ = std::make_unique<ModelSettings>(moreFixedTaskFile_, urdfFile_, "wb_mpc_", /*verbose=*/false);
+    moreFixedTask_ = task_;
+    moreFixedTask_.model_settings.fixed_joint_names.emplace_back(kJoint);
+    moreFixedSettings_ =
+        std::make_unique<ModelSettings>(checkedValue(ModelSettings::Create(moreFixedTask_, urdfFile_, "wb_mpc_", /*verbose=*/false)));
     ASSERT_EQ(moreFixedSettings_->mpcModelJointNames.size() + 1, settings_->mpcModelJointNames.size());
   }
 
-  std::string taskFile_;
   std::string urdfFile_;
-  std::string moreFixedTaskFile_;
+  mpc_config::TaskFile task_;
+  mpc_config::TaskFile moreFixedTask_;
   std::unique_ptr<ModelSettings> settings_;
   std::unique_ptr<ModelSettings> moreFixedSettings_;
 };
@@ -128,23 +133,23 @@ class PinocchioJointNamingTest : public ::testing::Test {
 void expectNamesJoint(const absl::Status& status, absl::string_view joint) {
   EXPECT_EQ(status.code(), absl::StatusCode::kInvalidArgument) << status;
   EXPECT_TRUE(absl::StrContains(status.message(), absl::StrCat("'", joint, "'"))) << status << "\n does not name " << joint;
-  EXPECT_TRUE(absl::StrContains(status.message(), "model_settings.fixedJointNames")) << status;
+  EXPECT_TRUE(absl::StrContains(status.message(), "model_settings.fixed_joint_names")) << status;
 }
 
 }  // namespace
 
 TEST_F(PinocchioJointNamingTest, aModelBuiltFromItsOwnSettingsPasses) {
-  const absl::StatusOr<PinocchioInterface> pinocchioInterface = loadCustomPinocchioInterface(taskFile_, urdfFile_, *settings_);
+  const absl::StatusOr<PinocchioInterface> pinocchioInterface = loadCustomPinocchioInterface(task_, urdfFile_, *settings_);
   ASSERT_TRUE(pinocchioInterface.ok()) << pinocchioInterface.status();
   EXPECT_TRUE(checkPinocchioJointNaming(*pinocchioInterface, *settings_).ok());
-  const absl::StatusOr<PinocchioInterface> moreFixed = loadCustomPinocchioInterface(moreFixedTaskFile_, urdfFile_, *moreFixedSettings_);
+  const absl::StatusOr<PinocchioInterface> moreFixed = loadCustomPinocchioInterface(moreFixedTask_, urdfFile_, *moreFixedSettings_);
   ASSERT_TRUE(moreFixed.ok()) << moreFixed.status();
   EXPECT_TRUE(checkPinocchioJointNaming(*moreFixed, *moreFixedSettings_).ok());
 }
 
 TEST_F(PinocchioJointNamingTest, aModelOfAnotherJointListIsRefusedNamingTheFirstJointThatDiffers) {
-  const absl::StatusOr<PinocchioInterface> full = loadCustomPinocchioInterface(taskFile_, urdfFile_, *settings_);
-  const absl::StatusOr<PinocchioInterface> moreFixed = loadCustomPinocchioInterface(moreFixedTaskFile_, urdfFile_, *moreFixedSettings_);
+  const absl::StatusOr<PinocchioInterface> full = loadCustomPinocchioInterface(task_, urdfFile_, *settings_);
+  const absl::StatusOr<PinocchioInterface> moreFixed = loadCustomPinocchioInterface(moreFixedTask_, urdfFile_, *moreFixedSettings_);
   ASSERT_TRUE(full.ok() && moreFixed.ok());
   // The model has the joint the settings fixed: it is the first model joint without its settings counterpart.
   expectNamesJoint(checkPinocchioJointNaming(*full, *moreFixedSettings_), kJoint);
@@ -157,36 +162,48 @@ TEST_F(PinocchioJointNamingTest, aModelFromAnotherUrdfIsRefusedWhereItIsBuilt) {
   const std::string renamed = absl::StrCat(kJoint, "_renamed");
   const std::string urdf = writeFile("testPinocchioJointNaming_renamed.urdf",
                                      replacedAll(readFile(urdfFile_), absl::StrCat("\"", kJoint, "\""), absl::StrCat("\"", renamed, "\"")));
-  const absl::StatusOr<PinocchioInterface> pinocchioInterface = loadCustomPinocchioInterface(taskFile_, urdf, *settings_);
+  const absl::StatusOr<PinocchioInterface> pinocchioInterface = loadCustomPinocchioInterface(task_, urdf, *settings_);
   ASSERT_FALSE(pinocchioInterface.ok()) << "a model without " << kJoint << " was accepted for settings that actuate it";
   expectNamesJoint(pinocchioInterface.status(), kJoint);
-
-  // The throwing form, for the callers that cannot return a Status yet, reports the same refusal.
-  try {
-    createCustomPinocchioInterface(taskFile_, urdf, *settings_);
-    ADD_FAILURE() << "createCustomPinocchioInterface accepted the mismatching model";
-  } catch (const std::invalid_argument& error) {
-    EXPECT_TRUE(absl::StrContains(error.what(), absl::StrCat("'", kJoint, "'"))) << error.what();
-  }
 }
 
 TEST_F(PinocchioJointNamingTest, anUnreadableUrdfIsAStatusNamingTheFile) {
   const std::string notUrdf = writeFile("testPinocchioJointNaming_notUrdf.urdf", "this is not a URDF");
-  const absl::StatusOr<PinocchioInterface> pinocchioInterface = loadCustomPinocchioInterface(taskFile_, notUrdf, *settings_);
+  const absl::StatusOr<PinocchioInterface> pinocchioInterface = loadCustomPinocchioInterface(task_, notUrdf, *settings_);
   ASSERT_FALSE(pinocchioInterface.ok());
   EXPECT_EQ(pinocchioInterface.status().code(), absl::StatusCode::kInvalidArgument);
   EXPECT_TRUE(absl::StrContains(pinocchioInterface.status().message(), notUrdf)) << pinocchioInterface.status();
 }
 
+TEST_F(PinocchioJointNamingTest, theRootIsTheQuaternionCompositeAndEachJointsLimitIsReadAtItsOwnCoordinate) {
+  // Composite(Translation, Spherical): q = [p_W, xi = (x, y, z, w), q_j] has one entry more than v = [v_W, w_B, dq_j], so
+  // the joints' coordinates start at kJointConfigurationOffset and their velocities at kJointVelocityOffset.
+  const absl::StatusOr<PinocchioInterface> pinocchioInterface = loadCustomPinocchioInterface(task_, urdfFile_, *settings_);
+  ASSERT_TRUE(pinocchioInterface.ok()) << pinocchioInterface.status();
+  const pinocchio::Model& model = pinocchioInterface->getModel();
+  const size_t jointDim = settings_->mpcModelJointNames.size();
+  ASSERT_EQ(static_cast<size_t>(model.nq), kBaseConfigurationDim + jointDim);
+  ASSERT_EQ(static_cast<size_t>(model.nv), kBaseVelocityDim + jointDim);
+  const JointPositionLimits limits = readPinocchioJointLimits(*pinocchioInterface, *settings_, Verbosity::kQuiet);
+  for (size_t joint = 0; joint < jointDim; ++joint) {
+    const std::string& name = settings_->mpcModelJointNames[joint];
+    const pinocchio::JointModel& jointModel = model.joints[model.getJointId(name)];
+    EXPECT_EQ(static_cast<size_t>(jointModel.idx_q()), kJointConfigurationOffset + joint) << name;
+    EXPECT_EQ(static_cast<size_t>(jointModel.idx_v()), kJointVelocityOffset + joint) << name;
+    EXPECT_EQ(limits.lower(static_cast<Eigen::Index>(joint)), model.lowerPositionLimit(jointModel.idx_q())) << name;
+    EXPECT_EQ(limits.upper(static_cast<Eigen::Index>(joint)), model.upperPositionLimit(jointModel.idx_q())) << name;
+  }
+}
+
 using PinocchioJointNamingDeathTest = PinocchioJointNamingTest;
 
 TEST_F(PinocchioJointNamingDeathTest, theJointLimitsAreNotReadByPositionFromAMismatchingModel) {
-  const absl::StatusOr<PinocchioInterface> full = loadCustomPinocchioInterface(taskFile_, urdfFile_, *settings_);
+  const absl::StatusOr<PinocchioInterface> full = loadCustomPinocchioInterface(task_, urdfFile_, *settings_);
   ASSERT_TRUE(full.ok()) << full.status();
   // Positive control: the matching settings read one limit per MPC joint.
-  const std::pair<vector_t, vector_t> limits = readPinocchioJointLimits(*full, *settings_, /*verbose=*/false);
-  EXPECT_EQ(limits.first.size(), static_cast<Eigen::Index>(settings_->mpcModelJointNames.size()));
-  EXPECT_DEATH(readPinocchioJointLimits(*full, *moreFixedSettings_, /*verbose=*/false), kJoint.data());
+  const JointPositionLimits limits = readPinocchioJointLimits(*full, *settings_, Verbosity::kQuiet);
+  EXPECT_EQ(limits.lower.size(), static_cast<Eigen::Index>(settings_->mpcModelJointNames.size()));
+  EXPECT_DEATH(readPinocchioJointLimits(*full, *moreFixedSettings_, Verbosity::kQuiet), kJoint.data());
 }
 
 }  // namespace ocs2::humanoid

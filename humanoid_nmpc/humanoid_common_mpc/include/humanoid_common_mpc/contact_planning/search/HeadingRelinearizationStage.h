@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -25,6 +29,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <string>
+#include <vector>
+
+#include "absl/status/status.h"
+
 #include "humanoid_common_mpc/contact_planning/ContactPlanningFormulation.h"
 #include "humanoid_common_mpc/contact_planning/search/SearchStage.h"
 
@@ -35,13 +44,15 @@ namespace ocs2::humanoid {
  * around the incumbent's own heading and footholds and re-solve the QP with the contacts fixed (successive
  * linearization), within the plan's time budget, so that the frame the constraints were written in is the frame the
  * plan actually turns through.
+ *
+ * Not thread-safe, like every ContactPlanningTerm: the planner that owns it configures and evaluates it from one thread at a time.
  */
 class HeadingRelinearizationStage final : public SearchStage {
  public:
   std::string describe() const override;
   std::vector<std::string> requiredBlocks() const override { return {term::kHeadingDoubleIntegrator}; }
   void configure(const ContactPlanningConfig& config) override;
-  void afterSearch(SearchRun& run) const override;
+  absl::Status afterSearch(SearchRun& run) const override;
 
  private:
   int passes_ = 1;

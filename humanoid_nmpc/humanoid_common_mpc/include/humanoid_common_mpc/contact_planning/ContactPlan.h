@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -29,10 +33,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <vector>
 
-#include <ocs2_core/Types.h>
-#include <ocs2_core/reference/ModeSchedule.h>
+#include "ocs2_core/Types.h"
+#include "ocs2_core/reference/ModeSchedule.h"
 
 #include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
 
 namespace ocs2::humanoid {
 
@@ -56,31 +61,38 @@ struct ContactPlannerInput {
   scalar_t committedUntil = 0.0;  // [s] the applied schedule is treated as fixed up to this time
 
   // Heading model (`dynamics` lists heading_double_integrator: ContactPlanningConfig::usesHeadingModel()). `yaw` then equals `heading`.
-  scalar_t heading = 0.0;             // [rad] whole-body heading at planning time (ACoM yaw, or base yaw)
-  scalar_t headingRate = 0.0;         // [rad/s] its rate: angular momentum about the vertical / yaw inertia
+  scalar_t heading = 0.0;  // [rad] whole-body heading at planning time (ACoM yaw, or base yaw)
+  // [rad/s] its rate, MpcRobotModelBase::getTargetPlanarCommand()'s yaw rate of the measured state: the angular
+  // momentum about the vertical over the yaw inertia on the centroidal state, the base's world yaw rate on a state that
+  // stores the base velocity.
+  scalar_t headingRate = 0.0;
   scalar_t headingRateCommand = 0.0;  // [rad/s] commanded yaw rate
   // [kg m^2] the whole-body inertia about the vertical, filled from the robot model at every plan
   // (ContactPlanningReferenceManager::makePlannerInput reads I_zz out of pinocchio::ccrba, which is positive definite
   // for any physical model in any configuration). It must be strictly positive whenever the heading model is on:
-  // LipContactPlanner::yawInertia throws on a non-positive value, plan() catches that and degrades to an invalid plan,
-  // and the reference manager then keeps the previous schedule for that frame.
+  // LipContactPlanner::yawInertia returns an InvalidArgument for a non-positive value, plan() logs it and degrades to an
+  // invalid plan, and the reference manager then keeps the previous schedule for that frame.
   //
   // This comment used to read "<= 0: configured value", promising a fallback that has never existed - there is no yaw
-  // inertia anywhere in ContactPlanningConfig and none in any shipped contact_planning.yaml - and it contradicted the
-  // two neighboring contracts that state the real one, LipContactPlanner.h ("from the input (the robot model). Throws
-  // if it is not positive") and ContactPlanningModelParameters.h ("taken from the model at every plan and is not part
-  // of this"). A caller who believed it would leave the field at its default and silently get no plan at all.
+  // inertia anywhere in ContactPlanningConfig and none in any shipped contact_planning.textproto - and it contradicted the
+  // two neighboring contracts that state the real one, LipContactPlanner.h ("from the input (the robot model); an
+  // InvalidArgument if it is not positive") and ContactPlanningModelParameters.h ("taken from the model at every plan
+  // and is not part of this"). A caller who believed it would leave the field at its default and silently get no plan at all.
   scalar_t yawInertia = 0.0;
   feet_array_t<scalar_t> footYaws = makeFeetArray(0.0);  // [rad] foot yaws at planning time, unwrapped near `heading`
+  // [rad] the base (pelvis) yaw at planning time. The hip yaw joints turn the feet against the pelvis, not against the
+  // whole-body heading, and the two differ when the heading is the ACoM's (HipYawRangeConstraint). Empty: the base yaw
+  // is the heading.
+  std::optional<scalar_t> baseYaw;
 };
 
 /** Result of the contact planner: contact sequence, footholds and the reduced-model trajectories. */
 struct ContactPlan {
   bool valid = false;
   scalar_t startTime = 0.0;
-  scalar_t dt = 0.1;
-  scalar_t committedUntil = 0.0;  // [s] the plan honored the applied schedule up to this time
-  scalar_t yaw = 0.0;             // [rad] base yaw at planning time; the geometry was planned in this frame
+  scalar_t dt = PlannerSettings::kDefaultNodeDuration;  // [s]
+  scalar_t committedUntil = 0.0;                        // [s] the plan honored the applied schedule up to this time
+  scalar_t yaw = 0.0;                                   // [rad] base yaw at planning time; the geometry was planned in this frame
   // [1/s] natural frequency sqrt(shared.gravity / shared.comHeight) of the pendulum the plan was made on, so that the
   // plan's DCM is always taken on its own pendulum (ContactPlanningReferenceManager::getPlannedDcm); 0: not recorded.
   scalar_t omega = 0.0;
@@ -94,10 +106,19 @@ struct ContactPlan {
   // Empty: the events are the node times of `contacts` (the mixed-integer planner, whose events are on the grid).
   std::vector<contact_flag_t> phaseContacts;
   std::vector<scalar_t> phaseStartTimes;
+  // Per continuous phase (same size as phaseStartTimes when present): the fixed ZMP the reduced model's center of mass
+  // falls about during that phase - the stance foot of a single support, blended towards the support center by the
+  // standing blend - or empty for a phase in which it moves at constant velocity (the H-LIP's double support and
+  // flight; a constant velocity is a LIP whose ZMP is the CoM itself). lipReferenceState() and comPositionAtTime()
+  // read these to reproduce the planner's continuous-time CoM between nodes; `zmp` cannot, since the H-LIP's ZMP moves
+  // with the CoM in double support and jumps at events inside an interval.
+  std::vector<std::optional<vector2_t>> phaseZmp;
   std::vector<feet_array_t<vector2_t>> footholds;  // per node k = 0..N, planned foot xy (landing spot while swinging)
   std::vector<vector2_t> comPosition;              // per node
   std::vector<vector2_t> comVelocity;              // per node
-  std::vector<vector2_t> zmp;                      // per interval
+  // Per interval. The mixed-integer planner's ZMP is constant over an interval; for a plan that carries phaseZmp it is
+  // the reduced model's ZMP at the interval's midpoint, for display only.
+  std::vector<vector2_t> zmp;
   // Heading model only (empty otherwise): per node k = 0..N.
   std::vector<scalar_t> heading;                 // [rad] whole-body heading
   std::vector<scalar_t> headingRate;             // [rad/s]
@@ -178,7 +199,11 @@ struct ContactPlan {
   std::optional<scalar_t> footYawBeforeTime(size_t contactIndex, scalar_t time) const;
 
   /**
-   * The reduced model's center of mass at `time`, linearly interpolated between nodes and clamped to the plan.
+   * The reduced model's center of mass at `time`, clamped to the plan: the state of the node at or before `time`
+   * propagated in closed form through the plan's own reduced model (lipReferenceState() on the recorded `omega`), which
+   * is exact for both planners - the mixed-integer planner's LIP with a constant ZMP per interval, and the H-LIP's
+   * continuous phases (phaseZmp). A plan that records no `omega` or whose per-interval data is inconsistent falls back
+   * to linear interpolation between nodes. The velocity is the time derivative of the position.
    *
    * This is the trajectory the footholds were planned for: with the H-LIP planner it is the orbit the deadbeat step
    * regulates to, whose lateral part deliberately falls towards the swing foot. The whole-body MPC has to be asked for

@@ -29,22 +29,41 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/cost/StateQuadraticCost.h"
 
+#include <memory>
+#include <utility>
+
+#include "absl/base/nullability.h"
+#include "absl/log/die_if_null.h"
+#include "absl/memory/memory.h"
+#include "absl/status/statusor.h"
+
+#include "humanoid_common_mpc/common/StatusMacros.h"
+
 namespace ocs2::humanoid {
 
-StateQuadraticCost::StateQuadraticCost(matrix_t Q, size_t inputDim, const SwitchedModelReferenceManager& referenceManager)
-    : QuadraticStateInputCost(std::move(Q), matrix_t::Zero(inputDim, inputDim)),
-      inputDim_(inputDim),
-      referenceManagerPtr_(&referenceManager) {}
+absl::StatusOr<std::unique_ptr<StateQuadraticCost>> StateQuadraticCost::Create(
+    matrix_t stateWeights,
+    const SwitchedModelReferenceManager* absl_nonnull referenceManager,
+    const MpcRobotModelBase<scalar_t>* absl_nonnull mpcRobotModel) {
+  // The constructor is private, so std::make_unique cannot reach it.
+  std::unique_ptr<StateQuadraticCost> cost = absl::WrapUnique(new StateQuadraticCost(referenceManager, mpcRobotModel));
+  RETURN_IF_ERROR(cost->setStateWeights(std::move(stateWeights)));
+  const Eigen::Index inputDim = static_cast<Eigen::Index>(mpcRobotModel->getInputDim());
+  RETURN_IF_ERROR(cost->setInputWeights(matrix_t::Zero(inputDim, inputDim)));
+  return cost;
+}
 
-StateQuadraticCost::StateQuadraticCost(const StateQuadraticCost& rhs)
-    : QuadraticStateInputCost(rhs), inputDim_(rhs.inputDim_), referenceManagerPtr_(rhs.referenceManagerPtr_) {}
+StateQuadraticCost::StateQuadraticCost(const SwitchedModelReferenceManager* absl_nonnull referenceManager,
+                                       const MpcRobotModelBase<scalar_t>* absl_nonnull mpcRobotModel)
+    : TuningQuadraticStateInputCost(mpcRobotModel), referenceManagerPtr_(ABSL_DIE_IF_NULL(referenceManager)) {}
 
-std::pair<vector_t, vector_t> StateQuadraticCost::getStateInputDeviation(scalar_t time,
-                                                                         const vector_t& state,
-                                                                         const vector_t& input,
-                                                                         const TargetTrajectories& targetTrajectories) const {
-  const vector_t xNominal = referenceManagerPtr_->getDesiredState(targetTrajectories, state, time);
-  return {state - xNominal, vector_t::Zero(inputDim_)};
+StateInputReference StateQuadraticCost::getReference(scalar_t time,
+                                                     const vector_t& state,
+                                                     const vector_t& input,
+                                                     const TargetTrajectories& targetTrajectories,
+                                                     const PreComputation& /*preComputation*/) const {
+  // The input deviation input - input is zero, as the zero deviation the cost had before it measured from references.
+  return StateInputReference{.state = referenceManagerPtr_->getDesiredState(targetTrajectories, state, time), .input = input};
 }
 
 }  // namespace ocs2::humanoid

@@ -29,7 +29,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <robot_model/ContactEstimator.h>
+#include <vector>
+
+#include "robot_model/ContactEstimator.h"
 
 namespace robot::model {
 
@@ -37,14 +39,16 @@ namespace robot::model {
  * Contact estimator that reports every contact point as touching. It is the historical behavior of the simulator and
  * a stand-in on hardware that has no contact estimation yet: the controller then treats its own schedule as the
  * measured contact state, since every planned contact wrench passes the inverse dynamics gate.
+ *
+ * Not thread-safe: the control thread calls it.
  */
 class AlwaysInContactEstimator final : public ContactEstimator {
  public:
-  std::vector<bool> estimateContactFlags(const RobotState& robotState) override {
-    return std::vector<bool>(robotState.getContactFlags().size(), true);
+  void estimateContactFlags(const RobotState& robotState, std::vector<bool>& flags) override {
+    flags.assign(robotState.getContactFlags().size(), true);
   }
 
-  std::string getName() const override { return "AlwaysInContactEstimator"; }
+  absl::string_view getName() const override { return "AlwaysInContactEstimator"; }
 };
 
 }  // namespace robot::model

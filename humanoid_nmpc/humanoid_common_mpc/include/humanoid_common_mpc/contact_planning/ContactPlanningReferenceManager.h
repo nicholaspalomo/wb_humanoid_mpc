@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -29,15 +33,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstdint>
 #include <deque>
 #include <limits>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <string>
 #include <utility>
 
-#include <ocs2_core/thread_support/BufferedValue.h>
-
+#include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "ocs2_core/thread_support/BufferedValue.h"
 
 #include "humanoid_common_mpc/acom/AngularCenterOfMass.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlan.h"
@@ -79,7 +84,7 @@ class ContactPlanningReferenceManager final : public SwitchedModelReferenceManag
    * ContactPlanningConfig::validateStatus() (or of a rule the lists cannot build), which names the key to change.
    */
   static absl::StatusOr<std::shared_ptr<ContactPlanningReferenceManager>> Create(std::shared_ptr<GaitSchedule> gaitSchedulePtr,
-                                                                                 std::shared_ptr<SwingTrajectoryPlanner> swingTrajectoryPtr,
+                                                                                 std::unique_ptr<SwingTrajectoryPlanner> swingTrajectoryPtr,
                                                                                  const PinocchioInterface& pinocchioInterface,
                                                                                  const MpcRobotModelBase<scalar_t>& mpcRobotModel,
                                                                                  const ContactPlanningConfig& config);
@@ -143,7 +148,12 @@ class ContactPlanningReferenceManager final : public SwitchedModelReferenceManag
    * with no bound on its age, precisely in the situation where the planner has stopped producing plans - a thread
    * that died, a solver that started failing - which is when being steered by a stale one is least safe.
    */
-  bool planReferencesUsableAt(scalar_t time) const { return hasActivePlan() && time < activePlan_->endTime(); }
+  bool planReferencesUsableAt(scalar_t time) const { return usablePlanAt(time) != nullptr; }
+
+  /** The active plan when planReferencesUsableAt(`time`), null otherwise. Only meaningful on the solver thread. */
+  const ContactPlan* absl_nullable usablePlanAt(scalar_t time) const {
+    return activePlan_.has_value() && activePlan_->valid && time < activePlan_->endTime() ? &*activePlan_ : nullptr;
+  }
 
   /**
    * The same question at the last solve time, for the const accessors the whole-body MPC calls between solves.
@@ -152,9 +162,6 @@ class ContactPlanningReferenceManager final : public SwitchedModelReferenceManag
    * updated until part-way through that function, so asking here would answer for the previous control cycle.
    */
   bool planReferencesUsable() const { return planReferencesUsableAt(lastSolveTime_); }
-
-  /** The mode schedule most recently produced by modifyReferences(). */
-  const ModeSchedule& getAppliedModeSchedule() const { return appliedSchedule_; }
 
   /**
    * Builds the planner input from the current state: CoM position / velocity, foot positions, and everything
@@ -169,12 +176,12 @@ class ContactPlanningReferenceManager final : public SwitchedModelReferenceManag
    *
    * loadHeadingModelEvaluator() is how the controller installs it; this setter remains for the tests.
    */
-  void setAngularCenterOfMass(std::shared_ptr<AngularCenterOfMass> acom) { acom_ = std::move(acom); }
+  void setAngularCenterOfMass(std::unique_ptr<AngularCenterOfMass> acom) { acom_ = std::move(acom); }
   bool hasAngularCenterOfMass() const { return acom_ != nullptr; }
   /**
    * Installs the ACoM evaluator the running configuration's heading model needs (`dynamics` lists
    * heading_double_integrator: ContactPlanningConfig::usesHeadingModel()), from the network registered for
-   * model_settings.robotName, checked against the MPC model's joints. CentroidalMpcInterface calls it once, from its
+   * model_settings.robot_name, checked against the MPC model's joints. CentroidalMpcInterface calls it once, from its
    * Status-returning set-up; from then on setConfigStatus() does the same for every configuration it is handed, so
    * switching the heading model on by a hot reload gets the same heading as a start with that file.
    *
@@ -185,7 +192,7 @@ class ContactPlanningReferenceManager final : public SwitchedModelReferenceManag
    * @return OkStatus, or AngularCenterOfMass::Create()'s FailedPrecondition. Solver thread only, or before it runs.
    */
   absl::Status loadHeadingModelEvaluator();
-  /** Whole-body heading at `state`: the ACoM yaw with an evaluator, the base yaw otherwise. */
+  /** Whole-body heading at `state`: the ACoM yaw with an evaluator, the base heading (getBaseHeading()) otherwise. */
   scalar_t computeHeading(const vector_t& state) const;
   /**
    * The operator's commanded yaw rate as of the last modifyReferences(), read off the momentum channel of the target
@@ -254,11 +261,6 @@ class ContactPlanningReferenceManager final : public SwitchedModelReferenceManag
   absl::Status setConfigStatus(const ContactPlanningConfig& config);
   ContactPlanningConfig getConfig() const;
 
-  /** The listed execution rules, in order (solver thread only). */
-  const TermCollection<ExecutionRule>& getExecutionRules() const { return executionRules_; }
-  /** One line per rule with its description, for the start-up print. */
-  std::string executionSummary() const;
-
   /**
    * Time up to which the applied schedule is treated as fixed when planning from / merging at `time`: at least
    * `time + commitTime`, extended to the touch-down of any swing phase that has started or starts within that window, so
@@ -268,15 +270,13 @@ class ContactPlanningReferenceManager final : public SwitchedModelReferenceManag
 
   /**
    * Hands the NMPC's latest predicted trajectory over (thread-safe). The rules that compare the measured center of mass
-   * with the prediction (cadence modulation, DCM step adjustment) read it, interpolated at the start of the next solve.
-   * Empty arrays clear the prediction.
+   * with the prediction (cadence modulation, DCM step adjustment) read it, interpolated in the robot model's layout
+   * (MpcRobotModelBase::interpolateStateTrajectory) at the start of the next solve. Empty arrays clear the prediction.
    */
   void setPredictedTrajectory(const scalar_array_t& times, const vector_array_t& states);
 
-  /** Predicted CoM position / velocity at the current solver time, when a prediction covering it was available. */
+  /** True when a prediction covering the current solver time was available. */
   bool hasPredictedComState() const { return hasPredictedComState_; }
-  const vector2_t& getPredictedComPosition() const { return predictedComState_[0]; }
-  const vector2_t& getPredictedComVelocity() const { return predictedComState_[1]; }
 
   /** True once after a contact event re-timed the schedule (thread-safe); the planner module then plans immediately. */
   bool consumeReplanRequest() { return replanRequested_.exchange(false); }
@@ -306,9 +306,15 @@ class ContactPlanningReferenceManager final : public SwitchedModelReferenceManag
   void resetRuntimeState() override;
 
  private:
+  /** The horizontal center of mass of the full model, in the world frame. */
+  struct HorizontalComState {
+    vector2_t position = vector2_t::Zero();  // [m]
+    vector2_t velocity = vector2_t::Zero();  // [m/s]
+  };
+
   /** Private: Create() builds the execution rules, which point into the constructed object, and validates. */
   ContactPlanningReferenceManager(std::shared_ptr<GaitSchedule> gaitSchedulePtr,
-                                  std::shared_ptr<SwingTrajectoryPlanner> swingTrajectoryPtr,
+                                  std::unique_ptr<SwingTrajectoryPlanner> swingTrajectoryPtr,
                                   const PinocchioInterface& pinocchioInterface,
                                   const MpcRobotModelBase<scalar_t>& mpcRobotModel,
                                   ContactPlanningConfig config);
@@ -340,10 +346,10 @@ class ContactPlanningReferenceManager final : public SwitchedModelReferenceManag
   void captureOperatorCommand(scalar_t initTime, const vector_t& initState);
 
   /** CoM position and velocity (xy) of the full model at `state`. */
-  std::pair<vector2_t, vector2_t> computeComState(const vector_t& state);
+  HorizontalComState computeComState(const vector_t& state);
 
   /** Swing phase [liftOff, touchDown] of a foot around `time` in the applied schedule, empty if the foot is in contact. */
-  std::optional<std::pair<scalar_t, scalar_t>> swingPhase(size_t contactIndex, scalar_t time) const;
+  std::optional<SwingWindow> swingPhase(size_t contactIndex, scalar_t time) const;
 
   /**
    * Takes a pending plan over, re-timed by the schedule shifts it has not seen. A plan whose commit boundary has already
@@ -356,6 +362,18 @@ class ContactPlanningReferenceManager final : public SwitchedModelReferenceManag
 
   /** Runs the schedule rules on the applied schedule; shifts the plan and requests a re-plan as needed. */
   void handleContactEvents(ExecutionContext& ctx);
+  /** Fills the time, the measured contact, the active plan and the center-of-mass states of modifyReferences()' `ctx`. */
+  void fillExecutionContext(scalar_t initTime, const vector_t& initState, size_t initMode, ExecutionContext& ctx);
+  /** The schedule modifyReferences() executes: the applied schedule merged with the plan at its commit boundary. */
+  ModeSchedule scheduleToExecute(const ContactPlanningConfig& config,
+                                 scalar_t initTime,
+                                 scalar_t lowerBoundTime,
+                                 scalar_t upperBoundTime) const;
+  /**
+   * `targetTrajectories` resampled onto the node grid of `plan`, extended past the plan's end with the operator's knots
+   * and a final sample at `finalTime` (see modifyReferences()).
+   */
+  TargetTrajectories targetOnPlanGrid(const ContactPlan& plan, const TargetTrajectories& targetTrajectories, scalar_t finalTime);
 
   /**
    * Updates the swing trajectory planner; a foot searching for the ground (a rule's ground search) gets a descending
@@ -376,7 +394,7 @@ class ContactPlanningReferenceManager final : public SwitchedModelReferenceManag
   mutable std::mutex configMutex_;
   ContactPlanningConfig config_;
   TermCollection<ExecutionRule> executionRules_;  // solver thread
-  // The swing trajectory planner's swingTimeScale the last swingTimeScale check ran against (solver thread). A task.yaml
+  // The swing trajectory planner's swingTimeScale the last swingTimeScale check ran against (solver thread). A task-file
   // reload replaces the swing planner's configuration without passing through this manager, so modifyReferences()
   // repeats the check once whenever the value it finds differs from this one.
   std::optional<scalar_t> checkedSwingTimeScale_;
@@ -395,7 +413,8 @@ class ContactPlanningReferenceManager final : public SwitchedModelReferenceManag
   std::atomic<size_t> inconsistentPlanCount_{0};  // plans dropped because a swing they did not know about was in flight (rate-limited)
 
   // Heading model.
-  std::shared_ptr<AngularCenterOfMass> acom_;
+  // Owned here; PlannedHeadingOverride reads it through a pointer to this slot, which outlives the rule.
+  std::unique_ptr<AngularCenterOfMass> acom_;
   /// Set by loadHeadingModelEvaluator(): from then on setConfigStatus() installs the evaluator a configuration needs.
   bool loadsHeadingModelEvaluator_ = false;
   scalar_t totalMass_ = 0.0;
@@ -416,13 +435,13 @@ class ContactPlanningReferenceManager final : public SwitchedModelReferenceManag
   feet_array_t<ContactEventReport> lastContactEvents_ = makeFeetArray(ContactEventReport{});
   feet_array_t<scalar_t> cadenceTouchDownShift_ = makeFeetArray(0.0);
   feet_array_t<vector2_t> dcmStepAdjustment_ = makeFeetArray(vector2_t(vector2_t::Zero()));
-  vector2_t comState_[2] = {vector2_t::Zero(), vector2_t::Zero()};  // CoM position / velocity at the current solver run
+  HorizontalComState comState_;  // at the current solver run
   std::mutex predictionMutex_;
   scalar_array_t predictedTimes_;  // NMPC prediction handed over after the previous solve (written by the module)
   vector_array_t predictedStates_;
   bool hasPredictedComState_ = false;
-  vector2_t predictedComState_[2] = {vector2_t::Zero(), vector2_t::Zero()};  // predicted CoM at the current solver run
-  std::deque<std::pair<scalar_t, scalar_t>> scheduleShiftLog_;               // (time, shift) of every re-timing of later events
+  HorizontalComState predictedComState_;        // predicted for the current solver run
+  std::deque<ScheduleShift> scheduleShiftLog_;  // every re-timing of later events
   std::atomic<bool> replanRequested_{false};
 
   mutable std::mutex targetPoseMutex_;

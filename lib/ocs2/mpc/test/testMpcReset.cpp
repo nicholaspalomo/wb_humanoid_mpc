@@ -34,6 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <utility>
 #include <vector>
 
+#include "absl/base/nullability.h"
 #include "absl/status/status.h"
 
 #include <ocs2_mpc/MPC_MRT_Interface.h>
@@ -59,19 +60,19 @@ constexpr size_t kInputDim = 2;
 /** Records every reset() in a shared log, and counts the solves it has seen. */
 class RecordingReferenceManager final : public ReferenceManager {
  public:
-  explicit RecordingReferenceManager(std::vector<std::string>* log) : log_(log) {}
+  explicit RecordingReferenceManager(std::vector<std::string>* absl_nonnull log) : log_(log) {}
   void reset() override {
     log_->push_back("reference manager");
     ReferenceManager::reset();
   }
 
  private:
-  std::vector<std::string>* log_;
+  std::vector<std::string>* absl_nonnull log_;
 };
 
 class RecordingModule final : public SolverSynchronizedModule {
  public:
-  RecordingModule(std::string name, std::vector<std::string>* log) : name_(std::move(name)), log_(log) {}
+  RecordingModule(std::string name, std::vector<std::string>* absl_nonnull log) : name_(std::move(name)), log_(log) {}
   void preSolverRun(scalar_t /*initTime*/,
                     scalar_t /*finalTime*/,
                     const vector_t& /*initState*/,
@@ -81,7 +82,7 @@ class RecordingModule final : public SolverSynchronizedModule {
 
  private:
   std::string name_;
-  std::vector<std::string>* log_;
+  std::vector<std::string>* absl_nonnull log_;
 };
 
 SystemObservation observationAt(scalar_t time, scalar_t value) {

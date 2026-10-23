@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -25,8 +29,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/contact_planning/search/HeadingRelinearizationStage.h"
 
-#include "absl/log/log.h"
+#include <string>
+#include <utility>
+
+#include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
+
+#include "humanoid_common_mpc/common/StatusMacros.h"
 
 namespace ocs2::humanoid {
 
@@ -41,28 +50,25 @@ void HeadingRelinearizationStage::configure(const ContactPlanningConfig& config)
   timeBudget_ = config.planner.maxSolveTime + config.eventShiftLocalSearch.maxTime;
 }
 
-void HeadingRelinearizationStage::afterSearch(SearchRun& run) const {
+absl::Status HeadingRelinearizationStage::afterSearch(SearchRun& run) const {
   MiqpResult& result = *run.result;
-  if (!run.layout->hasHeading || !result.hasIncumbent || passes_ <= 0) return;
+  if (!run.layout->hasHeading || !result.hasIncumbent || passes_ <= 0) return absl::OkStatus();
   for (int pass = 0; pass < passes_; ++pass) {
     if (run.elapsedSeconds() > timeBudget_) break;
-    try {
-      OcpQpProblem relinearized = run.assembleWithNominal(nominalFromSolution(*run.layout, result.solution.x));
-      OcpQpSolution solution;
-      scalar_t objective = 0.0;
-      ++run.statistics->numHeadingRelinearizations;
-      if (!run.miqp->solveFixed(relinearized, *run.binaries, result.assignment, *run.propagate, *run.assignmentCost, solution, objective)) {
-        break;
-      }
-      run.statistics->totalQpIterations += solution.iterations;
-      *run.problem = std::move(relinearized);
-      result.solution = std::move(solution);
-      result.incumbentObjective = objective;
-    } catch (const std::exception& e) {
-      LOG(ERROR) << "[LipContactPlanner] heading re-linearization failure: " << e.what();
-      break;
-    }
+    // A pass that fails ends the stage; the passes before it stay adopted.
+    ASSIGN_OR_RETURN(OcpQpProblem relinearized, run.assembleWithNominal(nominalFromSolution(*run.layout, result.solution.x)));
+    OcpQpSolution solution;
+    scalar_t objective = 0.0;
+    ++run.statistics->numHeadingRelinearizations;
+    ASSIGN_OR_RETURN(const bool solved, run.miqp->solveFixed(relinearized, *run.binaries, result.assignment, *run.propagate,
+                                                             *run.assignmentCost, solution, objective));
+    if (!solved) break;
+    run.statistics->totalQpIterations += solution.iterations;
+    *run.problem = std::move(relinearized);
+    result.solution = std::move(solution);
+    result.incumbentObjective = objective;
   }
+  return absl::OkStatus();
 }
 
 }  // namespace ocs2::humanoid

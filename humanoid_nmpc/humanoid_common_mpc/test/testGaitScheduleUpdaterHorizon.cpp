@@ -27,13 +27,12 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <gtest/gtest.h>
-
 #include <algorithm>
 #include <memory>
 #include <vector>
 
 #include "absl/strings/str_cat.h"
+#include "gtest/gtest.h"
 
 #include "humanoid_common_mpc/gait/GaitSchedule.h"
 #include "humanoid_common_mpc/gait/GaitScheduleUpdater.h"
@@ -41,7 +40,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 
 /*
- * GaitScheduleUpdater::updateGaitSchedule tiles a new gait into the schedule up to an absolute time, 1.5 horizons ahead
+ * updateGaitSchedule tiles a new gait into the schedule up to an absolute time, 1.5 horizons ahead
  * of the solve. It used to hand GaitSchedule::insertModeSequenceTemplate the DURATION 1.5 * timeHorizon as that final
  * time, so a gait inserted later than 1.5 s into a run was not tiled at all: the schedule stopped in stance where the new
  * gait was to begin, until the next getModeSchedule() tiled it from there.
@@ -54,18 +53,18 @@ constexpr scalar_t kHorizon = 1.0;  // [s] the DRC Atlas horizon
 
 // The shipped reference files: a stance schedule and a stance template of 0.5 s; a walk of two 0.35 s swings.
 ModeSchedule initialSchedule() {
-  return ModeSchedule({0.5}, {ModeNumber::STANCE, ModeNumber::STANCE});
+  return ModeSchedule({0.5}, {ModeNumber::kStance, ModeNumber::kStance});
 }
 ModeSequenceTemplate stanceTemplate() {
-  return ModeSequenceTemplate({0.0, 0.5}, {ModeNumber::STANCE});
+  return ModeSequenceTemplate({0.0, 0.5}, {ModeNumber::kStance});
 }
 ModeSequenceTemplate walkTemplate() {
-  return ModeSequenceTemplate({0.0, 0.35, 0.7}, {ModeNumber::LF, ModeNumber::RF});
+  return ModeSequenceTemplate({0.0, 0.35, 0.7}, {ModeNumber::kLf, ModeNumber::kRf});
 }
 
 bool hasSwing(const ModeSchedule& schedule, scalar_t from, scalar_t to) {
   for (scalar_t time = from; time <= to; time += 0.01) {
-    if (schedule.modeAtTime(time) != ModeNumber::STANCE) return true;
+    if (schedule.modeAtTime(time) != ModeNumber::kStance) return true;
   }
   return false;
 }
@@ -82,7 +81,7 @@ TEST(GaitScheduleUpdaterHorizon, aNewGaitIsTiledOverTheHorizonHoweverLateItIsIns
     for (const scalar_t initTime : {0.0, 2.0, 300.0}) {
       SCOPED_TRACE(absl::StrCat("t = ", initTime, " s, phaseTransitionStanceTime = ", phaseTransitionStanceTime, " s"));
       std::shared_ptr<GaitSchedule> schedule = standingScheduleAt(initTime, phaseTransitionStanceTime);
-      GaitScheduleUpdater::updateGaitSchedule(schedule, walkTemplate(), initTime, initTime + kHorizon);
+      updateGaitSchedule(*schedule, walkTemplate(), initTime, initTime + kHorizon);
 
       // What the schedule holds right after the insertion, before any other query re-tiles it.
       const ModeSchedule inserted = schedule->getCurrentModeSchedule();
@@ -101,7 +100,7 @@ TEST(GaitScheduleUpdaterHorizon, theNextSolveSeesTheScheduleItSawBeforeTheFix) {
       SCOPED_TRACE(absl::StrCat("t = ", initTime, " s, phaseTransitionStanceTime = ", phaseTransitionStanceTime, " s"));
       const scalar_t finalTime = initTime + kHorizon;
       std::shared_ptr<GaitSchedule> fixed = standingScheduleAt(initTime, phaseTransitionStanceTime);
-      GaitScheduleUpdater::updateGaitSchedule(fixed, walkTemplate(), initTime, finalTime);
+      updateGaitSchedule(*fixed, walkTemplate(), initTime, finalTime);
 
       // The legacy insertion, with the start time the updater picks on a stance schedule: the first event after
       // 0.7 of the horizon.

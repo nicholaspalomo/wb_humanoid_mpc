@@ -13,57 +13,241 @@ on:
     branches:
       - main
 
+# A push to a branch with an open pull request starts this workflow twice for one commit, once per event. Both share a
+# group, so the later one cancels the earlier one instead of both building from scratch side by side.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+# Three stages, each its own job with its own time limit: `build` compiles //... and saves Bazel's disk cache, then the
+# `test` batches and `lint-tidy` restore it and run side by side. A cold build alone takes about two hours on the
+# runner; one job that built, tested and linted in sequence ran into its limit and was canceled before it saved the
+# cache, so every run started cold again.
+#
+# The jobs share their setup steps through YAML anchors (`&name` in `build`, `*name` in the others), and each job repeats
+# `runs-on`, `timeout-minutes`, `container` and `env`, which tools/resource_limits/test_resource_limits.py checks are the
+# same in every job.
 jobs:
   build:
     # LINT.IfChange(runner)
     runs-on: ubuntu-latest
     # LINT.ThenChange(//tools/ci_local.sh:runner_resources)
-    timeout-minutes: 180
-    strategy:
-      matrix:
-        container:
-          - "ros:jazzy"
-    container: ${{ matrix.container }}
+    # The longest a GitHub-hosted job may run.
+    timeout-minutes: 360
+    # LINT.IfChange(container_image)
+    # The dev image's base (docker/Dockerfile), so CI builds against the same Ubuntu packages as the dev container.
+    container: ubuntu:24.04
+    # LINT.ThenChange(//docker/Dockerfile:ubuntu_release, //tools/ci_local.sh:ubuntu_release, //.github/workflows/robot_arm64.yml:arm64_container)
+    # LINT.IfChange(noninteractive_apt)
+    # A plain Ubuntu image asks tzdata's debconf question (python3-pip pulls tzdata in) and waits for an answer; the dev
+    # image sets the same (docker/Dockerfile).
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      TZ: Etc/UTC
+    # LINT.ThenChange(//tools/ci_local.sh:noninteractive_apt)
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
+      # Before the checkout, which needs git to clone: without it actions/checkout downloads a tarball with no .git.
       # LINT.IfChange(system_dependencies)
-      - name: Install Base Dependencies & Tools
+      - &install_base_dependencies
+        name: Install Base Dependencies & Tools
         run: |
           apt-get update && apt-get install -y --no-install-recommends \
-          curl gnupg2 lsb-release software-properties-common \
-          locales git gettext-base sudo wget build-essential python3-pip python3-venv
-      # LINT.ThenChange(//dependencies.txt:system_dependencies, //docker/Dockerfile:system_dependencies, //tools/ci_local.sh:ci_base_dependencies)
+          ca-certificates curl gnupg \
+          git sudo build-essential python3-pip python3-venv
+      # LINT.ThenChange(//dependencies.txt:system_dependencies, //docker/Dockerfile:system_dependencies, //tools/ci_local.sh:ci_base_dependencies, //.github/workflows/robot_arm64.yml:arm64_base_dependencies)
 
-      - name: Install Bazel (via Bazelisk)
+      - &checkout
+        name: Checkout repository
+        uses: actions/checkout@v4
+
+      - &install_pinocchio
+        name: Install Pinocchio (robotpkg)
+        run: |
+          sh docker/install_robotpkg.sh
+
+      # The dev image's environment for /opt/openrobots, so that a build or test which only works with it works, or
+      # fails, the same way here and in the dev container. No LD_LIBRARY_PATH: docker/Dockerfile says why.
+      # LINT.IfChange(robotpkg_environment)
+      - &set_robotpkg_environment
+        name: Set the robotpkg Environment
+        run: |
+          echo "/opt/openrobots/bin" >> "$GITHUB_PATH"
+          echo "PYTHONPATH=/opt/openrobots/lib/python3.12/site-packages" >> "$GITHUB_ENV"
+          echo "CMAKE_PREFIX_PATH=/opt/openrobots" >> "$GITHUB_ENV"
+          echo "PKG_CONFIG_PATH=/opt/openrobots/lib/pkgconfig" >> "$GITHUB_ENV"
+      # LINT.ThenChange(//docker/Dockerfile:robotpkg_environment, //tools/ci_local.sh:robotpkg_environment, //.github/workflows/robot_arm64.yml:arm64_robotpkg_environment)
+
+      - &install_bazel
+        name: Install Bazel (via Bazelisk)
         run: |
           curl -sSL -o /usr/local/bin/bazel https://github.com/bazelbuild/bazelisk/releases/latest/download/bazelisk-linux-amd64
           chmod +x /usr/local/bin/bazel
           bazel --version
 
-      - name: Install Project Dependencies
+      - &install_project_dependencies
+        name: Install Project Dependencies
         run: |
-          grep -v '^\s*#' dependencies.txt | envsubst | xargs apt-get install -y --no-install-recommends
+          grep -v '^\s*#' dependencies.txt | xargs apt-get install -y --no-install-recommends
 
-      - name: Configure Git Safe Directory
+      - &configure_git_safe_directory
+        name: Configure Git Safe Directory
         run: |
           git config --global --add safe.directory $GITHUB_WORKSPACE
 
-      - name: Cache Bazel Downloads and Build Artifacts
-        uses: actions/cache@v3
+      # Bazel's disk cache (action outputs, by content) and repository cache (downloads), not the whole output base: the
+      # two are what a later run reuses, and they stay within the repository's 10 GB of Actions cache (the build trims the
+      # disk cache before it saves it). The job's own ~/.bazelrc, which Bazel reads after the workspace's .bazelrc.
+      # LINT.IfChange(bazel_cache)
+      - &configure_bazel_cache
+        name: Configure the Bazel Caches
+        run: |
+          {
+            echo "build --disk_cache=$HOME/.cache/bazel-disk"
+            echo "build --repository_cache=$HOME/.cache/bazel-repository"
+          } >> "$HOME/.bazelrc"
+
+      # The key names the commit, so that each run saves a cache of its own (a key, once saved, cannot be overwritten)
+      # and the test jobs restore exactly the one their build saved. A run without one starts from the newest cache of
+      # the same toolchain: a change of Bazel, its configuration or the module dependencies starts a new line of caches.
+      - &restore_bazel_cache
+        name: Restore the Bazel Caches
+        id: restore_bazel_cache
+        uses: actions/cache/restore@v4
         with:
           path: |
-            ~/.cache/bazel
-          key: ${{ runner.os }}-bazel-${{ hashFiles('MODULE.bazel', '**/BUILD.bazel') }}
+            ~/.cache/bazel-disk
+            ~/.cache/bazel-repository
+          key: bazel-${{ hashFiles('.bazelversion', '.bazelrc', 'MODULE.bazel') }}-${{ github.sha }}
           restore-keys: |
-            ${{ runner.os }}-bazel-
+            bazel-${{ hashFiles('.bazelversion', '.bazelrc', 'MODULE.bazel') }}-
+      # LINT.ThenChange(:save_bazel_cache, //.github/workflows/robot_arm64.yml:arm64_bazel_cache)
 
       - name: Build All (Bazel Monorepo)
+        id: build
         run: |
+          mkdir -p "$HOME/.cache" && touch "$HOME/.cache/bazel-build-start"
           make build-all
 
-      - name: Run All Tests (Bazel Monorepo)
+      # Also after a failed or canceled build: what it compiled is in the disk cache, by content, and the next run
+      # starts from there instead of from nothing.
+      # LINT.IfChange(save_bazel_cache)
+      # The disk cache keeps every output it ever stored. Past 6 GB the trim keeps only what this build stored or read
+      # (Bazel refreshes the time of an entry it reads), so a cache follows the code instead of growing with its history.
+      - name: Trim the Bazel Disk Cache
+        if: always() && steps.build.outcome != 'skipped' && steps.restore_bazel_cache.outputs.cache-hit != 'true'
         run: |
-          make test-all
+          disk_cache="$HOME/.cache/bazel-disk"
+          if [ -d "${disk_cache}" ] && [ "$(du -sk "${disk_cache}" | cut -f1)" -gt $((6 * 1024 * 1024)) ]; then
+            find "${disk_cache}" -type f ! -newer "$HOME/.cache/bazel-build-start" -delete
+          fi
+          du -sh "$HOME"/.cache/bazel-disk "$HOME"/.cache/bazel-repository || true
+
+      - name: Save the Bazel Caches
+        if: always() && steps.build.outcome != 'skipped' && steps.restore_bazel_cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cache/bazel-disk
+            ~/.cache/bazel-repository
+          key: ${{ steps.restore_bazel_cache.outputs.cache-primary-key }}
+      # LINT.ThenChange(:bazel_cache)
+
+  # The tests in package batches, one job each, on the build's cache. The last batch is everything the others leave
+  # out, so that a new top-level package is tested without a change here (test_resource_limits.py checks that it
+  # subtracts exactly the other batches' patterns).
+  test:
+    needs: build
+    name: test (${{ matrix.batch.name }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    container: ubuntu:24.04
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      TZ: Etc/UTC
+    strategy:
+      fail-fast: false
+      matrix:
+        batch:
+          - name: lib, tools and docs
+            targets: //:all //humanoid_nmpc/docs/... //lib/... //bazel/... //tools/...
+          - name: runtime
+            targets: //robot_runtime/... //humanoid_state_estimation/... //config/...
+          - name: robot models
+            targets: //robot_models/...
+          - name: common MPC
+            targets: //humanoid_nmpc/humanoid_common_mpc/...
+          - name: centroidal MPC
+            targets: //humanoid_nmpc/humanoid_centroidal_mpc/... //humanoid_nmpc/humanoid_centroidal_mpc_test/...
+          - name: whole-body MPC
+            targets: //humanoid_nmpc/humanoid_wb_mpc/...
+          - name: MPC apps and messages
+            targets: >-
+              //humanoid_nmpc/humanoid_common_mpc_app/... //humanoid_nmpc/humanoid_centroidal_mpc_app/...
+              //humanoid_nmpc/humanoid_wb_mpc_app/... //humanoid_nmpc/humanoid_mpc_ipc/...
+              //humanoid_nmpc/humanoid_mpc_msgs/... //humanoid_nmpc/humanoid_mpc_config/...
+          - name: Python tools and viewers
+            targets: >-
+              //humanoid_nmpc/humanoid_mpc_validation/... //humanoid_nmpc/remote_control/...
+              //humanoid_nmpc/humanoid_rerun_viewer/... //humanoid_nmpc/humanoid_common_mpc_pyutils/...
+          - name: learning
+            targets: //humanoid_learning/...
+          - name: everything else
+            targets: >-
+              //... -//:all -//humanoid_nmpc/docs/... -//lib/... -//bazel/... -//tools/...
+              -//robot_runtime/... -//humanoid_state_estimation/... -//config/...
+              -//robot_models/...
+              -//humanoid_nmpc/humanoid_common_mpc/...
+              -//humanoid_nmpc/humanoid_centroidal_mpc/... -//humanoid_nmpc/humanoid_centroidal_mpc_test/...
+              -//humanoid_nmpc/humanoid_wb_mpc/...
+              -//humanoid_nmpc/humanoid_common_mpc_app/... -//humanoid_nmpc/humanoid_centroidal_mpc_app/...
+              -//humanoid_nmpc/humanoid_wb_mpc_app/... -//humanoid_nmpc/humanoid_mpc_ipc/...
+              -//humanoid_nmpc/humanoid_mpc_msgs/... -//humanoid_nmpc/humanoid_mpc_config/...
+              -//humanoid_nmpc/humanoid_mpc_validation/... -//humanoid_nmpc/remote_control/...
+              -//humanoid_nmpc/humanoid_rerun_viewer/... -//humanoid_nmpc/humanoid_common_mpc_pyutils/...
+              -//humanoid_learning/...
+    steps:
+      - *install_base_dependencies
+      - *checkout
+      - *install_pinocchio
+      - *set_robotpkg_environment
+      - *install_bazel
+      - *install_project_dependencies
+      - *configure_git_safe_directory
+      - *configure_bazel_cache
+      - *restore_bazel_cache
+
+      - name: Run the Tests of the Batch
+        run: |
+          make test-all TEST_TARGETS="${{ matrix.batch.targets }}"
+
+  lint-tidy:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    container: ubuntu:24.04
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      TZ: Etc/UTC
+    steps:
+      - *install_base_dependencies
+      - *checkout
+      - *install_pinocchio
+      - *set_robotpkg_environment
+      - *install_bazel
+      - *install_project_dependencies
+      - *configure_git_safe_directory
+      - *configure_bazel_cache
+      - *restore_bazel_cache
+
+      # clang-tidy on the build's cache: the aspect (tools/clang_tidy) reuses its generated headers. The tests need no
+      # clang-tidy, so it is installed only here, by the script the dev image runs.
+      # LINT.IfChange(lint_tidy)
+      - name: Install clang-tidy
+        run: |
+          sh docker/install_llvm_tools.sh tidy
+
+      - name: Lint C++ (clang-tidy)
+        run: |
+          make lint-tidy
+      # LINT.ThenChange(//tools/ci_local.sh:lint_tidy, //.bazelrc:clang_tidy_config)

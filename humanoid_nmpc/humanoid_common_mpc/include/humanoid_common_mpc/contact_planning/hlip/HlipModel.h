@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -25,9 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <utility>
-
-#include <ocs2_core/Types.h>
+#include "absl/status/statusor.h"
+#include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc/common/Types.h"
 
@@ -56,23 +59,39 @@ namespace ocs2::humanoid {
  * composition of two of these models, a period-one orbit along the heading and a period-two orbit laterally; both
  * orbits are solved here as linear systems rather than approximated.
  *
- * The model carries no state. It is a cheap value type: construct it from the configuration and copy it freely.
+ * The model carries no state. It is a cheap value type: create it from the configuration and copy it freely. Every
+ * method is const or static, so concurrent calls on one model are safe.
  */
 class HlipModel {
  public:
+  static constexpr int kStateDim = 2;  // [p, v]
+
   using State = vector2_t;  // [p, v] of the point mass relative to the stance foot
-  using Matrix2 = Eigen::Matrix<scalar_t, 2, 2>;
+  using Matrix2 = Eigen::Matrix<scalar_t, kStateDim, kStateDim>;
+
+  /** The pre-impact states of the period-two orbit, one per step of the orbit. */
+  struct PeriodTwoOrbit {
+    State beforeFirstStep;   // precedes the step of `firstStepLength`
+    State beforeSecondStep;  // precedes the step of `secondStepLength`
+  };
 
   /**
+   * Builds the model of a cadence and a pendulum.
+   *
    * @param sspDuration  [s] single support duration, must be positive.
    * @param dspDuration  [s] double support duration, must not be negative (the paper uses 0).
    * @param comHeight    [m] pendulum height z0, must be positive.
    * @param gravity      [m/s^2] must be positive.
-   *
-   * The preconditions are checked; ContactPlanningConfig::validateStatus() rejects a configuration that would violate them
-   * before a model is ever built from it.
+   * @return InvalidArgument when a parameter violates its bound (NaN included); ContactPlanningConfig::validateStatus()
+   *         rejects such a configuration before a model is built from it.
    */
-  HlipModel(scalar_t sspDuration, scalar_t dspDuration, scalar_t comHeight, scalar_t gravity);
+  static absl::StatusOr<HlipModel> Create(scalar_t sspDuration, scalar_t dspDuration, scalar_t comHeight, scalar_t gravity);
+
+  HlipModel(const HlipModel&) = default;
+  HlipModel& operator=(const HlipModel&) = default;
+  HlipModel(HlipModel&&) = default;
+  HlipModel& operator=(HlipModel&&) = default;
+  ~HlipModel() = default;
 
   scalar_t sspDuration() const { return sspDuration_; }
   scalar_t dspDuration() const { return dspDuration_; }
@@ -100,9 +119,9 @@ class HlipModel {
   State periodOneOrbit(scalar_t stepLength) const;
   /**
    * The two pre-impact states of the period-two orbit that alternates the two step lengths, the lateral orbit of a
-   * biped. The first entry is the state that precedes a step of `firstStepLength`.
+   * biped.
    */
-  std::pair<State, State> periodTwoOrbit(scalar_t firstStepLength, scalar_t secondStepLength) const;
+  PeriodTwoOrbit periodTwoOrbit(scalar_t firstStepLength, scalar_t secondStepLength) const;
 
   /**
    * The deadbeat step length u = nominalStepLength + K (state - nominalState). Applied at the pre-impact state of a
@@ -111,6 +130,9 @@ class HlipModel {
   scalar_t deadbeatStepLength(const State& state, const State& nominalState, scalar_t nominalStepLength) const;
 
  private:
+  /** Requires the bounds Create() checks. */
+  HlipModel(scalar_t sspDuration, scalar_t dspDuration, scalar_t comHeight, scalar_t gravity);
+
   scalar_t sspDuration_;
   scalar_t dspDuration_;
   scalar_t comHeight_;

@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -27,6 +31,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <string>
 #include <vector>
+
+#include "absl/base/nullability.h"
 
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/contact_planning/execution/ExecutionRule.h"
@@ -58,6 +64,8 @@ namespace ocs2::humanoid {
  * Only the knots inside the plan's horizon are rewritten (planCoversTime). Past the plan's end the target keeps the
  * operator's own knots, which the reference manager appends for exactly that stretch: the plan's lookups clamp to its
  * last node, so rewriting them froze the tail at the last planned position while asking for the last planned velocity.
+ *
+ * Not thread-safe, like every ContactPlanningTerm: the planner that owns it configures and evaluates it from one thread at a time.
  */
 class PlannedComOverride final : public ExecutionRule {
  public:
@@ -71,7 +79,7 @@ class PlannedComOverride final : public ExecutionRule {
   bool rewritesTarget() const override { return true; }
 
  private:
-  const MpcRobotModelBase<scalar_t>* mpcRobotModel_;
+  const MpcRobotModelBase<scalar_t>* absl_nonnull mpcRobotModel_;
 };
 
 }  // namespace ocs2::humanoid

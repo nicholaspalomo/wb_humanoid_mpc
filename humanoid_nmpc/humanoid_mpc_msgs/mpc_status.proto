@@ -1,0 +1,25 @@
+syntax = "proto3";
+
+package humanoid_mpc_msgs;
+
+import "humanoid_mpc_msgs/mpc_solver_status.proto";
+import "nproto/options.proto";
+
+// Published by the MPC process after every solve attempt, also when it produced no policy, so that an operator sees a
+// failing solver and the robot learns of it: a failed solve publishes no MpcPolicy, which otherwise carries the same
+// solver_status (humanoid_nmpc/humanoid_mpc_ipc/include/humanoid_mpc_ipc/RemoteMpcLink.h).
+// Next ID: 7
+message MpcStatus {
+  option (nproto.generate_struct) = "ocs2::humanoid::msgs::MpcStatus";
+
+  reserved 7 to max;
+
+  MpcSolverStatus solver_status = 1;
+  // Time of the observation the attempt solved from (robot clock).
+  double observation_time = 2;
+  uint64 resets_served = 3;
+  uint64 full_resets_served = 4;
+  // Observations received since the last status, and observations that arrived out of order or repeated.
+  uint64 observations_received = 5;
+  uint64 observations_skipped = 6;
+}

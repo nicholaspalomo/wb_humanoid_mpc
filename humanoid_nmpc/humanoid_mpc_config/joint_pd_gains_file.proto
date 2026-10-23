@@ -1,0 +1,93 @@
+edition = "2023";
+
+package humanoid_mpc_config;
+
+import "humanoid_mpc_config/config_options.proto";
+import "nproto/options.proto";
+import "nproto/retired_field_options.proto";
+
+// A robot's joint PD gains, config/controller/joint_pd_gains.textproto, and the GUI's live PD gains (operator/pd_gains):
+// the gains every joint starts from and the gains of named joints.
+//
+// default_gains sets all three of kp, kd and torque_limit: the controllers have no gains of their own to fall back to,
+// and refuse a file without them (and start on no file at all). A gain a joint_gains entry leaves out is inherited from
+// default_gains. A joint of the MPC model that the file does not name gets default_gains; a joint outside it (a fixed
+// joint) gets a fraction of the default kp and kd (kOtherJointDefaultGainScale) and the default torque limit. A file
+// that names a joint the robot does not have (neither an MPC joint nor a fixed joint) is another robot's file, or has a
+// typo, and is refused whole, so that another robot's gains never reach this robot. torque_limit means the same in both
+// formulations: the bound |ff| <= torque_limit of the feedforward torque the MRT joint controller commands each joint,
+// in every control mode (the PD part is the drive's, which enforces its own limits). Every gain is a finite
+// non-negative number, and a joint is named at most once.
+// Next ID: 6
+message JointPdGainsFile {
+  option (nproto.generate_struct) = "ocs2::humanoid::mpc_config::JointPdGainsFile";
+  option (nproto.retired_field) = {
+    name: "default"
+    replacement: "the gains every joint starts from are default_gains"
+  };
+
+  reserved 6 to max;
+
+  // The gains every joint starts from; all three are required in default_gains.
+  // LINT.IfChange(non_negative_pd_gains)
+  // Next ID: 4
+  message Gains {
+    reserved 4 to max;
+
+    // [N m/rad]
+    double kp = 1 [(humanoid_mpc_config.tuning) = { unit: "N m/rad" minimum: 0 }];
+    // [N m s/rad]
+    double kd = 2 [(humanoid_mpc_config.tuning) = { unit: "N m s/rad" minimum: 0 }];
+    // [N m] The bound of the commanded feedforward torque, |ff| <= torque_limit.
+    double torque_limit = 3 [
+      (humanoid_mpc_config.tuning) = {
+        unit: "N m"
+        exclude_reason: "a safety limit of the actuators, not a gain: set it in the file"
+      }
+    ];
+  }
+
+  // The gains of one joint, by its URDF name; each gain absent: default_gains'.
+  // Next ID: 5
+  message JointGains {
+    reserved 5 to max;
+
+    string joint = 1 [default = ""];
+    // [N m/rad]
+    double kp = 2 [(humanoid_mpc_config.tuning) = { unit: "N m/rad" minimum: 0 }];
+    // [N m s/rad]
+    double kd = 3 [(humanoid_mpc_config.tuning) = { unit: "N m s/rad" minimum: 0 }];
+    // [N m]
+    double torque_limit = 4 [
+      (humanoid_mpc_config.tuning) = {
+        unit: "N m"
+        exclude_reason: "a safety limit of the actuators, not a gain: set it in the file"
+      }
+    ];
+  }
+  // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/config/robot/JointPdGainsFromConfig.cpp:non_negative_pd_gains)
+
+  Gains default_gains = 1 [(humanoid_mpc_config.tuning) = { reload: RELOAD_HOT consumer: "robot" }];
+  // Each joint at most once (formerly a map by joint name), in any order.
+  repeated JointGains joint_gains = 2 [(humanoid_mpc_config.tuning) = { reload: RELOAD_HOT consumer: "robot" }];
+
+  // LINT.IfChange(controller_constants)
+  // [-] The fraction of its kd an MPC joint keeps in GRAVITY_COMP (kp is 0 there): soft damping against free-fall
+  // oscillation of the limbs moved by hand. In [0, 1].
+  double gravity_comp_damping_fraction = 3 [
+    default = 0.2,
+    (humanoid_mpc_config.tuning) = { minimum: 0 slider_max: 1 reload: RELOAD_HOT consumer: "robot" }
+  ];
+  // [rad] A policy whose joint targets are further than this from the measured joints has diverged: the solver is reset
+  // and the targets are clamped (diverged_policy_joint_target_bound). Positive.
+  double max_policy_joint_error = 4 [
+    default = 0.5,
+    (humanoid_mpc_config.tuning) = { unit: "rad" minimum: 0 reload: RELOAD_HOT consumer: "robot" formulations: "centroidal" }
+  ];
+  // [rad] How far from the measured joints the joint targets of a diverged policy are clamped. Non-negative.
+  double diverged_policy_joint_target_bound = 5 [
+    default = 0.2,
+    (humanoid_mpc_config.tuning) = { unit: "rad" minimum: 0 reload: RELOAD_HOT consumer: "robot" formulations: "centroidal" }
+  ];
+  // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/config/robot/JointPdGainsFromConfig.cpp:controller_constants)
+}

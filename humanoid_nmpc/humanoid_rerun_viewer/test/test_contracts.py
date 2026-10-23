@@ -1,0 +1,400 @@
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+"""Tests for the contracts of the bridge (telemetry_contract.py, scene_contract.py and status_contract.py).
+
+The telemetry contract's panels plot series of its own groups, every group is plotted, and README.md tabulates it; the
+scene and status contracts are consistent.
+"""
+
+import os
+import re
+import unittest
+
+from humanoid_rerun_viewer import palette
+from humanoid_rerun_viewer import scene_contract
+from humanoid_rerun_viewer import status_contract
+from humanoid_rerun_viewer import telemetry_contract
+
+PACKAGE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+README = os.path.join(PACKAGE_DIR, "README.md")
+SAMPLE_FRAME = "foot_l_contact"
+
+
+def plotted_by(panel_path: str, group_path: str) -> bool:
+    if panel_path.endswith("/**"):
+        return group_path.startswith(panel_path[: -len("**")])
+    return panel_path == group_path
+
+
+class PanelTabsTest(unittest.TestCase):
+    """Every panel of the panel tabs plots its group's series in its group's colors."""
+
+    def test_the_tab_and_panel_titles_are_unique(self) -> None:
+        titles = [tab.title for tab in telemetry_contract.PANEL_TABS]
+        self.assertEqual(len(titles), len(set(titles)))
+        for tab in telemetry_contract.PANEL_TABS:
+            with self.subTest(tab=tab.title):
+                self.assertTrue(tab.rows)
+                panels = [panel.title for panel in tab.panels()]
+                self.assertEqual(len(panels), len(set(panels)))
+
+    def test_every_curve_is_a_series_of_a_group_its_panel_plots(self) -> None:
+        for tab in telemetry_contract.PANEL_TABS:
+            for panel in tab.panels():
+                with self.subTest(panel=panel.title):
+                    self.assertTrue(
+                        panel.curves, "a panel of the panel tabs names its curves"
+                    )
+                    for curve in panel.curves:
+                        group = telemetry_contract.find_group(curve.path)
+                        self.assertIsNotNone(group, curve.path)
+                        assert group is not None
+                        self.assertIn(curve.path, panel.paths)
+                        self.assertTrue(
+                            group.has_series(curve.series),
+                            f"'{curve.series}' is not a series of {curve.path}",
+                        )
+
+    def test_the_panel_groups_are_colored_from_the_palette(self) -> None:
+        curve_colors = {color.lower() for color in palette_colors()}
+        for group in telemetry_contract.PANEL_GROUPS:
+            with self.subTest(group=group.path):
+                self.assertEqual(len(group.colors), len(group.names))
+                self.assertLessEqual(set(group.colors), curve_colors)
+
+    def test_every_panel_group_is_reproduced_by_exactly_one_panel(self) -> None:
+        plotted: dict[str, int] = {}
+        for tab in telemetry_contract.PANEL_TABS:
+            for panel in tab.panels():
+                for path in panel.paths:
+                    plotted[path] = plotted.get(path, 0) + 1
+        for group in telemetry_contract.PANEL_GROUPS:
+            self.assertEqual(plotted.get(group.path), 1, group.path)
+
+
+class BaseOrientationPanelsTest(unittest.TestCase):
+    """The "Base Pose & Euler" tab shows the Euler angles, their rates and the body angular velocity (user decision)."""
+
+    def test_the_tab_has_rows_of_angles_euler_rates_and_body_angular_velocity(
+        self,
+    ) -> None:
+        (tab,) = [
+            tab
+            for tab in telemetry_contract.PANEL_TABS
+            if tab.title == "Base Pose & Euler"
+        ]
+        self.assertEqual(
+            [[panel.paths for panel in row] for row in tab.rows],
+            [
+                [(f"base_pose/position_{axis}",) for axis in ("x", "y", "z")],
+                [(f"base_pose/{angle}",) for angle in ("roll", "pitch", "yaw")],
+                [(f"base_pose/{angle}_rate",) for angle in ("roll", "pitch", "yaw")],
+                [(f"base_pose/angular_velocity_{axis}",) for axis in ("x", "y", "z")],
+            ],
+        )
+        for row, unit in zip(tab.rows[1:], ("rad", "rad/s", "rad/s")):
+            for panel in row:
+                group = telemetry_contract.find_group(panel.paths[0])
+                assert group is not None
+                self.assertEqual(group.names, telemetry_contract.MEASURED_VS_REFERENCE)
+                self.assertEqual(group.unit, unit)
+
+    def test_the_euler_rates_say_they_are_display_values_with_a_gap(self) -> None:
+        for angle in ("roll", "pitch", "yaw"):
+            group = telemetry_contract.find_group(f"base_pose/{angle}_rate")
+            assert group is not None
+            self.assertIn("for display", group.description)
+            self.assertIn("NaN", group.description)
+        for axis in ("x", "y", "z"):
+            body = telemetry_contract.find_group(f"base_pose/angular_velocity_{axis}")
+            world = telemetry_contract.find_group(f"base_twist/angular_{axis}")
+            assert body is not None and world is not None
+            self.assertIn("base frame", body.description)
+            self.assertIn("world frame", world.description)
+
+    def test_the_world_frame_angular_velocity_panels_say_so(self) -> None:
+        (tab,) = [
+            tab
+            for tab in telemetry_contract.PANEL_TABS
+            if tab.title == "Base Twist (Linear & Angular)"
+        ]
+        for panel in tab.rows[1]:
+            self.assertIn("(world)", panel.title)
+            self.assertNotIn("Rate", panel.title)
+
+    def test_coordinates_name_euler_angles_and_velocities_the_body_rates(self) -> None:
+        for path in (
+            "dofs/position/measured",
+            "dofs/position/reference",
+            "dofs/position/plan",
+        ):
+            group = telemetry_contract.find_group(path)
+            assert group is not None
+            self.assertEqual(group.names_rule, telemetry_contract.DOF_NAMES_RULE)
+        for path in (
+            "dofs/velocity/measured",
+            "dofs/velocity/reference",
+            "dofs/velocity/plan",
+            "dofs/force/measured",
+            "dofs/force/reference",
+        ):
+            group = telemetry_contract.find_group(path)
+            assert group is not None
+            self.assertEqual(
+                group.names_rule, telemetry_contract.DOF_VELOCITY_NAMES_RULE
+            )
+        self.assertIn("base_yaw", telemetry_contract.DOF_NAMES_RULE)
+        self.assertIn("base_wz", telemetry_contract.DOF_VELOCITY_NAMES_RULE)
+
+
+def palette_colors() -> tuple[str, ...]:
+    """Every curve color palette.py defines, as "#rrggbb"."""
+    return tuple(
+        value
+        for name, value in vars(palette).items()
+        if name.isupper() and isinstance(value, str) and value.startswith("#")
+    )
+
+
+class TelemetryGroupsTest(unittest.TestCase):
+    def all_groups(self) -> tuple[telemetry_contract.SeriesGroup, ...]:
+        return telemetry_contract.all_groups([SAMPLE_FRAME, "pelvis"])
+
+    def test_paths_are_unique_and_valid(self) -> None:
+        paths = [group.path for group in self.all_groups()]
+        self.assertEqual(len(paths), len(set(paths)))
+        for path in paths:
+            self.assertTrue(scene_contract.is_valid_relative_path(path), path)
+
+    def test_names_colors_and_rules_are_consistent(self) -> None:
+        for group in self.all_groups():
+            with self.subTest(group=group.path):
+                self.assertEqual(len(group.names), len(set(group.names)))
+                if group.colors:
+                    self.assertEqual(len(group.colors), len(group.names))
+                    for color in group.colors:
+                        self.assertRegex(color, r"^#[0-9a-f]{6}$")
+                self.assertEqual(group.robot_dependent, bool(group.names_rule))
+                self.assertTrue(group.description)
+
+    def test_every_group_is_plotted_by_a_tab(self) -> None:
+        panel_paths: list[str] = []
+        for tab in telemetry_contract.TABS:
+            for panel in tab.panels():
+                panel_paths.extend(panel.paths)
+        for group in self.all_groups():
+            self.assertTrue(
+                any(plotted_by(path, group.path) for path in panel_paths), group.path
+            )
+
+    def test_every_panel_plots_groups_of_the_contract(self) -> None:
+        groups = self.all_groups()
+        for tab in telemetry_contract.TABS:
+            for panel in tab.panels():
+                for path in panel.paths:
+                    self.assertTrue(
+                        any(plotted_by(path, group.path) for group in groups),
+                        f"{panel.title}: {path}",
+                    )
+
+    def test_find_group_knows_every_frame_group_and_nothing_else(self) -> None:
+        for group in telemetry_contract.frame_groups("any_frame"):
+            self.assertEqual(telemetry_contract.find_group(group.path), group)
+        for path in (
+            "frames/pose/foot/target",
+            "frames/velocity/foot/measured",
+            "frames/pose/measured",
+            "base_pose/position_w",
+            "",
+        ):
+            self.assertIsNone(telemetry_contract.find_group(path), path)
+
+    def test_complete_groups_carry_every_series_of_the_panels(self) -> None:
+        # The panels duplicate values for plotting; the complete groups carry every series. Spot-check the kinds of
+        # data: per DOF, per joint, per contact, per frame.
+        complete = {
+            group.path
+            for group in self.all_groups()
+            if group not in telemetry_contract.PANEL_GROUPS
+        }
+        for path in (
+            "dofs/position/measured",
+            "dofs/velocity/reference",
+            "dofs/position/plan",
+            "dofs/velocity/plan",
+            "dofs/force/measured",
+            "joints/effort/target",
+            "contact_wrenches/left/mpc",
+            "contact_wrenches/right/measured",
+            f"frames/acceleration/{SAMPLE_FRAME}/reference",
+            f"frames/wrench/{SAMPLE_FRAME}/measured",
+            f"frames/pose/{SAMPLE_FRAME}/plan",
+            "mpc_observation/state",
+        ):
+            self.assertIn(path, complete)
+
+
+class ReadmeTest(unittest.TestCase):
+    """README.md tabulates the contracts, so that the producer's author finds every path there."""
+
+    text: str
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        with open(README, encoding="utf-8") as readme:
+            cls.text = readme.read()
+
+    def assert_tabulated(self, path: str) -> None:
+        self.assertIn(f"`{path}`", self.text, f"README.md does not list `{path}`")
+
+    def test_every_static_group_is_listed(self) -> None:
+        for group in telemetry_contract.STATIC_GROUPS:
+            self.assert_tabulated(group.path)
+
+    def test_the_frame_groups_are_listed(self) -> None:
+        for kind in telemetry_contract.FRAME_KINDS:
+            self.assert_tabulated(f"frames/{kind}/<frame>/<source>")
+
+    def match(self, pattern: str) -> tuple[int, ...]:
+        """The numbers `pattern`'s groups capture in the README; fails when it does not match."""
+        found = re.search(pattern, self.text)
+        self.assertIsNotNone(found, f"README.md has no match of {pattern!r}")
+        assert found is not None  # For mypy; assertIsNotNone failed otherwise.
+        return tuple(int(number) for number in found.groups())
+
+    def test_the_group_counts_are_the_contracts(self) -> None:
+        def total(frames: int) -> int:
+            return len(
+                telemetry_contract.all_groups(
+                    f"frame_{index}" for index in range(frames)
+                )
+            )
+
+        panel = len(telemetry_contract.PANEL_GROUPS)
+        panel_count, static_complete, per_frame = self.match(
+            r"(\d+) panel groups and (\d+) \+ (\d+) n complete groups"
+        )
+        self.assertEqual(panel_count, panel)
+        self.assertEqual(static_complete, len(telemetry_contract.STATIC_GROUPS) - panel)
+        self.assertEqual(per_frame, len(telemetry_contract.frame_groups(SAMPLE_FRAME)))
+        for frames, pattern in (
+            (4, r"with the four of [^,]+, (\d+) complete groups and (\d+) in all"),
+            (3, r"with the three of SA01's, (\d+) and (\d+)"),
+        ):
+            with self.subTest(frames=frames):
+                self.assertEqual(
+                    self.match(pattern), (total(frames) - panel, total(frames))
+                )
+        # The cost table's message.
+        groups, _, frames = self.match(
+            r"`TelemetrySeries`, (\d+) groups \((\d+) joints, (\d+) frames\)"
+        )
+        self.assertEqual(groups, total(frames))
+
+    def flag_row(self, flag: str) -> str:
+        """The row of `flag` in the README's table of the bridge's flags."""
+        for line in self.text.splitlines():
+            if line.startswith(f"| `{flag}`"):
+                return line
+        self.fail(f"README.md has no row of {flag}")
+
+    def test_the_flags_defaults_follow_the_plot_configuration(self) -> None:
+        # The shipped configuration, which every launch passes, turns the plots on and the terminal robots off.
+        plots = self.flag_row("--plots")
+        self.assertNotIn("off (`serve_web`) / on", plots)
+        self.assertIn("plot configuration", plots)
+        terminal_state = self.flag_row("--terminal_state")
+        self.assertNotRegex(terminal_state, r"\| on \|")
+        self.assertIn("draw_terminal_state", terminal_state)
+
+    def test_every_marker_instance_and_status_entity_is_listed(self) -> None:
+        for marker in scene_contract.MARKERS:
+            self.assert_tabulated(
+                scene_contract.entity_path(scene_contract.WORLD_ROOT, marker.path)
+            )
+        for style in scene_contract.ROBOT_INSTANCES:
+            self.assert_tabulated(scene_contract.instance_path(style.name))
+        for series in status_contract.STATUS_SERIES:
+            self.assert_tabulated(series.path)
+        for path in (
+            status_contract.FSM_STATE_LOG,
+            status_contract.LOOP_TIMING_LOG,
+            status_contract.MPC_STATUS_LOG,
+            status_contract.BRIDGE_LOG,
+        ):
+            self.assert_tabulated(path)
+
+
+class SceneContractTest(unittest.TestCase):
+    def test_marker_paths_are_unique_and_valid(self) -> None:
+        paths = [marker.path for marker in scene_contract.MARKERS]
+        self.assertEqual(len(paths), len(set(paths)))
+        for marker in scene_contract.MARKERS:
+            self.assertTrue(scene_contract.is_valid_relative_path(marker.path))
+            self.assertGreater(marker.default_radius, 0.0)
+            self.assertTrue(marker.default_colors)
+
+    def test_what_is_clutter_most_of_the_time_is_hidden_by_default(self) -> None:
+        self.assertEqual(
+            set(scene_contract.hidden_by_default()),
+            {
+                "world/robots/terminal_target",
+                "world/markers/corner_forces",
+                "world/markers/collision_spheres",
+            },
+        )
+
+    def test_the_arrow_geometry_is_kept(self) -> None:
+        # Rerun draws the shaft with half the radius and the head with all of it: a 0.01 m shaft and a 0.02 m head.
+        self.assertAlmostEqual(scene_contract.ARROW_RADIUS, 0.01)
+        self.assertAlmostEqual(2 * scene_contract.TRAJECTORY_RADIUS, 0.01)
+
+    def test_unknown_instances_get_the_default_style_under_their_name(self) -> None:
+        style = scene_contract.instance_style("ghost")
+        self.assertEqual(style.name, "ghost")
+        self.assertNotIn(style, scene_contract.ROBOT_INSTANCES)
+        self.assertEqual(
+            scene_contract.instance_style(scene_contract.MEASURED),
+            scene_contract.ROBOT_INSTANCES[0],
+        )
+
+    def test_relative_paths(self) -> None:
+        for path in ("markers/x", "a", "frames/pose/foot.l/measured", "a-b_c"):
+            self.assertTrue(scene_contract.is_valid_relative_path(path), path)
+        for path in ("", "/a", "a/", "a//b", "a/../b", "./a", "a b", "a\nb"):
+            self.assertFalse(scene_contract.is_valid_relative_path(path), path)
+
+    def test_status_series_are_under_the_status_root(self) -> None:
+        paths = [series.path for series in status_contract.STATUS_SERIES]
+        self.assertEqual(len(paths), len(set(paths)))
+        for path in paths:
+            self.assertTrue(path.startswith(f"{scene_contract.STATUS_ROOT}/"))
+
+
+if __name__ == "__main__":
+    unittest.main()

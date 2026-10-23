@@ -27,12 +27,14 @@ py_test(
     deps = [
         "//humanoid_learning/acom:acom_lib",
         "//humanoid_learning/acom:train_main",  # the tests drive the pipeline functions train_main defines
+        "//humanoid_nmpc/humanoid_mpc_config:config_py_proto",  # the task files, read as train_main reads them
+        "//tools/hooks:pointer_nullability",  # the generated header must pass the repository's pointer check
+        "//tools/nproto:nproto_textproto",
         requirement("jax"),
         requirement("jaxlib"),
         requirement("mujoco"),
         requirement("numpy"),
         requirement("optax"),
-        requirement("pyyaml"),
         requirement("tensorboardx"),
     ],
 )

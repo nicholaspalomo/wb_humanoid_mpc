@@ -27,17 +27,17 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <gtest/gtest.h>
-
-#include <Eigen/Core>
-#include <Eigen/Eigenvalues>
 #include <algorithm>
 #include <random>
+#include <set>
 #include <string>
 #include <vector>
 
+#include "Eigen/Core"
+#include "Eigen/Eigenvalues"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "gtest/gtest.h"
 
 #include "humanoid_common_mpc/common/BasisInputsCostTransform.h"
 #include "humanoid_common_mpc/common/Types.h"
@@ -57,11 +57,11 @@ namespace ocs2::humanoid {
 namespace {
 
 constexpr size_t kJointDim = 5;
-constexpr scalar_t kRegularization = 1e-4;
+constexpr scalar_t kRegularization = 1.0e-4;
 
 /** The DRC Atlas contact weights of R (force x, y, z, moment x, y, z), which are of the order of the regularization. */
 vector_t atlasLikeContactWeights() {
-  return (vector_t(6) << 1e-5, 2e-5, 5e-5, 2e-5, 1e-5, 2e-4).finished();
+  return (vector_t(6) << 1.0e-5, 2.0e-5, 5.0e-5, 2.0e-5, 1.0e-5, 2.0e-4).finished();
 }
 
 feet_array_t<matrix_t> makeBases(absl::string_view generatorSet) {
@@ -90,11 +90,11 @@ matrix_t makeBasisToWrenchMap(const feet_array_t<matrix_t>& bases) {
 
 /** A block-diagonal wrench-space R: the given weights on every contact wrench and 1e-3 on the joint velocities. */
 matrix_t makeWrenchSpaceR(const vector_t& contactWeights) {
-  vector_t diagonal(6 * N_CONTACTS + kJointDim);
-  for (size_t i = 0; i < N_CONTACTS; ++i) {
+  vector_t diagonal(6 * kNumContacts + kJointDim);
+  for (size_t i = 0; i < kNumContacts; ++i) {
     diagonal.segment(static_cast<Eigen::Index>(6 * i), 6) = contactWeights;
   }
-  diagonal.tail(kJointDim).setConstant(1e-3);
+  diagonal.tail(kJointDim).setConstant(1.0e-3);
   return diagonal.asDiagonal();
 }
 
@@ -130,7 +130,7 @@ TEST(BasisRegularizationRegistryTest, ListsBothRegularizationsAndKeepsTheShipped
 TEST(BasisRegularizationRegistryTest, RejectsUnknownNamesAndNegativeWeightsNamingTheKey) {
   const absl::Status unknown = getBasisRegularizationBuilder("nullspace").status();
   EXPECT_EQ(unknown.code(), absl::StatusCode::kInvalidArgument);
-  EXPECT_NE(unknown.message().find(kBasisRegularizationKey), absl::string_view::npos) << unknown;
+  EXPECT_NE(unknown.message().find(kBasisRegularizationField), absl::string_view::npos) << unknown;
   for (const std::string& name : basisRegularizationNames()) {
     EXPECT_NE(unknown.message().find(name), absl::string_view::npos) << unknown << " does not list " << name;
   }
@@ -138,10 +138,10 @@ TEST(BasisRegularizationRegistryTest, RejectsUnknownNamesAndNegativeWeightsNamin
   const matrix_t M = makeBasisToWrenchMap(makeBases(kConservativeInnerApproximationGeneratorSet));
   EXPECT_TRUE(validateBasisInputsCostTransformConfig(makeConfig(M, kNullSpaceBasisRegularization)).ok());
   const absl::Status badName = validateBasisInputsCostTransformConfig(makeConfig(M, "diagonal"));
-  EXPECT_NE(badName.message().find(kBasisRegularizationKey), absl::string_view::npos) << badName;
-  const absl::Status negative = validateBasisInputsCostTransformConfig(makeConfig(M, kFullDiagonalBasisRegularization, /*weight=*/-1e-4));
+  EXPECT_NE(badName.message().find(kBasisRegularizationField), absl::string_view::npos) << badName;
+  const absl::Status negative = validateBasisInputsCostTransformConfig(makeConfig(M, kFullDiagonalBasisRegularization, /*weight=*/-1.0e-4));
   EXPECT_EQ(negative.code(), absl::StatusCode::kInvalidArgument);
-  EXPECT_NE(negative.message().find(kBasisScalingRegularizationKey), absl::string_view::npos) << negative;
+  EXPECT_NE(negative.message().find(kBasisScalingRegularizationField), absl::string_view::npos) << negative;
 }
 
 // ==================== full_diagonal: the shipped behavior, unchanged ====================
@@ -156,8 +156,19 @@ TEST(BasisInputsCostTransformTest, FullDiagonalConfigIsTheLegacyTransform) {
     EXPECT_TRUE((viaConfig - legacy).isZero(0.0)) << set;
     matrix_t expected = M.transpose() * R * M;
     expected.diagonal().head(static_cast<Eigen::Index>(config.numBasisInputs)).array() += kRegularization;
-    EXPECT_LE((viaConfig - expected).cwiseAbs().maxCoeff(), 1e-18) << set;
+    EXPECT_LE((viaConfig - expected).cwiseAbs().maxCoeff(), 1.0e-18) << set;
   }
+}
+
+// The argument checks were assert()s, which every -c opt build compiles out; they are ABSL_CHECKs now.
+TEST(BasisInputsCostTransformDeathTest, MismatchedSizesOrANegativeWeightEndTheProcess) {
+  const matrix_t M = makeBasisToWrenchMap(makeBases(allGeneratorSets().front()));
+  const matrix_t R = makeWrenchSpaceR(atlasLikeContactWeights());
+  const size_t numBasisInputs = static_cast<size_t>(M.cols());
+  EXPECT_DEATH(transformWrenchInputCostToBasisSpace(matrix_t::Identity(3, 3), M, numBasisInputs, kRegularization),
+               "R_wrench is not square");
+  EXPECT_DEATH(transformWrenchInputCostToBasisSpace(R, M, numBasisInputs + 1, kRegularization), "more basis inputs than M has columns");
+  EXPECT_DEATH(transformWrenchInputCostToBasisSpace(R, M, numBasisInputs, /*lambdaRegularization=*/-1.0), "must be non-negative");
 }
 
 TEST(BasisInputsCostTransformTest, ZeroWeightIsAnExactNoOpForEveryRegularization) {
@@ -176,7 +187,7 @@ TEST(BasisInputsCostTransformTest, JointVelocityBlockIsUntouchedByEveryRegulariz
   const matrix_t R = makeWrenchSpaceR(atlasLikeContactWeights());
   for (const std::string& name : basisRegularizationNames()) {
     const matrix_t R_basis = transformWrenchInputCostToBasisSpace(R, makeConfig(M, name));
-    EXPECT_LE((R_basis.bottomRightCorner(kJointDim, kJointDim) - R.bottomRightCorner(kJointDim, kJointDim)).cwiseAbs().maxCoeff(), 1e-18)
+    EXPECT_LE((R_basis.bottomRightCorner(kJointDim, kJointDim) - R.bottomRightCorner(kJointDim, kJointDim)).cwiseAbs().maxCoeff(), 1.0e-18)
         << name;
   }
 }
@@ -201,7 +212,7 @@ TEST(BasisInputsCostTransformTest, NullSpaceShapeIsTheBlockDiagonalProjectorOfEa
     matrix_t expected = matrix_t::Zero(2 * n, 2 * n);
     expected.topLeftCorner(n, n) = basis->getNullSpaceProjector();
     expected.bottomRightCorner(n, n) = basis->getNullSpaceProjector();
-    EXPECT_LE((S - expected).cwiseAbs().maxCoeff(), 1e-10) << set;
+    EXPECT_LE((S - expected).cwiseAbs().maxCoeff(), 1.0e-10) << set;
   }
 }
 
@@ -223,7 +234,7 @@ TEST(BasisInputsCostTransformTest, NullSpaceCostIsTheWrenchCostPlusATermThatVani
       const scalar_t wrenchCost = wrench.dot(R * wrench);
       const vector_t lambda = u.head(n);
       // uᵀ R_basis u = (M u)ᵀ R (M u) + reg ‖P λ‖², for every input.
-      EXPECT_NEAR(u.dot(R_basis * u), wrenchCost + kRegularization * lambda.dot(S * lambda), 1e-10 * (1.0 + wrenchCost)) << set;
+      EXPECT_NEAR(u.dot(R_basis * u), wrenchCost + kRegularization * lambda.dot(S * lambda), 1.0e-10 * (1.0 + wrenchCost)) << set;
 
       // On λ = Mᵀ y (the range of Mᵀ, where the minimum-norm λ of every wrench lives) the regularization vanishes and
       // the cost is exactly the wrench-space cost.
@@ -232,7 +243,7 @@ TEST(BasisInputsCostTransformTest, NullSpaceCostIsTheWrenchCostPlusATermThatVani
       const vector_t inRange = M.transpose() * y;
       const vector_t inRangeWrench = M * inRange;
       const scalar_t inRangeWrenchCost = inRangeWrench.dot(R * inRangeWrench);
-      EXPECT_NEAR(inRange.dot(R_basis * inRange), inRangeWrenchCost, 1e-10 * inRangeWrenchCost) << set;
+      EXPECT_NEAR(inRange.dot(R_basis * inRange), inRangeWrenchCost, 1.0e-10 * inRangeWrenchCost) << set;
     }
   }
 }
@@ -248,8 +259,8 @@ TEST(BasisInputsCostTransformTest, NullSpaceInducesExactlyRAsTheWrenchMetricAndF
 
     const matrix_t H_null = transformWrenchInputCostToBasisSpace(R, makeConfig(M, kNullSpaceBasisRegularization));
     const matrix_t G_null = (M * H_null.inverse() * M.transpose()).inverse();
-    EXPECT_LE(((G_null - R).cwiseAbs().array() / R.diagonal().maxCoeff()).maxCoeff(), 1e-6) << set << ":\n"
-                                                                                            << G_null.diagonal().transpose();
+    EXPECT_LE(((G_null - R).cwiseAbs().array() / R.diagonal().maxCoeff()).maxCoeff(), 1.0e-6) << set << ":\n"
+                                                                                              << G_null.diagonal().transpose();
 
     const matrix_t H_full = transformWrenchInputCostToBasisSpace(R, makeConfig(M, kFullDiagonalBasisRegularization));
     const matrix_t G_full = (M * H_full.inverse() * M.transpose()).inverse();
@@ -257,7 +268,7 @@ TEST(BasisInputsCostTransformTest, NullSpaceInducesExactlyRAsTheWrenchMetricAndF
     const matrix_t expectedContactMetric = R.topLeftCorner(6, 6) + kRegularization * (B * B.transpose()).inverse();
     EXPECT_LE(
         ((G_full.topLeftCorner(6, 6) - expectedContactMetric).cwiseAbs().array() / expectedContactMetric.cwiseAbs().maxCoeff()).maxCoeff(),
-        1e-6)
+        1.0e-6)
         << set;
     EXPECT_GT((G_full.topLeftCorner(6, 6) - R.topLeftCorner(6, 6)).cwiseAbs().maxCoeff(), R.topLeftCorner(6, 6).maxCoeff())
         << set << ": full_diagonal is expected to distort the wrench metric by more than R's largest weight";
@@ -276,7 +287,7 @@ TEST(BasisInputsCostTransformTest, LambdaBlockIsPositiveDefiniteExactlyWhenItSho
       const absl::Status unregularized =
           checkLambdaBlockPositiveDefinite(transformWrenchInputCostToBasisSpace(R, makeConfig(M, name, /*weight=*/0.0)), numBasisInputs);
       EXPECT_EQ(unregularized.code(), absl::StatusCode::kInvalidArgument) << set << " " << name;
-      EXPECT_NE(unregularized.message().find(kBasisScalingRegularizationKey), absl::string_view::npos) << unregularized;
+      EXPECT_NE(unregularized.message().find(kBasisScalingRegularizationField), absl::string_view::npos) << unregularized;
     }
     // null_space penalizes only null(B), so a wrench direction R gives no weight is left unpenalized; full_diagonal
     // still covers it. The message names what to change.
@@ -286,7 +297,7 @@ TEST(BasisInputsCostTransformTest, LambdaBlockIsPositiveDefiniteExactlyWhenItSho
     const absl::Status nullSpace = checkLambdaBlockPositiveDefinite(
         transformWrenchInputCostToBasisSpace(R_singular, makeConfig(M, kNullSpaceBasisRegularization)), numBasisInputs);
     EXPECT_FALSE(nullSpace.ok()) << set;
-    EXPECT_NE(nullSpace.message().find(kBasisRegularizationKey), absl::string_view::npos) << nullSpace;
+    EXPECT_NE(nullSpace.message().find(kBasisRegularizationField), absl::string_view::npos) << nullSpace;
     EXPECT_TRUE(checkLambdaBlockPositiveDefinite(
                     transformWrenchInputCostToBasisSpace(R_singular, makeConfig(M, kFullDiagonalBasisRegularization)), numBasisInputs)
                     .ok())

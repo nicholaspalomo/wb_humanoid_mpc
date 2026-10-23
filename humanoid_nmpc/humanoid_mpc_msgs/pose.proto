@@ -1,0 +1,17 @@
+syntax = "proto3";
+
+package humanoid_mpc_msgs;
+
+import "humanoid_mpc_msgs/quaternion.proto";
+import "humanoid_mpc_msgs/vector3.proto";
+import "nproto/options.proto";
+
+// Next ID: 3
+message Pose {
+  option (nproto.generate_struct) = "ocs2::humanoid::msgs::Pose";
+
+  reserved 3 to max;
+
+  Vector3 position = 1;
+  Quaternion orientation = 2;
+}

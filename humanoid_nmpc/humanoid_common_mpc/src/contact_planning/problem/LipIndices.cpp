@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -31,7 +35,7 @@ void LipIndices::bind(const Layout& layout) {
   com = {layout.state(var::kComX), layout.state(var::kComY)};
   vel = {layout.state(var::kVelX), layout.state(var::kVelY)};
   zmp = {layout.input(var::kZmpX), layout.input(var::kZmpY)};
-  for (size_t i = 0; i < N_CONTACTS; ++i) {
+  for (size_t i = 0; i < kNumContacts; ++i) {
     foot[i] = {layout.state(var::footX(i)), layout.state(var::footY(i))};
     footDelta[i] = {layout.input(var::footDeltaX(i)), layout.input(var::footDeltaY(i))};
     contact[i] = layout.input(var::contact(i));
@@ -39,7 +43,7 @@ void LipIndices::bind(const Layout& layout) {
   hasHeading = layout.hasHeading;
   heading = layout.heading;
   headingRate = layout.headingRate;
-  for (size_t i = 0; i < N_CONTACTS; ++i) {
+  for (size_t i = 0; i < kNumContacts; ++i) {
     footYaw[i] = hasHeading ? layout.footYaw(i) : -1;
     yawTorque[i] = hasHeading ? layout.yawTorque(i) : -1;
     footYawDelta[i] = hasHeading ? layout.footYawDelta(i) : -1;

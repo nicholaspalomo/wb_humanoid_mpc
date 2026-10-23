@@ -34,9 +34,21 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
+/**
+ * The height profile of one swing: two cubic splines from lift-off to the mid-swing apex and from there to touch-down,
+ * with zero vertical velocity at the apex. An immutable value.
+ *
+ * Its const methods are safe to call concurrently.
+ */
 class SplineCpg {
  public:
   SplineCpg(CubicSpline::Node liftOff, scalar_t midHeight, CubicSpline::Node touchDown);
+
+  SplineCpg(const SplineCpg&) = default;
+  SplineCpg& operator=(const SplineCpg&) = default;
+  SplineCpg(SplineCpg&&) = default;
+  SplineCpg& operator=(SplineCpg&&) = default;
+  ~SplineCpg() = default;
 
   scalar_t position(scalar_t time) const;
 
@@ -44,12 +56,17 @@ class SplineCpg {
 
   scalar_t acceleration(scalar_t time) const;
 
+  /**
+   * Returns the derivative of position(time) with respect to the lift-off time, with the apex time (the mean of the two
+   * ends) moving along with it.
+   */
   scalar_t startTimeDerivative(scalar_t time) const;
 
+  /** Returns the derivative of position(time) with respect to the touch-down time, as startTimeDerivative(). */
   scalar_t finalTimeDerivative(scalar_t time) const;
 
  private:
-  scalar_t midTime_;
+  scalar_t midTime_;  // NOLINT(modernize-use-default-member-init): set from the constructor's parameters
   CubicSpline leftSpline_;
   CubicSpline rightSpline_;
 };

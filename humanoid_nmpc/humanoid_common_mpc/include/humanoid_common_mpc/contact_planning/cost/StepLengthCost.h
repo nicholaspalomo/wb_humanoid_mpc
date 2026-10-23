@@ -29,6 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <string>
+
 #include "humanoid_common_mpc/contact_planning/cost/LipWeightedCost.h"
 
 namespace ocs2::humanoid {
@@ -45,12 +47,14 @@ namespace ocs2::humanoid {
  * It complements velocity_tracking, which alone is indifferent between a few long steps and many short ones at the
  * same average speed and, from rest, favors the short quick steps that accelerate the pendulum fastest: this term ties
  * the step length to the commanded speed, so a ramped command lengthens the steps progressively.
+ *
+ * Not thread-safe, like every ContactPlanningTerm: the planner that owns it configures and evaluates it from one thread at a time.
  */
 class StepLengthCost final : public LipWeightedCost {
  public:
   std::string describe() const override;
   void configure(const ContactPlanningConfig& config) override;
-  NodeSet nodeSet() const override { return NodeSet::RUNNING; }
+  NodeSet nodeSet() const override { return NodeSet::kRunning; }
   void addToStage(const ContactPlanningContext& ctx, int node, StageAccumulator& stage) const override;
 
   /** d_nom of a foot in swing: the per-node displacement along each axis for `velocityCommand` at the nominal cadence. */

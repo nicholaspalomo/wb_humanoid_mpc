@@ -1,0 +1,423 @@
+/******************************************************************************
+Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+* Redistributions of source code must retain the above copyright notice, this
+  list of conditions and the following disclaimer.
+
+* Redistributions in binary form must reproduce the above copyright notice,
+  this list of conditions and the following disclaimer in the documentation
+  and/or other materials provided with the distribution.
+
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+******************************************************************************/
+
+// The task file's solver blocks become OCS2's settings: an empty block gives the settings structs' defaults, every
+// field reaches its setting, integrators are named as OCS2 names them, and what the settings cannot hold is refused
+// naming the field. The schema refuses the keys it retired, naming what to do.
+
+#include <functional>
+#include <limits>
+#include <string>
+#include <vector>
+
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
+#include "absl/strings/match.h"
+#include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
+#include "gtest/gtest.h"
+#include "ocs2_core/integration/Integrator.h"
+#include "ocs2_core/integration/SensitivityIntegrator.h"
+#include "ocs2_mpc/MPC_Settings.h"
+#include "ocs2_oc/rollout/RolloutSettings.h"
+#include "ocs2_sqp/SqpSettings.h"
+
+#include "humanoid_common_mpc/common/StatusMacros.h"
+#include "humanoid_common_mpc/config/solver/SolverSettingsFromConfig.h"
+#include "humanoid_mpc_config/mpc_settings_config.nproto.h"
+#include "humanoid_mpc_config/rollout_settings_config.nproto.h"
+#include "humanoid_mpc_config/sqp_settings_config.nproto.h"
+#include "humanoid_mpc_config/task_file.nproto.h"
+#include "humanoid_mpc_config/task_file.nproto.pb.h"
+#include "humanoid_mpc_config/task_file.pb.h"
+#include "nproto/Textproto.h"
+
+namespace ocs2::humanoid {
+namespace {
+
+/** The task file of the textproto `text`, parsed strictly. */
+absl::StatusOr<mpc_config::TaskFile> parseTaskFile(absl::string_view text) {
+  absl::StatusOr<humanoid_mpc_config::TaskFile> message = nproto::ParseTextproto<humanoid_mpc_config::TaskFile>(text, "task.textproto");
+  if (!message.ok()) {
+    return message.status();
+  }
+  mpc_config::TaskFile task;
+  RETURN_IF_ERROR(mpc_config::FromProto(*message, &task));
+  return task;
+}
+
+void expectSameSqpSettings(const sqp::Settings& actual, const sqp::Settings& expected) {
+  EXPECT_EQ(actual.sqpIteration, expected.sqpIteration);
+  EXPECT_EQ(actual.deltaTol, expected.deltaTol);
+  EXPECT_EQ(actual.costTol, expected.costTol);
+  EXPECT_EQ(actual.alpha_decay, expected.alpha_decay);
+  EXPECT_EQ(actual.alpha_min, expected.alpha_min);
+  EXPECT_EQ(actual.g_max, expected.g_max);
+  EXPECT_EQ(actual.g_min, expected.g_min);
+  EXPECT_EQ(actual.armijoFactor, expected.armijoFactor);
+  EXPECT_EQ(actual.gamma_c, expected.gamma_c);
+  EXPECT_EQ(actual.useFeedbackPolicy, expected.useFeedbackPolicy);
+  EXPECT_EQ(actual.dt, expected.dt);
+  EXPECT_EQ(actual.integratorType, expected.integratorType);
+  EXPECT_EQ(actual.projectStateInputEqualityConstraints, expected.projectStateInputEqualityConstraints);
+  EXPECT_EQ(actual.printSolverStatus, expected.printSolverStatus);
+  EXPECT_EQ(actual.printSolverStatistics, expected.printSolverStatistics);
+  EXPECT_EQ(actual.printLinesearch, expected.printLinesearch);
+  EXPECT_EQ(actual.enableLogging, expected.enableLogging);
+  EXPECT_EQ(actual.logSize, expected.logSize);
+  EXPECT_EQ(actual.logFilePath, expected.logFilePath);
+  EXPECT_EQ(actual.nThreads, expected.nThreads);
+  EXPECT_EQ(actual.threadPriority, expected.threadPriority);
+  // No file sets the QP solver's settings.
+  EXPECT_EQ(actual.hpipmSettings.iter_max, expected.hpipmSettings.iter_max);
+  EXPECT_EQ(actual.hpipmSettings.tol_stat, expected.hpipmSettings.tol_stat);
+}
+
+void expectSameRolloutSettings(const rollout::Settings& actual, const rollout::Settings& expected) {
+  EXPECT_EQ(actual.absTolODE, expected.absTolODE);
+  EXPECT_EQ(actual.relTolODE, expected.relTolODE);
+  EXPECT_EQ(actual.maxNumStepsPerSecond, expected.maxNumStepsPerSecond);
+  EXPECT_EQ(actual.timeStep, expected.timeStep);
+  EXPECT_EQ(actual.integratorType, expected.integratorType);
+  EXPECT_EQ(actual.checkNumericalStability, expected.checkNumericalStability);
+  EXPECT_EQ(actual.reconstructInputTrajectory, expected.reconstructInputTrajectory);
+}
+
+void expectSameMpcSettings(const mpc::Settings& actual, const mpc::Settings& expected) {
+  EXPECT_EQ(actual.timeHorizon_, expected.timeHorizon_);
+  EXPECT_EQ(actual.solutionTimeWindow_, expected.solutionTimeWindow_);
+  EXPECT_EQ(actual.debugPrint_, expected.debugPrint_);
+  EXPECT_EQ(actual.coldStart_, expected.coldStart_);
+  EXPECT_EQ(actual.mpcDesiredFrequency_, expected.mpcDesiredFrequency_);
+  EXPECT_EQ(actual.mrtDesiredFrequency_, expected.mrtDesiredFrequency_);
+}
+
+/** `status` is InvalidArgument and says `expected`. */
+void expectRefused(const absl::Status& status, absl::string_view expected) {
+  EXPECT_EQ(status.code(), absl::StatusCode::kInvalidArgument) << status;
+  EXPECT_TRUE(absl::StrContains(status.message(), expected)) << status << " does not say " << expected;
+}
+
+TEST(SolverSettingsFromConfigTest, AnEmptyBlockGivesTheDefaultsOfTheSettingsStructs) {
+  const absl::StatusOr<sqp::Settings> sqpSettings = toSqpSettings(mpc_config::SqpSettingsConfig{});
+  ASSERT_TRUE(sqpSettings.ok()) << sqpSettings.status();
+  expectSameSqpSettings(*sqpSettings, sqp::Settings{});
+  const absl::StatusOr<rollout::Settings> rolloutSettings = toRolloutSettings(mpc_config::RolloutSettingsConfig{});
+  ASSERT_TRUE(rolloutSettings.ok()) << rolloutSettings.status();
+  expectSameRolloutSettings(*rolloutSettings, rollout::Settings{});
+  const absl::StatusOr<mpc::Settings> mpcSettings = toMpcSettings(mpc_config::MpcSettingsConfig{});
+  ASSERT_TRUE(mpcSettings.ok()) << mpcSettings.status();
+  expectSameMpcSettings(*mpcSettings, mpc::Settings{});
+}
+
+TEST(SolverSettingsFromConfigTest, AnEmptyTaskFileGivesTheDefaults) {
+  const absl::StatusOr<mpc_config::TaskFile> task = parseTaskFile(/*text=*/"");
+  ASSERT_TRUE(task.ok()) << task.status();
+  const absl::StatusOr<SolverSettings> settings = solverSettingsFromConfig(*task);
+  ASSERT_TRUE(settings.ok()) << settings.status();
+  expectSameSqpSettings(settings->sqpSettings, sqp::Settings{});
+  expectSameRolloutSettings(settings->rolloutSettings, rollout::Settings{});
+  expectSameMpcSettings(settings->mpcSettings, mpc::Settings{});
+  EXPECT_FALSE(settings->verbose);
+}
+
+TEST(SolverSettingsFromConfigTest, EveryFieldReachesItsSetting) {
+  const absl::StatusOr<mpc_config::TaskFile> task = parseTaskFile(R"pb(
+    interface { verbose: true }
+    multiple_shooting {
+      sqp_iteration: 3
+      delta_tol: 2.5e-5
+      cost_tol: 5e-3
+      alpha_decay: 0.25
+      alpha_min: 1e-3
+      g_max: 0.5
+      g_min: 3e-7
+      armijo_factor: 2e-4
+      gamma_c: 2e-6
+      use_feedback_policy: false
+      dt: 0.025
+      integrator_type: "RK4"
+      project_state_input_equality_constraints: false
+      print_solver_status: true
+      print_solver_statistics: true
+      print_linesearch: true
+      enable_logging: false
+      log_size: 50
+      log_file_path: "/tmp/solver_log/"
+      n_threads: 2
+      thread_priority: 70
+    }
+    rollout {
+      abs_tol_ode: 5e-5
+      rel_tol_ode: 5e-3
+      max_num_steps_per_second: 20000
+      time_step: 0.015
+      integrator_type: "RK4"
+      check_numerical_stability: true
+      reconstruct_input_trajectory: false
+    }
+    mpc {
+      time_horizon: 1.25
+      solution_time_window: 0.3
+      debug_print: true
+      cold_start: true
+      mpc_desired_frequency: 80
+      mrt_desired_frequency: 400
+    }
+  )pb");
+  ASSERT_TRUE(task.ok()) << task.status();
+  const absl::StatusOr<SolverSettings> settings = solverSettingsFromConfig(*task);
+  ASSERT_TRUE(settings.ok()) << settings.status();
+
+  sqp::Settings sqpSettings;
+  sqpSettings.sqpIteration = 3;
+  sqpSettings.deltaTol = 2.5e-5;
+  sqpSettings.costTol = 5.0e-3;
+  sqpSettings.alpha_decay = 0.25;
+  sqpSettings.alpha_min = 1.0e-3;
+  sqpSettings.g_max = 0.5;
+  sqpSettings.g_min = 3.0e-7;
+  sqpSettings.armijoFactor = 2.0e-4;
+  sqpSettings.gamma_c = 2.0e-6;
+  sqpSettings.useFeedbackPolicy = false;
+  sqpSettings.dt = 0.025;
+  sqpSettings.integratorType = SensitivityIntegratorType::RK4;
+  sqpSettings.projectStateInputEqualityConstraints = false;
+  sqpSettings.printSolverStatus = true;
+  sqpSettings.printSolverStatistics = true;
+  sqpSettings.printLinesearch = true;
+  sqpSettings.enableLogging = false;
+  sqpSettings.logSize = 50;
+  sqpSettings.logFilePath = "/tmp/solver_log/";
+  sqpSettings.nThreads = 2;
+  sqpSettings.threadPriority = 70;
+  expectSameSqpSettings(settings->sqpSettings, sqpSettings);
+
+  rollout::Settings rolloutSettings;
+  rolloutSettings.absTolODE = 5.0e-5;
+  rolloutSettings.relTolODE = 5.0e-3;
+  rolloutSettings.maxNumStepsPerSecond = 20000;
+  rolloutSettings.timeStep = 0.015;
+  rolloutSettings.integratorType = IntegratorType::RK4;
+  rolloutSettings.checkNumericalStability = true;
+  rolloutSettings.reconstructInputTrajectory = false;
+  expectSameRolloutSettings(settings->rolloutSettings, rolloutSettings);
+
+  mpc::Settings mpcSettings;
+  mpcSettings.timeHorizon_ = 1.25;
+  mpcSettings.solutionTimeWindow_ = 0.3;
+  mpcSettings.debugPrint_ = true;
+  mpcSettings.coldStart_ = true;
+  mpcSettings.mpcDesiredFrequency_ = 80.0;
+  mpcSettings.mrtDesiredFrequency_ = 400.0;
+  expectSameMpcSettings(settings->mpcSettings, mpcSettings);
+  EXPECT_TRUE(settings->verbose);
+}
+
+TEST(SolverSettingsFromConfigTest, TheIntegratorsAreNamedAsOcs2NamesThem) {
+  for (const absl::string_view name : {"EULER", "RK2", "RK4"}) {
+    mpc_config::SqpSettingsConfig config;
+    config.integrator_type = std::string(name);
+    const absl::StatusOr<sqp::Settings> settings = toSqpSettings(config);
+    ASSERT_TRUE(settings.ok()) << settings.status();
+    EXPECT_EQ(settings->integratorType, sensitivity_integrator::fromString(std::string(name))) << name;
+  }
+  for (const absl::string_view name : {"EULER", "ODE45", "ODE45_OCS2", "MODIFIED_MIDPOINT", "RK4"}) {
+    mpc_config::RolloutSettingsConfig config;
+    config.integrator_type = std::string(name);
+    const absl::StatusOr<rollout::Settings> settings = toRolloutSettings(config);
+    ASSERT_TRUE(settings.ok()) << settings.status();
+    EXPECT_EQ(settings->integratorType, integrator_type::fromString(std::string(name))) << name;
+  }
+}
+
+TEST(SolverSettingsFromConfigTest, AnUnknownIntegratorIsRefusedListingTheIntegrators) {
+  mpc_config::SqpSettingsConfig sqpConfig;
+  sqpConfig.integrator_type = "RK3";
+  const absl::Status sqpStatus = toSqpSettings(sqpConfig).status();
+  expectRefused(sqpStatus, "multiple_shooting.integrator_type: 'RK3'");
+  expectRefused(sqpStatus, "the integrators are EULER, RK2, RK4");
+
+  mpc_config::RolloutSettingsConfig rolloutConfig;
+  rolloutConfig.integrator_type = "ode45";
+  const absl::Status rolloutStatus = toRolloutSettings(rolloutConfig).status();
+  expectRefused(rolloutStatus, "rollout.integrator_type: 'ode45'");
+  expectRefused(rolloutStatus, "the integrators are EULER, ODE45, ODE45_OCS2, MODIFIED_MIDPOINT, RK4");
+}
+
+TEST(SolverSettingsFromConfigTest, ANegativeCountIsRefusedNamingTheField) {
+  mpc_config::SqpSettingsConfig iterations;
+  iterations.sqp_iteration = -1;
+  expectRefused(toSqpSettings(iterations).status(), "multiple_shooting.sqp_iteration: -1");
+  mpc_config::SqpSettingsConfig logSize;
+  logSize.log_size = -1;
+  expectRefused(toSqpSettings(logSize).status(), "multiple_shooting.log_size: -1");
+  mpc_config::SqpSettingsConfig threads;
+  threads.n_threads = -2;
+  expectRefused(toSqpSettings(threads).status(), "multiple_shooting.n_threads: -2");
+  mpc_config::RolloutSettingsConfig steps;
+  steps.max_num_steps_per_second = -1;
+  expectRefused(toRolloutSettings(steps).status(), "rollout.max_num_steps_per_second: -1");
+
+  // 0 is a count.
+  mpc_config::SqpSettingsConfig none;
+  none.sqp_iteration = 0;
+  EXPECT_TRUE(toSqpSettings(none).ok());
+}
+
+/** A field of a solver block, by its path, and how a test writes a value into it. */
+template <typename Config>
+struct RangedField {
+  std::string path;
+  std::function<void(Config&, double)> set;
+  // Values outside the field's range besides NaN (0 and -1 for a positive field, -1 for a non-negative one, the upper
+  // ends for a factor below 1).
+  std::vector<double> outOfRange;
+};
+
+/** Expects `convert` to refuse every out-of-range value and NaN of every field, naming the field. */
+template <typename Config, typename Convert>
+void expectEveryOutOfRangeValueRefused(const std::vector<RangedField<Config>>& fields, Convert convert) {
+  for (const RangedField<Config>& field : fields) {
+    std::vector<double> values = field.outOfRange;
+    values.push_back(std::numeric_limits<double>::quiet_NaN());
+    for (const double value : values) {
+      Config config;
+      field.set(config, value);
+      expectRefused(convert(config).status(), absl::StrCat(field.path, ": "));
+    }
+  }
+}
+
+TEST(SolverSettingsFromConfigTest, ARealValueOutOfItsRangeIsRefusedNamingTheField) {
+  using Sqp = mpc_config::SqpSettingsConfig;
+  const std::vector<RangedField<Sqp>> sqpFields = {
+      {"multiple_shooting.dt", [](Sqp& c, double v) { c.dt = v; }, {0.0, -1.0}},
+      {"multiple_shooting.alpha_decay", [](Sqp& c, double v) { c.alpha_decay = v; }, {0.0, -1.0, 1.0, 1.5}},
+      {"multiple_shooting.alpha_min", [](Sqp& c, double v) { c.alpha_min = v; }, {0.0, -1.0, 1.5}},
+      {"multiple_shooting.delta_tol", [](Sqp& c, double v) { c.delta_tol = v; }, {0.0, -1.0}},
+      {"multiple_shooting.cost_tol", [](Sqp& c, double v) { c.cost_tol = v; }, {0.0, -1.0}},
+      {"multiple_shooting.g_max", [](Sqp& c, double v) { c.g_max = v; }, {0.0, -1.0}},
+      {"multiple_shooting.g_min", [](Sqp& c, double v) { c.g_min = v; }, {-1.0}},
+      {"multiple_shooting.armijo_factor", [](Sqp& c, double v) { c.armijo_factor = v; }, {-1.0, 1.0}},
+      {"multiple_shooting.gamma_c", [](Sqp& c, double v) { c.gamma_c = v; }, {-1.0, 1.0}},
+  };
+  expectEveryOutOfRangeValueRefused(sqpFields, [](const Sqp& c) { return toSqpSettings(c); });
+
+  using Rollout = mpc_config::RolloutSettingsConfig;
+  const std::vector<RangedField<Rollout>> rolloutFields = {
+      {"rollout.abs_tol_ode", [](Rollout& c, double v) { c.abs_tol_ode = v; }, {0.0, -1.0}},
+      {"rollout.rel_tol_ode", [](Rollout& c, double v) { c.rel_tol_ode = v; }, {0.0, -1.0}},
+      {"rollout.time_step", [](Rollout& c, double v) { c.time_step = v; }, {0.0, -1.0}},
+  };
+  expectEveryOutOfRangeValueRefused(rolloutFields, [](const Rollout& c) { return toRolloutSettings(c); });
+
+  using Mpc = mpc_config::MpcSettingsConfig;
+  const std::vector<RangedField<Mpc>> mpcFields = {
+      {"mpc.time_horizon", [](Mpc& c, double v) { c.time_horizon = v; }, {0.0, -1.0}},
+      {"mpc.solution_time_window", [](Mpc& c, double v) { c.solution_time_window = v; }, {0.0, -1.0}},
+      {"mpc.mpc_desired_frequency", [](Mpc& c, double v) { c.mpc_desired_frequency = v; }, {0.0, -1.0}},
+      {"mpc.mrt_desired_frequency", [](Mpc& c, double v) { c.mrt_desired_frequency = v; }, {0.0, -1.0}},
+  };
+  expectEveryOutOfRangeValueRefused(mpcFields, [](const Mpc& c) { return toMpcSettings(c); });
+}
+
+TEST(SolverSettingsFromConfigTest, GMinAboveGMaxIsRefused) {
+  mpc_config::SqpSettingsConfig config;
+  config.g_min = 2.0;
+  config.g_max = 1.0;
+  expectRefused(toSqpSettings(config).status(), "multiple_shooting.g_min (2) is greater than multiple_shooting.g_max (1)");
+  config.g_min = 1.0;
+  EXPECT_TRUE(toSqpSettings(config).ok()) << "g_min == g_max is an interval";
+}
+
+TEST(SolverSettingsFromConfigTest, TheEndsOfTheRangesAreAccepted) {
+  mpc_config::SqpSettingsConfig config;
+  config.alpha_min = 1.0;
+  config.g_min = 0.0;
+  config.armijo_factor = 0.0;
+  config.gamma_c = 0.0;
+  const absl::StatusOr<sqp::Settings> settings = toSqpSettings(config);
+  ASSERT_TRUE(settings.ok()) << settings.status();
+  EXPECT_EQ(settings->alpha_min, 1.0);
+}
+
+TEST(SolverSettingsFromConfigTest, AnAbsentWindowOrRateIsOcs2sSentinel) {
+  // The schema has no sentinel: an absent field is the whole horizon and solving as fast as possible, which OCS2's
+  // struct spells -1.
+  const absl::StatusOr<mpc::Settings> settings = toMpcSettings(mpc_config::MpcSettingsConfig{});
+  ASSERT_TRUE(settings.ok()) << settings.status();
+  EXPECT_LT(settings->solutionTimeWindow_, 0.0);
+  EXPECT_LT(settings->mpcDesiredFrequency_, 0.0);
+  mpc_config::MpcSettingsConfig given;
+  given.solution_time_window = 0.25;
+  given.mpc_desired_frequency = 40.0;
+  const absl::StatusOr<mpc::Settings> set = toMpcSettings(given);
+  ASSERT_TRUE(set.ok()) << set.status();
+  EXPECT_EQ(set->solutionTimeWindow_, 0.25);
+  EXPECT_EQ(set->mpcDesiredFrequency_, 40.0);
+}
+
+TEST(SolverSettingsFromConfigTest, AnErrorOfABlockIsTheErrorOfTheTaskFile) {
+  const absl::StatusOr<mpc_config::TaskFile> task = parseTaskFile(R"pb(rollout { integrator_type: "RK45" })pb");
+  ASSERT_TRUE(task.ok()) << task.status();
+  expectRefused(solverSettingsFromConfig(*task).status(), "rollout.integrator_type: 'RK45'");
+}
+
+TEST(SolverSettingsSchemaTest, TheRetiredKeysAreRefusedSayingWhatToDo) {
+  for (const absl::string_view text :
+       {"interface { useAnalyticalGradientsDynamics: false }", "interface { use_analytical_gradients_constraints: false }"}) {
+    const absl::Status status = parseTaskFile(text).status();
+    expectRefused(status, "is retired");
+    expectRefused(status, "delete the key");
+  }
+  const absl::Status ddp = parseTaskFile("ddp { }").status();
+  expectRefused(ddp, "'ddp' is retired");
+  expectRefused(ddp, "multiple_shooting");
+  // The settings of the state-triggered rollout, which the fork no longer has.
+  for (const absl::string_view key : {"rootFindingAlgorithm: 1", "root_finder_type: \"ILLINOIS\"", "max_single_event_iterations: 7",
+                                      "useTrajectorySpreadingController: true"}) {
+    const absl::Status status = parseTaskFile(absl::StrCat("rollout {\n  ", key, "\n}\n")).status();
+    expectRefused(status, "task.textproto:2:3: '");
+    expectRefused(status, "' is retired: it tuned OCS2's state-triggered rollout");
+    expectRefused(status, "delete the line");
+  }
+  const absl::Status valueFunction = parseTaskFile("multiple_shooting {\n  createValueFunction: true\n}\n").status();
+  expectRefused(valueFunction, "task.textproto:2:3: 'createValueFunction' is retired");
+  expectRefused(valueFunction, "delete the line");
+}
+
+TEST(SolverSettingsSchemaTest, AnOldKeyOfALiveFieldIsRefusedNamingTheField) {
+  const absl::Status status = parseTaskFile("multiple_shooting {\n  nThreads: 4\n}\n").status();
+  expectRefused(status, "task.textproto:2:");
+  expectRefused(status, "n_threads");
+}
+
+}  // namespace
+}  // namespace ocs2::humanoid

@@ -31,25 +31,20 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include <string>
-#include <vector>
+#include <utility>
 
-#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/Types.h"
 
 namespace ocs2::humanoid {
 
+/** The center of a contact surface: the frame it is named by, its parent joint and its offset in the parent's frame. */
 struct ContactCenterPoint {
   const std::string frameName;
   const std::string parentJointName;
   const vector3_t translationFromParent;
 
-  ContactCenterPoint(const std::string& frameName, const std::string& parentJointName, const vector3_t& translationFromParent)
-      : frameName(frameName), parentJointName(parentJointName), translationFromParent(translationFromParent) {}
-
-  static ContactCenterPoint loadContactCenterPoint(const std::string& taskFile,
-                                                   const ModelSettings& modelSettings,
-                                                   int contactIndex,
-                                                   bool verbose = false);
+  ContactCenterPoint(std::string frameName, std::string parentJointName, const vector3_t& translationFromParent)
+      : frameName(std::move(frameName)), parentJointName(std::move(parentJointName)), translationFromParent(translationFromParent) {}
 };
 
 }  // namespace ocs2::humanoid

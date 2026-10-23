@@ -29,6 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <ocs2_core/constraint/LinearStateInputConstraint.h>
 
+#include "absl/base/nullability.h"
+
 namespace ocs2 {
 
 /******************************************************************************************************/
@@ -40,7 +42,7 @@ LinearStateInputConstraint::LinearStateInputConstraint(vector_t e, matrix_t C, m
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-LinearStateInputConstraint* LinearStateInputConstraint::clone() const {
+LinearStateInputConstraint* absl_nonnull LinearStateInputConstraint::clone() const {
   return new LinearStateInputConstraint(*this);
 }
 

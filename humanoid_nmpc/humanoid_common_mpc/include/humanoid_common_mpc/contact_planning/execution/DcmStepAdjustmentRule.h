@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -25,6 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <string>
+
 #include "humanoid_common_mpc/contact_planning/execution/ExecutionRule.h"
 
 namespace ocs2::humanoid {
@@ -33,6 +39,8 @@ namespace ocs2::humanoid {
  * `dcm_step_adjustment`: the planned landing spot of every swing in flight is shifted by the DCM (capture point) error
  * between the measured center of mass and the NMPC's prediction, propagated to touch-down and clipped to the planner's
  * reachable region.
+ *
+ * Not thread-safe, like every ContactPlanningTerm: the planner that owns it configures and evaluates it from one thread at a time.
  */
 class DcmStepAdjustmentRule final : public ExecutionRule {
  public:

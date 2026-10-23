@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -27,6 +31,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <array>
 
+#include "ocs2_core/Dimensions.h"
+
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/contact_planning/problem/Layout.h"
 
@@ -37,12 +43,14 @@ namespace ocs2::humanoid {
  * Every entry is -1 when its block is absent (the heading ones); the LIP and foothold entries are always present.
  */
 struct LipIndices {
-  std::array<int, 2> com{-1, -1};                                                          // c_x, c_y
-  std::array<int, 2> vel{-1, -1};                                                          // v_x, v_y
-  std::array<int, 2> zmp{-1, -1};                                                          // zmp_x, zmp_y (input)
-  feet_array_t<std::array<int, 2>> foot = makeFeetArray(std::array<int, 2>{-1, -1});       // p_i (x, y)
-  feet_array_t<std::array<int, 2>> footDelta = makeFeetArray(std::array<int, 2>{-1, -1});  // dp_i (input)
-  feet_array_t<int> contact = makeFeetArray(-1);                                           // c_i (binary input)
+  using PlanarIndices = std::array<int, kHorizontalPositionDim>;  // the (x, y) entries of a planar quantity
+
+  PlanarIndices com{-1, -1};                                                     // c_x, c_y
+  PlanarIndices vel{-1, -1};                                                     // v_x, v_y
+  PlanarIndices zmp{-1, -1};                                                     // zmp_x, zmp_y (input)
+  feet_array_t<PlanarIndices> foot = makeFeetArray(PlanarIndices{-1, -1});       // p_i (x, y)
+  feet_array_t<PlanarIndices> footDelta = makeFeetArray(PlanarIndices{-1, -1});  // dp_i (input)
+  feet_array_t<int> contact = makeFeetArray(-1);                                 // c_i (binary input)
   bool hasHeading = false;
   int heading = -1;
   int headingRate = -1;

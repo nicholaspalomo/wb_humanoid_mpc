@@ -30,6 +30,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/constraint/EndEffectorKinematicsLinearVelConstraint.h"
 
+#include <utility>
+
+#include "absl/log/absl_check.h"
+
 namespace ocs2::humanoid {
 
 /******************************************************************************************************/
@@ -41,9 +45,8 @@ EndEffectorKinematicsLinearVelConstraint::EndEffectorKinematicsLinearVelConstrai
       endEffectorKinematicsPtr_(endEffectorKinematics.clone()),
       numConstraints_(numConstraints),
       config_(std::move(config)) {
-  if (endEffectorKinematicsPtr_->getIds().size() != 1) {
-    throw std::runtime_error("[EndEffectorKinematicsLinearVelConstraint] this class only accepts a single end-effector!");
-  }
+  ABSL_CHECK(endEffectorKinematicsPtr_->getIds().size() == 1)
+      << "[EndEffectorKinematicsLinearVelConstraint] this class only accepts a single end-effector!";
 }
 
 /******************************************************************************************************/
@@ -59,22 +62,16 @@ EndEffectorKinematicsLinearVelConstraint::EndEffectorKinematicsLinearVelConstrai
 /******************************************************************************************************/
 /******************************************************************************************************/
 void EndEffectorKinematicsLinearVelConstraint::configure(Config&& config) {
-  assert(config.b.rows() == numConstraints_);
-  assert(config.Ax.size() > 0 || config.Av.size() > 0);
-  assert((config.Ax.size() > 0 && config.Ax.rows() == numConstraints_) || config.Ax.size() == 0);
-  assert((config.Ax.size() > 0 && config.Ax.cols() == 3) || config.Ax.size() == 0);
-  assert((config.Av.size() > 0 && config.Av.rows() == numConstraints_) || config.Av.size() == 0);
-  assert((config.Av.size() > 0 && config.Av.cols() == 3) || config.Av.size() == 0);
   config_ = std::move(config);
 }
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-vector_t EndEffectorKinematicsLinearVelConstraint::getValue(scalar_t time,
+vector_t EndEffectorKinematicsLinearVelConstraint::getValue(scalar_t /*time*/,
                                                             const vector_t& state,
                                                             const vector_t& input,
-                                                            const PreComputation& preComp) const {
+                                                            const PreComputation& /*preComp*/) const {
   vector_t f = config_.b;
   if (config_.Ax.size() > 0) {
     f.noalias() += config_.Ax * endEffectorKinematicsPtr_->getPosition(state).front();
@@ -88,23 +85,22 @@ vector_t EndEffectorKinematicsLinearVelConstraint::getValue(scalar_t time,
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-VectorFunctionLinearApproximation EndEffectorKinematicsLinearVelConstraint::getLinearApproximation(scalar_t time,
-                                                                                                   const vector_t& state,
-                                                                                                   const vector_t& input,
-                                                                                                   const PreComputation& preComp) const {
+VectorFunctionLinearApproximation EndEffectorKinematicsLinearVelConstraint::getLinearApproximation(
+    scalar_t time, const vector_t& state, const vector_t& input, const PreComputation& /*preComp*/) const {
   VectorFunctionLinearApproximation linearApproximation =
       VectorFunctionLinearApproximation::Zero(getNumConstraints(time), state.size(), input.size());
 
   linearApproximation.f = config_.b;
 
   if (config_.Ax.size() > 0) {
-    const auto positionApprox = endEffectorKinematicsPtr_->getPositionLinearApproximation(state).front();
+    const VectorFunctionLinearApproximation positionApprox = endEffectorKinematicsPtr_->getPositionLinearApproximation(state).front();
     linearApproximation.f.noalias() += config_.Ax * positionApprox.f;
     linearApproximation.dfdx.noalias() += config_.Ax * positionApprox.dfdx;
   }
 
   if (config_.Av.size() > 0) {
-    const auto velocityApprox = endEffectorKinematicsPtr_->getVelocityLinearApproximation(state, input).front();
+    const VectorFunctionLinearApproximation velocityApprox =
+        endEffectorKinematicsPtr_->getVelocityLinearApproximation(state, input).front();
     linearApproximation.f.noalias() += config_.Av * velocityApprox.f;
     linearApproximation.dfdx.noalias() += config_.Av * velocityApprox.dfdx;
     linearApproximation.dfdu.noalias() += config_.Av * velocityApprox.dfdu;

@@ -31,25 +31,24 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <iostream>
 #include <memory>
-#include <mutex>
 #include <vector>
+
+#include "absl/base/nullability.h"
 
 #include <ocs2_core/Types.h>
 #include <ocs2_core/control/ControllerBase.h>
 
-#include "ocs2_oc/oc_data/DualSolution.h"
 #include "ocs2_oc/oc_data/PerformanceIndex.h"
 #include "ocs2_oc/oc_data/PrimalSolution.h"
 #include "ocs2_oc/oc_data/ProblemMetrics.h"
 #include "ocs2_oc/oc_problem/OptimalControlProblem.h"
 #include "ocs2_oc/synchronized_module/ReferenceManagerInterface.h"
-#include "ocs2_oc/synchronized_module/SolverObserver.h"
 #include "ocs2_oc/synchronized_module/SolverSynchronizedModule.h"
 
 namespace ocs2 {
 
 /**
- * This class is an interface class for the single-thread and multi-thread SLQ.
+ * This class is an interface class for the optimal control solvers (SqpSolver in this fork).
  */
 class SolverBase {
  public:
@@ -89,7 +88,11 @@ class SolverBase {
    * are possible: either the internal controller is already available (such as the MPC case where the warm starting option is set true) or
    * the internal controller is empty in which instead of performing a rollout the operating trajectories will be used.
    */
-  void run(scalar_t initTime, const vector_t& initState, size_t initMode, scalar_t finalTime, const ControllerBase* externalControllerPtr);
+  void run(scalar_t initTime,
+           const vector_t& initState,
+           size_t initMode,
+           scalar_t finalTime,
+           const ControllerBase* absl_nullable externalControllerPtr);
 
   /**
    * The main routine of solver which runs the optimizer for a given initial state, initial time, final time, and
@@ -119,13 +122,6 @@ class SolverBase {
   const ReferenceManagerInterface& getReferenceManager() const { return *referenceManagerPtr_; }
 
   /**
-   * Sets all modules that need to be synchronized with the solver. Each module is updated once before and once after solving the problem
-   */
-  void setSynchronizedModules(const std::vector<std::shared_ptr<SolverSynchronizedModule>>& synchronizedModules) {
-    synchronizedModules_ = synchronizedModules;
-  }
-
-  /**
    * Adds one module to the vector of modules that need to be synchronized with the solver. Each module is updated once before and once
    * after solving the problem
    */
@@ -144,12 +140,6 @@ class SolverBase {
       module->reset();
     }
   }
-
-  /**
-   * Adds an observer to probe the dual solution or optimized metrics.
-   * @note: Observers will slow down the MPC. Only employ them during debugging and remove them for deployment.
-   */
-  void addSolverObserver(std::unique_ptr<SolverObserver> observerModule) { solverObservers_.push_back(std::move(observerModule)); }
 
   /**
    * @brief Returns a const reference to the definition of optimal control problem.
@@ -192,7 +182,7 @@ class SolverBase {
    * @param [in] finalTime: The final time.
    * @param [out] primalSolutionPtr: The primal problem's solution.
    */
-  virtual void getPrimalSolution(scalar_t finalTime, PrimalSolution* primalSolutionPtr) const = 0;
+  virtual void getPrimalSolution(scalar_t finalTime, PrimalSolution* absl_nonnull primalSolutionPtr) const = 0;
 
   /**
    * @brief Returns the optimized policy data.
@@ -203,71 +193,19 @@ class SolverBase {
   PrimalSolution primalSolution(scalar_t finalTime) const;
 
   /**
-   * @brief Returns the optimized dual solution.
-   *
-   * @return: The dual problem's solution.
-   */
-  virtual const DualSolution* getDualSolution() const { return nullptr; }
-
-  /**
    * @brief Returns the optimized value of the Metrics.
    *
    * @return: The solution's metrics.
    */
   virtual const ProblemMetrics& getSolutionMetrics() const = 0;
 
-  /**
-   * Calculates the value function quadratic approximation at the given time and state.
-   *
-   * @param [in] time: The inquiry time
-   * @param [in] state: The inquiry state.
-   * @return The quadratic approximation of the value function at the requested time and state.
-   */
-  virtual ScalarFunctionQuadraticApproximation getValueFunction(scalar_t time, const vector_t& state) const = 0;
-
-  /**
-   * Calculates the Hamiltonian quadratic approximation at the given time, state and input.
-   *
-   * @param [in] time: The inquiry time
-   * @param [in] state: The inquiry state.
-   * @param [in] input: The inquiry input.
-   * @return The quadratic approximation of the Hamiltonian at the requested time, state and input.
-   */
-  virtual ScalarFunctionQuadraticApproximation getHamiltonian(scalar_t time, const vector_t& state, const vector_t& input) = 0;
-
-  /**
-   * Calculates the Lagrange multiplier of the state-input equality constraints at the given time and state.
-   *
-   * @param [in] time: The inquiry time
-   * @param [in] state: The inquiry state.
-   * @return The Lagrange multiplier of the state-input equality constraints.
-   */
-  virtual vector_t getStateInputEqualityConstraintLagrangian(scalar_t time, const vector_t& state) const = 0;
-
-  /**
-   * Returns the intermediate dual solution at the given time.
-   *
-   * @param [in] time: The inquiry time
-   * @return The collection of multipliers associated to state/state-input, equality/inequality Lagrangian terms.
-   */
-  virtual MultiplierCollection getIntermediateDualSolution(scalar_t time) const = 0;
-
-  /**
-   * Gets benchmarking information.
-   */
-  virtual std::string getBenchmarkingInfo() const { return {}; }
-
-  /**
-   * Prints to output.
-   *
-   * @param [in] input text.
-   */
-  void printString(const std::string& text) const;
-
  private:
   virtual void runImpl(scalar_t initTime, const vector_t& initState, scalar_t finalTime) = 0;
 
-  virtual void runImpl(scalar_t initTime, const vector_t& initState, scalar_t finalTime, const ControllerBase* externalControllerPtr) = 0;
+  virtual void runImpl(scalar_t initTime,
+                       const vector_t& initState,
+                       scalar_t finalTime,
+                       const ControllerBase* absl_nullable externalControllerPtr) = 0;
 
   virtual void runImpl(scalar_t initTime, const vector_t& initState, scalar_t finalTime, const PrimalSolution& primalSolution) = 0;
 
@@ -278,10 +216,8 @@ class SolverBase {
   /***********
    * Variables
    ***********/
-  mutable std::mutex outputDisplayGuardMutex_;
   std::shared_ptr<ReferenceManagerInterface> referenceManagerPtr_;  // this pointer cannot be nullptr
   std::vector<std::shared_ptr<SolverSynchronizedModule>> synchronizedModules_;
-  std::vector<std::unique_ptr<SolverObserver>> solverObservers_;
 };
 
 }  // namespace ocs2

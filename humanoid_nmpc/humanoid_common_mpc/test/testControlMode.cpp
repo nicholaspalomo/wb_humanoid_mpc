@@ -27,11 +27,10 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <gtest/gtest.h>
-
 #include <array>
 
 #include "absl/strings/string_view.h"
+#include "gtest/gtest.h"
 
 #include "humanoid_common_mpc/mrt/ControlMode.h"
 
@@ -68,7 +67,7 @@ TEST(ControlMode, ANameTheFsmDoesNotPublishIsInNeitherFamily) {
 }
 
 TEST(ControlMode, TheNamesAreTheOnesTheFsmPublishes) {
-  // The strings on /humanoid/fsm_command and /humanoid/fsm_state (humanoid_finite_state_machine.py ControlMode).
+  // The strings on operator/fsm_command and robot/fsm_state (humanoid_finite_state_machine.py ControlMode).
   EXPECT_EQ(control_mode::kZeroTorque, "ZERO_TORQUE");
   EXPECT_EQ(control_mode::kJointPd, "JOINT_PD");
   EXPECT_EQ(control_mode::kGravityComp, "GRAVITY_COMP");

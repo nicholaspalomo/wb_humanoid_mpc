@@ -56,6 +56,9 @@ namespace ocs2::humanoid {
  * Direction: a foot to the LEFT of a body turning counter-clockwise travels BACKWARDS (omega x r), so the fore-aft
  * displacements of the two feet are equal and opposite. The implementation carries the sign, so a positive
  * `forwardPerYawRate` means "lead the hips into the turn"; see the comment on offset().
+ *
+ * Like every LocomotionHeuristic, its const methods are safe to call concurrently; configure() is not, and must not run
+ * while they do.
  */
 class InPlaceTurningHeuristic final : public FootholdHeuristic {
  public:

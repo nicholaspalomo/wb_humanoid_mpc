@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -23,13 +27,13 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <gtest/gtest.h>
-
 #include <chrono>
 #include <optional>
 #include <string>
 
 #include "absl/status/statusor.h"
+#include "gtest/gtest.h"
+
 #include "humanoid_common_mpc/contact_planning/ContactPlannerFactory.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlannerModule.h"
 
@@ -129,7 +133,7 @@ TEST(ContactPlannerModuleReload, RetuningTheCadenceReprintsTheSummaryWithItsStar
   longSwing.hlip.sspDuration = 0.35;
 
   const std::optional<std::string> reloaded = ContactPlannerModule::reloadSummary(fits, longSwing);
-  ASSERT_TRUE(reloaded.has_value()) << "a cadence change must be re-checked and re-printed";
+  if (!reloaded.has_value()) GTEST_FAIL() << "a cadence change must be re-checked and re-printed";
   EXPECT_NE(reloaded->find("single support 0.35"), std::string::npos) << *reloaded;
   EXPECT_NE(reloaded->find("DOES NOT FIT"), std::string::npos) << *reloaded;
   // It is the same summary the start-up prints, not a partial one.
@@ -139,7 +143,7 @@ TEST(ContactPlannerModuleReload, RetuningTheCadenceReprintsTheSummaryWithItsStar
 
   // And back: the fitting cadence reports that it fits.
   const std::optional<std::string> restored = ContactPlannerModule::reloadSummary(longSwing, fits);
-  ASSERT_TRUE(restored.has_value());
+  if (!restored.has_value()) GTEST_FAIL();
   EXPECT_NE(restored->find("(fits)"), std::string::npos) << *restored;
 
   // Each of the other keys the check reads re-prints it too.

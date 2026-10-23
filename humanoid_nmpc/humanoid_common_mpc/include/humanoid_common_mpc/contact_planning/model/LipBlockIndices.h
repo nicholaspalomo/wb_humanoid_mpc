@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -27,8 +31,29 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-/** Fixed indices of the LIP and foothold blocks: they are always the first two blocks, so these are the layout's 0..7. */
-enum LipStateIndex : int { LIP_CX = 0, LIP_CY, LIP_VX, LIP_VY, LIP_PLX, LIP_PLY, LIP_PRX, LIP_PRY, LIP_STATE_DIM };
-enum LipInputIndex : int { LIP_ZX = 0, LIP_ZY, LIP_DLX, LIP_DLY, LIP_DRX, LIP_DRY, LIP_CL, LIP_CR, LIP_INPUT_DIM };
+/**
+ * Fixed indices of the LIP and foothold blocks: they are always the first two blocks, so these are the layout's 0..7.
+ * Plain constants rather than an enum: they index Eigen vectors and matrices and are compared with Layout indices.
+ */
+// States: CoM position and velocity, then the left and right foot positions.
+inline constexpr int kLipCx = 0;
+inline constexpr int kLipCy = 1;
+inline constexpr int kLipVx = 2;
+inline constexpr int kLipVy = 3;
+inline constexpr int kLipPlx = 4;
+inline constexpr int kLipPly = 5;
+inline constexpr int kLipPrx = 6;
+inline constexpr int kLipPry = 7;
+inline constexpr int kLipStateDim = 8;
+// Inputs: ZMP, the left and right foot displacements, then the contact binaries.
+inline constexpr int kLipZx = 0;
+inline constexpr int kLipZy = 1;
+inline constexpr int kLipDlx = 2;
+inline constexpr int kLipDly = 3;
+inline constexpr int kLipDrx = 4;
+inline constexpr int kLipDry = 5;
+inline constexpr int kLipCl = 6;
+inline constexpr int kLipCr = 7;
+inline constexpr int kLipInputDim = 8;
 
 }  // namespace ocs2::humanoid

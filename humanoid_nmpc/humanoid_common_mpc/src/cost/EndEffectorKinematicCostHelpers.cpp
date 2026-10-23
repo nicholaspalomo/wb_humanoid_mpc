@@ -30,16 +30,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/cost/EndEffectorKinematicCostHelpers.h"
 
-#include <boost/property_tree/info_parser.hpp>
-#include <boost/property_tree/ptree.hpp>
-
-#include <ocs2_core/misc/LoadData.h>
-
-#include "absl/log/log.h"
+#include "ocs2_core/manifold/UnitQuaternionMath.h"
 
 namespace ocs2::humanoid {
 
-vector12_t EndEffectorKinematicsWeights::toVector() {
+vector12_t EndEffectorKinematicsWeights::toVector() const {
   vector12_t weightVector;
   weightVector << contactPositionErrorWeight, contactOrientationErrorWeight, contactLinearVelocityErrorWeight,
       contactAngularVelocityErrorWeight;
@@ -50,72 +45,15 @@ vector12_t EndEffectorKinematicsWeights::toVector() {
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-EndEffectorKinematicsWeights EndEffectorKinematicsWeights::getWeights(const std::string& taskFile, const std::string prefix, bool verbose) {
-  boost::property_tree::ptree pt;
-  loadData::readPropertyTree(taskFile, pt);
-
-  // Load all weights
-  scalar_t pos_x = 0;
-  scalar_t pos_y = 0;
-  scalar_t pos_z = 0;
-  scalar_t orientation_x = 0;
-  scalar_t orientation_y = 0;
-  scalar_t orientation_z = 0;
-  scalar_t lin_velocity_x = 0;
-  scalar_t lin_velocity_y = 0;
-  scalar_t lin_velocity_z = 0;
-  scalar_t ang_velocity_x = 0;
-  scalar_t ang_velocity_y = 0;
-  scalar_t ang_velocity_z = 0;
-  if (verbose) {
-    LOG(INFO) << "\n #### End Effector Kinematics Quadratic Cost Weights: ";
-    LOG(INFO) << "Loading weigths from: " << prefix;
-    LOG(INFO) << "\n #### =============================================================================\n";
-  }
-  loadData::loadPtreeValue(pt, pos_x, prefix + "pos_x", verbose);
-  loadData::loadPtreeValue(pt, pos_y, prefix + "pos_y", verbose);
-  loadData::loadPtreeValue(pt, pos_z, prefix + "pos_z", verbose);
-  loadData::loadPtreeValue(pt, orientation_x, prefix + "orientation_x", verbose);
-  loadData::loadPtreeValue(pt, orientation_y, prefix + "orientation_y", verbose);
-  loadData::loadPtreeValue(pt, orientation_z, prefix + "orientation_z", verbose);
-  loadData::loadPtreeValue(pt, lin_velocity_x, prefix + "lin_velocity_x", verbose);
-  loadData::loadPtreeValue(pt, lin_velocity_y, prefix + "lin_velocity_y", verbose);
-  loadData::loadPtreeValue(pt, lin_velocity_z, prefix + "lin_velocity_z", verbose);
-  loadData::loadPtreeValue(pt, ang_velocity_x, prefix + "ang_velocity_x", verbose);
-  loadData::loadPtreeValue(pt, ang_velocity_y, prefix + "ang_velocity_y", verbose);
-  loadData::loadPtreeValue(pt, ang_velocity_z, prefix + "ang_velocity_z", verbose);
-
-  if (verbose) {
-    LOG(INFO) << " #### =============================================================================\n";
-  }
-
-  EndEffectorKinematicsWeights weights;
-
-  weights.contactPositionErrorWeight = vector3_t(pos_x, pos_y, pos_z);
-  weights.contactOrientationErrorWeight = vector3_t(orientation_x, orientation_y, orientation_z);
-  weights.contactLinearVelocityErrorWeight = vector3_t(lin_velocity_x, lin_velocity_y, lin_velocity_z);
-  weights.contactAngularVelocityErrorWeight = vector3_t(ang_velocity_x, ang_velocity_y, ang_velocity_z);
-
-  return weights;
-}
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
-std::vector<std::string> EndEffectorKinematicsWeights::getDescriptions() {
-  return {"pos_x",          "pos_y",          "pos_z",          "orientation_x",  "orientation_y",  "orientation_z",
-          "lin_velocity_x", "lin_velocity_y", "lin_velocity_z", "ang_velocity_x", "ang_velocity_y", "ang_velocity_z"};
-}
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 template <typename SCALAR_T>
 VECTOR12_T<SCALAR_T> computeTaskSpaceErrors(const EndEffectorKinematicsCostElement<SCALAR_T>& current,
                                             const EndEffectorKinematicsCostElement<SCALAR_T>& reference) {
-  const VECTOR3_T<SCALAR_T> orientationError = quaternionDistance<SCALAR_T>(current.getOrientation(), reference.getOrientation());
+  // The rotation vector theta n of the rotation that takes the current orientation to the reference, in world axes:
+  // Log(q_ref (x) q^-1), on the shortest path (|theta| <= pi). It replaces the vector part of that error quaternion,
+  // sin(theta / 2) n, which is half the angle to first order and saturates at a half turn.
+  const quaternion_coeffs_t<SCALAR_T> errorQuaternion =
+      quaternionProduct<SCALAR_T>(reference.getOrientation().coeffs(), quaternionConjugate<SCALAR_T>(current.getOrientation().coeffs()));
+  const VECTOR3_T<SCALAR_T> orientationError = quaternionLog<SCALAR_T>(errorQuaternion);
 
   VECTOR12_T<SCALAR_T> errors;
   errors << (current.getPosition() - reference.getPosition()), orientationError,
@@ -126,5 +64,20 @@ template VECTOR12_T<scalar_t> computeTaskSpaceErrors(const EndEffectorKinematics
                                                      const EndEffectorKinematicsCostElement<scalar_t>& reference);
 template VECTOR12_T<ad_scalar_t> computeTaskSpaceErrors(const EndEffectorKinematicsCostElement<ad_scalar_t>& current,
                                                         const EndEffectorKinematicsCostElement<ad_scalar_t>& reference);
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+
+template <typename SCALAR_T>
+VECTOR3_T<SCALAR_T> tiltAngleToPlane(const MATRIX3_T<SCALAR_T>& rotation, const VECTOR3_T<SCALAR_T>& planeNormal) {
+  const VECTOR3_T<SCALAR_T> endEffectorNormal = rotation.col(kZAxisIndex);
+  // The shortest arc from v to n has the vector part (v x n) / sqrt(2 (1 + v . n)), finite at v = -n (its clamp); Log
+  // takes it to theta (v x n) / |v x n|, and the tilt turns n into v, the other way.
+  const Eigen::Quaternion<SCALAR_T> shortestArc = getQuaternionFromUnitVectors<SCALAR_T>(endEffectorNormal, planeNormal);
+  return -quaternionLog<SCALAR_T>(shortestArc.coeffs());
+}
+template VECTOR3_T<scalar_t> tiltAngleToPlane(const MATRIX3_T<scalar_t>& rotation, const VECTOR3_T<scalar_t>& planeNormal);
+template VECTOR3_T<ad_scalar_t> tiltAngleToPlane(const MATRIX3_T<ad_scalar_t>& rotation, const VECTOR3_T<ad_scalar_t>& planeNormal);
 
 }  // namespace ocs2::humanoid

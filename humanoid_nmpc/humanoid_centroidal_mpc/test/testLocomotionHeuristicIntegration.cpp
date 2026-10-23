@@ -27,48 +27,50 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <pinocchio/fwd.hpp>  // forward declarations must be included first.
-
-#include <gtest/gtest.h>
+#include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
 #include <algorithm>
 #include <cmath>
-#include <filesystem>
-#include <fstream>
-#include <iterator>
 #include <limits>
 #include <memory>
 #include <optional>
-#include <regex>
 #include <string>
 #include <utility>
 #include <vector>
 
-#include <ament_index_cpp/get_package_share_directory.hpp>
-#include <pinocchio/algorithm/center-of-mass.hpp>
-#include <pinocchio/algorithm/centroidal.hpp>
-#include <pinocchio/algorithm/frames.hpp>
-#include <pinocchio/algorithm/kinematics.hpp>
-
-#include <ocs2_core/PreComputation.h>
-#include <ocs2_core/cost/QuadraticStateCost.h>
-#include <ocs2_core/misc/LoadData.h>
-#include <ocs2_core/reference/ModeSchedule.h>
-
+#include "absl/base/no_destructor.h"
+#include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "gtest/gtest.h"
+#include "ocs2_core/PreComputation.h"
+#include "ocs2_core/manifold/UnitQuaternionMath.h"
+#include "ocs2_core/reference/ModeSchedule.h"
+#include "pinocchio/algorithm/center-of-mass.hpp"
+#include "pinocchio/algorithm/centroidal.hpp"
+#include "pinocchio/algorithm/frames.hpp"
+#include "pinocchio/algorithm/kinematics.hpp"
 
+#include "humanoid_centroidal_mpc/CentroidalMpcConfig.h"
 #include "humanoid_centroidal_mpc/CentroidalMpcInterface.h"
 #include "humanoid_common_mpc/common/MpcFormulationConfig.h"
+#include "humanoid_common_mpc/config/swing/LocomotionHeuristicsFromConfig.h"
+#include "humanoid_common_mpc/config/weights/StateInputLayout.h"
+#include "humanoid_common_mpc/config/weights/StateInputWeightsFromConfig.h"
 #include "humanoid_common_mpc/cost/BasePoseShapedQuadraticStateCost.h"
 #include "humanoid_common_mpc/cost/EndEffectorKinematicsQuadraticCost.h"
+#include "humanoid_common_mpc/cost/TuningQuadraticStateCost.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicConfig.h"
 #include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicLayer.h"
+#include "humanoid_common_mpc/orientation/TuningLayoutDeviation.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
+#include "humanoid_mpc_config/locomotion_heuristics_config.nproto.h"
+#include "humanoid_mpc_config/task_file.nproto.h"
+#include "support/TypedConfigFiles.h"
 
 namespace ocs2::humanoid {
 
@@ -88,11 +90,11 @@ constexpr scalar_t kWalkStanceDuration = 0.6;
 
 ModeSchedule walkSchedule() {
   std::vector<scalar_t> eventTimes;
-  std::vector<size_t> modeSequence{static_cast<size_t>(ModeNumber::RF)};
+  std::vector<size_t> modeSequence{static_cast<size_t>(ModeNumber::kRf)};
   for (int k = -3; k <= 8; ++k) {
     const scalar_t start = static_cast<scalar_t>(k);
     for (const scalar_t offset : {0.0, 0.1, 0.5, 0.6}) eventTimes.push_back(start + offset);
-    for (const ModeNumber mode : {ModeNumber::STANCE, ModeNumber::LF, ModeNumber::STANCE, ModeNumber::RF}) {
+    for (const ModeNumber mode : {ModeNumber::kStance, ModeNumber::kLf, ModeNumber::kStance, ModeNumber::kRf}) {
       modeSequence.push_back(static_cast<size_t>(mode));
     }
   }
@@ -115,11 +117,11 @@ constexpr scalar_t kLongStrideDutyFactor = 0.8 / 1.4;
 
 ModeSchedule longStrideWalkSchedule() {
   std::vector<scalar_t> eventTimes;
-  std::vector<size_t> modeSequence{static_cast<size_t>(ModeNumber::RF)};
+  std::vector<size_t> modeSequence{static_cast<size_t>(ModeNumber::kRf)};
   for (int k = -3; k <= 6; ++k) {
     const scalar_t start = kLongStride * static_cast<scalar_t>(k);
     for (const scalar_t offset : {0.0, 0.1, 0.7, 0.8}) eventTimes.push_back(start + offset);
-    for (const ModeNumber mode : {ModeNumber::STANCE, ModeNumber::LF, ModeNumber::STANCE, ModeNumber::RF}) {
+    for (const ModeNumber mode : {ModeNumber::kStance, ModeNumber::kLf, ModeNumber::kStance, ModeNumber::kRf}) {
       modeSequence.push_back(static_cast<size_t>(mode));
     }
   }
@@ -132,11 +134,11 @@ constexpr scalar_t kRunDutyFactor = 0.375;
 
 ModeSchedule runSchedule() {
   std::vector<scalar_t> eventTimes;
-  std::vector<size_t> modeSequence{static_cast<size_t>(ModeNumber::FLY)};
+  std::vector<size_t> modeSequence{static_cast<size_t>(ModeNumber::kFly)};
   for (int k = -4; k <= 12; ++k) {
     const scalar_t start = 0.8 * static_cast<scalar_t>(k);
     for (const scalar_t offset : {0.0, 0.3, 0.4, 0.7}) eventTimes.push_back(start + offset);
-    for (const ModeNumber mode : {ModeNumber::LF, ModeNumber::FLY, ModeNumber::RF, ModeNumber::FLY}) {
+    for (const ModeNumber mode : {ModeNumber::kLf, ModeNumber::kFly, ModeNumber::kRf, ModeNumber::kFly}) {
       modeSequence.push_back(static_cast<size_t>(mode));
     }
   }
@@ -152,15 +154,15 @@ ModeSchedule runSchedule() {
  */
 class RestoreCoefficientsFromFileOnExit {
  public:
-  RestoreCoefficientsFromFileOnExit(std::shared_ptr<LocomotionHeuristicLayer> layer, std::string taskFile)
-      : layer_(std::move(layer)), taskFile_(std::move(taskFile)) {}
+  RestoreCoefficientsFromFileOnExit(std::shared_ptr<LocomotionHeuristicLayer> layer, const mpc_config::TaskFile& task)
+      : layer_(std::move(layer)), heuristics_(task.locomotion_heuristics) {}
   RestoreCoefficientsFromFileOnExit(const RestoreCoefficientsFromFileOnExit&) = delete;
   RestoreCoefficientsFromFileOnExit& operator=(const RestoreCoefficientsFromFileOnExit&) = delete;
 
   ~RestoreCoefficientsFromFileOnExit() {
-    const absl::StatusOr<LocomotionHeuristicConfig> config = loadLocomotionHeuristicConfig(taskFile_);
+    const absl::StatusOr<LocomotionHeuristicConfig> config = locomotionHeuristicConfigFromConfig(heuristics_);
     if (!config.ok()) {
-      ADD_FAILURE() << "could not restore the coefficients of " << taskFile_ << ": " << config.status().message();
+      ADD_FAILURE() << "could not restore the coefficients of the task file: " << config.status().message();
       return;
     }
     const absl::Status status = layer_->reconfigure(*config);
@@ -169,7 +171,8 @@ class RestoreCoefficientsFromFileOnExit {
 
  private:
   std::shared_ptr<LocomotionHeuristicLayer> layer_;
-  std::string taskFile_;
+  // The task file's locomotion_heuristics, which the layer is restored to.
+  mpc_config::LocomotionHeuristicsConfig heuristics_;
 };
 
 /**
@@ -185,12 +188,12 @@ class RestoreCoefficientsFromFileOnExit {
  *  - `enabled_`: base_pose [orientation_compensation, height_compensation], foothold [hip_centered_stepping,
  *    translational_stepping], wrench [impulse_scaling]. The base-pose, hip-anchored foothold, vertical wrench,
  *    terminal-cost and torso-cost seams. Runs without com_and_acom_tracking_cost, with terminal_cost in place of
- *    dcm_terminal_cost and a base-pose block in Q_final, so that the quadratic terminal cost exists and weighs the channels the heuristics
- * shape.
+ *    dcm_terminal_cost and a base-pose block in Q_final, so that the quadratic terminal cost exists and weighs the
+ *    channels the heuristics shape.
  *  - `stanceAnchored_`: base_pose [periodic_orientation], foothold [translational_stepping], wrench
- *    [centripetal_acceleration]. The gait-phase seam, the stance-foot-anchored foothold path, and the world-frame
+ *    [centripetal_acceleration]. The gait-phase seam, the step-width-anchored foothold path, and the world-frame
  *    wrench path.
- *  - `zeroStepWidth_`: foothold [hip_centered_stepping] with nominal_foothold.stepWidth 0, the configuration of the
+ *  - `zeroStepWidth_`: foothold [hip_centered_stepping] with nominal_foothold.step_width 0, the configuration of the
  *    SA01, G1 and R1, where the listed heuristic is the only reason anything is measured at all.
  *  - `basePoseOnly_`: the shipped file with base_pose [height_compensation] and nothing else. No foothold heuristic,
  *    so the landing target is the nominal step exactly as on `shipped_`; what differs is that a heuristic is listed.
@@ -205,135 +208,83 @@ class RestoreCoefficientsFromFileOnExit {
  */
 class LocomotionHeuristicIntegrationTest : public ::testing::Test {
  protected:
-  static std::string configDir() { return ament_index_cpp::get_package_share_directory("drc_atlas_centroidal_mpc"); }
-  static std::string urdfFile() { return ament_index_cpp::get_package_share_directory("drc_atlas_description") + "/urdf/atlas.urdf"; }
-  static std::string referenceFile() { return configDir() + "/config/command/reference.yaml"; }
-  static std::string shippedTaskFile() { return configDir() + "/config/mpc/task.yaml"; }
-
-  static std::string readFile(const std::string& path) {
-    std::ifstream in(path);
-    return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-  }
-
-  /** `content` with `pattern` replaced; fails the calling test if the pattern is not there, since the file would then test nothing. */
-  static std::string replaceOrFail(const std::string& content,
-                                   const std::regex& pattern,
-                                   const std::string& replacement,
-                                   absl::string_view what,
-                                   std::regex_constants::match_flag_type flags = std::regex_constants::format_default) {
-    EXPECT_TRUE(std::regex_search(content, pattern)) << what << " was not found in the task file, so this temp file would test nothing";
-    return std::regex_replace(content, pattern, replacement, flags);
-  }
-
-  /**
-   * `content` with its three `locomotion_heuristics` lists replaced by `lists`, which spells all three keys. The
-   * shipped lists are bare keys with their candidate names commented out beneath them.
-   */
-  static std::string withLists(const std::string& content, const std::string& lists) {
-    const std::regex shippedLists("  base_pose:\n(?:    #[^\n]*\n)*  foothold:\n(?:    #[^\n]*\n)*  wrench:\n(?:    #[^\n]*\n)*");
-    return replaceOrFail(content, shippedLists, lists, "the shipped locomotion_heuristics lists");
-  }
-
-  /** `content` with its contactScheduleSource set to `source`, a name of the registry (MpcFormulationConfig.h). */
-  static std::string withContactScheduleSource(const std::string& content, absl::string_view source) {
-    return replaceOrFail(content, std::regex(absl::StrCat("\n", kContactScheduleSourceKey, ": *[a-z_]+")),
-                         absl::StrCat("\n", kContactScheduleSourceKey, ": ", source), kContactScheduleSourceKey);
-  }
-
-  /** `content` ending its horizon on the quadratic Q_final cost instead of the DCM cost the shipped Atlas lists. */
-  static std::string withQuadraticTerminalCost(const std::string& content) {
-    return replaceOrFail(content, std::regex("\n  - dcm_terminal_cost\n"), "\n  - terminal_cost\n", "costs: dcm_terminal_cost");
-  }
-
-  static std::string writeTaskFile(const std::string& name, const std::string& content) {
-    const std::filesystem::path directory = std::filesystem::path(testing::TempDir()) / "locomotion_heuristics_integration";
-    std::filesystem::create_directories(directory);
-    const std::string file = (directory / name).string();
-    std::ofstream out(file);
-    out << content;
-    return file;
-  }
-
-  static CentroidalMpcInterface* build(const std::string& taskFile) {
-    absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> interface =
-        CentroidalMpcInterface::Create(taskFile, urdfFile(), referenceFile());
+  /** The interface of `config` and the DRC Atlas URDF, owned by the suite; null (and a failure) when it is refused. */
+  static CentroidalMpcInterface* absl_nullable build(const CentroidalMpcConfig& config) {
+    absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> interface = CentroidalMpcInterface::Create(config, files().urdfFile);
     EXPECT_TRUE(interface.ok()) << interface.status().message();
     return interface.ok() ? interface->release() : nullptr;
   }
 
+  /** The shipped DRC Atlas configuration with its three locomotion_heuristics lists replaced. */
+  static CentroidalMpcConfig withLists(const std::vector<std::string>& basePose,
+                                       const std::vector<std::string>& foothold,
+                                       const std::vector<std::string>& wrench) {
+    CentroidalMpcConfig config = *shippedConfig_;
+    EXPECT_TRUE(config.task.locomotion_heuristics.base_pose.empty() && config.task.locomotion_heuristics.foothold.empty() &&
+                config.task.locomotion_heuristics.wrench.empty())
+        << "the shipped locomotion_heuristics lists are no longer empty";
+    config.task.locomotion_heuristics.base_pose = basePose;
+    config.task.locomotion_heuristics.foothold = foothold;
+    config.task.locomotion_heuristics.wrench = wrench;
+    config.task.contact_schedule_source = std::string(kGaitScheduleContactScheduleSource);
+    return config;
+  }
+
+  /**
+   * `config` with the foot cost's xy weights raised: at the shipped 0 the landing target is computed and multiplied by
+   * zero, which is the configuration start-up warns about.
+   */
+  static void raiseFootPositionWeights(CentroidalMpcConfig& config) {
+    config.task.task_space_foot_cost.weights.pos_x = 50.0;
+    config.task.task_space_foot_cost.weights.pos_y = 50.0;
+  }
+
   static void SetUpTestSuite() {
-    shipped_ = build(shippedTaskFile());
+    absl::StatusOr<CentroidalMpcConfig> shipped = loadConfigOf(files());
+    ASSERT_TRUE(shipped.ok()) << shipped.status();
+    *shippedConfig_ = *std::move(shipped);
+    shipped_ = build(*shippedConfig_);
 
-    // The foot cost's xy weights are raised wherever a foothold heuristic is listed: at the shipped 0 the landing
-    // target is computed and multiplied by zero, which is the configuration start-up warns about.
-    const std::regex footPositionWeights("\n  pos_x: *[-0-9.eE+]+\n  pos_y: *[-0-9.eE+]+\n");
-    const std::string raisedFootWeights = "\n  pos_x: 50\n  pos_y: 50\n";
-
-    std::string enabled = withLists(readFile(shippedTaskFile()), R"(  base_pose:
-    - orientation_compensation
-    - height_compensation
-  foothold:
-    - hip_centered_stepping
-    - translational_stepping
-  wrench:
-    - impulse_scaling
-)");
-    enabled = withContactScheduleSource(enabled, kGaitScheduleContactScheduleSource);
+    CentroidalMpcConfig enabled = withLists({"orientation_compensation", "height_compensation"},
+                                            {"hip_centered_stepping", "translational_stepping"}, {"impulse_scaling"});
     // The quadratic terminal cost only exists with the DCM terminal cost off, and weighs the base pose only without
-    // com_and_acom_tracking_cost (the factory zeroes Q_final's base-pose block otherwise). The shipped Q_final has that
-    // block at zero too, so it is given one: a terminal cost that weighs nothing cannot show it pulls towards anything.
-    enabled = replaceOrFail(enabled, std::regex("\n  - com_and_acom_tracking_cost\n"), "\n", "costs: com_and_acom_tracking_cost");
-    enabled = withQuadraticTerminalCost(enabled);
-    const std::string::size_type terminalBlock = enabled.find("\nQ_final:");
-    EXPECT_NE(terminalBlock, std::string::npos);
-    std::string terminalTail = enabled.substr(terminalBlock);
-    terminalTail = replaceOrFail(terminalTail, std::regex("\"\\(8,8\\)\": *[-0-9.eE+]+"), "\"(8,8)\": 20", "Q_final (8,8)",
-                                 std::regex_constants::format_first_only);
-    terminalTail = replaceOrFail(terminalTail, std::regex("\"\\(10,10\\)\": *[-0-9.eE+]+"), "\"(10,10)\": 5", "Q_final (10,10)",
-                                 std::regex_constants::format_first_only);
-    terminalTail = replaceOrFail(terminalTail, std::regex("\"\\(11,11\\)\": *[-0-9.eE+]+"), "\"(11,11)\": 5", "Q_final (11,11)",
-                                 std::regex_constants::format_first_only);
-    enabled = enabled.substr(0, terminalBlock) + terminalTail;
-    enabled = replaceOrFail(enabled, footPositionWeights, raisedFootWeights, "task_space_foot_cost_weights.pos_x / pos_y");
-    enabledTaskFile_ = writeTaskFile("heuristics_on.yaml", enabled);
-    enabled_ = build(enabledTaskFile_);
+    // com_and_acom_tracking_cost (the factory zeroes final_state_weights' base-pose block otherwise). The shipped
+    // final_state_weights has that block at zero too, so it is given one: a terminal cost that weighs nothing cannot
+    // show it pulls towards anything.
+    std::vector<std::string>& costs = enabled.task.costs;
+    costs.erase(std::remove(costs.begin(), costs.end(), "com_and_acom_tracking_cost"), costs.end());
+    std::replace(costs.begin(), costs.end(), std::string("dcm_terminal_cost"), std::string("terminal_cost"));
+    enabled.task.final_state_weights.base_position = mpc_config::Xyz{.x = 0.0, .y = 0.0, .z = 20.0};
+    enabled.task.final_state_weights.base_orientation = mpc_config::YawPitchRoll{.yaw = 0.0, .pitch = 5.0, .roll = 5.0};
+    raiseFootPositionWeights(enabled);
+    *enabledConfig_ = enabled;
+    enabled_ = build(enabled);
 
-    std::string stanceAnchored = withLists(readFile(shippedTaskFile()), R"(  base_pose:
-    - periodic_orientation
-  foothold:
-    - translational_stepping
-  wrench:
-    - centripetal_acceleration
-)");
-    stanceAnchored = withContactScheduleSource(stanceAnchored, kGaitScheduleContactScheduleSource);
-    stanceAnchored = replaceOrFail(stanceAnchored, footPositionWeights, raisedFootWeights, "task_space_foot_cost_weights.pos_x / pos_y");
-    stanceAnchoredTaskFile_ = writeTaskFile("stance_anchored.yaml", stanceAnchored);
-    stanceAnchored_ = build(stanceAnchoredTaskFile_);
+    CentroidalMpcConfig stanceAnchored = withLists({"periodic_orientation"}, {"translational_stepping"}, {"centripetal_acceleration"});
+    raiseFootPositionWeights(stanceAnchored);
+    *stanceAnchoredConfig_ = stanceAnchored;
+    stanceAnchored_ = build(stanceAnchored);
 
-    std::string zeroStepWidth = withLists(readFile(shippedTaskFile()), R"(  base_pose:
-  foothold:
-    - hip_centered_stepping
-  wrench:
-)");
-    zeroStepWidth = withContactScheduleSource(zeroStepWidth, kGaitScheduleContactScheduleSource);
-    zeroStepWidth = withStepWidth(zeroStepWidth, /*stepWidth=*/0.0);
-    zeroStepWidth = replaceOrFail(zeroStepWidth, footPositionWeights, raisedFootWeights, "task_space_foot_cost_weights.pos_x / pos_y");
-    zeroStepWidthTaskFile_ = writeTaskFile("zero_step_width.yaml", zeroStepWidth);
-    zeroStepWidth_ = build(zeroStepWidthTaskFile_);
+    CentroidalMpcConfig zeroStepWidth = withLists(/*basePose=*/{}, {"hip_centered_stepping"}, /*wrench=*/{});
+    zeroStepWidth.task.nominal_foothold.step_width = 0.0;
+    raiseFootPositionWeights(zeroStepWidth);
+    *zeroStepWidthConfig_ = zeroStepWidth;
+    zeroStepWidth_ = build(zeroStepWidth);
 
-    const std::string basePoseOnly = withLists(readFile(shippedTaskFile()), R"(  base_pose:
-    - height_compensation
-  foothold:
-  wrench:
-)");
-    basePoseOnly_ = build(writeTaskFile("base_pose_only.yaml", basePoseOnly));
+    basePoseOnly_ = build(withLists({"height_compensation"}, /*foothold=*/{}, /*wrench=*/{}));
 
     // Read here, straight after the build and before any case runs a pre-solve, because it is a property of the
     // FIRST solve and the interfaces are shared.
     if (stanceAnchored_ != nullptr) {
       footholdExistedBeforeFirstSolve_ =
-          stanceAnchored_->getSwitchedModelReferenceManagerPtr()->nominalFoothold(CONTACT_RIGHT_INDEX, /*time=*/1.5).has_value();
+          stanceAnchored_->getSwitchedModelReferenceManagerPtr()->nominalFoothold(kContactRightIndex, /*time=*/1.5).has_value();
     }
+  }
+
+  /** The DRC Atlas files, from the test's runfiles. */
+  static const CentroidalRobotFiles& files() {
+    static const absl::NoDestructor<CentroidalRobotFiles> kFiles(atlasFiles());
+    return *kFiles;
   }
 
   static void TearDownTestSuite() {
@@ -357,11 +308,6 @@ class LocomotionHeuristicIntegrationTest : public ::testing::Test {
     ASSERT_NE(basePoseOnly_, nullptr) << "the base-pose-only interface was not built; see the SetUpTestSuite failure";
   }
 
-  static std::string withStepWidth(const std::string& content, scalar_t stepWidth) {
-    return replaceOrFail(content, std::regex("\nnominal_foothold:\n  stepWidth: *[-0-9.eE+]+"),
-                         absl::StrCat("\nnominal_foothold:\n  stepWidth: ", stepWidth), "nominal_foothold.stepWidth");
-  }
-
   /**
    * The initial state carrying a command: world CoM velocity `worldVelocity`, heading `yaw`, and `normalizedYawMomentum`
    * in the angular-momentum channel. The momentum part of the state is NORMALIZED, [p/m, L/m], so index 5 is L_z/m,
@@ -374,11 +320,30 @@ class LocomotionHeuristicIntegrationTest : public ::testing::Test {
     const CentroidalMpcRobotModel<scalar_t>& model = interface.getMpcRobotModel();
     vector_t state = interface.getInitialState();
     model.setBaseComLinearVelocity(state, vector3_t(worldVelocity.x(), worldVelocity.y(), 0.0));
-    vector6_t basePose = model.getBasePose(state);
+    vector6_t basePose = model.getBasePoseEulerZyx(state);
     basePose(3) = yaw;
-    model.setBasePose(state, basePose);
+    model.setBasePoseEulerZyx(state, basePose);
     state(5) = normalizedYawMomentum;
     return state;
+  }
+
+  /**
+   * `state` with the base-pose offsets the heuristics write added on their channels, as the seam adds them
+   * (SwitchedModelReferenceManager::shapeBasePose(), the Euler boundary): the height to the base position, the pitch and
+   * the roll to the ZYX Euler angles of the base quaternion.
+   */
+  static vector_t withBasePoseOffsets(
+      const CentroidalMpcInterface& interface, const vector_t& state, scalar_t heightOffset, scalar_t pitchOffset, scalar_t rollOffset) {
+    const CentroidalMpcRobotModel<scalar_t>& model = interface.getMpcRobotModel();
+    vector_t offset = state;
+    vector3_t eulerZyx = model.getBaseOrientationEulerZyx(offset);
+    eulerZyx(2) += rollOffset;
+    eulerZyx(1) += pitchOffset;
+    model.setBaseOrientationEulerZyx(offset, eulerZyx);
+    vector3_t basePosition = model.getBasePosition(offset);
+    basePosition(2) += heightOffset;
+    model.setBasePosition(offset, basePosition);
+    return offset;
   }
 
   /** The initial state with the base moved to `basePosition` in the ground plane, joints and heading untouched. */
@@ -415,8 +380,8 @@ class LocomotionHeuristicIntegrationTest : public ::testing::Test {
   }
 
   /** The file's configuration, for a case to retune a few coefficients of while keeping the rest. */
-  static LocomotionHeuristicConfig fileConfig(const std::string& taskFile) {
-    const absl::StatusOr<LocomotionHeuristicConfig> config = loadLocomotionHeuristicConfig(taskFile);
+  static LocomotionHeuristicConfig fileConfig(const mpc_config::TaskFile& task) {
+    const absl::StatusOr<LocomotionHeuristicConfig> config = locomotionHeuristicConfigFromConfig(task.locomotion_heuristics);
     EXPECT_TRUE(config.ok()) << config.status().message();
     return config.ok() ? *config : LocomotionHeuristicConfig();
   }
@@ -453,35 +418,28 @@ class LocomotionHeuristicIntegrationTest : public ::testing::Test {
     return framePlacement(interface, state, interface.modelSettings().contactNames[contactIndex]).translation().head<2>();
   }
 
-  /** The number after `key:` in `text`, which must hold the key exactly once. */
-  static scalar_t coefficientInText(const std::string& text, const std::string& key) {
-    const std::string needle = key + ":";
-    const std::string::size_type position = text.find(needle);
-    EXPECT_NE(position, std::string::npos) << key;
-    if (position == std::string::npos) return std::numeric_limits<scalar_t>::quiet_NaN();
-    EXPECT_EQ(text.find(needle, position + 1), std::string::npos) << key << " appears twice, so which one was read is ambiguous";
-    return std::stod(text.substr(position + needle.size()));
-  }
-
-  static CentroidalMpcInterface* shipped_;
-  static CentroidalMpcInterface* enabled_;
-  static CentroidalMpcInterface* stanceAnchored_;
-  static CentroidalMpcInterface* zeroStepWidth_;
-  static CentroidalMpcInterface* basePoseOnly_;
-  static std::string enabledTaskFile_;
-  static std::string stanceAnchoredTaskFile_;
-  static std::string zeroStepWidthTaskFile_;
+  static CentroidalMpcInterface* absl_nullable shipped_;
+  static CentroidalMpcInterface* absl_nullable enabled_;
+  static CentroidalMpcInterface* absl_nullable stanceAnchored_;
+  static CentroidalMpcInterface* absl_nullable zeroStepWidth_;
+  static CentroidalMpcInterface* absl_nullable basePoseOnly_;
+  // The configurations `shipped_`, `enabled_`, `stanceAnchored_` and `zeroStepWidth_` were built from.
+  static absl::NoDestructor<CentroidalMpcConfig> shippedConfig_;
+  static absl::NoDestructor<CentroidalMpcConfig> enabledConfig_;
+  static absl::NoDestructor<CentroidalMpcConfig> stanceAnchoredConfig_;
+  static absl::NoDestructor<CentroidalMpcConfig> zeroStepWidthConfig_;
   static bool footholdExistedBeforeFirstSolve_;
 };
 
-CentroidalMpcInterface* LocomotionHeuristicIntegrationTest::shipped_ = nullptr;
-CentroidalMpcInterface* LocomotionHeuristicIntegrationTest::enabled_ = nullptr;
-CentroidalMpcInterface* LocomotionHeuristicIntegrationTest::stanceAnchored_ = nullptr;
-CentroidalMpcInterface* LocomotionHeuristicIntegrationTest::zeroStepWidth_ = nullptr;
-CentroidalMpcInterface* LocomotionHeuristicIntegrationTest::basePoseOnly_ = nullptr;
-std::string LocomotionHeuristicIntegrationTest::enabledTaskFile_;
-std::string LocomotionHeuristicIntegrationTest::stanceAnchoredTaskFile_;
-std::string LocomotionHeuristicIntegrationTest::zeroStepWidthTaskFile_;
+CentroidalMpcInterface* absl_nullable LocomotionHeuristicIntegrationTest::shipped_ = nullptr;
+CentroidalMpcInterface* absl_nullable LocomotionHeuristicIntegrationTest::enabled_ = nullptr;
+CentroidalMpcInterface* absl_nullable LocomotionHeuristicIntegrationTest::stanceAnchored_ = nullptr;
+CentroidalMpcInterface* absl_nullable LocomotionHeuristicIntegrationTest::zeroStepWidth_ = nullptr;
+CentroidalMpcInterface* absl_nullable LocomotionHeuristicIntegrationTest::basePoseOnly_ = nullptr;
+absl::NoDestructor<CentroidalMpcConfig> LocomotionHeuristicIntegrationTest::shippedConfig_;
+absl::NoDestructor<CentroidalMpcConfig> LocomotionHeuristicIntegrationTest::enabledConfig_;
+absl::NoDestructor<CentroidalMpcConfig> LocomotionHeuristicIntegrationTest::stanceAnchoredConfig_;
+absl::NoDestructor<CentroidalMpcConfig> LocomotionHeuristicIntegrationTest::zeroStepWidthConfig_;
 bool LocomotionHeuristicIntegrationTest::footholdExistedBeforeFirstSolve_ = true;
 
 size_t numberOfStanceFeet(const contact_flag_t& flags) {
@@ -513,27 +471,27 @@ TEST_F(LocomotionHeuristicIntegrationTest, EmptyListsLeaveTheBasePoseReferenceBi
   // momentum, which the reference manager reads back as a commanded yaw rate on every robot with a nominal step width
   // (see NominalStepIsAcrossTheHeadingPredictedForTheTouchDown), so a leaking yaw-rate term would show here too.
   const std::shared_ptr<SwitchedModelReferenceManager> referenceManager = shipped_->getSwitchedModelReferenceManagerPtr();
-  const vector_t state = shipped_->getInitialState();
+  const vector_t& state = shipped_->getInitialState();
   const vector_t target = commandedState(*shipped_, vector2_t(-0.3, 1.0), M_PI_2, /*normalizedYawMomentum=*/0.05);
   const TargetTrajectories targetTrajectories = constantTarget(*shipped_, target);
   solveAt(*shipped_, walkSchedule(), targetTrajectories, state, /*time=*/1.02);
   const scalar_t time = 1.2;
-  ASSERT_NEAR(referenceManager->getPhaseVariable(time), 0.125, 1e-12) << "the gait phase would be degenerate here";
+  ASSERT_NEAR(referenceManager->getPhaseVariable(time), 0.125, 1.0e-12) << "the gait phase would be degenerate here";
 
   const vector_t shaped = referenceManager->shapeBasePose(time, target);
   ASSERT_EQ(shaped.size(), target.size());
   EXPECT_TRUE(shaped == target) << "shapeBasePose must return its input bit for bit with no base-pose heuristic listed:\n"
                                 << (shaped - target).transpose();
   const vector_t desiredState = referenceManager->getDesiredState(targetTrajectories, state, time);
-  const vector6_t desiredBasePose = shipped_->getMpcRobotModel().getBasePose(desiredState);
-  const vector6_t targetBasePose = shipped_->getMpcRobotModel().getBasePose(target);
+  const vector6_t desiredBasePose = shipped_->getMpcRobotModel().getBasePoseEulerZyx(desiredState);
+  const vector6_t targetBasePose = shipped_->getMpcRobotModel().getBasePoseEulerZyx(target);
   EXPECT_TRUE(desiredBasePose == targetBasePose) << "the running state costs' reference base pose moved:\n"
                                                  << (desiredBasePose - targetBasePose).transpose();
 
   // Positive control: the same point on an interface that lists orientation_compensation is NOT a no-op, so the
   // equality above is a statement about the empty list rather than about the point.
-  RestoreCoefficientsFromFileOnExit restore(enabled_->getLocomotionHeuristicLayerPtr(), enabledTaskFile_);
-  LocomotionHeuristicConfig config = fileConfig(enabledTaskFile_);
+  RestoreCoefficientsFromFileOnExit restore(enabled_->getLocomotionHeuristicLayerPtr(), enabledConfig_->task);
+  LocomotionHeuristicConfig config = fileConfig(enabledConfig_->task);
   config.orientationCompensation.pitchPerForwardVelocity = 0.05;
   ASSERT_TRUE(enabled_->getLocomotionHeuristicLayerPtr()->reconfigure(config).ok());
   const vector_t enabledTarget = commandedState(*enabled_, vector2_t(-0.3, 1.0), M_PI_2, /*normalizedYawMomentum=*/0.05);
@@ -548,7 +506,7 @@ TEST_F(LocomotionHeuristicIntegrationTest, EmptyListsLeaveTheContactForceReferen
   // first, every node checked has a foot on the ground, and the comparison is against the model the OCP uses.
   const std::shared_ptr<SwitchedModelReferenceManager> referenceManager = shipped_->getSwitchedModelReferenceManagerPtr();
   const MpcRobotModelBase<scalar_t>& effectiveModel = shipped_->getEffectiveMpcRobotModel();
-  const vector_t state = shipped_->getInitialState();
+  const vector_t& state = shipped_->getInitialState();
   const TargetTrajectories target = constantTarget(*shipped_, state);
   solveAt(*shipped_, walkSchedule(), target, state, /*time=*/1.02);
   const scalar_t weight = totalWeight(*shipped_);
@@ -571,11 +529,11 @@ TEST_F(LocomotionHeuristicIntegrationTest, EmptyListsLeaveTheContactForceReferen
     EXPECT_TRUE(desired == weightCompensation) << "t = " << node.time;
 
     // And independently of that call: W/n straight up on every stance foot and nothing at all on a swing foot.
-    for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+    for (size_t foot = 0; foot < kNumContacts; ++foot) {
       if (flags[foot]) {
         const vector3_t force = effectiveModel.getContactForce(desired, foot);
-        EXPECT_NEAR(force.z(), weight / static_cast<scalar_t>(numStance), 1e-9 * weight) << "t = " << node.time << ", foot " << foot;
-        EXPECT_NEAR(force.head<2>().norm(), 0.0, 1e-9 * weight) << "t = " << node.time << ", foot " << foot;
+        EXPECT_NEAR(force.z(), weight / static_cast<scalar_t>(numStance), 1.0e-9 * weight) << "t = " << node.time << ", foot " << foot;
+        EXPECT_NEAR(force.head<2>().norm(), 0.0, 1.0e-9 * weight) << "t = " << node.time << ", foot " << foot;
       } else {
         EXPECT_TRUE(effectiveModel.getContactWrench(desired, foot).isZero(0.0)) << "t = " << node.time << ", foot " << foot;
       }
@@ -607,15 +565,17 @@ TEST_F(LocomotionHeuristicIntegrationTest, EmptyFootholdListKeepsTheNominalStepS
     const TargetTrajectories target = constantTarget(*shipped_, commandedState(*shipped_, command, heading));
     solveAt(*shipped_, schedule, target, state, /*time=*/1.05);  // double support: both feet are measured
     // The right foot swings [1.1, 1.5); its stance foot, the left, landed at 1.0.
-    const vector2_t expected = footPosition(*shipped_, state, CONTACT_LEFT_INDEX) + command * (1.5 - 1.0) +
+    const vector2_t expected = footPosition(*shipped_, state, kContactLeftIndex) + command * (1.5 - 1.0) +
                                stepWidth * vector2_t(std::sin(heading), -std::cos(heading));
     for (int k = 0; k < 10; ++k) {
       const scalar_t solveTime = 1.12 + 0.04 * static_cast<scalar_t>(k);
       solveAt(*shipped_, schedule, target, state, solveTime);
-      const std::optional<vector2_t> foothold = referenceManager->nominalFoothold(CONTACT_RIGHT_INDEX, /*time=*/1.5);
-      ASSERT_TRUE(foothold.has_value()) << "heading " << heading << ", solve at " << solveTime;
-      EXPECT_NEAR(foothold->x(), expected.x(), 1e-9) << "heading " << heading << ", solve at " << solveTime;
-      EXPECT_NEAR(foothold->y(), expected.y(), 1e-9) << "heading " << heading << ", solve at " << solveTime;
+      const std::optional<vector2_t> foothold = referenceManager->nominalFoothold(kContactRightIndex, /*time=*/1.5);
+      if (!foothold.has_value()) {
+        GTEST_FAIL() << "heading " << heading << ", solve at " << solveTime;
+      }
+      EXPECT_NEAR(foothold->x(), expected.x(), 1.0e-9) << "heading " << heading << ", solve at " << solveTime;
+      EXPECT_NEAR(foothold->y(), expected.y(), 1.0e-9) << "heading " << heading << ", solve at " << solveTime;
     }
   }
 }
@@ -633,8 +593,8 @@ TEST_F(LocomotionHeuristicIntegrationTest, NominalStepIsAcrossTheHeadingPredicte
   // target with only when some list was non-empty, so with every list empty getCommandedYawRate() read 0, the step was
   // laid across the MEASURED heading, and listing any heuristic at all moved the feet on a turn.
   struct Case {
-    const char* name;
-    CentroidalMpcInterface* interface;
+    const char* absl_nonnull name;
+    CentroidalMpcInterface* absl_nonnull interface;
   };
   const std::vector<Case> cases = {{"shipped", shipped_}, {"basePoseOnly", basePoseOnly_}};
   for (const Case& testCase : cases) {
@@ -651,7 +611,7 @@ TEST_F(LocomotionHeuristicIntegrationTest, NominalStepIsAcrossTheHeadingPredicte
     const vector_t target =
         commandedState(interface, command, /*yaw=*/0.0, compositeYawInertia(interface, state) * yawRate / totalMass(interface));
     solveAt(interface, walkSchedule(), constantTarget(interface, target), state, solveTime);
-    ASSERT_NEAR(referenceManager->getCommandedYawRate(1.5), yawRate, 1e-9) << "the yaw rate did not reach the reference manager";
+    ASSERT_NEAR(referenceManager->getCommandedYawRate(1.5), yawRate, 1.0e-9) << "the yaw rate did not reach the reference manager";
 
     struct Landing {
       size_t foot;
@@ -660,8 +620,8 @@ TEST_F(LocomotionHeuristicIntegrationTest, NominalStepIsAcrossTheHeadingPredicte
       scalar_t touchDown;
       scalar_t stanceLanded;
     };
-    const std::vector<Landing> landings = {{CONTACT_RIGHT_INDEX, CONTACT_LEFT_INDEX, -1.0, 1.5, 1.0},
-                                           {CONTACT_LEFT_INDEX, CONTACT_RIGHT_INDEX, 1.0, 2.0, 1.5}};
+    const std::vector<Landing> landings = {{kContactRightIndex, kContactLeftIndex, -1.0, 1.5, 1.0},
+                                           {kContactLeftIndex, kContactRightIndex, 1.0, 2.0, 1.5}};
     for (const Landing& landing : landings) {
       const scalar_t predictedYaw = yawRate * (landing.touchDown - solveTime);
       const vector2_t travel = command * (landing.touchDown - landing.stanceLanded);
@@ -669,9 +629,11 @@ TEST_F(LocomotionHeuristicIntegrationTest, NominalStepIsAcrossTheHeadingPredicte
       const vector2_t expected =
           stanceFoot + travel + landing.side * stepWidth * vector2_t(-std::sin(predictedYaw), std::cos(predictedYaw));
       const std::optional<vector2_t> foothold = referenceManager->nominalFoothold(landing.foot, landing.touchDown);
-      ASSERT_TRUE(foothold.has_value());
-      EXPECT_LT((*foothold - expected).cwiseAbs().maxCoeff(), 1e-9) << "foot " << landing.foot << " landing at " << landing.touchDown
-                                                                    << ": " << foothold->transpose() << " vs " << expected.transpose();
+      if (!foothold.has_value()) {
+        GTEST_FAIL();
+      }
+      EXPECT_LT((*foothold - expected).cwiseAbs().maxCoeff(), 1.0e-9) << "foot " << landing.foot << " landing at " << landing.touchDown
+                                                                      << ": " << foothold->transpose() << " vs " << expected.transpose();
       // Control: the step across the MEASURED heading is far from it, so the check above can see a stale heading.
       const vector2_t acrossMeasuredHeading = stanceFoot + travel + vector2_t(0.0, landing.side * stepWidth);
       EXPECT_GT((expected - acrossMeasuredHeading).norm(), 0.09) << "foot " << landing.foot;
@@ -685,12 +647,12 @@ TEST_F(LocomotionHeuristicIntegrationTest, PhaseVariableMapsLeftStanceToTheFirst
   // support after LF and at 0 through the one after RF. An LF/RF swap would flip the sign of the periodic roll, so the
   // reference would drop the stance-side hip instead of the swing-side one.
   const std::shared_ptr<SwitchedModelReferenceManager> referenceManager = shipped_->getSwitchedModelReferenceManagerPtr();
-  const vector_t state = shipped_->getInitialState();
+  const vector_t& state = shipped_->getInitialState();
   // The walk, cut short so that its LAST event is the touch-down that ends a left stance: LF [8.1, 8.5), then nothing
   // but the gait schedule's default STANCE from 8.5 on. (Its final RF event is dropped; getModeSchedule() replaces the
   // last mode with STANCE either way.)
   ModeSchedule schedule = walkSchedule();
-  ASSERT_NEAR(schedule.eventTimes.back(), 8.6, 1e-12);
+  ASSERT_NEAR(schedule.eventTimes.back(), 8.6, 1.0e-12);
   schedule.eventTimes.pop_back();
   schedule.modeSequence.pop_back();
   solveAt(*shipped_, schedule, constantTarget(*shipped_, state), state, /*time=*/1.02);
@@ -704,7 +666,7 @@ TEST_F(LocomotionHeuristicIntegrationTest, PhaseVariableMapsLeftStanceToTheFirst
   const std::vector<Sample> samples = {{1.2, 0.125}, {1.4, 0.375}, {1.52, 0.5}, {1.58, 0.5}, {1.7, 0.625},
                                        {1.9, 0.875}, {2.02, 0.0},  {2.08, 0.0}, {8.3, 0.25}};
   for (const Sample& sample : samples) {
-    EXPECT_NEAR(referenceManager->getPhaseVariable(sample.time), sample.phase, 1e-12) << "t = " << sample.time;
+    EXPECT_NEAR(referenceManager->getPhaseVariable(sample.time), sample.phase, 1.0e-12) << "t = " << sample.time;
   }
   // Past the last scheduled event there is nothing to interpolate between, and the degenerate case answers the start of
   // a cycle. Without the guard, upper_bound() returns end(), the mode there is STANCE, and the double-support branch
@@ -728,18 +690,20 @@ TEST_F(LocomotionHeuristicIntegrationTest, TheShippedCoefficientsReachTheReferen
   // that reaches the reference, read off the file rather than hard-coded because it is derived and will move.
   const std::shared_ptr<SwitchedModelReferenceManager> referenceManager = enabled_->getSwitchedModelReferenceManagerPtr();
   ASSERT_FALSE(enabled_->getLocomotionHeuristicLayerPtr()->basePoseEmpty()) << "the test's task file did not take effect";
-  const vector_t state = enabled_->getInitialState();
+  const vector_t& state = enabled_->getInitialState();
   const TargetTrajectories target = constantTarget(*enabled_, commandedState(*enabled_, vector2_t(1.0, 0.0), /*yaw=*/0.0));
   solveAt(*enabled_, walkSchedule(), target, state, /*time=*/1.02);
-  const vector6_t basePose = enabled_->getMpcRobotModel().getBasePose(referenceManager->getDesiredState(target, state, /*time=*/1.2));
+  const vector6_t basePose =
+      enabled_->getMpcRobotModel().getBasePoseEulerZyx(referenceManager->getDesiredState(target, state, /*time=*/1.2));
 
-  const std::string text = readFile(shippedTaskFile());
-  const scalar_t pitchPerForwardVelocity = coefficientInText(text, "pitchPerForwardVelocity");
-  const scalar_t pitchOffset = coefficientInText(text, "pitchOffset");
-  const scalar_t maximumTilt = coefficientInText(text, "maximumTilt");
+  const mpc_config::LocomotionHeuristicsConfig::OrientationCompensation& shipped =
+      shippedConfig_->task.locomotion_heuristics.orientation_compensation;
+  const scalar_t pitchPerForwardVelocity = shipped.pitch_per_forward_velocity;
+  const scalar_t pitchOffset = shipped.pitch_offset;
+  const scalar_t maximumTilt = shipped.maximum_tilt;
   EXPECT_NE(pitchPerForwardVelocity, 0.0) << "the DRC Atlas is expected to ship a derived, non-zero lean";
   // Index 4 is PITCH: the base pose is Euler ZYX with yaw FIRST, and a 1 m/s forward command at yaw 0 is 1 m/s forward.
-  EXPECT_NEAR(basePose(4), std::clamp(pitchPerForwardVelocity * 1.0 + pitchOffset, -maximumTilt, maximumTilt), 1e-12)
+  EXPECT_NEAR(basePose(4), std::clamp(pitchPerForwardVelocity * 1.0 + pitchOffset, -maximumTilt, maximumTilt), 1.0e-12)
       << "the shipped coefficient must reach the pitch reference";
 }
 
@@ -750,8 +714,8 @@ TEST_F(LocomotionHeuristicIntegrationTest, BasePoseSeamRotatesTheWorldCommandInt
   // reference nose-UP and to the right; an offset written into the wrong index of [x, y, z, yaw, pitch, roll] shows up
   // as a moved entry that should have stayed put. At yaw 0 none of this was visible.
   const std::shared_ptr<LocomotionHeuristicLayer>& layer = enabled_->getLocomotionHeuristicLayerPtr();
-  RestoreCoefficientsFromFileOnExit restore(layer, enabledTaskFile_);
-  LocomotionHeuristicConfig config = fileConfig(enabledTaskFile_);
+  RestoreCoefficientsFromFileOnExit restore(layer, enabledConfig_->task);
+  LocomotionHeuristicConfig config = fileConfig(enabledConfig_->task);
   config.orientationCompensation = OrientationCompensationParameters{};
   config.orientationCompensation.rollPerLateralVelocity = 0.1;
   config.orientationCompensation.pitchPerForwardVelocity = 0.05;
@@ -764,29 +728,37 @@ TEST_F(LocomotionHeuristicIntegrationTest, BasePoseSeamRotatesTheWorldCommandInt
   ASSERT_TRUE(layer->reconfigure(config).ok());
 
   const std::shared_ptr<SwitchedModelReferenceManager> referenceManager = enabled_->getSwitchedModelReferenceManagerPtr();
-  const vector_t state = enabled_->getInitialState();
+  const vector_t& state = enabled_->getInitialState();
   const vector_t target = commandedState(*enabled_, vector2_t(-0.3, 1.0), M_PI_2);
   const TargetTrajectories targetTrajectories = constantTarget(*enabled_, target);
   solveAt(*enabled_, walkSchedule(), targetTrajectories, state, /*time=*/1.02);
   const scalar_t time = 1.2;
 
-  vector_t expected = target;
-  expected(6 + 2) += -0.006980613017821;  // height, base pose index 2
-  expected(6 + 4) += 0.05;                // pitch, base pose index 4
-  expected(6 + 5) += 0.03;                // roll, base pose index 5
+  const CentroidalMpcRobotModel<scalar_t>& model = enabled_->getMpcRobotModel();
+  const vector_t expected = withBasePoseOffsets(*enabled_, target, /*heightOffset=*/-0.006980613017821, /*pitchOffset=*/0.05,
+                                                /*rollOffset=*/0.03);
   const vector_t shaped = referenceManager->shapeBasePose(time, target);
   ASSERT_EQ(shaped.size(), target.size());
+  // The channels: the height of the base position, and the pitch and roll of the ZYX Euler angles of its quaternion; the
+  // yaw stays where it was.
+  const vector6_t shapedPose = model.getBasePoseEulerZyx(shaped);
+  const vector6_t expectedPose = model.getBasePoseEulerZyx(expected);
+  const vector6_t targetPose = model.getBasePoseEulerZyx(target);
+  EXPECT_LT((shapedPose - expectedPose).cwiseAbs().maxCoeff(), 1.0e-12) << shapedPose.transpose();
+  EXPECT_NEAR(shapedPose(2) - targetPose(2), -0.006980613017821, 1.0e-12) << "height, base pose index 2";
+  EXPECT_NEAR(shapedPose(4) - targetPose(4), 0.05, 1.0e-12) << "pitch, base pose index 4";
+  EXPECT_NEAR(shapedPose(5) - targetPose(5), 0.03, 1.0e-12) << "roll, base pose index 5";
+  EXPECT_NEAR(shapedPose(3), targetPose(3), 1.0e-12) << "the yaw is no channel of the heuristics";
+  const Eigen::Index heightIndex = static_cast<Eigen::Index>(model.getBaseStartindex()) + 2;
+  const Eigen::Index orientationStart = static_cast<Eigen::Index>(model.getBaseOrientationStartIndex());
   for (Eigen::Index i = 0; i < target.size(); ++i) {
-    if (i == 6 + 2 || i == 6 + 4 || i == 6 + 5) {
-      EXPECT_NEAR(shaped(i), expected(i), 1e-12) << "state entry " << i;
-    } else {
-      EXPECT_EQ(shaped(i), target(i)) << "state entry " << i << " is not a channel the base-pose heuristics write";
-    }
+    if (i == heightIndex || (i >= orientationStart && i < orientationStart + 4)) continue;
+    EXPECT_EQ(shaped(i), target(i)) << "state entry " << i << " is not a channel the base-pose heuristics write";
   }
   // The running state costs read the same shaped pose through getDesiredState().
   const vector6_t desiredBasePose =
-      enabled_->getMpcRobotModel().getBasePose(referenceManager->getDesiredState(targetTrajectories, state, time));
-  EXPECT_LT((desiredBasePose - enabled_->getMpcRobotModel().getBasePose(expected)).cwiseAbs().maxCoeff(), 1e-12);
+      enabled_->getMpcRobotModel().getBasePoseEulerZyx(referenceManager->getDesiredState(targetTrajectories, state, time));
+  EXPECT_LT((desiredBasePose - expectedPose).cwiseAbs().maxCoeff(), 1.0e-12);
 }
 
 TEST_F(LocomotionHeuristicIntegrationTest, BasePoseSeamReadsTheOperatorCommandNotTheMomentumOfTheStateItShapes) {
@@ -796,8 +768,8 @@ TEST_F(LocomotionHeuristicIntegrationTest, BasePoseSeamReadsTheOperatorCommandNo
   // momentum of the state it is shaping: here the two disagree, and the pitch has to follow the command (1 m/s
   // forward), not the state's channel (-1 m/s, which would lean the reference the other way).
   const std::shared_ptr<LocomotionHeuristicLayer>& layer = enabled_->getLocomotionHeuristicLayerPtr();
-  RestoreCoefficientsFromFileOnExit restore(layer, enabledTaskFile_);
-  LocomotionHeuristicConfig config = fileConfig(enabledTaskFile_);
+  RestoreCoefficientsFromFileOnExit restore(layer, enabledConfig_->task);
+  LocomotionHeuristicConfig config = fileConfig(enabledConfig_->task);
   config.orientationCompensation = OrientationCompensationParameters{};
   config.orientationCompensation.pitchPerForwardVelocity = 0.05;
   config.heightCompensation = HeightCompensationParameters{};
@@ -808,7 +780,8 @@ TEST_F(LocomotionHeuristicIntegrationTest, BasePoseSeamReadsTheOperatorCommandNo
   solveAt(*enabled_, walkSchedule(), constantTarget(*enabled_, commanded), enabled_->getInitialState(), /*time=*/1.02);
   const vector_t otherMomentum = commandedState(*enabled_, vector2_t(-1.0, 0.0), /*yaw=*/0.0);
   const vector_t shaped = referenceManager->shapeBasePose(/*time=*/1.2, otherMomentum);
-  EXPECT_NEAR(shaped(6 + 4) - otherMomentum(6 + 4), 0.05, 1e-12);
+  const CentroidalMpcRobotModel<scalar_t>& model = enabled_->getMpcRobotModel();
+  EXPECT_NEAR(model.getBaseOrientationEulerZyx(shaped)(1) - model.getBaseOrientationEulerZyx(otherMomentum)(1), 0.05, 1.0e-12);
 }
 
 TEST_F(LocomotionHeuristicIntegrationTest, PeriodicOrientationFollowsTheGaitPhaseOfTheSchedule) {
@@ -816,8 +789,8 @@ TEST_F(LocomotionHeuristicIntegrationTest, PeriodicOrientationFollowsTheGaitPhas
   // phi = 0.625 (early right stance, t = 1.7): roll +/-0.021213203435596, pitch 0.019106729782512 at both. The roll
   // must change sign between the two stances; with the phase read at the degenerate initial state it never moved.
   const std::shared_ptr<LocomotionHeuristicLayer>& layer = stanceAnchored_->getLocomotionHeuristicLayerPtr();
-  RestoreCoefficientsFromFileOnExit restore(layer, stanceAnchoredTaskFile_);
-  LocomotionHeuristicConfig config = fileConfig(stanceAnchoredTaskFile_);
+  RestoreCoefficientsFromFileOnExit restore(layer, stanceAnchoredConfig_->task);
+  LocomotionHeuristicConfig config = fileConfig(stanceAnchoredConfig_->task);
   config.periodicOrientation.rollAmplitude = 0.03;
   config.periodicOrientation.rollPhaseRate = 2.0 * M_PI;
   config.periodicOrientation.rollPhaseOffset = 0.0;
@@ -827,7 +800,7 @@ TEST_F(LocomotionHeuristicIntegrationTest, PeriodicOrientationFollowsTheGaitPhas
   ASSERT_TRUE(layer->reconfigure(config).ok());
 
   const std::shared_ptr<SwitchedModelReferenceManager> referenceManager = stanceAnchored_->getSwitchedModelReferenceManagerPtr();
-  const vector_t target = stanceAnchored_->getInitialState();
+  const vector_t& target = stanceAnchored_->getInitialState();
   solveAt(*stanceAnchored_, walkSchedule(), constantTarget(*stanceAnchored_, target), target, /*time=*/1.02);
 
   struct Sample {
@@ -836,12 +809,79 @@ TEST_F(LocomotionHeuristicIntegrationTest, PeriodicOrientationFollowsTheGaitPhas
     scalar_t pitch;
   };
   const std::vector<Sample> samples = {{1.2, 0.021213203435596, 0.019106729782512}, {1.7, -0.021213203435596, 0.019106729782512}};
+  const CentroidalMpcRobotModel<scalar_t>& model = stanceAnchored_->getMpcRobotModel();
+  const vector6_t targetPose = model.getBasePoseEulerZyx(target);
   for (const Sample& sample : samples) {
-    const vector_t shaped = referenceManager->shapeBasePose(sample.time, target);
-    EXPECT_NEAR(shaped(6 + 5) - target(6 + 5), sample.roll, 1e-12) << "roll at t = " << sample.time;
-    EXPECT_NEAR(shaped(6 + 4) - target(6 + 4), sample.pitch, 1e-12) << "pitch at t = " << sample.time;
-    EXPECT_EQ(shaped(6 + 2), target(6 + 2)) << "periodic_orientation has no height channel";
-    EXPECT_EQ(shaped(6 + 3), target(6 + 3)) << "nor a yaw channel";
+    const vector6_t shapedPose = model.getBasePoseEulerZyx(referenceManager->shapeBasePose(sample.time, target));
+    EXPECT_NEAR(shapedPose(5) - targetPose(5), sample.roll, 1.0e-12) << "roll at t = " << sample.time;
+    EXPECT_NEAR(shapedPose(4) - targetPose(4), sample.pitch, 1.0e-12) << "pitch at t = " << sample.time;
+    EXPECT_EQ(shapedPose(2), targetPose(2)) << "periodic_orientation has no height channel";
+    EXPECT_NEAR(shapedPose(3), targetPose(3), 1.0e-12) << "nor a yaw channel";
+  }
+}
+
+namespace {
+
+/** The base rotation matrix of `target` shaped by the base-pose heuristics at `time`. */
+matrix3_t shapedRotation(const SwitchedModelReferenceManager& referenceManager,
+                         const CentroidalMpcRobotModel<scalar_t>& model,
+                         const vector_t& target,
+                         scalar_t time) {
+  return quaternionRotationMatrix<scalar_t>(model.getBaseOrientation(referenceManager.shapeBasePose(time, target)));
+}
+
+}  // namespace
+
+TEST_F(LocomotionHeuristicIntegrationTest, PeriodicOrientationCarriesItsRateIntoTheAngularMomentum) {
+  // The shaped attitude R(t) oscillates with the gait phase, so the reference has to rotate at w = vee(dR/dt R'), and on
+  // the centroidal state the rate lives in the angular momentum: L / m of the whole body turning at w with its joints
+  // at the reference, I_G w / m. Measured against an oracle independent of the code under test: w by a central
+  // difference of the shaped attitude's rotation matrix, I_G by Pinocchio's ccrba at the measured state. The target is
+  // a still knot, so all of the shaped momentum is the tilt's. Through double support the phase is frozen, and the
+  // momentum must be the target's, bit for bit.
+  const std::shared_ptr<LocomotionHeuristicLayer>& layer = stanceAnchored_->getLocomotionHeuristicLayerPtr();
+  RestoreCoefficientsFromFileOnExit restore(layer, stanceAnchoredConfig_->task);
+  LocomotionHeuristicConfig config = fileConfig(stanceAnchoredConfig_->task);
+  config.periodicOrientation.rollAmplitude = 0.03;
+  config.periodicOrientation.rollPhaseRate = 2.0 * M_PI;
+  config.periodicOrientation.rollPhaseOffset = 0.4;
+  config.periodicOrientation.pitchAmplitude = 0.02;
+  config.periodicOrientation.pitchPhaseRate = 4.0 * M_PI;
+  config.periodicOrientation.pitchPhaseOffset = 0.3;
+  ASSERT_TRUE(layer->reconfigure(config).ok());
+
+  const std::shared_ptr<SwitchedModelReferenceManager> referenceManager = stanceAnchored_->getSwitchedModelReferenceManagerPtr();
+  const CentroidalMpcRobotModel<scalar_t>& model = stanceAnchored_->getMpcRobotModel();
+  vector_t target = stanceAnchored_->getInitialState();
+  vector6_t turnedPose = model.getBasePoseEulerZyx(target);
+  turnedPose(3) = 0.8;  // a heading off the axes, so that a tilt rate taken about the world axes would show
+  model.setBasePoseEulerZyx(target, turnedPose);
+  solveAt(*stanceAnchored_, walkSchedule(), constantTarget(*stanceAnchored_, target), target, /*time=*/1.02);
+
+  const PinocchioInterface::Model& pinocchioModel = stanceAnchored_->getPinocchioInterface().getModel();
+  PinocchioInterface::Data data(pinocchioModel);
+  pinocchio::ccrba(pinocchioModel, data, model.getGeneralizedCoordinates(target), vector_t::Zero(pinocchioModel.nv));
+  const matrix3_t compositeInertia = data.Ig.inertia().matrix();
+  const scalar_t mass = totalMass(*stanceAnchored_);
+  const scalar_t step = 1.0e-6;
+  // Mid left stance, mid right stance, and late right stance; all single support of the walk schedule.
+  for (const scalar_t time : {1.2, 1.3, 1.75, 1.95}) {
+    const matrix3_t rotationRate =
+        (shapedRotation(*referenceManager, model, target, time + step) - shapedRotation(*referenceManager, model, target, time - step)) /
+        (2.0 * step);
+    const matrix3_t spin = rotationRate * shapedRotation(*referenceManager, model, target, time).transpose();
+    const vector3_t worldAngularVelocity(spin(2, 1), spin(0, 2), spin(1, 0));
+    ASSERT_GT(worldAngularVelocity.norm(), 0.05) << "t = " << time << ": the tilt must be moving for this to test anything";
+    const vector3_t expected = compositeInertia * worldAngularVelocity / mass;
+    const vector_t shaped = referenceManager->shapeBasePose(time, target);
+    const vector3_t added = shaped.segment<3>(3) - target.segment<3>(3);
+    EXPECT_LT((added - expected).norm(), 1.0e-7 * (1.0 + expected.norm()))
+        << "t = " << time << ": " << added.transpose() << " vs " << expected.transpose();
+    EXPECT_EQ(shaped.head<3>(), target.head<3>()) << "the linear momentum is the command's, untouched";
+  }
+  for (const scalar_t time : {1.05, 1.55}) {
+    const vector_t shaped = referenceManager->shapeBasePose(time, target);
+    EXPECT_EQ(shaped.head<6>(), target.head<6>()) << "t = " << time << ": the phase is frozen in double support";
   }
 }
 
@@ -851,8 +891,8 @@ TEST_F(LocomotionHeuristicIntegrationTest, TerminalCostIsZeroAtTheShapedReferenc
   // on one node, more than the running horizon's whole base-pose weight. The terminal cost must now vanish at the
   // shaped pose and charge the unshaped one exactly the offset.
   const std::shared_ptr<LocomotionHeuristicLayer>& layer = enabled_->getLocomotionHeuristicLayerPtr();
-  RestoreCoefficientsFromFileOnExit restore(layer, enabledTaskFile_);
-  LocomotionHeuristicConfig config = fileConfig(enabledTaskFile_);
+  RestoreCoefficientsFromFileOnExit restore(layer, enabledConfig_->task);
+  LocomotionHeuristicConfig config = fileConfig(enabledConfig_->task);
   config.orientationCompensation = OrientationCompensationParameters{};
   config.orientationCompensation.rollPerLateralVelocity = 0.1;
   config.orientationCompensation.pitchPerForwardVelocity = 0.05;
@@ -866,26 +906,45 @@ TEST_F(LocomotionHeuristicIntegrationTest, TerminalCostIsZeroAtTheShapedReferenc
   solveAt(*enabled_, walkSchedule(), targetTrajectories, enabled_->getInitialState(), /*time=*/1.02);
   const scalar_t time = 1.2;
 
-  QuadraticStateCost& terminalCost = enabled_->getOptimalControlProblem().finalCostPtr->get<QuadraticStateCost>("terminalCost");
+  TuningQuadraticStateCost& terminalCost = enabled_->getOptimalControlProblem().finalCostPtr->get<TuningQuadraticStateCost>("terminalCost");
   EXPECT_NE(dynamic_cast<const BasePoseShapedQuadraticStateCost*>(&terminalCost), nullptr)
       << "the factory must install the shaped terminal cost";
 
   // Shaped by hand: pitch 0.05 * 0.8, roll 0.1 * 0.2, height -0.02 * |(0.8, 0.2)|.
-  vector_t shaped = target;
-  shaped(6 + 2) += -0.02 * std::hypot(0.8, 0.2);
-  shaped(6 + 4) += 0.05 * 0.8;
-  shaped(6 + 5) += 0.1 * 0.2;
-  EXPECT_LT(terminalCost.getValue(time, shaped, targetTrajectories, PreComputation()), 1e-20);
+  const vector_t shaped = withBasePoseOffsets(*enabled_, target, /*heightOffset=*/-0.02 * std::hypot(0.8, 0.2), /*pitchOffset=*/0.05 * 0.8,
+                                              /*rollOffset=*/0.1 * 0.2);
+  EXPECT_LT(terminalCost.getValue(time, shaped, targetTrajectories, PreComputation()), 1.0e-20);
 
-  // Positive control, and the exact charge for standing on the unshaped target: 0.5 d' Q_final d with d the offsets.
-  matrix_t terminalWeights = matrix_t::Zero(target.size(), target.size());
-  loadData::loadEigenMatrix(enabledTaskFile_, "Q_final", terminalWeights);
-  scalar_t terminalCostScaling = 0.0;
-  loadData::loadCppDataType<scalar_t>(enabledTaskFile_, "terminalCostScaling", terminalCostScaling);
-  const vector_t deviation = target - shaped;
-  const scalar_t expected = 0.5 * terminalCostScaling * deviation.dot(terminalWeights * deviation);
-  ASSERT_GT(expected, 1e-3) << "the temp task file's Q_final weighs no base-pose channel, so this would test nothing";
-  EXPECT_NEAR(terminalCost.getValue(time, target, targetTrajectories, PreComputation()), expected, 1e-9 * expected);
+  // Positive control, and the exact charge for standing on the unshaped target: 0.5 r' Q_final r with r the tuning-layout
+  // deviation of the unshaped from the shaped pose (orientation/TuningLayoutDeviation.h), which the cost evaluates. Its
+  // height row is the height offset; its (yaw, pitch, roll) rows are the heading-tilt residual, which equals the Euler
+  // offsets only to first order.
+  const absl::StatusOr<matrix_t> terminalWeights =
+      stateWeightsFromConfig(enabledConfig_->task.final_state_weights,
+                             stateInputLayout(enabled_->modelSettings(), StateInputLayout::Mpc::kCentroidal), "final_state_weights");
+  ASSERT_TRUE(terminalWeights.ok()) << terminalWeights.status();
+  ASSERT_TRUE(enabledConfig_->task.terminal_cost_scaling.has_value());
+  const scalar_t terminalCostScaling = enabledConfig_->task.terminal_cost_scaling.value_or(0.0);
+  const vector_t residual = TuningLayoutDeviation(&enabled_->getMpcRobotModel()).evaluate(target, shaped);
+  // The offsets in the tuning layout: the Euclidean rows the differences of the state's, the orientation rows those of
+  // the (yaw, pitch, roll) the quaternions read back as.
+  const absl::StatusOr<vector_t> targetTuning = enabled_->getMpcRobotModel().tuningFromState(target);
+  const absl::StatusOr<vector_t> shapedTuning = enabled_->getMpcRobotModel().tuningFromState(shaped);
+  ASSERT_TRUE(targetTuning.ok()) << targetTuning.status();
+  ASSERT_TRUE(shapedTuning.ok()) << shapedTuning.status();
+  const vector_t offsets = *targetTuning - *shapedTuning;
+  ASSERT_EQ(residual.size(), offsets.size());
+  const Eigen::Index orientationStart = static_cast<Eigen::Index>(enabled_->getMpcRobotModel().getBaseOrientationStartIndex());
+  for (Eigen::Index row = 0; row < residual.size(); ++row) {
+    const bool isOrientationRow = row >= orientationStart && row < orientationStart + 3;
+    if (!isOrientationRow) {
+      EXPECT_EQ(residual(row), offsets(row)) << "row " << row << " is a difference of the state's Euclidean rows";
+    }
+  }
+  EXPECT_LE((residual - offsets).norm(), offsets.squaredNorm()) << "the heading-tilt rows are the Euler offsets to first order";
+  const scalar_t expected = 0.5 * terminalCostScaling * residual.dot(*terminalWeights * residual);
+  ASSERT_GT(expected, 1.0e-3) << "the enabled configuration's final_state_weights weighs no base-pose channel, so this would test nothing";
+  EXPECT_NEAR(terminalCost.getValue(time, target, targetTrajectories, PreComputation()), expected, 1.0e-9 * expected);
 }
 
 TEST_F(LocomotionHeuristicIntegrationTest, TorsoTaskSpaceCostTracksTheShapedBaseOrientation) {
@@ -895,8 +954,8 @@ TEST_F(LocomotionHeuristicIntegrationTest, TorsoTaskSpaceCostTracksTheShapedBase
   // the torso reference must be the torso at the shaped state, rotated from the unshaped one by exactly that pitch
   // about the world y axis (R_torso = R_base R_joints, and R_y(d) R_y(0)^T = R_y(d)).
   const std::shared_ptr<LocomotionHeuristicLayer>& layer = enabled_->getLocomotionHeuristicLayerPtr();
-  RestoreCoefficientsFromFileOnExit restore(layer, enabledTaskFile_);
-  LocomotionHeuristicConfig config = fileConfig(enabledTaskFile_);
+  RestoreCoefficientsFromFileOnExit restore(layer, enabledConfig_->task);
+  LocomotionHeuristicConfig config = fileConfig(enabledConfig_->task);
   config.orientationCompensation = OrientationCompensationParameters{};
   config.orientationCompensation.pitchPerForwardVelocity = 0.05;
   config.heightCompensation = HeightCompensationParameters{};
@@ -914,15 +973,14 @@ TEST_F(LocomotionHeuristicIntegrationTest, TorsoTaskSpaceCostTracksTheShapedBase
   // Parameters: [position(3), orientation quaternion coefficients (x, y, z, w), linear velocity(3), angular velocity(3), weights].
   const matrix3_t referenceRotation = Eigen::Quaternion<scalar_t>(vector4_t(parameters.segment<4>(3))).normalized().toRotationMatrix();
 
-  vector_t shaped = target;
-  shaped(6 + 4) += 0.05;
+  const vector_t shaped = withBasePoseOffsets(*enabled_, target, /*heightOffset=*/0.0, /*pitchOffset=*/0.05, /*rollOffset=*/0.0);
   const matrix3_t shapedRotation = framePlacement(*enabled_, shaped, "utorso").rotation();
-  EXPECT_LT((referenceRotation - shapedRotation).cwiseAbs().maxCoeff(), 1e-9) << "the torso reference is not the shaped torso";
+  EXPECT_LT((referenceRotation - shapedRotation).cwiseAbs().maxCoeff(), 1.0e-9) << "the torso reference is not the shaped torso";
 
   const matrix3_t unshapedRotation = framePlacement(*enabled_, target, "utorso").rotation();
   const Eigen::AngleAxis<scalar_t> difference(matrix3_t(referenceRotation * unshapedRotation.transpose()));
-  EXPECT_NEAR(difference.angle(), 0.05, 1e-9) << "the torso reference must lean by the pitch offset";
-  EXPECT_NEAR(difference.axis().y(), 1.0, 1e-9) << "about the world y axis, nose down";
+  EXPECT_NEAR(difference.angle(), 0.05, 1.0e-9) << "the torso reference must lean by the pitch offset";
+  EXPECT_NEAR(difference.axis().y(), 1.0, 1.0e-9) << "about the world y axis, nose down";
 }
 
 /******************************************************************************************************/
@@ -941,8 +999,8 @@ TEST_F(LocomotionHeuristicIntegrationTest, ImpulseScalingSplitsTheWeightByDutyFa
   // everywhere and indistinguishable. The old "W / beta at every instant" form puts 1.75 W on the ground at every
   // node; dropping the weight-compensation baseline from the vertical path asks each foot for the offset alone.
   const std::shared_ptr<LocomotionHeuristicLayer>& layer = enabled_->getLocomotionHeuristicLayerPtr();
-  RestoreCoefficientsFromFileOnExit restore(layer, enabledTaskFile_);
-  LocomotionHeuristicConfig config = fileConfig(enabledTaskFile_);
+  RestoreCoefficientsFromFileOnExit restore(layer, enabledConfig_->task);
+  LocomotionHeuristicConfig config = fileConfig(enabledConfig_->task);
   config.impulseScaling.scale = 1.0;
   config.impulseScaling.minimumDutyFactor = 0.2;
   config.impulseScaling.maximumForceRatio = 3.0;
@@ -951,12 +1009,12 @@ TEST_F(LocomotionHeuristicIntegrationTest, ImpulseScalingSplitsTheWeightByDutyFa
 
   const std::shared_ptr<SwitchedModelReferenceManager> referenceManager = enabled_->getSwitchedModelReferenceManagerPtr();
   const MpcRobotModelBase<scalar_t>& effectiveModel = enabled_->getEffectiveMpcRobotModel();
-  const vector_t state = enabled_->getInitialState();
+  const vector_t& state = enabled_->getInitialState();
   const TargetTrajectories target = constantTarget(*enabled_, state);
   solveAt(*enabled_, longStrideWalkSchedule(), target, state, /*time=*/1.42);
   const scalar_t weight = totalWeight(*enabled_);
   const scalar_t perStanceFoot = weight / (2.0 * kLongStrideDutyFactor);
-  ASSERT_NEAR(perStanceFoot, 0.875 * weight, 1e-12 * weight);
+  ASSERT_NEAR(perStanceFoot, 0.875 * weight, 1.0e-12 * weight);
 
   struct Node {
     scalar_t time;
@@ -967,12 +1025,12 @@ TEST_F(LocomotionHeuristicIntegrationTest, ImpulseScalingSplitsTheWeightByDutyFa
   for (const Node& node : nodes) {
     ASSERT_EQ(referenceManager->getContactFlags(node.time), node.contacts) << "t = " << node.time;
     const vector_t input = referenceManager->getDesiredInput(target, state, node.time);
-    for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+    for (size_t foot = 0; foot < kNumContacts; ++foot) {
       if (node.contacts[foot]) {
         // Read in the input's own frame, which is what the vertical path writes: a vertical force is the same there.
         const vector3_t force = effectiveModel.getContactForce(input, foot);
-        EXPECT_NEAR(force.z(), perStanceFoot, 1e-9 * weight) << "t = " << node.time << ", foot " << foot;
-        EXPECT_NEAR(force.head<2>().norm(), 0.0, 1e-9 * weight) << "t = " << node.time << ", foot " << foot;
+        EXPECT_NEAR(force.z(), perStanceFoot, 1.0e-9 * weight) << "t = " << node.time << ", foot " << foot;
+        EXPECT_NEAR(force.head<2>().norm(), 0.0, 1.0e-9 * weight) << "t = " << node.time << ", foot " << foot;
       } else {
         EXPECT_TRUE(effectiveModel.getContactWrench(input, foot).isZero(0.0)) << "t = " << node.time << ", foot " << foot;
       }
@@ -986,9 +1044,9 @@ TEST_F(LocomotionHeuristicIntegrationTest, ImpulseScalingSplitsTheWeightByDutyFa
   for (int i = 0; i < numCells; ++i) {
     const scalar_t time = kLongStride + (static_cast<scalar_t>(i) + 0.5) * 0.01;
     const vector_t input = referenceManager->getDesiredInput(target, state, time);
-    for (size_t foot = 0; foot < N_CONTACTS; ++foot) totalVertical += effectiveModel.getContactForce(input, foot).z();
+    for (size_t foot = 0; foot < kNumContacts; ++foot) totalVertical += effectiveModel.getContactForce(input, foot).z();
   }
-  EXPECT_NEAR(totalVertical / static_cast<scalar_t>(numCells), weight, 1e-6 * weight);
+  EXPECT_NEAR(totalVertical / static_cast<scalar_t>(numCells), weight, 1.0e-6 * weight);
 }
 
 TEST_F(LocomotionHeuristicIntegrationTest, ImpulseScalingAsksNothingOfAFlightPhaseAndStillAveragesToTheWeight) {
@@ -996,8 +1054,8 @@ TEST_F(LocomotionHeuristicIntegrationTest, ImpulseScalingAsksNothingOfAFlightPha
   // 1.333 W, and a flight phase - no foot on the ground - for nothing at all: 1 / beta is unbounded there and a force
   // reference on a foot in the air is one no foot can track. (0.3 + 0.3) s * 1.333 W / 0.8 s = W again.
   const std::shared_ptr<LocomotionHeuristicLayer>& layer = enabled_->getLocomotionHeuristicLayerPtr();
-  RestoreCoefficientsFromFileOnExit restore(layer, enabledTaskFile_);
-  LocomotionHeuristicConfig config = fileConfig(enabledTaskFile_);
+  RestoreCoefficientsFromFileOnExit restore(layer, enabledConfig_->task);
+  LocomotionHeuristicConfig config = fileConfig(enabledConfig_->task);
   config.impulseScaling.scale = 1.0;
   config.impulseScaling.minimumDutyFactor = 0.2;
   config.impulseScaling.maximumForceRatio = 3.0;
@@ -1005,7 +1063,7 @@ TEST_F(LocomotionHeuristicIntegrationTest, ImpulseScalingAsksNothingOfAFlightPha
 
   const std::shared_ptr<SwitchedModelReferenceManager> referenceManager = enabled_->getSwitchedModelReferenceManagerPtr();
   const MpcRobotModelBase<scalar_t>& effectiveModel = enabled_->getEffectiveMpcRobotModel();
-  const vector_t state = enabled_->getInitialState();
+  const vector_t& state = enabled_->getInitialState();
   const TargetTrajectories target = constantTarget(*enabled_, state);
   solveAt(*enabled_, runSchedule(), target, state, /*time=*/1.62);
   const scalar_t weight = totalWeight(*enabled_);
@@ -1013,7 +1071,7 @@ TEST_F(LocomotionHeuristicIntegrationTest, ImpulseScalingAsksNothingOfAFlightPha
   // LF [1.6, 1.9): the positive control for the flight check below.
   ASSERT_EQ(referenceManager->getContactFlags(1.75), contact_flag_t({true, false}));
   const vector_t singleSupport = referenceManager->getDesiredInput(target, state, /*time=*/1.75);
-  EXPECT_NEAR(effectiveModel.getContactForce(singleSupport, CONTACT_LEFT_INDEX).z(), weight / (2.0 * kRunDutyFactor), 1e-9 * weight);
+  EXPECT_NEAR(effectiveModel.getContactForce(singleSupport, kContactLeftIndex).z(), weight / (2.0 * kRunDutyFactor), 1.0e-9 * weight);
 
   // Flight [1.9, 2.0).
   ASSERT_EQ(referenceManager->getContactFlags(1.95), contact_flag_t({false, false}));
@@ -1025,9 +1083,9 @@ TEST_F(LocomotionHeuristicIntegrationTest, ImpulseScalingAsksNothingOfAFlightPha
   for (int i = 0; i < numCells; ++i) {
     const scalar_t time = 1.6 + (static_cast<scalar_t>(i) + 0.5) * 0.01;
     const vector_t input = referenceManager->getDesiredInput(target, state, time);
-    for (size_t foot = 0; foot < N_CONTACTS; ++foot) totalVertical += effectiveModel.getContactForce(input, foot).z();
+    for (size_t foot = 0; foot < kNumContacts; ++foot) totalVertical += effectiveModel.getContactForce(input, foot).z();
   }
-  EXPECT_NEAR(totalVertical / static_cast<scalar_t>(numCells), weight, 1e-6 * weight);
+  EXPECT_NEAR(totalVertical / static_cast<scalar_t>(numCells), weight, 1.0e-6 * weight);
 }
 
 TEST_F(LocomotionHeuristicIntegrationTest, CentripetalForceReachesTheWorldFrameReference) {
@@ -1042,11 +1100,11 @@ TEST_F(LocomotionHeuristicIntegrationTest, CentripetalForceReachesTheWorldFrameR
   // a transposed rotation - gave bit for bit the same numbers there. Here each of them reads back as the right force
   // turned by 0.7 or 1.4 rad, tens of newtons off on the horizontal force of single support.
   const std::shared_ptr<LocomotionHeuristicLayer>& layer = stanceAnchored_->getLocomotionHeuristicLayerPtr();
-  RestoreCoefficientsFromFileOnExit restore(layer, stanceAnchoredTaskFile_);
-  LocomotionHeuristicConfig config = fileConfig(stanceAnchoredTaskFile_);
+  RestoreCoefficientsFromFileOnExit restore(layer, stanceAnchoredConfig_->task);
+  LocomotionHeuristicConfig config = fileConfig(stanceAnchoredConfig_->task);
   config.centripetalAcceleration.scale = 1.0;
   config.centripetalAcceleration.maximumForce = 0.0;
-  config.centripetalAcceleration.maximumForceRatioOfWeight = 0.3;  // 0.3 W per foot: far above the ~0.03 W asked for here
+  config.centripetalAcceleration.maximumForceRatioOfWeight = 0.3;  // 0.3 W in total: far above the ~0.06 W asked for here
   ASSERT_TRUE(layer->reconfigure(config).ok());
   ASSERT_TRUE(layer->wrenchNeedsWorldFrame());
   ASSERT_TRUE(stanceAnchored_->usesContactBasisVectorInputs()) << "the world-frame path is only a rotation on the basis-vector model";
@@ -1068,9 +1126,9 @@ TEST_F(LocomotionHeuristicIntegrationTest, CentripetalForceReachesTheWorldFrameR
   // Precondition, by forward kinematics independent of the model under test: each sole frame is the world frame turned
   // by the heading, so the local and world frames really do differ at this point.
   const matrix3_t turned = Eigen::AngleAxis<scalar_t>(heading, vector3_t::UnitZ()).toRotationMatrix();
-  for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+  for (size_t foot = 0; foot < kNumContacts; ++foot) {
     const matrix3_t soleRotation = framePlacement(*stanceAnchored_, state, stanceAnchored_->modelSettings().contactNames[foot]).rotation();
-    ASSERT_LT((soleRotation - turned).cwiseAbs().maxCoeff(), 1e-9) << "foot " << foot << " is not flat and turned by the heading";
+    ASSERT_LT((soleRotation - turned).cwiseAbs().maxCoeff(), 1.0e-9) << "foot " << foot << " is not flat and turned by the heading";
   }
 
   struct Node {
@@ -1085,19 +1143,26 @@ TEST_F(LocomotionHeuristicIntegrationTest, CentripetalForceReachesTheWorldFrameR
     const scalar_t numStance = static_cast<scalar_t>(numberOfStanceFeet(node.contacts));
     const vector3_t expectedWorld(mass * yawRate * -command.y() / numStance, mass * yawRate * command.x() / numStance, weight / numStance);
     const vector_t input = referenceManager->getDesiredInput(target, state, node.time);
-    for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+    // The reference does not move with the node's state (the Gauss-Newton step holds it constant): the same input at a
+    // state turned and moved elsewhere, bit for bit. The contact frames are the reference configuration's, which here
+    // stands where `state` does.
+    const vector_t elsewhere = stateWithBaseAt(*stanceAnchored_, vector2_t(-0.7, 0.4));
+    EXPECT_TRUE(referenceManager->getDesiredInput(target, commandedState(*stanceAnchored_, command, /*yaw=*/-1.9), node.time) == input)
+        << "t = " << node.time;
+    EXPECT_TRUE(referenceManager->getDesiredInput(target, elsewhere, node.time) == input) << "t = " << node.time;
+    for (size_t foot = 0; foot < kNumContacts; ++foot) {
       if (!node.contacts[foot]) {
         EXPECT_TRUE(effectiveModel.getContactWrench(input, foot).isZero(0.0)) << "t = " << node.time << ", foot " << foot;
         continue;
       }
       const vector3_t world = effectiveModel.getContactForceInWorldFrame(state, input, foot);
-      EXPECT_LT((world - expectedWorld).cwiseAbs().maxCoeff(), 1e-6)
+      EXPECT_LT((world - expectedWorld).cwiseAbs().maxCoeff(), 1.0e-6)
           << "t = " << node.time << ", foot " << foot << ": " << world.transpose() << " vs " << expectedWorld.transpose();
       // Control: what the input itself holds is that force in the sole's frame, R_z(-heading) times it, and it differs
       // from the world force by more than the tolerance above - so the check above could tell the frames apart.
       const vector3_t local = effectiveModel.getContactForce(input, foot);
       const vector3_t expectedLocal = turned.transpose() * expectedWorld;
-      EXPECT_LT((local - expectedLocal).cwiseAbs().maxCoeff(), 1e-6)
+      EXPECT_LT((local - expectedLocal).cwiseAbs().maxCoeff(), 1.0e-6)
           << "t = " << node.time << ", foot " << foot << ": " << local.transpose() << " vs " << expectedLocal.transpose();
       EXPECT_GT((expectedLocal - expectedWorld).head<2>().norm(), 10.0) << "the local and world forces coincide at this point";
     }
@@ -1115,24 +1180,24 @@ TEST_F(LocomotionHeuristicIntegrationTest, FootholdSeamHasNoOpinionBeforeTheFirs
 
   // Positive control: one pre-solve later it has one, and the swing reference is built on it.
   const std::shared_ptr<SwitchedModelReferenceManager> referenceManager = stanceAnchored_->getSwitchedModelReferenceManagerPtr();
-  const vector_t state = stanceAnchored_->getInitialState();
+  const vector_t& state = stanceAnchored_->getInitialState();
   solveAt(*stanceAnchored_, walkSchedule(), constantTarget(*stanceAnchored_, state), state, /*time=*/1.12);
-  EXPECT_TRUE(referenceManager->nominalFoothold(CONTACT_RIGHT_INDEX, /*time=*/1.5).has_value());
-  EXPECT_TRUE(referenceManager->getSwingFootReference(CONTACT_RIGHT_INDEX, /*time=*/1.3).has_value());
+  EXPECT_TRUE(referenceManager->nominalFoothold(kContactRightIndex, /*time=*/1.5).has_value());
+  EXPECT_TRUE(referenceManager->getSwingFootReference(kContactRightIndex, /*time=*/1.3).has_value());
 }
 
 TEST_F(LocomotionHeuristicIntegrationTest, TranslationalSteppingLandingTargetHoldsStillThroughTheSwing) {
-  // translational_stepping alone, so the anchor is the stance-foot one: along the heading, the base PREDICTED at the
-  // touch-down; across it, the stance foot plus a step width. The robot walks at the command, v = (0.5, 0), so the base
-  // measured at each solve is 0.5 t and the prediction at the touch-down never changes: neither may the target.
+  // translational_stepping alone, so the anchor is the step-width one (footholdAnchor()): the base PREDICTED at the
+  // touch-down plus half a step width to the foot's side. The robot walks at the command, v = (0.5, 0), so the base
+  // measured at each solve is (0.5 t, 0) and the prediction at the touch-down never changes: neither may the target.
   //
-  // Right foot, landing at 1.5 on a 0.6 s stance: x = 0.5 * 1.5 + (0.5 * 0.6) * 0.5 = 0.9, y = left foot - 0.45 - 0.05
-  // (the lateral offset is signed by the foot's own side). Left foot, landing at 2.0: x = 0.5 * 2.0 + 0.15 = 1.15,
-  // y = right foot + 0.45 + 0.05. A flipped side sign narrows the stance by twice the offset instead of widening it.
+  // Right foot, landing at 1.5 on a 0.6 s stance: x = 0.5 * 1.5 + (0.5 * 0.6) * 0.5 = 0.9, y = -0.45 / 2 - 0.05 (the
+  // lateral offset is signed by the foot's own side). Left foot, landing at 2.0: x = 0.5 * 2.0 + 0.15 = 1.15,
+  // y = +0.45 / 2 + 0.05. A flipped side sign narrows the stance by twice the offset instead of widening it.
   const std::shared_ptr<LocomotionHeuristicLayer>& layer = stanceAnchored_->getLocomotionHeuristicLayerPtr();
-  ASSERT_FALSE(layer->footholdMovesAnchor()) << "this interface must exercise the stance-foot anchor";
-  RestoreCoefficientsFromFileOnExit restore(layer, stanceAnchoredTaskFile_);
-  LocomotionHeuristicConfig config = fileConfig(stanceAnchoredTaskFile_);
+  ASSERT_FALSE(layer->footholdMovesAnchor()) << "this interface must exercise the step-width anchor";
+  RestoreCoefficientsFromFileOnExit restore(layer, stanceAnchoredConfig_->task);
+  LocomotionHeuristicConfig config = fileConfig(stanceAnchoredConfig_->task);
   config.translationalStepping = TranslationalSteppingParameters{};
   config.translationalStepping.forwardStanceFraction = 0.5;
   config.translationalStepping.lateralStanceFraction = 0.5;
@@ -1150,10 +1215,9 @@ TEST_F(LocomotionHeuristicIntegrationTest, TranslationalSteppingLandingTargetHol
   // Double support: both feet measured, and the right foot's lift-off position is this one.
   const vector_t liftOffState = stateWithBaseAt(*stanceAnchored_, vector2_t(speed * 1.05, 0.0));
   solveAt(*stanceAnchored_, schedule, target, liftOffState, /*time=*/1.05);
-  const vector2_t rightLiftOff = footPosition(*stanceAnchored_, liftOffState, CONTACT_RIGHT_INDEX);
-  const scalar_t leftFootY = footPosition(*stanceAnchored_, liftOffState, CONTACT_LEFT_INDEX).y();
-  const vector2_t expectedRight(speed * 1.5 + 0.5 * kWalkStanceDuration * speed, leftFootY - stepWidth - lateralOffset);
-  const vector2_t expectedLeft(speed * 2.0 + 0.5 * kWalkStanceDuration * speed, rightLiftOff.y() + stepWidth + lateralOffset);
+  const vector2_t rightLiftOff = footPosition(*stanceAnchored_, liftOffState, kContactRightIndex);
+  const vector2_t expectedRight(speed * 1.5 + 0.5 * kWalkStanceDuration * speed, -0.5 * stepWidth - lateralOffset);
+  const vector2_t expectedLeft(speed * 2.0 + 0.5 * kWalkStanceDuration * speed, 0.5 * stepWidth + lateralOffset);
 
   // The swing-reference check below is chosen by INDEX: it used to be guarded by `solveTime > 1.28 && solveTime <
   // 1.32`, and 1.12 + 0.04 k is exactly the double 1.28 at k = 4 and 1.32 at k = 5, so it never ran. It is counted too,
@@ -1163,13 +1227,15 @@ TEST_F(LocomotionHeuristicIntegrationTest, TranslationalSteppingLandingTargetHol
   for (int k = 0; k < 10; ++k) {
     const scalar_t solveTime = 1.12 + 0.04 * static_cast<scalar_t>(k);
     solveAt(*stanceAnchored_, schedule, target, stateWithBaseAt(*stanceAnchored_, vector2_t(speed * solveTime, 0.0)), solveTime);
-    const std::optional<vector2_t> right = referenceManager->nominalFoothold(CONTACT_RIGHT_INDEX, /*time=*/1.5);
-    const std::optional<vector2_t> left = referenceManager->nominalFoothold(CONTACT_LEFT_INDEX, /*time=*/2.0);
-    ASSERT_TRUE(right.has_value() && left.has_value()) << "solve at " << solveTime;
-    EXPECT_NEAR(right->x(), expectedRight.x(), 1e-9) << "solve at " << solveTime;
-    EXPECT_NEAR(right->y(), expectedRight.y(), 1e-9) << "solve at " << solveTime;
-    EXPECT_NEAR(left->x(), expectedLeft.x(), 1e-9) << "solve at " << solveTime;
-    EXPECT_NEAR(left->y(), expectedLeft.y(), 1e-9) << "solve at " << solveTime;
+    const std::optional<vector2_t> right = referenceManager->nominalFoothold(kContactRightIndex, /*time=*/1.5);
+    const std::optional<vector2_t> left = referenceManager->nominalFoothold(kContactLeftIndex, /*time=*/2.0);
+    if (!(right.has_value() && left.has_value())) {
+      GTEST_FAIL() << "solve at " << solveTime;
+    }
+    EXPECT_NEAR(right->x(), expectedRight.x(), 1.0e-9) << "solve at " << solveTime;
+    EXPECT_NEAR(right->y(), expectedRight.y(), 1.0e-9) << "solve at " << solveTime;
+    EXPECT_NEAR(left->x(), expectedLeft.x(), 1.0e-9) << "solve at " << solveTime;
+    EXPECT_NEAR(left->y(), expectedLeft.y(), 1.0e-9) << "solve at " << solveTime;
 
     if (k != swingCheckIteration) continue;
     ++numSwingChecks;
@@ -1187,12 +1253,15 @@ TEST_F(LocomotionHeuristicIntegrationTest, TranslationalSteppingLandingTargetHol
     };
     const vector2_t displacement = expectedRight - rightLiftOff;
     ASSERT_GT(displacement.norm(), 0.1) << "a swing that goes nowhere cannot tell one blend from another";
-    for (const SwingSample& sample : {SwingSample{1.3, 0.625, 1.25 / 0.4}, SwingSample{1.2, 0.296875, 1.3125 / 0.4}}) {
-      const std::optional<SwingFootReference> swing = referenceManager->getSwingFootReference(CONTACT_RIGHT_INDEX, sample.time);
-      ASSERT_TRUE(swing.has_value()) << "t = " << sample.time;
-      EXPECT_LT((swing->position.head<2>() - (rightLiftOff + sample.blend * displacement)).cwiseAbs().maxCoeff(), 1e-9)
+    for (const SwingSample& sample : {SwingSample{.time = 1.3, .blend = 0.625, .blendRate = 1.25 / 0.4},
+                                      SwingSample{.time = 1.2, .blend = 0.296875, .blendRate = 1.3125 / 0.4}}) {
+      const std::optional<SwingFootReference> swing = referenceManager->getSwingFootReference(kContactRightIndex, sample.time);
+      if (!swing.has_value()) {
+        GTEST_FAIL() << "t = " << sample.time;
+      }
+      EXPECT_LT((swing->position.head<2>() - (rightLiftOff + sample.blend * displacement)).cwiseAbs().maxCoeff(), 1.0e-9)
           << "t = " << sample.time << ": " << swing->position.head<2>().transpose();
-      EXPECT_LT((swing->linearVelocity.head<2>() - sample.blendRate * displacement).cwiseAbs().maxCoeff(), 1e-9)
+      EXPECT_LT((swing->linearVelocity.head<2>() - sample.blendRate * displacement).cwiseAbs().maxCoeff(), 1.0e-9)
           << "t = " << sample.time << ": " << swing->linearVelocity.head<2>().transpose();
     }
   }
@@ -1209,7 +1278,7 @@ TEST_F(LocomotionHeuristicIntegrationTest, HipCenteredAnchorIsThePredictedBaseAn
   // touch-downs of the same foot on equal stances still differ by exactly v * 1.0 s.
   const std::shared_ptr<LocomotionHeuristicLayer>& layer = enabled_->getLocomotionHeuristicLayerPtr();
   ASSERT_TRUE(layer->footholdMovesAnchor());
-  RestoreCoefficientsFromFileOnExit restore(layer, enabledTaskFile_);
+  RestoreCoefficientsFromFileOnExit restore(layer, enabledConfig_->task);
 
   const std::shared_ptr<SwitchedModelReferenceManager> referenceManager = enabled_->getSwitchedModelReferenceManagerPtr();
   const vector2_t command(0.4, 0.1);
@@ -1217,7 +1286,7 @@ TEST_F(LocomotionHeuristicIntegrationTest, HipCenteredAnchorIsThePredictedBaseAn
   const vector_t state = stateWithBaseAt(*enabled_, vector2_t(0.3, -0.2));
   solveAt(*enabled_, walkSchedule(), constantTarget(*enabled_, commandedState(*enabled_, command, /*yaw=*/0.0)), state, solveTime);
 
-  LocomotionHeuristicConfig config = fileConfig(enabledTaskFile_);
+  LocomotionHeuristicConfig config = fileConfig(enabledConfig_->task);
   config.hipCenteredStepping.lateralScale = 0.0;
   config.hipCenteredStepping.longitudinalScale = 0.0;
   config.translationalStepping = TranslationalSteppingParameters{};
@@ -1227,13 +1296,15 @@ TEST_F(LocomotionHeuristicIntegrationTest, HipCenteredAnchorIsThePredictedBaseAn
     scalar_t touchDown;
     vector2_t predictedBase;
   };
-  const std::vector<Landing> landings = {{CONTACT_RIGHT_INDEX, 1.5, vector2_t(0.452, -0.162)},
-                                         {CONTACT_RIGHT_INDEX, 2.5, vector2_t(0.852, -0.062)},
-                                         {CONTACT_LEFT_INDEX, 2.0, vector2_t(0.652, -0.112)}};
+  const std::vector<Landing> landings = {{kContactRightIndex, 1.5, vector2_t(0.452, -0.162)},
+                                         {kContactRightIndex, 2.5, vector2_t(0.852, -0.062)},
+                                         {kContactLeftIndex, 2.0, vector2_t(0.652, -0.112)}};
   for (const Landing& landing : landings) {
     const std::optional<vector2_t> foothold = referenceManager->nominalFoothold(landing.foot, landing.touchDown);
-    ASSERT_TRUE(foothold.has_value());
-    EXPECT_LT((*foothold - landing.predictedBase).cwiseAbs().maxCoeff(), 1e-12)
+    if (!foothold.has_value()) {
+      GTEST_FAIL();
+    }
+    EXPECT_LT((*foothold - landing.predictedBase).cwiseAbs().maxCoeff(), 1.0e-12)
         << "foot " << landing.foot << " landing at " << landing.touchDown << ": " << foothold->transpose();
   }
 
@@ -1242,11 +1313,13 @@ TEST_F(LocomotionHeuristicIntegrationTest, HipCenteredAnchorIsThePredictedBaseAn
   config.translationalStepping.forwardStanceFraction = 0.5;
   config.translationalStepping.lateralStanceFraction = 0.5;
   ASSERT_TRUE(layer->reconfigure(config).ok());
-  const std::optional<vector2_t> firstRight = referenceManager->nominalFoothold(CONTACT_RIGHT_INDEX, /*time=*/1.5);
-  const std::optional<vector2_t> secondRight = referenceManager->nominalFoothold(CONTACT_RIGHT_INDEX, /*time=*/2.5);
-  const std::optional<vector2_t> firstLeft = referenceManager->nominalFoothold(CONTACT_LEFT_INDEX, /*time=*/2.0);
-  ASSERT_TRUE(firstRight.has_value() && secondRight.has_value() && firstLeft.has_value());
-  EXPECT_LT((*secondRight - *firstRight - command * 1.0).cwiseAbs().maxCoeff(), 1e-12);
+  const std::optional<vector2_t> firstRight = referenceManager->nominalFoothold(kContactRightIndex, /*time=*/1.5);
+  const std::optional<vector2_t> secondRight = referenceManager->nominalFoothold(kContactRightIndex, /*time=*/2.5);
+  const std::optional<vector2_t> firstLeft = referenceManager->nominalFoothold(kContactLeftIndex, /*time=*/2.0);
+  if (!(firstRight.has_value() && secondRight.has_value() && firstLeft.has_value())) {
+    GTEST_FAIL();
+  }
+  EXPECT_LT((*secondRight - *firstRight - command * 1.0).cwiseAbs().maxCoeff(), 1.0e-12);
 
   // Positive control that the hip offset is on and each foot is under its own hip: what is left after the predicted
   // base and the stepping lead (0.5 * 0.6 s * v) are taken off is to the foot's own side, and mirror-symmetric.
@@ -1255,8 +1328,65 @@ TEST_F(LocomotionHeuristicIntegrationTest, HipCenteredAnchorIsThePredictedBaseAn
   const vector2_t leftHip = *firstLeft - vector2_t(0.652, -0.112) - lead;
   EXPECT_GT(leftHip.y(), 0.05) << "the left hip must be to the left of the base";
   EXPECT_LT(rightHip.y(), -0.05) << "the right hip must be to the right of the base";
-  EXPECT_NEAR(leftHip.y(), -rightHip.y(), 1e-6) << "a symmetric robot has symmetric hips";
-  EXPECT_NEAR(leftHip.x(), rightHip.x(), 1e-6);
+  EXPECT_NEAR(leftHip.y(), -rightHip.y(), 1.0e-6) << "a symmetric robot has symmetric hips";
+  EXPECT_NEAR(leftHip.x(), rightHip.x(), 1.0e-6);
+}
+
+TEST_F(LocomotionHeuristicIntegrationTest, HipCenteredAnchorIsThePredictedBaseOnTheArcOfATurningCommand) {
+  // A velocity command that turns: its knots turn their world velocity with the heading (the arc of
+  // TargetTrajectoriesCalculatorBase), so the base predicted for a touch-down lies on that arc,
+  //   p(t) = p_0 + [[sin(theta), -(1 - cos(theta))], [1 - cos(theta), sin(theta)]] v_0 / omega,  theta = omega (t - t_0),
+  // with every offset zeroed the target itself. The trapezoid of the two velocities it was fell 5.6 cm short of it at
+  // the touch-down 1.38 s out.
+  const std::shared_ptr<LocomotionHeuristicLayer>& layer = enabled_->getLocomotionHeuristicLayerPtr();
+  ASSERT_TRUE(layer->footholdMovesAnchor());
+  RestoreCoefficientsFromFileOnExit restore(layer, enabledConfig_->task);
+  LocomotionHeuristicConfig config = fileConfig(enabledConfig_->task);
+  config.hipCenteredStepping.lateralScale = 0.0;
+  config.hipCenteredStepping.longitudinalScale = 0.0;
+  config.translationalStepping = TranslationalSteppingParameters{};
+  ASSERT_TRUE(layer->reconfigure(config).ok());
+
+  const std::shared_ptr<SwitchedModelReferenceManager> referenceManager = enabled_->getSwitchedModelReferenceManagerPtr();
+  const vector2_t bodyVelocity(0.4, 0.1);
+  constexpr scalar_t kYawRate = 0.8;
+  constexpr scalar_t kSolveTime = 1.12;
+  const vector2_t measuredBase(0.3, -0.2);
+  const vector_t state = stateWithBaseAt(*enabled_, measuredBase);
+  // The knots at the solve and at every touch-down asked about, so the target's command there is the knot's, exactly.
+  const scalar_t normalizedYawMomentum = compositeYawInertia(*enabled_, state) * kYawRate / totalMass(*enabled_);
+  const std::vector<scalar_t> knotTimes = {kSolveTime, 1.5, 2.0, 2.5};
+  TargetTrajectories target;
+  for (const scalar_t time : knotTimes) {
+    const scalar_t heading = kYawRate * (time - kSolveTime);
+    const vector2_t worldVelocity(std::cos(heading) * bodyVelocity(0) - std::sin(heading) * bodyVelocity(1),
+                                  std::sin(heading) * bodyVelocity(0) + std::cos(heading) * bodyVelocity(1));
+    target.timeTrajectory.push_back(time);
+    target.stateTrajectory.push_back(commandedState(*enabled_, worldVelocity, heading, normalizedYawMomentum));
+    target.inputTrajectory.push_back(vector_t::Zero(enabled_->getEffectiveMpcRobotModel().getInputDim()));
+  }
+  solveAt(*enabled_, walkSchedule(), target, state, kSolveTime);
+
+  struct Landing {
+    size_t foot;
+    scalar_t touchDown;
+  };
+  for (const Landing& landing :
+       {Landing{.foot = kContactRightIndex, .touchDown = 1.5}, Landing{.foot = kContactLeftIndex, .touchDown = 2.0},
+        Landing{.foot = kContactRightIndex, .touchDown = 2.5}}) {
+    SCOPED_TRACE(landing.touchDown);
+    ASSERT_NEAR(referenceManager->getCommandedYawRate(landing.touchDown), kYawRate, 1.0e-12) << "the knot's yaw rate reads back";
+    const scalar_t turn = kYawRate * (landing.touchDown - kSolveTime);
+    const scalar_t versine = 2.0 * std::sin(0.5 * turn) * std::sin(0.5 * turn);
+    const vector2_t arc = measuredBase + vector2_t(std::sin(turn) * bodyVelocity(0) - versine * bodyVelocity(1),
+                                                   versine * bodyVelocity(0) + std::sin(turn) * bodyVelocity(1)) /
+                                             kYawRate;
+    const std::optional<vector2_t> foothold = referenceManager->nominalFoothold(landing.foot, landing.touchDown);
+    if (!foothold.has_value()) {
+      GTEST_FAIL();
+    }
+    EXPECT_LT((*foothold - arc).cwiseAbs().maxCoeff(), 1.0e-11) << foothold->transpose() << " against " << arc.transpose();
+  }
 }
 
 TEST_F(LocomotionHeuristicIntegrationTest, HipCenteredSteppingKeepsTheFeetApartOnAZeroStepWidthAtAnyHeading) {
@@ -1270,10 +1400,10 @@ TEST_F(LocomotionHeuristicIntegrationTest, HipCenteredSteppingKeepsTheFeetApartO
   // and a context built with the measured yaw - the stale yaw, which on the last step of a horizon trails a brisk turn
   // by most of a radian - or a prediction without its yaw-rate term both pass them. The third case turns: see below.
   const std::shared_ptr<LocomotionHeuristicLayer>& layer = zeroStepWidth_->getLocomotionHeuristicLayerPtr();
-  ASSERT_EQ(zeroStepWidth_->modelSettings().nominalFootholdConfig.stepWidth, 0.0) << "the temp task file did not take effect";
+  ASSERT_EQ(zeroStepWidth_->modelSettings().nominalFootholdConfig.stepWidth, 0.0) << "the edited configuration did not take effect";
   ASSERT_TRUE(layer->footholdMovesAnchor());
-  RestoreCoefficientsFromFileOnExit restore(layer, zeroStepWidthTaskFile_);
-  LocomotionHeuristicConfig config = fileConfig(zeroStepWidthTaskFile_);
+  RestoreCoefficientsFromFileOnExit restore(layer, zeroStepWidthConfig_->task);
+  LocomotionHeuristicConfig config = fileConfig(zeroStepWidthConfig_->task);
   config.hipCenteredStepping.lateralScale = 1.0;
   config.hipCenteredStepping.longitudinalScale = 1.0;
   ASSERT_TRUE(layer->reconfigure(config).ok());
@@ -1284,26 +1414,29 @@ TEST_F(LocomotionHeuristicIntegrationTest, HipCenteredSteppingKeepsTheFeetApartO
   // Standing still at heading 0: the target is the base plus the hip, and the base is at the origin.
   const vector_t facingX = zeroStepWidth_->getInitialState();
   solveAt(*zeroStepWidth_, walkSchedule(), constantTarget(*zeroStepWidth_, facingX), facingX, /*time=*/1.12);
-  const std::optional<vector2_t> rightFacingX = referenceManager->nominalFoothold(CONTACT_RIGHT_INDEX, /*time=*/1.5);
-  const std::optional<vector2_t> leftFacingX = referenceManager->nominalFoothold(CONTACT_LEFT_INDEX, /*time=*/2.0);
-  ASSERT_TRUE(rightFacingX.has_value() && leftFacingX.has_value())
-      << "a listed foothold heuristic must be measured for on a zero step width";
+  const std::optional<vector2_t> rightFacingX = referenceManager->nominalFoothold(kContactRightIndex, /*time=*/1.5);
+  const std::optional<vector2_t> leftFacingX = referenceManager->nominalFoothold(kContactLeftIndex, /*time=*/2.0);
+  if (!(rightFacingX.has_value() && leftFacingX.has_value())) {
+    GTEST_FAIL() << "a listed foothold heuristic must be measured for on a zero step width";
+  }
   const scalar_t separation = leftFacingX->y() - rightFacingX->y();
   EXPECT_GT(separation, 0.1) << "the feet must land apart, each under its own hip";
-  EXPECT_NEAR(leftFacingX->x(), rightFacingX->x(), 1e-6) << "a symmetric robot's hips are level fore and aft";
-  EXPECT_NEAR(leftFacingX->y(), -rightFacingX->y(), 1e-6) << "about a base on the world origin, symmetrically";
+  EXPECT_NEAR(leftFacingX->x(), rightFacingX->x(), 1.0e-6) << "a symmetric robot's hips are level fore and aft";
+  EXPECT_NEAR(leftFacingX->y(), -rightFacingX->y(), 1.0e-6) << "about a base on the world origin, symmetrically";
 
   // The same robot turned to heading pi/2, measured there.
   vector_t facingY = facingX;
-  vector6_t basePose = model.getBasePose(facingY);
+  vector6_t basePose = model.getBasePoseEulerZyx(facingY);
   basePose(3) = M_PI_2;
-  model.setBasePose(facingY, basePose);
+  model.setBasePoseEulerZyx(facingY, basePose);
   solveAt(*zeroStepWidth_, walkSchedule(), constantTarget(*zeroStepWidth_, facingY), facingY, /*time=*/1.12);
-  const std::optional<vector2_t> rightFacingY = referenceManager->nominalFoothold(CONTACT_RIGHT_INDEX, /*time=*/1.5);
-  const std::optional<vector2_t> leftFacingY = referenceManager->nominalFoothold(CONTACT_LEFT_INDEX, /*time=*/2.0);
-  ASSERT_TRUE(rightFacingY.has_value() && leftFacingY.has_value());
-  EXPECT_NEAR(leftFacingY->x() - rightFacingY->x(), -separation, 1e-9) << "the robot's left is the world's -x at heading pi/2";
-  EXPECT_NEAR(leftFacingY->y(), rightFacingY->y(), 1e-6);
+  const std::optional<vector2_t> rightFacingY = referenceManager->nominalFoothold(kContactRightIndex, /*time=*/1.5);
+  const std::optional<vector2_t> leftFacingY = referenceManager->nominalFoothold(kContactLeftIndex, /*time=*/2.0);
+  if (!(rightFacingY.has_value() && leftFacingY.has_value())) {
+    GTEST_FAIL();
+  }
+  EXPECT_NEAR(leftFacingY->x() - rightFacingY->x(), -separation, 1.0e-9) << "the robot's left is the world's -x at heading pi/2";
+  EXPECT_NEAR(leftFacingY->y(), rightFacingY->y(), 1.0e-6);
 
   // Turning on the spot at heading 0: psidot = 0.5 rad/s in the target's momentum channel as the target calculator
   // writes it, h_z = I_zz psidot / m, and no linear command, so the predicted base stays where it was measured. The
@@ -1317,37 +1450,39 @@ TEST_F(LocomotionHeuristicIntegrationTest, HipCenteredSteppingKeepsTheFeetApartO
   const vector_t turning = commandedState(*zeroStepWidth_, vector2_t::Zero(), /*yaw=*/0.0,
                                           compositeYawInertia(*zeroStepWidth_, facingX) * yawRate / totalMass(*zeroStepWidth_));
   solveAt(*zeroStepWidth_, walkSchedule(), constantTarget(*zeroStepWidth_, turning), facingX, solveTime);
-  ASSERT_NEAR(referenceManager->getCommandedYawRate(1.5), yawRate, 1e-9) << "the yaw rate did not reach the reference manager";
+  ASSERT_NEAR(referenceManager->getCommandedYawRate(1.5), yawRate, 1.0e-9) << "the yaw rate did not reach the reference manager";
   struct Landing {
     size_t foot;
     scalar_t touchDown;
     vector2_t hipAtHeadingZero;
   };
-  const std::vector<Landing> landings = {{CONTACT_RIGHT_INDEX, 1.5, vector2_t(*rightFacingX - base)},
-                                         {CONTACT_LEFT_INDEX, 2.0, vector2_t(*leftFacingX - base)}};
+  const std::vector<Landing> landings = {{kContactRightIndex, 1.5, vector2_t(*rightFacingX - base)},
+                                         {kContactLeftIndex, 2.0, vector2_t(*leftFacingX - base)}};
   for (const Landing& landing : landings) {
     const scalar_t predictedYaw = yawRate * (landing.touchDown - solveTime);
     const vector2_t expected = base + Eigen::Rotation2D<scalar_t>(predictedYaw).toRotationMatrix() * landing.hipAtHeadingZero;
     const std::optional<vector2_t> foothold = referenceManager->nominalFoothold(landing.foot, landing.touchDown);
-    ASSERT_TRUE(foothold.has_value());
-    EXPECT_LT((*foothold - expected).cwiseAbs().maxCoeff(), 1e-9) << "foot " << landing.foot << " landing at " << landing.touchDown << ": "
-                                                                  << foothold->transpose() << " vs " << expected.transpose();
+    if (!foothold.has_value()) {
+      GTEST_FAIL();
+    }
+    EXPECT_LT((*foothold - expected).cwiseAbs().maxCoeff(), 1.0e-9) << "foot " << landing.foot << " landing at " << landing.touchDown
+                                                                    << ": " << foothold->transpose() << " vs " << expected.transpose();
     // Control: the turn moves the target by more than the tolerance, so the check above can see a missing turn.
     EXPECT_GT((expected - (base + landing.hipAtHeadingZero)).norm(), 0.01) << "foot " << landing.foot;
   }
 }
 
-TEST_F(LocomotionHeuristicIntegrationTest, StanceFootAnchorTurnsWithTheHeadingPredictedForTheTouchDown) {
-  // The stance-foot anchor, with translational_stepping listed and every coefficient of it zeroed: the target is the
-  // anchor itself, forward * (forward . base) + leftward * (leftward . stanceFoot + side * stepWidth), with forward and
-  // leftward the axes of the heading PREDICTED for the touch-down. Measured in double support at heading 0, turning at
-  // 0.5 rad/s on the spot: the prediction is 0.5 * (1.5 - 1.05) = 0.225 rad for the right foot and 0.475 rad for the
-  // left. Axes built from the stale measured yaw of 0 give (base.x, stanceFoot.y +- stepWidth) instead - several
-  // centimeters away, the lateral 0.45 m step width being swung through a quarter of a radian.
+TEST_F(LocomotionHeuristicIntegrationTest, StepWidthAnchorTurnsWithTheHeadingPredictedForTheTouchDown) {
+  // The step-width anchor, with translational_stepping listed and every coefficient of it zeroed: the target is the
+  // anchor itself, base + leftward * side * stepWidth / 2, with leftward the lateral axis of the heading PREDICTED for
+  // the touch-down. Measured in double support at heading 0, turning at 0.5 rad/s on the spot: the prediction is
+  // 0.5 * (1.5 - 1.05) = 0.225 rad for the right foot and 0.475 rad for the left. An axis built from the stale measured
+  // yaw of 0 gives (base.x, base.y +- stepWidth / 2) instead - centimeters away, the 0.225 m half step width being
+  // swung through a quarter of a radian.
   const std::shared_ptr<LocomotionHeuristicLayer>& layer = stanceAnchored_->getLocomotionHeuristicLayerPtr();
-  ASSERT_FALSE(layer->footholdMovesAnchor()) << "this interface must exercise the stance-foot anchor";
-  RestoreCoefficientsFromFileOnExit restore(layer, stanceAnchoredTaskFile_);
-  LocomotionHeuristicConfig config = fileConfig(stanceAnchoredTaskFile_);
+  ASSERT_FALSE(layer->footholdMovesAnchor()) << "this interface must exercise the step-width anchor";
+  RestoreCoefficientsFromFileOnExit restore(layer, stanceAnchoredConfig_->task);
+  LocomotionHeuristicConfig config = fileConfig(stanceAnchoredConfig_->task);
   config.translationalStepping = TranslationalSteppingParameters{};
   ASSERT_TRUE(layer->reconfigure(config).ok());
 
@@ -1360,30 +1495,28 @@ TEST_F(LocomotionHeuristicIntegrationTest, StanceFootAnchorTurnsWithTheHeadingPr
   const vector_t turning = commandedState(*stanceAnchored_, vector2_t::Zero(), /*yaw=*/0.0,
                                           compositeYawInertia(*stanceAnchored_, state) * yawRate / totalMass(*stanceAnchored_));
   solveAt(*stanceAnchored_, walkSchedule(), constantTarget(*stanceAnchored_, turning), state, solveTime);
-  ASSERT_NEAR(referenceManager->getCommandedYawRate(1.5), yawRate, 1e-9) << "the yaw rate did not reach the reference manager";
+  ASSERT_NEAR(referenceManager->getCommandedYawRate(1.5), yawRate, 1.0e-9) << "the yaw rate did not reach the reference manager";
 
   const vector2_t base = stanceAnchored_->getMpcRobotModel().getBasePosition(state).head<2>();
   struct Landing {
     size_t foot;
-    size_t stanceFoot;
     scalar_t side;
     scalar_t touchDown;
   };
-  const std::vector<Landing> landings = {{CONTACT_RIGHT_INDEX, CONTACT_LEFT_INDEX, -1.0, 1.5},
-                                         {CONTACT_LEFT_INDEX, CONTACT_RIGHT_INDEX, 1.0, 2.0}};
+  const std::vector<Landing> landings = {{kContactRightIndex, -1.0, 1.5}, {kContactLeftIndex, 1.0, 2.0}};
   for (const Landing& landing : landings) {
     const scalar_t predictedYaw = yawRate * (landing.touchDown - solveTime);
-    const vector2_t forward(std::cos(predictedYaw), std::sin(predictedYaw));
     const vector2_t leftward(-std::sin(predictedYaw), std::cos(predictedYaw));
-    const vector2_t stanceFoot = footPosition(*stanceAnchored_, state, landing.stanceFoot);
-    const vector2_t expected = forward * forward.dot(base) + leftward * (leftward.dot(stanceFoot) + landing.side * stepWidth);
+    const vector2_t expected = base + leftward * (0.5 * landing.side * stepWidth);
     const std::optional<vector2_t> foothold = referenceManager->nominalFoothold(landing.foot, landing.touchDown);
-    ASSERT_TRUE(foothold.has_value());
-    EXPECT_LT((*foothold - expected).cwiseAbs().maxCoeff(), 1e-9) << "foot " << landing.foot << " landing at " << landing.touchDown << ": "
-                                                                  << foothold->transpose() << " vs " << expected.transpose();
+    if (!foothold.has_value()) {
+      GTEST_FAIL();
+    }
+    EXPECT_LT((*foothold - expected).cwiseAbs().maxCoeff(), 1.0e-9) << "foot " << landing.foot << " landing at " << landing.touchDown
+                                                                    << ": " << foothold->transpose() << " vs " << expected.transpose();
     // Control: the anchor on the measured heading, which the stale-yaw mutant would return, is far from it.
-    const vector2_t unturned(base.x(), stanceFoot.y() + landing.side * stepWidth);
-    EXPECT_GT((expected - unturned).norm(), 0.05) << "foot " << landing.foot;
+    const vector2_t unturned(base.x(), base.y() + 0.5 * landing.side * stepWidth);
+    EXPECT_GT((expected - unturned).norm(), 0.04) << "foot " << landing.foot;
   }
 }
 
@@ -1394,17 +1527,17 @@ TEST_F(LocomotionHeuristicIntegrationTest, ModelParametersComeFromTheRobotAndNot
   EXPECT_TRUE(layer->footholdMovesAnchor());
 
   FootholdHeuristicContext left;
-  left.contactIndex = CONTACT_LEFT_INDEX;
+  left.contactIndex = kContactLeftIndex;
   left.side = 1.0;
   FootholdHeuristicContext right;
-  right.contactIndex = CONTACT_RIGHT_INDEX;
+  right.contactIndex = kContactRightIndex;
   right.side = -1.0;
   const vector2_t leftHip = layer->footholdOffset(left);
   const vector2_t rightHip = layer->footholdOffset(right);
   // Atlas's hips are about 0.18 m apart, so each is roughly 0.09 m to its own side; the exact number is the URDF's.
   EXPECT_GT(leftHip.y(), 0.05) << "the left hip must be to the left of the base";
   EXPECT_LT(rightHip.y(), -0.05) << "the right hip must be to the right of the base";
-  EXPECT_NEAR(leftHip.y(), -rightHip.y(), 1e-6) << "a symmetric robot has symmetric hips";
+  EXPECT_NEAR(leftHip.y(), -rightHip.y(), 1.0e-6) << "a symmetric robot has symmetric hips";
 }
 
 /******************************************************************************************************/
@@ -1412,28 +1545,17 @@ TEST_F(LocomotionHeuristicIntegrationTest, ModelParametersComeFromTheRobotAndNot
 /******************************************************************************************************/
 
 TEST_F(LocomotionHeuristicIntegrationTest, UnknownNameInTheTaskFileIsRejectedWithAStatus) {
-  const std::string taskFile = writeTaskFile("unknown_name.yaml", withLists(readFile(shippedTaskFile()), R"(  base_pose:
-    - orientation_compenstaion
-  foothold:
-  wrench:
-)"));
   const absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> interface =
-      CentroidalMpcInterface::Create(taskFile, urdfFile(), referenceFile());
+      CentroidalMpcInterface::Create(withLists({"orientation_compenstaion"}, /*foothold=*/{}, /*wrench=*/{}), files().urdfFile);
   ASSERT_FALSE(interface.ok());
   EXPECT_NE(std::string(interface.status().message()).find("orientation_compensation"), std::string::npos) << interface.status().message();
 }
 
 TEST_F(LocomotionHeuristicIntegrationTest, FootholdHeuristicUnderContactPlanningIsRejectedAtStartUp) {
   // A silent no-op is the failure mode this rejection exists to prevent, so it must be loud and at start-up.
-  std::string content = withLists(readFile(shippedTaskFile()), R"(  base_pose:
-  foothold:
-    - capture_point
-  wrench:
-)");
-  content = withContactScheduleSource(content, kContactPlannerContactScheduleSource);
-  const std::string taskFile = writeTaskFile("foothold_with_planner.yaml", content);
-  const absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> interface =
-      CentroidalMpcInterface::Create(taskFile, urdfFile(), referenceFile());
+  CentroidalMpcConfig config = withLists(/*basePose=*/{}, {"capture_point"}, /*wrench=*/{});
+  config.task.contact_schedule_source = std::string(kContactPlannerContactScheduleSource);
+  const absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> interface = CentroidalMpcInterface::Create(config, files().urdfFile);
   ASSERT_FALSE(interface.ok());
   const std::string message(interface.status().message());
   EXPECT_NE(message.find(absl::StrCat(kContactScheduleSourceKey, " is ", kContactPlannerContactScheduleSource)), std::string::npos)
@@ -1444,22 +1566,15 @@ TEST_F(LocomotionHeuristicIntegrationTest, FootholdHeuristicUnderContactPlanning
 
 TEST_F(LocomotionHeuristicIntegrationTest, FootholdListWithoutAnAnchorIsRejectedOnAZeroStepWidth) {
   // With no step width and no hip_centered_stepping, nothing keeps the feet apart: every other foothold heuristic nudges
-  // a target on the stance foot's own lateral line, and the swing foot would be aimed at the stance foot. The error
+  // a target on the base's own lateral line, and both feet would be aimed at the same point. The error
   // must name both ways out. (The positive controls are built in SetUpTestSuite: the same list on the shipped 0.45 m
   // step width is `stanceAnchored_`, and a zero step width with hip_centered_stepping listed is `zeroStepWidth_`.)
-  std::string content = withLists(readFile(shippedTaskFile()), R"(  base_pose:
-  foothold:
-    - translational_stepping
-  wrench:
-)");
-  content = withContactScheduleSource(content, kGaitScheduleContactScheduleSource);
-  content = withStepWidth(content, /*stepWidth=*/0.0);
-  const std::string taskFile = writeTaskFile("foothold_without_anchor.yaml", content);
-  const absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> interface =
-      CentroidalMpcInterface::Create(taskFile, urdfFile(), referenceFile());
+  CentroidalMpcConfig config = withLists(/*basePose=*/{}, {"translational_stepping"}, /*wrench=*/{});
+  config.task.nominal_foothold.step_width = 0.0;
+  const absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> interface = CentroidalMpcInterface::Create(config, files().urdfFile);
   ASSERT_FALSE(interface.ok());
   const std::string message(interface.status().message());
-  EXPECT_NE(message.find("model_settings.nominal_foothold.stepWidth"), std::string::npos) << message;
+  EXPECT_NE(message.find("nominal_foothold.step_width"), std::string::npos) << message;
   EXPECT_NE(message.find("hip_centered_stepping"), std::string::npos) << message;
 }
 

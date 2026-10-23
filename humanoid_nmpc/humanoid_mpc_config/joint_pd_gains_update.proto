@@ -1,0 +1,50 @@
+// Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+//
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions are met:
+//
+// 1. Redistributions of source code must retain the above copyright notice, this
+//    list of conditions and the following disclaimer.
+//
+// 2. Redistributions in binary form must reproduce the above copyright notice,
+//    this list of conditions and the following disclaimer in the documentation
+//    and/or other materials provided with the distribution.
+//
+// 3. Neither the name of the copyright holder nor the names of its
+//    contributors may be used to endorse or promote products derived from
+//    this software without specific prior written permission.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+// DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+// FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+// DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+// SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+// CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+// OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+// OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+edition = "2023";
+
+package humanoid_mpc_config;
+
+import "humanoid_mpc_config/joint_pd_gains_file.proto";
+import "nproto/options.proto";
+
+// The tuning GUI's live joint PD gains on operator/pd_gains: the whole gains file, paired with the configuration identity
+// and schema fingerprint of the sender so that another robot or configuration's live gains are refused.
+// Next ID: 4
+message JointPdGainsUpdate {
+  option (nproto.generate_struct) = "ocs2::humanoid::mpc_config::JointPdGainsUpdate";
+
+  reserved 4 to max;
+
+  JointPdGainsFile gains = 1;
+  // The joint PD gains file's path from its last robot_models/ component on, e.g.
+  // "robot_models/unitree_g1/g1_wb_mpc/config/controller/joint_pd_gains.textproto".
+  string config_path = 2 [default = ""];
+  // The schema fingerprint of JointPdGainsFile in the sender's build (nproto::SchemaFingerprint(), the Python
+  // nproto_schema.schema_fingerprint()).
+  string schema_fingerprint = 3 [default = ""];
+}

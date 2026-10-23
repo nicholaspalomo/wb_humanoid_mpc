@@ -28,29 +28,48 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <pinocchio/fwd.hpp>  // forward declarations must be included first.
-
-#include <ocs2_pinocchio_interface/PinocchioInterface.h>
+#include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
 #include "humanoid_centroidal_mpc/cost/CentroidalMpcEndEffectorFootCost.h"
 
-#include <ocs2_centroidal_model/ModelHelperFunctions.h>
-#include <ocs2_robotic_tools/common/RotationTransforms.h>
-
-#include <pinocchio/algorithm/frames.hpp>
-#include <pinocchio/algorithm/kinematics.hpp>
-#include <pinocchio/multibody/data.hpp>
-#include <pinocchio/multibody/model.hpp>
-
-#include <ocs2_pinocchio_interface/PinocchioStateInputMapping.h>
+#include <cmath>
+#include <optional>
+#include <string>
 
 #include "absl/log/log.h"
+#include "absl/strings/str_cat.h"
+#include "ocs2_centroidal_model/ModelHelperFunctions.h"
+#include "ocs2_core/Dimensions.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
+#include "ocs2_pinocchio_interface/PinocchioStateInputMapping.h"
+#include "ocs2_robotic_tools/common/RotationTransforms.h"
+#include "pinocchio/algorithm/frames.hpp"
+#include "pinocchio/algorithm/kinematics.hpp"
+#include "pinocchio/multibody/data.hpp"
+#include "pinocchio/multibody/model.hpp"
+
+#include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
 
 namespace ocs2::humanoid {
 
 namespace {
 // Reference (12) + sqrt weights (12) + impact proximity scaler (1) + foot yaw reference (1) + its flag (1).
 constexpr size_t kNumParameters = 27;
+
+// The residual, kEndEffectorTaskSpaceErrorDim errors: of the position, of the orientation (roll, pitch and yaw), of the
+// linear velocity and of the angular velocity, in this order; the twist's errors follow the pose's.
+constexpr int kLinearVelocityResidualStartIndex = kPoseTangentDim;
+
+// The layout of the parameters (getParameters()): the reference (PlanarEndEffectorKinematicsPlanarReference: the
+// position, the normal of the plane the orientation is tracked against, the linear and the angular velocity), the sqrt
+// weights of the residual (EndEffectorKinematicsWeights), the impact proximity scaler, the foot yaw reference and its
+// flag.
+using PlanarReference = PlanarEndEffectorKinematicsPlanarReference<scalar_t>;
+constexpr int kSqrtWeightsStartIndex = PlanarReference::kDim;
+constexpr int kImpactProximityScalerIndex = kSqrtWeightsStartIndex + kEndEffectorTaskSpaceErrorDim;
+constexpr int kYawReferenceIndex = kImpactProximityScalerIndex + 1;
+constexpr int kHasYawReferenceIndex = kYawReferenceIndex + 1;
+static_assert(static_cast<size_t>(kHasYawReferenceIndex) + 1 == kNumParameters);
 }  // namespace
 
 /******************************************************************************************************/
@@ -58,28 +77,29 @@ constexpr size_t kNumParameters = 27;
 /******************************************************************************************************/
 
 CentroidalMpcEndEffectorFootCost::CentroidalMpcEndEffectorFootCost(const SwitchedModelReferenceManager& referenceManager,
-                                                                   EndEffectorKinematicsWeights weights,
+                                                                   const TaskSpaceFootCostSettings& settings,
                                                                    const PinocchioInterface& pinocchioInterface,
                                                                    const MpcRobotModelBase<ad_scalar_t>& mpcRobotModelAD,
                                                                    size_t contactIndex,
-                                                                   std::string costName,
-                                                                   const ModelSettings& modelSettings,
-                                                                   bool activeInStance)
+                                                                   const std::string& costName,
+                                                                   const ModelSettings& modelSettings)
     : StateInputCostGaussNewtonAd(),
       referenceManagerPtr_(&referenceManager),
-      sqrtWeights_(weights.toVector().cwiseSqrt()),
-      activeInStance_(activeInStance),
+      sqrtWeights_(settings.weights.toVector().cwiseSqrt()),
+      swingVelocityReferenceSqrtWeight_(std::sqrt(settings.swingVelocityReferenceWeight)),
+      activeInStance_(settings.activeInStance),
+      contactIndex_(contactIndex),
       frameID_(pinocchioInterface.getModel().getFrameId(modelSettings.contactNames[contactIndex])),
       pinocchioInterfaceCppAd_(pinocchioInterface.toCppAd()),
-      mpcRobotModelAdPtr_(mpcRobotModelAD.clone()),
-      contactIndex_(contactIndex) {
+      mpcRobotModelAdPtr_(mpcRobotModelAD.clone()) {
   // The library name carries the residual's version, so that a library taped from an earlier residual is never loaded
-  // from the cache in its place (the robots ship recompileLibrariesCppAd: false).
-  initialize(mpcRobotModelAD.getStateDim(), mpcRobotModelAD.getInputDim(), kNumParameters, costName + "_yawRefHalfAngle",
+  // from the cache in its place (the robots ship recompileLibrariesCppAd: false): kLibraryVersionSuffix.
+  initialize(mpcRobotModelAD.getStateDim(), mpcRobotModelAD.getInputDim(), kNumParameters, absl::StrCat(costName, kLibraryVersionSuffix),
              modelSettings.modelFolderCppAd, modelSettings.recompileLibrariesCppAd);
   LOG(INFO) << "Frame ID: " << frameID_;
-  LOG(INFO) << "Initialized CentroidalMpcEndEffectorFootCost (activeInStance=" << (activeInStance_ ? "true" : "false")
-            << ") with weights: " << weights.toVector().transpose();
+  LOG(INFO) << "Initialized CentroidalMpcEndEffectorFootCost (active_phases: " << (activeInStance_ ? "swing_and_stance" : "swing")
+            << ") with weights: " << settings.weights.toVector().transpose()
+            << ", swing velocity reference weight: " << settings.swingVelocityReferenceWeight;
 }
 
 /******************************************************************************************************/
@@ -90,6 +110,7 @@ CentroidalMpcEndEffectorFootCost::CentroidalMpcEndEffectorFootCost(const Centroi
     : StateInputCostGaussNewtonAd(other),
       referenceManagerPtr_(other.referenceManagerPtr_),
       sqrtWeights_(other.sqrtWeights_),
+      swingVelocityReferenceSqrtWeight_(other.swingVelocityReferenceSqrtWeight_),
       // isActive_ is copied deliberately: the SQP solver clones the whole problem once per worker thread,
       // and a copy constructor that dropped this flag silently reverted a deactivated term to active.
       isActive_(other.isActive_),
@@ -103,17 +124,18 @@ CentroidalMpcEndEffectorFootCost::CentroidalMpcEndEffectorFootCost(const Centroi
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-ad_vector_t CentroidalMpcEndEffectorFootCost::costVectorFunction(ad_scalar_t time,
+ad_vector_t CentroidalMpcEndEffectorFootCost::costVectorFunction(ad_scalar_t /*time*/,
                                                                  const ad_vector_t& state,
                                                                  const ad_vector_t& input,
                                                                  const ad_vector_t& parameters) {
   const pinocchio::ReferenceFrame rf = pinocchio::ReferenceFrame::LOCAL_WORLD_ALIGNED;
 
-  const PlanarEndEffectorKinematicsPlanarReference<ad_scalar_t> reference(parameters.head(12));
-  const ad_vector_t sqrtWeightParams = parameters.segment(12, 12);  // EndEffectorKinematicsWeights vector element
-  const ad_scalar_t impactProximityScaler = parameters[24];
-  const ad_scalar_t yawReference = parameters[25];
-  const ad_scalar_t hasYawReference = parameters[26];
+  const PlanarEndEffectorKinematicsPlanarReference<ad_scalar_t> reference(parameters.head(PlanarReference::kDim));
+  const ad_vector_t sqrtWeightParams =
+      parameters.segment(kSqrtWeightsStartIndex, kEndEffectorTaskSpaceErrorDim);  // EndEffectorKinematicsWeights vector element
+  const ad_scalar_t& impactProximityScaler = parameters[kImpactProximityScalerIndex];
+  const ad_scalar_t& yawReference = parameters[kYawReferenceIndex];
+  const ad_scalar_t& hasYawReference = parameters[kHasYawReferenceIndex];
 
   const PinocchioInterfaceCppAd::Model& model = pinocchioInterfaceCppAd_.getModel();
   PinocchioInterfaceCppAd::Data& data = pinocchioInterfaceCppAd_.getData();
@@ -128,15 +150,16 @@ ad_vector_t CentroidalMpcEndEffectorFootCost::costVectorFunction(ad_scalar_t tim
   ad_matrix3_t orientation = frameData.rotation();
   ad_vector_t angularVelocity = pinocchio::getFrameVelocity(model, data, frameID_, rf).angular();
 
-  // Orientation error: the distance to the ground plane (roll, pitch). With a planned foot yaw (contact planner heading
-  // model) the third component tracks it, wrapped so that a crossing of +-pi is not a discontinuity; the config weight
-  // orientation_z selects whether that error costs anything. footYawError() is finite, value and derivatives, at every
-  // yaw, a yaw of exactly zero included; see there for why the atan2 it replaces was not.
-  ad_vector_t orientationError = rotationMatrixDistanceToPlane<ad_scalar_t>(orientation, reference.getPlaneNormal());
+  // Orientation error, in radians as the end-effector costs' (computeTaskSpaceErrors()): the tilt from the reference
+  // plane as a rotation vector in world axes (tiltAngleToPlane(), roll and pitch on flat ground). With a planned foot yaw
+  // (contact planner heading model) the third component tracks it, wrapped so that a crossing of +-pi is not a
+  // discontinuity; the config weight orientation_z selects whether that error costs anything. footYawError() is finite,
+  // value and derivatives, at every yaw, a yaw of exactly zero included; see there for why the atan2 it replaces was not.
+  ad_vector_t orientationError = tiltAngleToPlane<ad_scalar_t>(orientation, reference.getPlaneNormal());
   const ad_scalar_t yawError = footYawError<ad_scalar_t>(orientation, yawReference, hasYawReference);
-  orientationError(2) = hasYawReference * yawError + (ad_scalar_t(1.0) - hasYawReference) * orientationError(2);
+  orientationError(kZAxisIndex) = hasYawReference * yawError + (ad_scalar_t(1.0) - hasYawReference) * orientationError(kZAxisIndex);
 
-  ad_vector_t errors(12);
+  ad_vector_t errors(kEndEffectorTaskSpaceErrorDim);
   errors << (position - reference.getPosition()), orientationError,
       (linearVelocity - reference.getLinearVelocity()) * impactProximityScaler, (angularVelocity - reference.getAngularVelocity());
 
@@ -148,53 +171,54 @@ ad_vector_t CentroidalMpcEndEffectorFootCost::costVectorFunction(ad_scalar_t tim
 /******************************************************************************************************/
 
 vector_t CentroidalMpcEndEffectorFootCost::getParameters(scalar_t time,
-                                                         const TargetTrajectories& targetTrajectories,
-                                                         const PreComputation& preComputation) const {
-  // Interpolate reference
-  const vector_t xRef = targetTrajectories.getDesiredState(time);
-  const vector_t uRef = targetTrajectories.getDesiredInput(time);
-
+                                                         const TargetTrajectories& /*targetTrajectories*/,
+                                                         const PreComputation& /*preComputation*/) const {
+  // Every reference comes from the reference manager and the swing trajectory planner; the solver's target is not read.
   const scalar_t impactProximityScaler = referenceManagerPtr_->getSwingTrajectoryPlanner()->getImpactProximityFactor(contactIndex_, time);
 
-  // TODO Update this reference for non flat ground in the future
+  // The height and the vertical velocity are the swing trajectory planner's, whose trajectories the reference manager
+  // builds on its terrain height: the swing profile in swing, the ground itself in stance (under active_phases
+  // "swing_and_stance"). A landing target below replaces only the horizontal references.
+  const SwingTrajectoryPlanner& swingPlanner = *referenceManagerPtr_->getSwingTrajectoryPlanner();
   vector_t parameters(kNumParameters);
-  parameters.head(3) = vector3_t(0.0, 0.0, 0.0);  // Reference position
+  parameters.head(kPositionDim) = vector3_t(0.0, 0.0, swingPlanner.getZpositionConstraint(contactIndex_, time));  // Reference position
   // Plane the foot orientation is tracked against. Flat ground unless a toe-up swing pitch is configured, in which case
   // the normal is tilted back along the heading for the swing so that the toe -- half a foot length ahead of the
   // tracked sole center -- clears the ground by more than the height reference alone provides.
-  parameters.segment(3, 3) = referenceManagerPtr_->getSwingFootPlaneNormal(contactIndex_, time);
-  parameters.segment(6, 3) = vector3_t(0.0, 0.0, 0.0);  // Reference linear velocity
-  parameters.segment(9, 3) = vector3_t(0.0, 0.0, 0.0);  // Reference angular velocity
-  parameters.segment(12, 12) = sqrtWeights_;            // EndEffectorKinematicsWeights vector element
+  parameters.segment(PlanarReference::kPlaneNormalStart, kPositionDim) = referenceManagerPtr_->getSwingFootPlaneNormal(contactIndex_, time);
+  parameters.segment(PlanarReference::kLinearVelocityStart, kPositionDim) =
+      vector3_t(0.0, 0.0, swingPlanner.getZvelocityConstraint(contactIndex_, time));                           // Reference linear velocity
+  parameters.segment(PlanarReference::kAngularVelocityStart, kRotationTangentDim) = vector3_t(0.0, 0.0, 0.0);  // Reference angular velocity
+  parameters.segment(kSqrtWeightsStartIndex, kEndEffectorTaskSpaceErrorDim) = sqrtWeights_;  // EndEffectorKinematicsWeights vector element
 
-  parameters[24] = impactProximityScaler;
-  parameters[25] = 0.0;  // planned foot yaw reference
-  parameters[26] = 0.0;  // 1 when the yaw reference is to be tracked
+  parameters[kImpactProximityScalerIndex] = impactProximityScaler;
+  parameters[kYawReferenceIndex] = 0.0;     // planned foot yaw reference
+  parameters[kHasYawReferenceIndex] = 0.0;  // 1 when the yaw reference is to be tracked
 
-  // Without a contact planner there is no meaningful xy position reference (the foot is free to land where the
-  // whole-body optimization puts it), so the xy position error is switched off. A planned foothold turns it on and
+  // Without a landing target there is no meaningful xy position reference (the foot is free to land where the
+  // whole-body optimization puts it), so the xy position error is switched off. A landing target turns it on and
   // replaces the position and linear velocity references with the interpolated swing trajectory towards the target.
   const std::optional<SwingFootReference> swingReference = referenceManagerPtr_->getSwingFootReference(contactIndex_, time);
   if (swingReference.has_value()) {
-    parameters.head(3) = swingReference->position;
-    parameters.segment(6, 3) = swingReference->linearVelocity;
+    parameters.head(kPositionDim) = swingReference->position;
+    parameters.segment(PlanarReference::kLinearVelocityStart, kPositionDim) = swingReference->linearVelocity;
     if (swingReference->yaw.has_value()) {
-      parameters[25] = *swingReference->yaw;
-      parameters[26] = 1.0;
+      parameters[kYawReferenceIndex] = *swingReference->yaw;
+      parameters[kHasYawReferenceIndex] = 1.0;
     }
   } else {
-    parameters[12] = 0.0;  // sqrt weight of the x position error
-    parameters[13] = 0.0;  // sqrt weight of the y position error
+    parameters[kSqrtWeightsStartIndex + kXAxisIndex] = 0.0;  // sqrt weight of the x position error
+    parameters[kSqrtWeightsStartIndex + kYAxisIndex] = 0.0;  // sqrt weight of the y position error
 
-    // Without a contact planner, provide a heuristic velocity reference to prevent the swing foot from
-    // dragging backward relative to the moving body.  The config lin_velocity_x weight is intentionally 0
-    // (to avoid penalizing stance), so we temporarily override the sqrt-weight here with a small value.
-    // The impactProximityScaler already ramps this cost to zero near touchdown, which is the profile we want.
+    // A swing without a landing target tracks the commanded base velocity, so that the foot does not drag behind the
+    // moving body, weighed by swing_velocity_reference_weight in place of lin_velocity_x / _y (which weigh the swing
+    // trajectory's velocity when there is a target, and the foot's in stance). The impact proximity scaler ramps the
+    // error to zero near touch-down.
     const std::optional<vector2_t> velocityReference = referenceManagerPtr_->getSwingFootVelocityReference(contactIndex_, time);
     if (velocityReference.has_value()) {
-      parameters.segment(6, 2) = *velocityReference;
-      parameters[18] = 1.5;  // override sqrt(lin_velocity_x) for swing only
-      parameters[19] = 1.5;  // override sqrt(lin_velocity_y) for swing only
+      parameters.segment(PlanarReference::kLinearVelocityStart, kHorizontalPositionDim) = *velocityReference;
+      parameters[kSqrtWeightsStartIndex + kLinearVelocityResidualStartIndex + kXAxisIndex] = swingVelocityReferenceSqrtWeight_;
+      parameters[kSqrtWeightsStartIndex + kLinearVelocityResidualStartIndex + kYAxisIndex] = swingVelocityReferenceSqrtWeight_;
     }
   }
   return parameters;

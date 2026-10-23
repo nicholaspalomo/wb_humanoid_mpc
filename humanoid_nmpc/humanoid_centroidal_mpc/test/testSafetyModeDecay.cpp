@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -23,9 +27,9 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <gtest/gtest.h>
-
 #include <cmath>
+
+#include "gtest/gtest.h"
 
 #include "humanoid_centroidal_mpc/mrt/CentroidalMpcMrtJointController.h"
 
@@ -48,7 +52,7 @@ TEST(SafetyModeDecay, isExponentialNotLinear) {
     const scalar_t elapsed = i * kTimeConstant;
     const scalar_t expected = std::exp(-static_cast<scalar_t>(i));
     if (expected < 0.02) continue;
-    EXPECT_NEAR(Controller::safetyDecayFactor(elapsed, kTimeConstant), expected, 1e-12);
+    EXPECT_NEAR(Controller::safetyDecayFactor(elapsed, kTimeConstant), expected, 1.0e-12);
   }
   // One time constant in, an exponential has shed 63% where a linear ramp over the same four-time-constant window
   // would still be holding 75%.

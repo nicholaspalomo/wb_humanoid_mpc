@@ -1,18 +1,46 @@
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
 """PPO training pipeline for MuJoCo Playground humanoid environments using Google Brax."""
 
 import argparse
 import os
 import time
-from typing import Dict
 
 from brax.training.agents.ppo import train as ppo
-import jax
 
-from humanoid_learning.envs.base_env import HumanoidEnvConfig, HumanoidMpxEnv
-import humanoid_learning.training  # Registers JAX/Brax compatibility polyfills
+from humanoid_learning.envs import base_env
+
+# pylint: disable-next=unused-import  # Installs the JAX polyfill Brax PPO needs (training/__init__.py).
+import humanoid_learning.training
 
 
-def parse_args():
+def parse_args() -> argparse.Namespace:
+    """The command line of the training run."""
     parser = argparse.ArgumentParser(
         description="Train Humanoid PPO Policy with Brax and MJX"
     )
@@ -37,7 +65,7 @@ def parse_args():
     return parser.parse_args()
 
 
-def main():
+def main() -> None:
     args = parse_args()
 
     # Resolve output directory relative to workspace root if invoked via Bazel
@@ -55,13 +83,13 @@ def main():
     print("=" * 70)
 
     # Initialize environment
-    config = HumanoidEnvConfig()
-    env = HumanoidMpxEnv(config)
+    config = base_env.HumanoidEnvConfig()
+    env = base_env.HumanoidMpxEnv(config)
 
     os.makedirs(args.output_dir, exist_ok=True)
     t_start = time.time()
 
-    def progress_callback(num_steps: int, metrics: Dict[str, float]):
+    def progress_callback(num_steps: int, metrics: dict[str, float]) -> None:
         eval_reward = float(
             metrics.get("eval/episode_reward", metrics.get("eval/reward", 0.0))
         )
@@ -72,7 +100,7 @@ def main():
 
     print("\n🏁 Starting Brax PPO Training Loop...\n")
 
-    make_inference_fn, params, final_metrics = ppo.train(
+    make_inference_fn, params, _ = ppo.train(
         environment=env,
         num_timesteps=args.total_timesteps,
         num_evals=args.num_evals,
@@ -92,7 +120,7 @@ def main():
         progress_fn=progress_callback,
     )
 
-    inference_fn = make_inference_fn(params)
+    make_inference_fn(params)  # Builds the policy once: the trained parameters load.
     print(f"\n⚡ Training finished in {time.time() - t_start:.2f}s.")
     print("✅ Brax PPO humanoid policy trained and ready for inference.")
 

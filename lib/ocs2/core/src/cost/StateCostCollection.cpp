@@ -29,6 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <ocs2_core/cost/StateCostCollection.h>
 
+#include "absl/base/nullability.h"
+
 namespace ocs2 {
 
 /******************************************************************************************************/
@@ -39,7 +41,7 @@ StateCostCollection::StateCostCollection(const StateCostCollection& other) : Col
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-StateCostCollection* StateCostCollection::clone() const {
+StateCostCollection* absl_nonnull StateCostCollection::clone() const {
   return new StateCostCollection(*this);
 }
 

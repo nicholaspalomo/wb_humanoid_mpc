@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -25,6 +29,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <string>
+#include <vector>
+
 #include "humanoid_common_mpc/contact_planning/ContactPlanningFormulation.h"
 #include "humanoid_common_mpc/contact_planning/constraint/LipConstraintBase.h"
 
@@ -33,16 +40,19 @@ namespace ocs2::humanoid {
 /**
  * `yaw_torque_budget` (hard, running nodes): the yaw torque of a foot is the torsional friction of the weight it
  * carries plus its half of the friction couple in double support. Alone a foot carries the whole weight, T_t; with
- * both feet down each carries half of it and half of the couple, (T_t + T_c) / 2, so that the pair has T_t + T_c:
- * +-tau_i - T_t c_i - (T_c - T_t) (c_L + c_R - 1) / 2 <= 0.
+ * both feet down each carries half of it and half of the couple, (T_t + T_c) / 2, so that the pair has T_t + T_c; a
+ * swinging foot, and either foot in flight, carries none. Two rows per foot and sign, the concave envelope of that
+ * budget over the two contact binaries (YawTorqueBudgetConstraint.cpp).
+ *
+ * Not thread-safe, like every ContactPlanningTerm: the planner that owns it configures and evaluates it from one thread at a time.
  */
 class YawTorqueBudgetConstraint final : public LipConstraintBase {
  public:
   std::string describe() const override;
   std::vector<std::string> requiredBlocks() const override { return {term::kHeadingDoubleIntegrator}; }
   void configure(const ContactPlanningConfig& config) override;
-  NodeSet nodeSet() const override { return NodeSet::RUNNING; }
-  Softness softness() const override { return Softness::HARD; }
+  NodeSet nodeSet() const override { return NodeSet::kRunning; }
+  Softness softness() const override { return Softness::kHard; }
   void addRows(const ContactPlanningContext& ctx, int node, RowBuilder& rows) const override;
 
  private:

@@ -1,0 +1,1 @@
+tools/clang_tidy/testdata/Ctad.cpp:6:9: clang-diagnostic-ctad-maybe-unsupported

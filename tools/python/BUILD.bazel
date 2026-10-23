@@ -1,0 +1,41 @@
+# ==============================================================================
+# Python dependencies of the operator tools (@operator_deps) and the Python proto toolchain
+# ==============================================================================
+
+load("@operator_deps//:requirements.bzl", "all_requirements", "requirement")
+load("@protobuf//bazel/toolchains:proto_lang_toolchain.bzl", "proto_lang_toolchain")
+load("@rules_python//python:defs.bzl", "py_test")
+load("@rules_python//python:pip.bzl", "compile_pip_requirements")
+
+package(default_visibility = ["//visibility:public"])
+
+# Target to compile and lock dependencies:
+# Run: bazel run //tools/python:operator_requirements.update
+compile_pip_requirements(
+    name = "operator_requirements",
+    src = "operator_requirements.txt",
+    requirements_txt = "operator_requirements_lock.txt",
+    tags = ["manual"],
+)
+
+# Every package of operator_requirements.txt installs at its pin and imports, and the interpreter bundles Tk.
+py_test(
+    name = "test_operator_deps",
+    size = "small",
+    srcs = ["test_operator_deps.py"],
+    data = ["operator_requirements.txt"],
+    # rerun-sdk needs its .pth directory on the path (the rerun_sdk whl_mods in MODULE.bazel).
+    deps = all_requirements + ["@operator_deps//rerun_sdk:rerun"],
+)
+
+# The Python proto toolchain, registered in MODULE.bazel. It is protobuf's own (@protobuf//python:python_toolchain)
+# with the runtime swapped for the protobuf wheel of @operator_deps, so that every py_proto_library target links the
+# same google.protobuf as the operator tools, the fast upb implementation, rather than adding protobuf's pure-Python
+# runtime next to it. Creates :python_proto (the proto_lang_toolchain) and :python_proto_toolchain (the toolchain).
+proto_lang_toolchain(
+    name = "python_proto",
+    command_line = "--python_out=%s",
+    progress_message = "Generating Python proto_library %{label}",
+    runtime = requirement("protobuf"),
+    toolchain_type = "@protobuf//bazel/private:python_toolchain_type",
+)

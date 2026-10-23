@@ -1,0 +1,56 @@
+# proto-file: humanoid_nmpc/humanoid_mpc_config/joint_pd_gains_file.proto
+# proto-message: humanoid_mpc_config.JointPdGainsFile
+# DRC Atlas Joint Proportional and Derivative (PD) Controller Gains
+# Units: Kp in [N*m/rad], Kd in [N*m*s/rad], torque_limit in [N*m]
+#
+# Gravity compensation is now applied in the sim via MuJoCo's qfrc_bias,
+# so PD gains only need to handle TRACKING error, not fight gravity.
+# This allows moderate, stable gains without saturation or flutter.
+#
+# Kd rule of thumb: Kd ≈ 0.06-0.08 * Kp for near-critical damping.
+# torque_limit: matches actuatorfrcrange from the URDF/MJCF model.
+
+default_gains {
+  kp: 468.75
+  kd: 23.5
+  torque_limit: 500.0
+}
+# Torso / Spine
+joint_gains { joint: "back_bkz" kp: 1406.25 kd: 56.25 torque_limit: 106.0 }  # 106 N·m limit
+joint_gains { joint: "back_bky" kp: 4000.0 kd: 250.0 torque_limit: 445.0 }  # 445 N·m limit — sagittal posture
+joint_gains { joint: "back_bkx" kp: 4000.0 kd: 250.0 torque_limit: 300.0 }  # 445 N·m limit — sagittal posture
+
+# Neck & Head
+joint_gains { joint: "neck_ry" kp: 37.5 kd: 2.75 torque_limit: 5.0 }  # 5 N·m limit
+
+# Left Arm
+joint_gains { joint: "l_arm_shz" kp: 187.5 kd: 11.25 torque_limit: 87.0 }  # 87 N·m limit
+joint_gains { joint: "l_arm_shx" kp: 234.375 kd: 14 torque_limit: 99.0 }  # 99 N·m limit
+joint_gains { joint: "l_arm_ely" kp: 140.625 kd: 9.375 torque_limit: 63.0 }  # 63 N·m limit
+joint_gains { joint: "l_arm_elx" kp: 187.5 kd: 13.125 torque_limit: 112.0 }  # 112 N·m limit
+joint_gains { joint: "l_arm_wry" kp: 37.5 kd: 2.75 torque_limit: 25.0 }  # 25 N·m limit
+joint_gains { joint: "l_arm_wrx" kp: 37.5 kd: 2.75 torque_limit: 25.0 }  # 25 N·m limit
+
+# Right Arm (symmetric)
+joint_gains { joint: "r_arm_shz" kp: 187.5 kd: 11.25 torque_limit: 87.0 }
+joint_gains { joint: "r_arm_shx" kp: 234.375 kd: 14 torque_limit: 99.0 }
+joint_gains { joint: "r_arm_ely" kp: 140.625 kd: 9.375 torque_limit: 63.0 }
+joint_gains { joint: "r_arm_elx" kp: 187.5 kd: 13.125 torque_limit: 112.0 }
+joint_gains { joint: "r_arm_wry" kp: 37.5 kd: 2.75 torque_limit: 25.0 }
+joint_gains { joint: "r_arm_wrx" kp: 37.5 kd: 2.75 torque_limit: 25.0 }
+
+# Left Leg
+joint_gains { joint: "l_leg_hpz" kp: 1054.69 kd: 42.1875 torque_limit: 275.0 }  # 275 N·m limit
+joint_gains { joint: "l_leg_hpx" kp: 1757.81 kd: 70.3125 torque_limit: 530.0 }  # 530 N·m limit
+joint_gains { joint: "l_leg_hpy" kp: 2460.94 kd: 98.4375 torque_limit: 840.0 }  # 840 N·m limit — main sagittal driver
+joint_gains { joint: "l_leg_kny" kp: 2460.94 kd: 98.4375 torque_limit: 890.0 }  # 890 N·m limit — weight bearing
+joint_gains { joint: "l_leg_aky" kp: 1406.25 kd: 56.25 torque_limit: 740.0 }  # 740 N·m limit — ankle pitch
+joint_gains { joint: "l_leg_akx" kp: 703.125 kd: 28.125 torque_limit: 360.0 }  # 360 N·m limit — ankle roll
+
+# Right Leg (symmetric)
+joint_gains { joint: "r_leg_hpz" kp: 1054.69 kd: 42.1875 torque_limit: 275.0 }  # 275 N·m limit
+joint_gains { joint: "r_leg_hpx" kp: 1757.81 kd: 70.3125 torque_limit: 530.0 }  # 530 N·m limit
+joint_gains { joint: "r_leg_hpy" kp: 2460.94 kd: 98.4375 torque_limit: 840.0 }  # 840 N·m limit — main sagittal driver
+joint_gains { joint: "r_leg_kny" kp: 2460.94 kd: 98.4375 torque_limit: 890.0 }  # 890 N·m limit
+joint_gains { joint: "r_leg_aky" kp: 1406.25 kd: 56.25 torque_limit: 740.0 }  # 740 N·m limit
+joint_gains { joint: "r_leg_akx" kp: 703.125 kd: 28.125 torque_limit: 360.0 }  # 360 N·m limit

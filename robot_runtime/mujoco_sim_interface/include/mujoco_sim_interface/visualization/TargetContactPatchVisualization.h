@@ -29,6 +29,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <string>
 #include <vector>
 
 #include "mujoco_sim_interface/MujocoContactPatch.h"
@@ -40,6 +41,8 @@ namespace robot::mujoco_sim_interface {
  * The contact patch of every foot (MujocoSimConfig::contactPatchCorners) at the pose the controller wants it on the
  * ground (MujocoSimInterface::copyTargetContactPatches): bright and filled for the landing pose of the swing in flight,
  * translucent for the foot's next swing, a faint outline for a foot held in place. The arrow is the patch's x axis.
+ *
+ * Not thread-safe: the viewer drives it from one thread.
  */
 class TargetContactPatchVisualization final : public MujocoVisualization {
  public:

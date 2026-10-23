@@ -1,0 +1,221 @@
+name: Robot Side on arm64
+
+# The robot side (the realtime loop's bundle and image) for an ARM robot computer, built natively on GitHub's arm64
+# runner, so that an x86-64 laptop deploys it without building anything for arm64 (tools/deploy/README.md, "aarch64"):
+#
+#   make deploy-robot ROBOT=drc_atlas HOST=<robot> NETWORK=<file> \
+#       IMAGE_SOURCE=registry REGISTRY=ghcr.io/<owner> TAG=<branch>-arm64
+#
+# `bundle` builds //tools/deploy:robot_bundle and runs the robot side's C++ tests; `image` builds the robot-runtime
+# image from that bundle with tools/deploy/deploy_robot.sh, as a deploy does, and a push publishes it. The MPC, the GUI
+# and the viewers run on the laptop and are built and tested by build_test.yml.
+
+on:
+  push:
+    branches:
+      - main
+      - user/**
+  pull_request:
+    branches:
+      - '**'
+    types: [opened, synchronize, reopened]
+  merge_group:
+    branches:
+      - main
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  bundle:
+    runs-on: ubuntu-24.04-arm
+    # The longest a GitHub-hosted job may run: a cold build compiles Pinocchio and the robot side from scratch.
+    timeout-minutes: 360
+    # LINT.IfChange(arm64_container)
+    # The image build_test.yml builds in, the dev image's base; ubuntu:24.04 is a multi-architecture image.
+    container: ubuntu:24.04
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      TZ: Etc/UTC
+    # LINT.ThenChange(//.github/workflows/build_test.yml:container_image, //.github/workflows/build_test.yml:noninteractive_apt)
+
+    steps:
+      # LINT.IfChange(arm64_base_dependencies)
+      - name: Install Base Dependencies & Tools
+        run: |
+          apt-get update && apt-get install -y --no-install-recommends \
+          ca-certificates curl gnupg \
+          git sudo build-essential python3-pip python3-venv
+      # LINT.ThenChange(//.github/workflows/build_test.yml:system_dependencies)
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # robotpkg publishes amd64 packages only: Pinocchio and coal are built from source (about 40 minutes), and kept
+      # until the script that builds them changes.
+      - name: Restore Pinocchio
+        id: pinocchio
+        uses: actions/cache@v4
+        with:
+          path: /opt/openrobots
+          key: pinocchio-arm64-${{ hashFiles('docker/build_pinocchio_from_source.sh') }}
+
+      - name: Build Pinocchio from Source
+        run: |
+          if [ "${{ steps.pinocchio.outputs.cache-hit }}" = "true" ]; then
+            PINOCCHIO_STEPS=dependencies sh docker/build_pinocchio_from_source.sh
+          else
+            sh docker/build_pinocchio_from_source.sh
+          fi
+
+      # The dev image's environment for /opt/openrobots, without PYTHONPATH: the source build has no Python bindings.
+      # LINT.IfChange(arm64_robotpkg_environment)
+      - name: Set the Pinocchio Environment
+        run: |
+          echo "/opt/openrobots/bin" >> "$GITHUB_PATH"
+          echo "CMAKE_PREFIX_PATH=/opt/openrobots" >> "$GITHUB_ENV"
+          echo "PKG_CONFIG_PATH=/opt/openrobots/lib/pkgconfig" >> "$GITHUB_ENV"
+      # LINT.ThenChange(//.github/workflows/build_test.yml:robotpkg_environment)
+
+      - name: Install Bazel (via Bazelisk)
+        run: |
+          curl -sSL -o /usr/local/bin/bazel https://github.com/bazelbuild/bazelisk/releases/latest/download/bazelisk-linux-arm64
+          chmod +x /usr/local/bin/bazel
+          bazel --version
+
+      - name: Install Project Dependencies
+        run: |
+          grep -v '^\s*#' dependencies.txt | xargs apt-get install -y --no-install-recommends
+
+      - name: Configure Git Safe Directory
+        run: |
+          git config --global --add safe.directory $GITHUB_WORKSPACE
+
+      # As build_test.yml caches its build, with keys of their own: arm64 outputs are not amd64 ones.
+      # LINT.IfChange(arm64_bazel_cache)
+      - name: Configure the Bazel Caches
+        run: |
+          {
+            echo "build --disk_cache=$HOME/.cache/bazel-disk"
+            echo "build --repository_cache=$HOME/.cache/bazel-repository"
+          } >> "$HOME/.bazelrc"
+
+      - name: Restore the Bazel Caches
+        id: restore_bazel_cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.cache/bazel-disk
+            ~/.cache/bazel-repository
+          key: bazel-arm64-${{ hashFiles('.bazelversion', '.bazelrc', 'MODULE.bazel') }}-${{ github.sha }}
+          restore-keys: |
+            bazel-arm64-${{ hashFiles('.bazelversion', '.bazelrc', 'MODULE.bazel') }}-
+      # LINT.ThenChange(//.github/workflows/build_test.yml:bazel_cache)
+
+      - name: Build the Robot Bundle
+        id: build
+        run: |
+          mkdir -p "$HOME/.cache" && touch "$HOME/.cache/bazel-build-start"
+          bazel build //tools/deploy:robot_bundle
+
+      # The C++ tests of the robot side: the realtime loop, its backends, the bus and the robot process. The Python
+      # tests run on the laptop's architecture only (build_test.yml).
+      - name: Test the Robot Side
+        run: |
+          bazel test --build_tests_only --test_lang_filters=cc \
+            //robot_runtime/... //humanoid_nmpc/humanoid_common_mpc_app/robot/...
+
+      # As build_test.yml: also after a failed or canceled build, trimmed past 6 GB to what this build used.
+      - name: Trim the Bazel Disk Cache
+        if: always() && steps.build.outcome != 'skipped' && steps.restore_bazel_cache.outputs.cache-hit != 'true'
+        run: |
+          disk_cache="$HOME/.cache/bazel-disk"
+          if [ -d "${disk_cache}" ] && [ "$(du -sk "${disk_cache}" | cut -f1)" -gt $((6 * 1024 * 1024)) ]; then
+            find "${disk_cache}" -type f ! -newer "$HOME/.cache/bazel-build-start" -delete
+          fi
+          du -sh "$HOME"/.cache/bazel-disk "$HOME"/.cache/bazel-repository || true
+
+      - name: Save the Bazel Caches
+        if: always() && steps.build.outcome != 'skipped' && steps.restore_bazel_cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cache/bazel-disk
+            ~/.cache/bazel-repository
+          key: ${{ steps.restore_bazel_cache.outputs.cache-primary-key }}
+
+      # LINT.IfChange(arm64_bundle_artifact)
+      - name: Keep the Bundle for the Image
+        run: |
+          mkdir -p bundle
+          cp -L .bazel/bin/tools/deploy/robot_bundle.tar bundle/robot_bundle.tar
+
+      - name: Upload the Bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: robot-bundle-arm64
+          path: bundle/robot_bundle.tar
+          retention-days: 7
+      # LINT.ThenChange(:arm64_image_context)
+
+  image:
+    needs: bundle
+    # On the runner itself, not in a container: the image is built with the runner's Docker.
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 120
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # LINT.IfChange(arm64_image_context)
+      # Where deploy_robot.sh --skip_bundle reads the bundle from (CONTEXT_DIR).
+      - name: Download the Bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: robot-bundle-arm64
+          path: .deploy/context
+      # LINT.ThenChange(//tools/deploy/deploy_robot.sh:context_dir)
+
+      # ghcr.io/<owner>/wb-humanoid-robot:<branch>-arm64 and :sha-<commit>-arm64. A registry name is lowercase, and a
+      # tag has no '/'.
+      - name: Name the Image
+        id: names
+        run: |
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          branch="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME}}"
+          echo "registry=ghcr.io/${owner}" >> "$GITHUB_OUTPUT"
+          echo "commit_tag=sha-${GITHUB_SHA::12}-arm64" >> "$GITHUB_OUTPUT"
+          echo "branch_tag=${branch//\//-}-arm64" >> "$GITHUB_OUTPUT"
+
+      # The robot-runtime image, as `make deploy-robot` builds it: deploy_robot.sh refuses a bundle that is not arm64,
+      # and the image's last stage fails when a library of the bundle did not make it in.
+      - name: Build the Robot Image
+        run: |
+          tools/deploy/deploy_robot.sh image --skip_bundle --platform linux/arm64 \
+            --registry "${{ steps.names.outputs.registry }}" --tag "${{ steps.names.outputs.commit_tag }}"
+
+      # Only a push publishes: a pull request's image is built and checked, and left on the runner.
+      - name: Log in to the GitHub Container Registry
+        if: github.event_name == 'push'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # LINT.IfChange(arm64_image_name)
+      - name: Publish the Robot Image
+        if: github.event_name == 'push'
+        run: |
+          image="${{ steps.names.outputs.registry }}/wb-humanoid-robot"
+          docker tag "${image}:${{ steps.names.outputs.commit_tag }}" "${image}:${{ steps.names.outputs.branch_tag }}"
+          docker push "${image}:${{ steps.names.outputs.commit_tag }}"
+          docker push "${image}:${{ steps.names.outputs.branch_tag }}"
+      # LINT.ThenChange(//tools/deploy/deploy_robot.sh:image_names)

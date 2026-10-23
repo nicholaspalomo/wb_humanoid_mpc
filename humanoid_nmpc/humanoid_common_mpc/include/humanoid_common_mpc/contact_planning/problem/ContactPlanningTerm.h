@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -40,10 +44,15 @@ namespace ocs2::humanoid {
  * A term has a canonical name (ContactPlanningFormulation.h), reads its parameter block from the configuration in
  * configure() (the hot-reload path), resolves the variable indices it uses once in bind(), and describes its
  * mathematics in one line for the start-up print.
+ *
+ * Terms are owned through a pointer to their kind (TermCollection) and are neither copyable nor movable, which rules
+ * out slicing. Not thread-safe: the planner that owns a term configures and evaluates it from one thread at a time.
  */
 class ContactPlanningTerm {
  public:
   virtual ~ContactPlanningTerm() = default;
+  ContactPlanningTerm(const ContactPlanningTerm&) = delete;
+  ContactPlanningTerm& operator=(const ContactPlanningTerm&) = delete;
 
   /** One line of math with the current parameter values, printed at start-up and after a structural reload. */
   virtual std::string describe() const = 0;
@@ -58,10 +67,13 @@ class ContactPlanningTerm {
    * threw std::invalid_argument from what is a plain setter.
    */
   virtual void configure(const ContactPlanningConfig& config) = 0;
+
+ protected:
+  ContactPlanningTerm() = default;
 };
 
 /** Nodes of the horizon a term acts on. Node N (the terminal one) has no inputs, dynamics or ZMP. */
-enum class NodeSet { RUNNING, TERMINAL, ALL, LAST_RUNNING };
+enum class NodeSet { kRunning, kTerminal, kAll, kLastRunning };
 bool nodeSetContains(NodeSet set, int node, int numNodes);
 std::string nodeSetName(NodeSet set);
 

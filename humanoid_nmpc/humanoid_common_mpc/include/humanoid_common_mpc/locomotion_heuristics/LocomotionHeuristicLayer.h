@@ -55,11 +55,11 @@ struct LocomotionHeuristicEnvironment {
   bool usesContactPlanning = false;
   /// `contactInputParameterization: basis_vectors`: a horizontal force has to be rotated into the local contact frame.
   bool usesContactBasisVectorInputs = false;
-  /// [m] `model_settings.nominal_foothold.stepWidth`: the lateral separation the foothold anchor keeps.
+  /// [m] `nominal_foothold.step_width`: the lateral separation the foothold anchor keeps.
   scalar_t nominalStepWidth = 0.0;
   /// `com_and_acom_tracking_cost` listed in `costs`: the cost factory zeroes Q's and Q_final's base-pose blocks.
   bool listsComAndAcomTrackingCost = false;
-  /// `task_space_foot_cost_weights.pos_x` and `pos_y` both zero, or the foot cost not listed: nothing tracks a foothold.
+  /// `task_space_foot_cost.weights.pos_x` and `pos_y` both zero, or the foot cost not listed: nothing tracks a foothold.
   bool footPositionIsUntracked = false;
 };
 
@@ -99,6 +99,8 @@ class LocomotionHeuristicLayer {
    * invalid state to protect: every accessor short-circuits on an empty list.
    */
   LocomotionHeuristicLayer() = default;
+
+  ~LocomotionHeuristicLayer() = default;
 
   LocomotionHeuristicLayer(const LocomotionHeuristicLayer&) = delete;
   LocomotionHeuristicLayer& operator=(const LocomotionHeuristicLayer&) = delete;

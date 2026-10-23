@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -27,7 +31,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <memory>
 
-#include <ocs2_core/constraint/StateConstraint.h>
+#include "absl/base/nullability.h"
+#include "absl/status/statusor.h"
+#include "ocs2_core/constraint/StateConstraint.h"
 
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/contact/FootprintCornerHeights.h"
@@ -55,20 +61,29 @@ namespace ocs2::humanoid {
  *
  * It shares that object with ContactComplementarityConstraint of the same foot, so the two terms cannot end up
  * disagreeing about where the foot is; see the class comment there.
+ *
+ * Not thread-safe: the CppAD model of the corner heights keeps evaluation buffers, so even the const methods of one
+ * object must not run concurrently. The solver gives each worker thread its own clone().
  */
 class GroundPenetrationConstraint final : public StateConstraint {
  public:
   /**
+   * Builds the term, or returns InvalidArgument when `cornerHeights` has no point to keep above the ground.
+   *
    * @param [in] cornerHeights : the points of this foot that may not go below the ground, normally the footprint's
-   *        corner frames; the contact frame alone leaves the toe and the heel unconstrained.
+   *        corner frames; the contact frame alone leaves the toe and the heel unconstrained. It is cloned, not retained.
    * @param [in] terrainHeight : [m] height of the ground under the foot.
    */
-  explicit GroundPenetrationConstraint(const FootprintCornerHeights& cornerHeights, scalar_t terrainHeight = 0.0);
+  static absl::StatusOr<std::unique_ptr<GroundPenetrationConstraint>> Create(const FootprintCornerHeights& cornerHeights,
+                                                                             scalar_t terrainHeight = 0.0);
 
   ~GroundPenetrationConstraint() override = default;
-  GroundPenetrationConstraint* clone() const override { return new GroundPenetrationConstraint(*this); }
+  GroundPenetrationConstraint& operator=(const GroundPenetrationConstraint&) = delete;
+  GroundPenetrationConstraint(GroundPenetrationConstraint&&) = delete;
+  GroundPenetrationConstraint& operator=(GroundPenetrationConstraint&&) = delete;
+  GroundPenetrationConstraint* absl_nonnull clone() const override { return new GroundPenetrationConstraint(*this); }
 
-  size_t getNumConstraints(scalar_t time) const override { return numPoints_; }
+  size_t getNumConstraints(scalar_t /*time*/) const override { return numPoints_; }
 
   /** The number of points of the foot this term keeps above the ground. */
   size_t getNumPoints() const { return numPoints_; }
@@ -81,6 +96,7 @@ class GroundPenetrationConstraint final : public StateConstraint {
   scalar_t getTerrainHeight() const { return terrainHeight_; }
 
  private:
+  GroundPenetrationConstraint(const FootprintCornerHeights& cornerHeights, scalar_t terrainHeight);
   GroundPenetrationConstraint(const GroundPenetrationConstraint& rhs);
 
   std::unique_ptr<FootprintCornerHeights> cornerHeightsPtr_;

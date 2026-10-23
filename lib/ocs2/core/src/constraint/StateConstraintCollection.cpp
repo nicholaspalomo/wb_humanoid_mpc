@@ -29,6 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <ocs2_core/constraint/StateConstraintCollection.h>
 
+#include "absl/base/nullability.h"
+
 namespace ocs2 {
 
 /******************************************************************************************************/
@@ -39,7 +41,7 @@ StateConstraintCollection::StateConstraintCollection(const StateConstraintCollec
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-StateConstraintCollection* StateConstraintCollection::clone() const {
+StateConstraintCollection* absl_nonnull StateConstraintCollection::clone() const {
   return new StateConstraintCollection(*this);
 }
 

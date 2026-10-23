@@ -1,3 +1,4 @@
+load("@operator_deps//:requirements.bzl", "requirement")
 load("@rules_python//python:defs.bzl", "py_test")
 
 # The guards against a build exhausting the machine's memory: .bazelrc's RAM-bounded parallelism and the dev
@@ -12,9 +13,11 @@ py_test(
         "//:.bazelrc",
         "//:.devcontainer/devcontainer.json",
         "//:.github/workflows/build_test.yml",
+        "//:Makefile",
         "//:docker-compose.yaml",
         "//:tools/ci_local.sh",
     ],
+    deps = [requirement("pyyaml")],
 )
 
 # tools/bazel, the Bazelisk wrapper that makes the builds of every container on the machine take turns.

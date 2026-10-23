@@ -27,35 +27,37 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <pinocchio/fwd.hpp>  // forward declarations must be included first.
+#include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
-#include <gmock/gmock.h>
-#include <gtest/gtest.h>
-
-#include <cstdlib>
+#include <algorithm>
 #include <filesystem>
-#include <fstream>
-#include <iterator>
 #include <memory>
 #include <ostream>
 #include <string>
 #include <system_error>
+#include <utility>
 #include <vector>
 
+#include "absl/base/nullability.h"
 #include "absl/log/scoped_mock_log.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/str_replace.h"
 #include "absl/strings/string_view.h"
+#include "gmock/gmock.h"
+#include "gtest/gtest.h"
+#include "ocs2_core/cost/StateCostCollection.h"
 
-#include <ocs2_core/cost/StateCostCollection.h>
-
+#include "humanoid_centroidal_mpc/CentroidalMpcConfig.h"
 #include "humanoid_centroidal_mpc/CentroidalMpcInterface.h"
+#include "humanoid_centroidal_mpc/config/costs/DcmTerminalCostFromConfig.h"
 #include "humanoid_centroidal_mpc/cost/DcmTerminalCost.h"
-#include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/MpcFormulationConfig.h"
+#include "robot_core/ResourcePaths.h"
 #include "support/ProblemFingerprint.h"
+#include "support/TypedConfigFiles.h"
 
 /**
  * The two formulation choices of the centroidal MPC that were top-level booleans and are selected by name now
@@ -63,20 +65,20 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *  - `useDcmTerminalCost: true` became `dcm_terminal_cost` in `costs`, in place of `terminal_cost`. The DRC Atlas and
  *    the EngineAI SA01 shipped the boolean, and the problem each assembles from the name must be bit for bit the one the
  *    boolean assembled from the old list;
- *  - `useContactPlanning` became `contactScheduleSource`, `gait_schedule` or `contact_planner`;
- *  - a task file still carrying either retired boolean is refused at start-up, naming the replacement.
+ *  - `useContactPlanning` became `contact_schedule_source`, "gait_schedule" or "contact_planner";
+ *  - a task file still carrying either retired boolean is refused when it is parsed, naming the replacement.
  */
 namespace ocs2::humanoid {
 namespace {
 
 /** A centroidal MPC package, located in the runfiles by its path in the repository. */
 struct CentroidalRobot {
-  const char* name;
-  const char* mpcDirectory;  // holds config/mpc/task.yaml and config/command/reference.yaml
-  const char* urdf;
+  const char* absl_nonnull name;
+  const char* absl_nonnull mpcDirectory;  // holds config/mpc/task.textproto and config/command/reference.textproto
+  const char* absl_nonnull urdf;
 };
 
-void PrintTo(const CentroidalRobot& robot, std::ostream* os) {
+void PrintTo(const CentroidalRobot& robot, std::ostream* absl_nonnull os) {
   *os << robot.name;
 }
 
@@ -84,70 +86,39 @@ void PrintTo(const CentroidalRobot& robot, std::ostream* os) {
 // target's `data` lists the same packages.
 // LINT.IfChange(dcm_terminal_cost_robots)
 constexpr CentroidalRobot kDcmTerminalCostRobots[] = {
-    {"drc_atlas", "robot_models/drc_atlas/drc_atlas_centroidal_mpc", "robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf"},
-    {"engineai_sa01", "robot_models/engineai_sa01/engineai_sa01_centroidal_mpc",
-     "robot_models/engineai_sa01/engineai_sa01_description/urdf/zq_sa01.urdf"},
+    {.name = "drc_atlas",
+     .mpcDirectory = "robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+     .urdf = "robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf"},
+    {.name = "engineai_sa01",
+     .mpcDirectory = "robot_models/engineai_sa01/engineai_sa01_centroidal_mpc",
+     .urdf = "robot_models/engineai_sa01/engineai_sa01_description/urdf/zq_sa01.urdf"},
 };
 // LINT.ThenChange(//humanoid_nmpc/humanoid_centroidal_mpc/BUILD.bazel:formulation_names_data)
 
-constexpr absl::string_view kDcmTerminalCostEntry = "\n  - dcm_terminal_cost\n";
-constexpr absl::string_view kQuadraticTerminalCostEntry = "\n  - terminal_cost\n";
-
-/** The absolute path of a data file of this test, or empty when the runfiles do not contain it. */
+/** The runfiles path of `relativePath`; a missing file fails the test and is empty. */
 std::string runfilePath(absl::string_view relativePath) {
-  std::vector<std::filesystem::path> roots;
-  if (const char* srcDir = std::getenv("TEST_SRCDIR")) {
-    roots.emplace_back(std::filesystem::path(srcDir) / "_main");
-    roots.emplace_back(std::filesystem::path(srcDir) / "wb_humanoid_mpc");
-  }
-  roots.emplace_back(std::filesystem::current_path());
-  for (const std::filesystem::path& root : roots) {
-    const std::filesystem::path candidate = root / std::string(relativePath);
-    if (std::filesystem::exists(candidate)) return candidate.string();
-  }
-  return std::string();
+  absl::StatusOr<std::string> path = robot::resolveResourcePath(relativePath);
+  EXPECT_TRUE(path.ok()) << path.status();
+  return path.ok() ? *std::move(path) : std::string();
 }
 
-std::string readFile(const std::string& path) {
-  std::ifstream in(path);
-  return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-}
-
-/** `content` with `from` replaced by `to` exactly once; fails the test when `from` does not occur exactly once. */
-std::string replacedOnce(const std::string& content, absl::string_view from, absl::string_view to) {
-  const std::string::size_type position = content.find(from);
-  EXPECT_NE(position, std::string::npos) << "'" << from << "' not found";
-  if (position == std::string::npos) return content;
-  EXPECT_EQ(content.find(from, position + 1), std::string::npos) << "'" << from << "' occurs more than once";
-  std::string result = content;
-  result.replace(position, from.size(), std::string(to));
-  return result;
-}
-
-/** `content` with interface.verbose set to `verbose`. */
-std::string withInterfaceVerbose(const std::string& content, bool verbose) {
-  const std::string key = "\ninterface:\n  verbose: ";
-  const std::string::size_type position = content.find(key);
-  EXPECT_NE(position, std::string::npos) << "interface.verbose not found";
-  if (position == std::string::npos) return content;
-  const std::string::size_type valueStart = position + key.size();
-  const std::string::size_type valueEnd = content.find_first_of(" \n#", valueStart);
-  std::string result = content;
-  result.replace(valueStart, valueEnd - valueStart, verbose ? "true" : "false");
-  return result;
+/** Whether `list` names `entry`. */
+bool lists(const std::vector<std::string>& list, absl::string_view entry) {
+  return std::find(list.begin(), list.end(), entry) != list.end();
 }
 
 class FormulationNamesTest : public ::testing::TestWithParam<CentroidalRobot> {
  protected:
   void SetUp() override {
-    taskFile_ = runfilePath(absl::StrCat(GetParam().mpcDirectory, "/config/mpc/task.yaml"));
-    referenceFile_ = runfilePath(absl::StrCat(GetParam().mpcDirectory, "/config/command/reference.yaml"));
-    urdfFile_ = runfilePath(GetParam().urdf);
-    ASSERT_FALSE(taskFile_.empty() || referenceFile_.empty() || urdfFile_.empty())
+    files_.taskFile = runfilePath(absl::StrCat(GetParam().mpcDirectory, "/config/mpc/task.textproto"));
+    files_.referenceFile = runfilePath(absl::StrCat(GetParam().mpcDirectory, "/config/command/reference.textproto"));
+    files_.urdfFile = runfilePath(GetParam().urdf);
+    ASSERT_FALSE(files_.taskFile.empty() || files_.referenceFile.empty() || files_.urdfFile.empty())
         << GetParam().name << ": the robot's files are not in the runfiles; add its packages to `data`";
-    shipped_ = readFile(taskFile_);
+    absl::StatusOr<CentroidalMpcConfig> config = loadConfigOf(files_);
+    ASSERT_TRUE(config.ok()) << config.status();
+    shipped_ = *std::move(config);
     tmpDir_ = (std::filesystem::path(testing::TempDir()) / "formulation_names" / GetParam().name).string();
-    std::filesystem::create_directories(tmpDir_);
   }
 
   void TearDown() override {
@@ -155,31 +126,31 @@ class FormulationNamesTest : public ::testing::TestWithParam<CentroidalRobot> {
     std::filesystem::remove_all(tmpDir_, ignored);
   }
 
-  /** Writes a variant of the task file in a directory of its own, so that nothing beside it is shared by accident. */
-  std::string writeTaskFile(absl::string_view name, const std::string& content) const {
-    const std::filesystem::path directory = std::filesystem::path(tmpDir_) / std::string(name);
-    std::filesystem::create_directories(directory);
-    const std::string path = (directory / "task.yaml").string();
-    std::ofstream out(path);
-    out << content;
-    return path;
+  absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> create(const CentroidalMpcConfig& config) const {
+    return CentroidalMpcInterface::Create(config, files_.urdfFile);
   }
 
-  absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> create(const std::string& taskFile) const {
-    return CentroidalMpcInterface::Create(taskFile, urdfFile_, referenceFile_);
+  /** The refusal of the shipped configuration with `task` as its task file; OK when it is accepted. */
+  absl::Status refusal(const mpc_config::TaskFile& task) const {
+    CentroidalMpcConfig config = shipped_;
+    config.task = task;
+    const absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> created = create(config);
+    return created.ok() ? absl::OkStatus() : created.status();
   }
 
-  /** Creates the interface of a variant that must be refused, and returns the refusal. */
-  absl::Status refusal(absl::string_view name, const std::string& content) const {
-    const absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> created = create(writeTaskFile(name, content));
-    if (created.ok()) return absl::OkStatus();
-    return created.status();
+  /** The refusal of the robot's files with `taskText` as the text of its task file, read by path; OK when accepted. */
+  absl::Status textRefusal(absl::string_view name, absl::string_view taskText) const {
+    absl::StatusOr<CentroidalRobotFiles> files = writeConfig(absl::StrCat(tmpDir_, "/", name), shipped_, files_.urdfFile);
+    if (!files.ok()) return files.status();
+    absl::Status written = writeTextFile(files->taskFile, taskText);
+    if (!written.ok()) return written;
+    const absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> created =
+        CentroidalMpcInterface::Create(files->taskFile, files->urdfFile, files->referenceFile);
+    return created.ok() ? absl::OkStatus() : created.status();
   }
 
-  std::string taskFile_;
-  std::string referenceFile_;
-  std::string urdfFile_;
-  std::string shipped_;
+  CentroidalRobotFiles files_;
+  CentroidalMpcConfig shipped_;
   std::string tmpDir_;
 };
 
@@ -193,14 +164,15 @@ class FormulationNamesTest : public ::testing::TestWithParam<CentroidalRobot> {
  * derivative by derivative, at points along a walking schedule.
  */
 TEST_P(FormulationNamesTest, theNamedDcmTerminalCostAssemblesExactlyTheProblemTheBooleanDid) {
-  ASSERT_NE(shipped_.find(kDcmTerminalCostEntry), std::string::npos) << GetParam().name << " no longer lists dcm_terminal_cost";
-  ASSERT_EQ(shipped_.find(kQuadraticTerminalCostEntry), std::string::npos) << GetParam().name << " lists both terminal costs";
+  ASSERT_TRUE(lists(shipped_.task.costs, "dcm_terminal_cost")) << GetParam().name << " no longer lists dcm_terminal_cost";
+  ASSERT_FALSE(lists(shipped_.task.costs, "terminal_cost")) << GetParam().name << " lists both terminal costs";
 
-  const std::string listedFile = writeTaskFile("listed", shipped_);
-  const std::string oldListFile = writeTaskFile("oldList", replacedOnce(shipped_, kDcmTerminalCostEntry, kQuadraticTerminalCostEntry));
-  absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> listed = create(listedFile);
+  CentroidalMpcConfig oldListConfig = shipped_;
+  std::replace(oldListConfig.task.costs.begin(), oldListConfig.task.costs.end(), std::string("dcm_terminal_cost"),
+               std::string("terminal_cost"));
+  absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> listed = create(shipped_);
   ASSERT_TRUE(listed.ok()) << listed.status();
-  absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> oldList = create(oldListFile);
+  absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> oldList = create(oldListConfig);
   ASSERT_TRUE(oldList.ok()) << oldList.status();
   // The shipped contact schedule is the gait schedule, by name.
   EXPECT_EQ((*listed)->contactScheduleSource(), ContactScheduleSource::kGaitSchedule);
@@ -217,8 +189,7 @@ TEST_P(FormulationNamesTest, theNamedDcmTerminalCostAssemblesExactlyTheProblemTh
   // beside it.
   CentroidalMpcInterface& interface = **oldList;
   ASSERT_EQ(interface.getOptimalControlProblem().finalCostPtr->getTermNameMap().count("terminalCost"), 1U);
-  const absl::StatusOr<DcmTerminalCost::Config> config =
-      DcmTerminalCost::loadConfig(oldListFile, DcmTerminalCost::kConfigPrefix, /*verbose=*/false);
+  const absl::StatusOr<DcmTerminalCost::Config> config = dcmTerminalCostConfigFromConfig(oldListConfig.task.dcm_terminal_cost);
   ASSERT_TRUE(config.ok()) << config.status();
   absl::StatusOr<std::unique_ptr<DcmTerminalCost>> dcmTerminalCost = DcmTerminalCost::Create(
       *interface.getSwitchedModelReferenceManagerPtr(), *config, interface.getNominalComHeight(), interface.getPinocchioInterface(),
@@ -233,26 +204,30 @@ TEST_P(FormulationNamesTest, theNamedDcmTerminalCostAssemblesExactlyTheProblemTh
 
 /** The retired boolean is refused whatever its value, naming the entry that replaced it, before any term is built. */
 TEST_P(FormulationNamesTest, theRetiredDcmBooleanIsRefusedNamingTheCostThatReplacedIt) {
-  for (const char* value : {"true", "false"}) {
+  for (const char* absl_nonnull value : {"true", "false"}) {
     SCOPED_TRACE(value);
-    const absl::Status refused = refusal(absl::StrCat("retiredDcm_", value), absl::StrCat("useDcmTerminalCost: ", value, "\n", shipped_));
+    const absl::Status refused =
+        textRefusal(absl::StrCat("retiredDcm_", value), absl::StrCat(taskFileText(shipped_.task), "useDcmTerminalCost: ", value, "\n"));
     ASSERT_FALSE(refused.ok()) << "useDcmTerminalCost: " << value << " was accepted";
     EXPECT_EQ(refused.code(), absl::StatusCode::kInvalidArgument) << refused;
-    EXPECT_TRUE(absl::StrContains(refused.message(), "useDcmTerminalCost")) << refused;
+    EXPECT_TRUE(absl::StrContains(refused.message(), "is retired")) << refused;
     EXPECT_TRUE(absl::StrContains(refused.message(), "dcm_terminal_cost")) << refused;
   }
 }
 
 /** Listing both terminal costs is ambiguous now that the list is the switch, and refused naming both. */
 TEST_P(FormulationNamesTest, bothTerminalCostsAreRefusedNamingBoth) {
-  const absl::Status refused =
-      refusal("bothTerminalCosts", replacedOnce(shipped_, kDcmTerminalCostEntry, "\n  - dcm_terminal_cost\n  - terminal_cost\n"));
+  mpc_config::TaskFile task = shipped_.task;
+  task.costs.emplace_back("terminal_cost");
+  const absl::Status refused = refusal(task);
   ASSERT_FALSE(refused.ok()) << "a costs list naming both terminal costs was accepted";
   EXPECT_EQ(refused.code(), absl::StatusCode::kInvalidArgument) << refused;
-  EXPECT_TRUE(absl::StrContains(refused.message(), "'terminal_cost'")) << refused;
-  EXPECT_TRUE(absl::StrContains(refused.message(), "'dcm_terminal_cost'")) << refused;
+  EXPECT_TRUE(absl::StrContains(refused.message(), "terminal_cost")) << refused;
+  EXPECT_TRUE(absl::StrContains(refused.message(), "dcm_terminal_cost")) << refused;
 }
 
+// googletest's macro defines a static function and reads std::tuple_size<...>::value.
+// NOLINTNEXTLINE(misc-use-anonymous-namespace): expanded from INSTANTIATE_TEST_SUITE_P.
 INSTANTIATE_TEST_SUITE_P(ShippedTheBoolean,
                          FormulationNamesTest,
                          ::testing::ValuesIn(kDcmTerminalCostRobots),
@@ -260,27 +235,27 @@ INSTANTIATE_TEST_SUITE_P(ShippedTheBoolean,
 
 class AtlasFormulationNamesTest : public FormulationNamesTest {};
 
-/** `useContactPlanning` is refused whatever its value, naming the key that replaced it and both of its names. */
+/** `useContactPlanning` is refused whatever its value, naming the field that replaced it. */
 TEST_P(AtlasFormulationNamesTest, theRetiredContactPlanningBooleanIsRefusedNamingTheSource) {
-  for (const char* value : {"true", "false"}) {
+  for (const char* absl_nonnull value : {"true", "false"}) {
     SCOPED_TRACE(value);
-    const absl::Status refused =
-        refusal(absl::StrCat("retiredPlanning_", value), absl::StrCat("useContactPlanning: ", value, "\n", shipped_));
+    const absl::Status refused = textRefusal(absl::StrCat("retiredPlanning_", value),
+                                             absl::StrCat(taskFileText(shipped_.task), "useContactPlanning: ", value, "\n"));
     ASSERT_FALSE(refused.ok()) << "useContactPlanning: " << value << " was accepted";
     EXPECT_EQ(refused.code(), absl::StatusCode::kInvalidArgument) << refused;
-    EXPECT_TRUE(absl::StrContains(refused.message(), kRetiredContactPlanningKey)) << refused;
-    EXPECT_TRUE(absl::StrContains(refused.message(), absl::StrCat(kContactScheduleSourceKey, ": ", kContactPlannerContactScheduleSource)))
-        << refused;
+    EXPECT_TRUE(absl::StrContains(refused.message(), "is retired")) << refused;
+    EXPECT_TRUE(absl::StrContains(refused.message(), "contact_schedule_source")) << refused;
   }
 }
 
-/** An unknown source is refused, naming the key and listing every registered name. */
+/** An unknown source is refused, naming the field and listing every registered name. */
 TEST_P(AtlasFormulationNamesTest, anUnknownContactScheduleSourceIsRefusedListingTheNames) {
-  const absl::Status refused =
-      refusal("unknownSource", replacedOnce(shipped_, "\ncontactScheduleSource: gait_schedule\n", "\ncontactScheduleSource: planner\n"));
+  mpc_config::TaskFile task = shipped_.task;
+  task.contact_schedule_source = "planner";
+  const absl::Status refused = refusal(task);
   ASSERT_FALSE(refused.ok()) << "an unknown contact schedule source was accepted";
   EXPECT_EQ(refused.code(), absl::StatusCode::kInvalidArgument) << refused;
-  EXPECT_TRUE(absl::StrContains(refused.message(), kContactScheduleSourceKey)) << refused;
+  EXPECT_TRUE(absl::StrContains(refused.message(), "contact_schedule_source")) << refused;
   for (const std::string& name : contactScheduleSourceNames()) {
     EXPECT_TRUE(absl::StrContains(refused.message(), name)) << name << " is not offered: " << refused;
   }
@@ -288,35 +263,42 @@ TEST_P(AtlasFormulationNamesTest, anUnknownContactScheduleSourceIsRefusedListing
 
 /**
  * The interface used to hand its model settings the string literal "true" as their `verbose` flag, which converts to
- * the bool true, so every start-up printed the settings banner whatever interface.verbose said. The settings are loaded
- * by the constructor, before the contact schedule source is read, so a file refused for its source has already shown
- * whether the banner followed the flag.
+ * the bool true, so every start-up printed the settings banner whatever interface.verbose said. The settings are
+ * converted before the contact schedule source is, so a configuration refused for its source has already shown whether
+ * the banner followed the flag.
  */
 TEST_P(AtlasFormulationNamesTest, theModelSettingsBannerFollowsInterfaceVerbose) {
-  const std::string refusedSource =
-      replacedOnce(shipped_, "\ncontactScheduleSource: gait_schedule\n", "\ncontactScheduleSource: not_a_source\n");
+  mpc_config::TaskFile task = shipped_.task;
+  task.contact_schedule_source = "not_a_source";
   for (const bool verbose : {false, true}) {
     SCOPED_TRACE(verbose);
+    task.interface.verbose = verbose;
     absl::ScopedMockLog log(absl::MockLogDefault::kIgnoreUnexpected);
     EXPECT_CALL(log, Log(absl::LogSeverity::kInfo, testing::_, testing::HasSubstr("Robot Model Settings")))
         .Times(verbose ? testing::AtLeast(1) : testing::Exactly(0));
     log.StartCapturingLogs();
-    const absl::Status refused = refusal(absl::StrCat("verbose_", verbose), withInterfaceVerbose(refusedSource, verbose));
+    const absl::Status refused = refusal(task);
     log.StopCapturingLogs();
     EXPECT_FALSE(refused.ok());
   }
 }
 
-/** A value of interface.verbose that is not a bool is refused by Create(), naming the key. */
-TEST_P(AtlasFormulationNamesTest, anInterfaceVerboseThatIsNotABoolIsRefusedNamingTheKey) {
-  const std::string content = withInterfaceVerbose(shipped_, /*verbose=*/true);
-  const absl::Status refused =
-      refusal("verboseNotABool", replacedOnce(content, "\ninterface:\n  verbose: true", "\ninterface:\n  verbose: loud"));
+/** A value of interface.verbose that is not a bool does not parse, and the parser names the field and its position. */
+TEST_P(AtlasFormulationNamesTest, anInterfaceVerboseThatIsNotABoolIsRefusedNamingTheField) {
+  mpc_config::TaskFile task = shipped_.task;
+  task.interface.verbose = true;
+  const std::string text = taskFileText(task);
+  const std::string broken = absl::StrReplaceAll(text, {{"verbose: true", "verbose: loud"}});
+  ASSERT_NE(broken, text);
+  const absl::Status refused = textRefusal("verboseNotABool", broken);
   ASSERT_FALSE(refused.ok());
   EXPECT_EQ(refused.code(), absl::StatusCode::kInvalidArgument) << refused;
-  EXPECT_TRUE(absl::StrContains(refused.message(), ModelSettings::kInterfaceVerboseKey)) << refused;
+  EXPECT_TRUE(absl::StrContains(refused.message(), "task.textproto:")) << refused;
+  EXPECT_TRUE(absl::StrContains(refused.message(), "verbose")) << refused;
 }
 
+// googletest's macro defines a static function and reads std::tuple_size<...>::value.
+// NOLINTNEXTLINE(misc-use-anonymous-namespace): expanded from INSTANTIATE_TEST_SUITE_P.
 INSTANTIATE_TEST_SUITE_P(DrcAtlas,
                          AtlasFormulationNamesTest,
                          ::testing::Values(kDcmTerminalCostRobots[0]),

@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -31,14 +35,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <utility>
 #include <vector>
 
-#include <ocs2_core/reference/ModeSchedule.h>
+#include "ocs2_core/reference/ModeSchedule.h"
 
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlan.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
 
 /**
- * Adaptive execution of a planned contact schedule, generic in the number of feet (N_CONTACTS).
+ * Adaptive execution of a planned contact schedule, generic in the number of feet (kNumContacts).
  *
  * The mixed-integer planner decides the contact sequence on a coarse grid and re-plans at a few Hz. Between plans the
  * executed schedule is adapted to what the robot actually does, using only the measured contact state and the
@@ -68,17 +72,35 @@ size_t modeIndexAtTime(const ModeSchedule& schedule, scalar_t time);
 /** Contact flags of the phase active at `time` (same convention as modeIndexAtTime). */
 contact_flag_t contactFlagsAtTime(const ModeSchedule& schedule, scalar_t time);
 
+/** A range [first, last] of phase indices of a mode schedule. */
+struct PhaseIndexRange {
+  size_t first = 0;
+  size_t last = 0;
+};
+
+/** One swing of a foot in continuous time: [liftOff, touchDown]. */
+struct SwingWindow {
+  scalar_t liftOff = 0.0;    // [s]
+  scalar_t touchDown = 0.0;  // [s]
+};
+
+/** One re-timing of the later events of the executed schedule (ContactPlanningReferenceManager). */
+struct ScheduleShift {
+  scalar_t time = 0.0;   // [s] when the later events were re-timed
+  scalar_t shift = 0.0;  // [s] by how much
+};
+
 /**
  * Range [first, last] of consecutive phases in which `foot` is out of contact around `time`, empty if the foot is in
  * contact at `time`. Several phases belong to the same swing when other feet switch while this foot is in the air.
  */
-std::optional<std::pair<size_t, size_t>> swingPhaseIndexRange(const ModeSchedule& schedule, size_t foot, scalar_t time);
+std::optional<PhaseIndexRange> swingPhaseIndexRange(const ModeSchedule& schedule, size_t foot, scalar_t time);
 
 /**
  * Swing phase [liftOff, touchDown] of `foot` around `time`, empty if the foot is in contact or if the lift-off or the
  * touch-down event is not part of the schedule.
  */
-std::optional<std::pair<scalar_t, scalar_t>> swingPhaseAtTime(const ModeSchedule& schedule, size_t foot, scalar_t time);
+std::optional<SwingWindow> swingPhaseAtTime(const ModeSchedule& schedule, size_t foot, scalar_t time);
 
 /** Index into eventTimes of the touch-down event of the swing of `foot` around `time`, empty if there is none. */
 std::optional<size_t> touchDownEventIndex(const ModeSchedule& schedule, size_t foot, scalar_t time);
@@ -221,12 +243,25 @@ void fillPlannerInputFromSchedule(
 /** [s] the elapsed phase time fillPlannerInputFromSchedule() reports for a phase that began before the schedule. */
 inline constexpr scalar_t kPhaseElapsedTimeBeforeTheSchedule = 10.0;
 
+// The time tolerances of the schedule adaptation, the execution rules and the planners' reading of the executed schedule.
+/** [s] Lift-off times closer than this identify the same swing. */
+inline constexpr scalar_t kSameSwingTolerance = 1.0e-6;
+/** [s] An event shift smaller than this is not applied. */
+inline constexpr scalar_t kMinTimeShift = 1.0e-6;
 /**
- * Applies to `plan` the re-timings of the executed schedule that happened after the plan's snapshot was taken. The log
- * holds (time of the shift, shift) pairs; every entry younger than the snapshot is summed and applied once, so that
+ * [s] Times closer than this coincide: a time this close to an event counts as at or after it, a phase that starts on
+ * the commit boundary starts there, and a time at either end of a plan is in it.
+ */
+inline constexpr scalar_t kEventTimeTolerance = 1.0e-9;
+/** [s] The slack on the window an executed event time must fall in to be taken as the switch of a committed node. */
+inline constexpr scalar_t kSwitchTimeTolerance = 1.0e-9;
+
+/**
+ * Applies to `plan` the re-timings of the executed schedule that happened after the plan's snapshot was taken. Every
+ * entry of the log younger than the snapshot is summed and applied once, so that
  * shifts of opposite sign cancel instead of the first one moving the comparison key for the second. Returns the total.
  */
-scalar_t applyScheduleShiftsToPlan(ContactPlan& plan, const std::deque<std::pair<scalar_t, scalar_t>>& shiftLog);
+scalar_t applyScheduleShiftsToPlan(ContactPlan& plan, const std::deque<ScheduleShift>& shiftLog);
 
 /*============================================ schedule edits ==============================================*/
 
@@ -261,9 +296,10 @@ struct SwingTimingLatch {
   scalar_t plannedTouchDownTime() const { return nominalTouchDownTime + cadenceShift; }
 };
 
+/** What the schedule adaptation did to one foot in one control cycle. Passive data. */
 struct ContactEventReport {
-  enum class Type { NONE, EARLY_TOUCH_DOWN, LATE_TOUCH_DOWN, CADENCE_SHIFT };
-  Type type = Type::NONE;
+  enum class Type { kNone, kEarlyTouchDown, kLateTouchDown, kCadenceShift };
+  Type type = Type::kNone;
   scalar_t touchDownTime = 0.0;  // touch-down after the update
   scalar_t timeShift = 0.0;      // shift applied to the touch-down and every later event (0 for an early touch-down)
 };
@@ -292,6 +328,7 @@ feet_array_t<ContactEventReport> adaptScheduleToContactEvents(ModeSchedule& sche
 
 /*============================================ LIP helpers =================================================*/
 
+/** The state of the linear inverted pendulum at one instant: CoM position and velocity, and the ZMP. Passive data. */
 struct LipState {
   vector2_t com = vector2_t::Zero();
   vector2_t comVelocity = vector2_t::Zero();

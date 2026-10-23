@@ -30,11 +30,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include <memory>
+#include <tuple>
+#include <vector>
 
 #include <ocs2_core/Types.h>
 
 #include <ocs2_core/penalties/penalties/PenaltyBase.h>
-#include "ocs2_core/penalties/augmented/AugmentedPenaltyBase.h"
 
 namespace ocs2 {
 
@@ -55,16 +56,14 @@ class MultidimensionalPenalty final {
    * @note This imposes a fixed number of constraints, where the corresponding penalty function in the array is applied.
    * @param [in] penaltyPtrArray: An array of pointers to the penalty function on the constraint.
    */
-  template <class PenaltyType>
-  MultidimensionalPenalty(std::vector<std::unique_ptr<PenaltyType>> penaltyPtrArray);
+  explicit MultidimensionalPenalty(std::vector<std::unique_ptr<PenaltyBase>> penaltyPtrArray);
 
   /**
    * Constructor with s single penalty function
    * @note This allows a varying number of constraints and uses the same penalty function for each constraint.
    * @param [in] penaltyPtr: A pointer to the penalty function on the constraint.
    */
-  template <class PenaltyType>
-  MultidimensionalPenalty(std::unique_ptr<PenaltyType> penaltyPtr);
+  explicit MultidimensionalPenalty(std::unique_ptr<PenaltyBase> penaltyPtr);
 
   /** Default destructor */
   ~MultidimensionalPenalty() = default;
@@ -79,7 +78,7 @@ class MultidimensionalPenalty final {
    * @param [in] h: Vector of inequality constraint values.
    * @return Penalty: The penalty cost.
    */
-  scalar_t getValue(scalar_t t, const vector_t& h, const vector_t* l = nullptr) const;
+  scalar_t getValue(scalar_t t, const vector_t& h) const;
 
   /**
    * Get the derivative of the penalty cost.
@@ -89,8 +88,7 @@ class MultidimensionalPenalty final {
    * @param [in] h: The constraint linear approximation.
    * @return The penalty cost quadratic approximation.
    */
-  ScalarFunctionQuadraticApproximation getQuadraticApproximation(scalar_t t, const VectorFunctionLinearApproximation& h,
-                                                                 const vector_t* l = nullptr) const;
+  ScalarFunctionQuadraticApproximation getQuadraticApproximation(scalar_t t, const VectorFunctionLinearApproximation& h) const;
 
   /**
    * Get the derivative of the penalty cost.
@@ -100,38 +98,19 @@ class MultidimensionalPenalty final {
    * @param [in] h: The constraint quadratic approximation.
    * @return The penalty cost quadratic approximation.
    */
-  ScalarFunctionQuadraticApproximation getQuadraticApproximation(scalar_t t, const VectorFunctionQuadraticApproximation& h,
-                                                                 const vector_t* l = nullptr) const;
-
-  /**
-   * Updates the Lagrange multipliers.
-   *
-   * @param [in] t: The time stamp.
-   * @param [in] l: The Lagrange multipliers.
-   * @param [in] h: The vector of constraint values.
-   * @return updated Lagrange multipliers.
-   */
-  vector_t updateMultipliers(scalar_t t, const vector_t& h, const vector_t& l) const;
-
-  /**
-   * Initializes the Lagrange multipliers.
-   *
-   * @param [in] numConstraints: Number of constraints associated to this penalty.
-   * @return Initial Lagrange multipliers.
-   */
-  vector_t initializeMultipliers(size_t numConstraints) const;
+  ScalarFunctionQuadraticApproximation getQuadraticApproximation(scalar_t t, const VectorFunctionQuadraticApproximation& h) const;
 
   /**
    * Get the penalty function array.
    *
    * @return The penalty function array.
    */
-  std::vector<std::unique_ptr<augmented::AugmentedPenaltyBase>>& getPenaltyPtrArray() { return penaltyPtrArray_; }
+  std::vector<std::unique_ptr<PenaltyBase>>& getPenaltyPtrArray() { return penaltyPtrArray_; }
 
  private:
-  std::tuple<scalar_t, vector_t, vector_t> getPenaltyValue1stDev2ndDev(scalar_t t, const vector_t& h, const vector_t* l) const;
+  std::tuple<scalar_t, vector_t, vector_t> getPenaltyValue1stDev2ndDev(scalar_t t, const vector_t& h) const;
 
-  std::vector<std::unique_ptr<augmented::AugmentedPenaltyBase>> penaltyPtrArray_;
+  std::vector<std::unique_ptr<PenaltyBase>> penaltyPtrArray_;
 };
 
 }  // namespace ocs2

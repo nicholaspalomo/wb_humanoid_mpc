@@ -1,0 +1,843 @@
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+
+load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
+load("@rules_python//python:defs.bzl", "py_test")
+load("//bazel:copts.bzl", "FIRST_PARTY_COPTS")
+
+# humanoid_mpc_validation - closed-loop measurements of the MPC formulations (README.md): the lockstep MuJoCo closed loop
+# with its metrics and their comparison between two recorded labels, the solve benchmark with its real-time gate, and
+# the Euler chart of the equivalence suites. Nothing here talks to the bus: the closed loop runs the MPC node's and the
+# robot process's pieces in one thread.
+
+package(default_visibility = ["//visibility:public"])
+
+# SHA-256, JSON documents, golden files and the provenance of a recording. Free of the MPC.
+cc_library(
+    name = "validation_io",
+    srcs = [
+        "src/io/GoldenIo.cpp",
+        "src/io/JsonValue.cpp",
+        "src/io/RunProvenance.cpp",
+        "src/io/Sha256.cpp",
+    ],
+    hdrs = [
+        "include/humanoid_mpc_validation/io/GoldenIo.h",
+        "include/humanoid_mpc_validation/io/JsonValue.h",
+        "include/humanoid_mpc_validation/io/RunProvenance.h",
+        "include/humanoid_mpc_validation/io/Sha256.h",
+    ],
+    copts = FIRST_PARTY_COPTS,
+    includes = ["include"],
+    deps = [
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/container:flat_hash_set",
+        "@abseil-cpp//absl/log:check",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:str_format",
+        "@eigen",
+    ],
+)
+
+# The scenarios, the metrics with their schema, the bands against a baseline and the robot configurations: what a
+# closed-loop run commands and how it is judged, without the MPC or the simulator.
+cc_library(
+    name = "closed_loop_metrics",
+    srcs = [
+        "src/closed_loop/ClosedLoopMetrics.cpp",
+        "src/closed_loop/ClosedLoopMetricsSchema.cpp",
+        "src/closed_loop/ClosedLoopScenario.cpp",
+        "src/closed_loop/MetricBands.cpp",
+        "src/closed_loop/RobotConfiguration.cpp",
+    ],
+    hdrs = [
+        "include/humanoid_mpc_validation/closed_loop/ClosedLoopMetrics.h",
+        "include/humanoid_mpc_validation/closed_loop/ClosedLoopMetricsSchema.h",
+        "include/humanoid_mpc_validation/closed_loop/ClosedLoopScenario.h",
+        "include/humanoid_mpc_validation/closed_loop/MetricBands.h",
+        "include/humanoid_mpc_validation/closed_loop/RobotConfiguration.h",
+    ],
+    copts = FIRST_PARTY_COPTS,
+    includes = ["include"],
+    deps = [
+        ":validation_io",
+        "//humanoid_nmpc/humanoid_common_mpc:humanoid_common_mpc_types",
+        "//humanoid_nmpc/humanoid_common_mpc:orientation",
+        "//humanoid_nmpc/humanoid_common_mpc:walking_velocity_command",
+        "//humanoid_nmpc/humanoid_common_mpc_app/node:walking_velocity_command_conversions",
+        "@abseil-cpp//absl/base:no_destructor",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/container:flat_hash_map",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@eigen",
+    ],
+)
+
+# A solve's SQP step for the metrics and the equivalence suites' convergence tests: the line search's verdicts and
+# constraint violation from the solver's iteration record, and the largest residual of the hard swing-foot
+# normal-velocity rows over the solution's nodes.
+cc_library(
+    name = "sqp_step_diagnostics",
+    srcs = ["src/closed_loop/SqpStepDiagnostics.cpp"],
+    hdrs = ["include/humanoid_mpc_validation/closed_loop/SqpStepDiagnostics.h"],
+    copts = FIRST_PARTY_COPTS,
+    includes = ["include"],
+    deps = [
+        ":closed_loop_metrics",
+        "//humanoid_nmpc/humanoid_common_mpc:humanoid_common_mpc_types",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_oc",
+        "//lib/ocs2:ocs2_sqp",
+        "@abseil-cpp//absl/types:span",
+    ],
+)
+
+# The robot at the solves of a closed-loop run, as a golden file: the input of the solve benchmark.
+cc_library(
+    name = "recorded_robot_states",
+    srcs = ["src/closed_loop/RecordedRobotStates.cpp"],
+    hdrs = ["include/humanoid_mpc_validation/closed_loop/RecordedRobotStates.h"],
+    copts = FIRST_PARTY_COPTS,
+    includes = ["include"],
+    deps = [
+        ":validation_io",
+        "//humanoid_nmpc/humanoid_common_mpc:humanoid_common_mpc_types",
+        "//lib/ocs2:ocs2_dimensions",
+        "//robot_runtime/robot_model",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/container:flat_hash_set",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@eigen",
+    ],
+)
+
+# When the lockstep closed loop solves: the solver thread's pacing and failure back-off on the simulation's clock.
+cc_library(
+    name = "lockstep_solve_schedule",
+    srcs = ["src/closed_loop/LockstepSolveSchedule.cpp"],
+    hdrs = ["include/humanoid_mpc_validation/closed_loop/LockstepSolveSchedule.h"],
+    copts = FIRST_PARTY_COPTS,
+    includes = ["include"],
+    deps = ["@abseil-cpp//absl/base:nullability"],
+)
+
+# What the closed-loop driver reads of the configuration files itself, beside the roots it builds the MPC and the
+# controller with: the GUI's command scaling of the reference file, and the contact wrench gate a task file's
+# controller-side settings set, as the robot process applies them.
+cc_library(
+    name = "driver_settings",
+    srcs = ["src/closed_loop/DriverSettingsFromConfig.cpp"],
+    hdrs = ["include/humanoid_mpc_validation/closed_loop/DriverSettingsFromConfig.h"],
+    copts = FIRST_PARTY_COPTS,
+    includes = ["include"],
+    deps = [
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@eigen",
+    ],
+)
+
+# The robot process's state estimator, built by name from the task file as RobotProcess::Create() builds it, for the
+# lockstep closed loop's control cycle.
+cc_library(
+    name = "lockstep_state_estimator",
+    srcs = ["src/closed_loop/LockstepStateEstimator.cpp"],
+    hdrs = ["include/humanoid_mpc_validation/closed_loop/LockstepStateEstimator.h"],
+    copts = FIRST_PARTY_COPTS,
+    includes = ["include"],
+    deps = [
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc_app/robot:robot_process",
+        "//humanoid_state_estimation/humanoid_state_estimator:state_estimator",
+        "//robot_runtime/robot_model",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
+    ],
+)
+
+# The lockstep closed loop: the headless MuJoCo simulator, each formulation's MPC as its MPC node builds it and its MRT
+# joint controller as its robot binary builds it, and the MPC link's solver iterations called synchronously.
+cc_library(
+    name = "lockstep_closed_loop",
+    testonly = True,
+    srcs = [
+        "src/closed_loop/CentroidalClosedLoopDriver.cpp",
+        "src/closed_loop/ClosedLoopDriver.cpp",
+        "src/closed_loop/ClosedLoopDriverFactory.cpp",
+        "src/closed_loop/LockstepClosedLoop.cpp",
+        "src/closed_loop/LockstepOutputs.cpp",
+        "src/closed_loop/WholeBodyClosedLoopDriver.cpp",
+    ],
+    hdrs = [
+        "include/humanoid_mpc_validation/closed_loop/CentroidalClosedLoopDriver.h",
+        "include/humanoid_mpc_validation/closed_loop/ClosedLoopDriver.h",
+        "include/humanoid_mpc_validation/closed_loop/LockstepClosedLoop.h",
+        "include/humanoid_mpc_validation/closed_loop/LockstepOutputs.h",
+        "include/humanoid_mpc_validation/closed_loop/TimeSeriesLabels.h",
+        "include/humanoid_mpc_validation/closed_loop/WholeBodyClosedLoopDriver.h",
+    ],
+    copts = FIRST_PARTY_COPTS,
+    includes = ["include"],
+    deps = [
+        ":closed_loop_metrics",
+        ":driver_settings",
+        ":lockstep_solve_schedule",
+        ":lockstep_state_estimator",
+        ":recorded_robot_states",
+        ":sqp_step_diagnostics",
+        ":validation_io",
+        "//humanoid_nmpc/humanoid_centroidal_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc:mpc_reset_supervisor",
+        "//humanoid_nmpc/humanoid_common_mpc:mrt_control_thread",
+        "//humanoid_nmpc/humanoid_common_mpc:orientation",
+        "//humanoid_nmpc/humanoid_common_mpc_app/node:mpc_node",
+        "//humanoid_nmpc/humanoid_common_mpc_app/robot:robot_process",
+        "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
+        "//humanoid_nmpc/humanoid_mpc_msgs:messages_cc_proto",
+        "//humanoid_nmpc/humanoid_wb_mpc",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_mpc",
+        "//lib/ocs2:ocs2_oc",
+        "//lib/ocs2:ocs2_pinocchio_interface",
+        "//lib/ocs2:ocs2_robotic_tools",
+        "//lib/ocs2:ocs2_sqp",
+        "//robot_runtime/mujoco_sim_interface",
+        "//robot_runtime/mujoco_sim_interface:viewer_settings",
+        "//robot_runtime/robot_core",
+        "//robot_runtime/robot_model",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/log",
+        "@abseil-cpp//absl/log:check",
+        "@abseil-cpp//absl/memory",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
+        "@abseil-cpp//absl/time",
+        "@abseil-cpp//absl/types:span",
+        "@eigen",
+        "@pinocchio",
+    ],
+)
+
+# The solve benchmark of section 4.6 on recorded robot states, with the tape operation counts of the CppAD libraries.
+cc_library(
+    name = "solve_benchmark",
+    testonly = True,
+    srcs = ["src/benchmark/MpcSolveBenchmark.cpp"],
+    hdrs = ["include/humanoid_mpc_validation/benchmark/MpcSolveBenchmark.h"],
+    copts = FIRST_PARTY_COPTS,
+    includes = ["include"],
+    deps = [
+        ":closed_loop_metrics",
+        ":lockstep_closed_loop",
+        ":recorded_robot_states",
+        ":validation_io",
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc_app/robot:robot_process",
+        "//lib/ocs2:ocs2_core",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+    ],
+)
+
+# The real-time gate of section 4.6: a solve benchmark document against its baseline of the same machine and toolchain.
+cc_library(
+    name = "solve_benchmark_gate",
+    srcs = ["src/benchmark/SolveBenchmarkGate.cpp"],
+    hdrs = ["include/humanoid_mpc_validation/benchmark/SolveBenchmarkGate.h"],
+    copts = FIRST_PARTY_COPTS,
+    includes = ["include"],
+    deps = [
+        ":validation_io",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/container:flat_hash_map",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+    ],
+)
+
+# The chart between the ZYX Euler coordinates of a state and the physical state of the quaternion formulation (design
+# section 2.12): Phi, Phi^-1, dPhi / dx_e and P_e, through orientation/EulerBoundary only. What the equivalence suites
+# (humanoid_common_mpc/test/equivalence) map their Euler oracle through.
+cc_library(
+    name = "euler_chart",
+    srcs = ["src/chart/EulerChart.cpp"],
+    hdrs = ["include/humanoid_mpc_validation/chart/EulerChart.h"],
+    copts = FIRST_PARTY_COPTS,
+    includes = ["include"],
+    deps = [
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc:humanoid_common_mpc_types",
+        "//humanoid_nmpc/humanoid_common_mpc:orientation",
+        "//lib/ocs2:ocs2_core",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@eigen",
+    ],
+)
+
+# ------------------------------------------------------------------------------------------------------- unit tests
+
+cc_test(
+    name = "test_solve_benchmark_gate",
+    size = "small",
+    srcs = ["test/testSolveBenchmarkGate.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    # Every robot's default recorded states must exist.
+    data = glob(
+        ["data/benchmark/states/*.txt"],
+        allow_empty = True,
+    ),
+    deps = [
+        ":closed_loop_metrics",
+        ":solve_benchmark_gate",
+        ":validation_io",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/log:check",
+        "@abseil-cpp//absl/strings",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "test_validation_io",
+    size = "small",
+    srcs = ["test/testValidationIo.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    # The recorded golden files and documents must format back to their bytes.
+    data = glob(
+        [
+            "data/**/*.json",
+            "data/**/*.txt",
+        ],
+        allow_empty = True,
+    ),
+    deps = [
+        ":validation_io",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The metrics, their schema, the band rules and the offline comparison of two labels archived from synthetic runs.
+cc_test(
+    name = "test_closed_loop_metrics",
+    size = "small",
+    srcs = ["test/testClosedLoopMetrics.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":closed_loop_metrics",
+        ":validation_io",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/log:check",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@eigen",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The SQP step of a solve: the normal-velocity terms found by name, their largest residual over the nodes where they
+# are active, and the line search's verdicts.
+cc_test(
+    name = "test_sqp_step_diagnostics",
+    size = "small",
+    srcs = ["test/testSqpStepDiagnostics.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":closed_loop_metrics",
+        ":sqp_step_diagnostics",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_oc",
+        "//lib/ocs2:ocs2_sqp",
+        "@eigen",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "test_closed_loop_scenarios",
+    size = "small",
+    srcs = ["test/testClosedLoopScenarios.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    # The launch files whose robot files the configurations must name (RobotConfiguration.cpp).
+    data = [
+        "//robot_models/drc_atlas/drc_atlas_centroidal_mpc:launch/mpc.textproto",
+        "//robot_models/drc_atlas/drc_atlas_centroidal_mpc:launch/robot.textproto",
+        "//robot_models/engineai_sa01/engineai_sa01_centroidal_mpc:launch/mpc.textproto",
+        "//robot_models/engineai_sa01/engineai_sa01_centroidal_mpc:launch/robot.textproto",
+        "//robot_models/unitree_g1/g1_centroidal_mpc:launch/mpc.textproto",
+        "//robot_models/unitree_g1/g1_centroidal_mpc:launch/robot.textproto",
+        "//robot_models/unitree_g1/g1_wb_mpc:launch/mpc.textproto",
+        "//robot_models/unitree_g1/g1_wb_mpc:launch/robot.textproto",
+        "//robot_models/unitree_r1/unitree_r1_centroidal_mpc:launch/mpc.textproto",
+        "//robot_models/unitree_r1/unitree_r1_centroidal_mpc:launch/robot.textproto",
+    ],
+    deps = [
+        ":closed_loop_metrics",
+        ":validation_io",
+        "//humanoid_nmpc/humanoid_common_mpc:walking_velocity_command",
+        "//humanoid_nmpc/humanoid_common_mpc_app/node:walking_velocity_command_conversions",
+        "//humanoid_nmpc/humanoid_mpc_msgs:messages_cc_proto",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/container:flat_hash_map",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@eigen",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "test_lockstep_solve_schedule",
+    size = "small",
+    srcs = ["test/testLockstepSolveSchedule.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":lockstep_solve_schedule",
+        "@abseil-cpp//absl/base:nullability",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The joint torques a control cycle of the lockstep closed loop records.
+cc_test(
+    name = "test_joint_feedback_torques",
+    size = "small",
+    srcs = ["test/testJointFeedbackTorques.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = ["//robot_models/unitree_g1/g1_description"],
+    deps = [
+        ":lockstep_closed_loop",
+        "//robot_runtime/robot_core",
+        "//robot_runtime/robot_model",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@eigen",
+        "@googletest//:gtest_main",
+        "@pinocchio",
+    ],
+)
+
+# The initial-state gap of a solve, the state manifold's rotation angle of the SQP's step; and a solution's largest
+# quaternion norm deviation (maxQuaternionNormDeviationOf()).
+cc_test(
+    name = "test_initial_state_gap",
+    size = "small",
+    srcs = ["test/testInitialStateGap.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":lockstep_closed_loop",
+        "//lib/ocs2:ocs2_core",
+        "@abseil-cpp//absl/status:statusor",
+        "@eigen",
+        "@googletest//:gtest_main",
+        "@pinocchio",
+    ],
+)
+
+cc_test(
+    name = "test_recorded_robot_states",
+    size = "small",
+    srcs = ["test/testRecordedRobotStates.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = [
+        "//robot_models/drc_atlas/drc_atlas_description",
+        "//robot_models/unitree_g1/g1_description",
+    ],
+    deps = [
+        ":recorded_robot_states",
+        ":validation_io",
+        "//robot_runtime/robot_model",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status",
+        "@eigen",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The stride mean of the base's planar motion on the recorded straight walks (design README section 2.9): neither a turn
+# nor a sideways walk over the cycle of the gait they walk, where the pelvis's own motion sways past the gait thresholds;
+# an added turn reads exactly as that turn. Builds no model.
+cc_test(
+    name = "test_stride_motion_of_recorded_walks",
+    size = "small",
+    srcs = ["test/testStrideMotionOfRecordedWalks.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    # LINT.IfChange(recorded_walks_test_data)
+    data = [
+        "//humanoid_nmpc/humanoid_common_mpc:gait_config",
+    ] + glob(
+        ["data/benchmark/states/*.txt"],
+        allow_empty = True,
+    ),
+    # LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_validation/test/testStrideMotionOfRecordedWalks.cpp:recorded_walks)
+    deps = [
+        ":recorded_robot_states",
+        ":validation_io",
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc:orientation",
+        "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
+        "//robot_runtime/robot_core:resource_paths",
+        "@abseil-cpp//absl/status:statusor",
+        "@eigen",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The lockstep closed loop's state estimator is the robot process's: built by name with its context, ground_truth handing
+# on the measured state itself.
+cc_test(
+    name = "test_lockstep_state_estimator",
+    size = "small",
+    srcs = ["test/testLockstepStateEstimator.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = [
+        "//robot_models/unitree_g1/g1_centroidal_mpc",
+        "//robot_models/unitree_g1/g1_description",
+    ],
+    deps = [
+        ":lockstep_state_estimator",
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc_app/robot:robot_process",
+        "//humanoid_state_estimation/humanoid_state_estimator:state_estimator",
+        "//robot_runtime/robot_model",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
+        "@googletest//:gtest_main",
+        "@pinocchio",
+    ],
+)
+
+# Two lockstep runs of the short smoke scenario on the Unitree G1 centroidal MPC with one solver thread agree to 1e-9.
+# It compiles the robot's CppAD libraries, so it runs alone.
+cc_test(
+    name = "test_lockstep_determinism",
+    size = "large",
+    srcs = ["test/testLockstepDeterminism.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = [
+        "//humanoid_nmpc/humanoid_common_mpc:gait_config",
+        "//robot_models/unitree_g1/g1_centroidal_mpc",
+        "//robot_models/unitree_g1/g1_description",
+    ],
+    tags = ["exclusive"],
+    deps = [
+        ":closed_loop_metrics",
+        ":lockstep_closed_loop",
+        ":validation_io",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/log:globals",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@googletest//:gtest_main",
+        "@pinocchio",
+    ],
+)
+
+# Phi, dPhi / dx_e and P_e of the Euler chart against finite differences, and its blocks against the converters.
+cc_test(
+    name = "test_euler_chart",
+    size = "small",
+    srcs = ["test/chart/testEulerChart.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":euler_chart",
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc:orientation",
+        "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
+        "//lib/ocs2:ocs2_core",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@eigen",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# --------------------------------------------------------------------------- closed-loop metrics and the solve benchmark
+
+# The files each configuration runs on (RobotConfiguration.cpp).
+# LINT.IfChange(robot_configurations)
+_ROBOT_DATA = {
+    "drc_atlas": [
+        "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+        "//robot_models/drc_atlas/drc_atlas_description",
+    ],
+    "engineai_sa01": [
+        "//robot_models/engineai_sa01/engineai_sa01_centroidal_mpc",
+        "//robot_models/engineai_sa01/engineai_sa01_description",
+    ],
+    "unitree_g1": [
+        "//robot_models/unitree_g1/g1_centroidal_mpc",
+        "//robot_models/unitree_g1/g1_description",
+    ],
+    "unitree_r1": [
+        "//robot_models/unitree_r1/unitree_r1_centroidal_mpc",
+        "//robot_models/unitree_r1/unitree_r1_description",
+    ],
+    "unitree_g1_wb": [
+        "//robot_models/unitree_g1/g1_wb_mpc",
+        "//robot_models/unitree_g1/g1_description",
+    ],
+}
+# LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_validation/include/humanoid_mpc_validation/closed_loop/RobotConfiguration.h:robot_configurations)
+
+# The GUI's command scaling of every configuration's reference file and the contact wrench gate of its task file's
+# controller-side settings, read typed as the closed-loop driver reads them.
+cc_test(
+    name = "test_driver_settings_from_config",
+    size = "small",
+    srcs = ["test/testDriverSettingsFromConfig.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = sorted({file: None for files in _ROBOT_DATA.values() for file in files}.keys()),
+    deps = [
+        ":closed_loop_metrics",
+        ":driver_settings",
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@eigen",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# Every configuration's MuJoCo scene supports the gantry hold its task file names, and the mujoco backend of the robot
+# process runs it on that hold rather than falling back to kinematic_teleport; each welded scene without its weld fails.
+cc_test(
+    name = "test_robot_scene_gantry_hold",
+    size = "small",
+    srcs = ["test/testRobotSceneGantryHold.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = sorted({file: None for files in _ROBOT_DATA.values() for file in files}.keys()),
+    deps = [
+        ":closed_loop_metrics",
+        "//humanoid_nmpc/humanoid_common_mpc_app/robot:robot_process",
+        "//lib/mujoco_vendor",
+        "//robot_runtime/mujoco_sim_interface",
+        "//robot_runtime/mujoco_sim_interface:viewer_settings",
+        "//robot_runtime/robot_model",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:status_matchers",
+        "@abseil-cpp//absl/status:statusor",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The reload classes of the task file's schema against what each formulation's parameter updater applies (T8,
+# humanoid_nmpc/humanoid_mpc_config/README.md): the centroidal and the whole-body MPC each apply exactly the RELOAD_HOT
+# fields they read, neither applies a field only the other formulation, the robot or the GUI reads, and every name they
+# apply is a field of the schema. From the appliers' static field lists: it builds no MPC and no CppAD model.
+cc_test(
+    name = "test_hot_field_coverage",
+    size = "small",
+    srcs = ["test/testHotFieldCoverage.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        "//humanoid_nmpc/humanoid_centroidal_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_mpc_config:config_cc_proto",
+        "//humanoid_nmpc/humanoid_wb_mpc",
+        "@abseil-cpp//absl/strings",
+        "@googletest//:gtest_main",
+        "@pinocchio",
+    ],
+)
+
+# The recorded closed-loop runs: the baselines a run is compared with (--baseline) and what the comparisons of the labels
+# read.
+_CLOSED_LOOP_RECORDINGS = glob(
+    ["data/closed_loop/**/*.json"],
+    allow_empty = True,
+)
+
+_CLOSED_LOOP_SCENARIOS_DEPS = [
+    ":closed_loop_metrics",
+    ":lockstep_closed_loop",
+    ":validation_io",
+    "@abseil-cpp//absl/base:nullability",
+    "@abseil-cpp//absl/flags:flag",
+    "@abseil-cpp//absl/flags:parse",
+    "@abseil-cpp//absl/log:log",
+    "@abseil-cpp//absl/log:globals",
+    "@abseil-cpp//absl/status",
+    "@abseil-cpp//absl/status:statusor",
+    "@abseil-cpp//absl/strings",
+    "@googletest//:gtest",
+    "@pinocchio",
+]
+
+# The scenarios of section 4.5 on one configuration: `make closed-loop-metrics ROBOT=<robot> LABEL=<label>
+# [SCENARIO=<scenario>] [BASELINE=<label>]` runs them and collects the metrics. Manual (minutes of simulation, a CppAD
+# compile on the first run) and exclusive: one at a time.
+[
+    cc_test(
+        name = "closed_loop_" + robot,
+        size = "enormous",
+        srcs = ["test/closedLoopScenarios.cpp"],
+        args = ["--robot=" + robot],
+        copts = FIRST_PARTY_COPTS,
+        data = data + ["//humanoid_nmpc/humanoid_common_mpc:gait_config"] + _CLOSED_LOOP_RECORDINGS,
+        tags = [
+            "exclusive",
+            "manual",
+        ],
+        deps = _CLOSED_LOOP_SCENARIOS_DEPS,
+    )
+    for robot, data in _ROBOT_DATA.items()
+]
+
+# The same scenarios as one binary for every configuration, not manual, so that `bazel build //...` and `make lint-tidy`
+# compile the tests' source: `bazel run`-able with --robot=<robot> --label=<label> [--baseline=<label>]
+# [--output_dir=<directory>]. The Make target runs the tests above, under Bazel's machine lock.
+cc_binary(
+    name = "closed_loop_scenarios",
+    testonly = True,
+    srcs = ["test/closedLoopScenarios.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = [
+        "//humanoid_nmpc/humanoid_common_mpc:gait_config",
+    ] + _CLOSED_LOOP_RECORDINGS + sorted({file: None for files in _ROBOT_DATA.values() for file in files}.keys()),
+    deps = _CLOSED_LOOP_SCENARIOS_DEPS,
+)
+
+_COMPARE_CLOSED_LOOP_DEPS = [
+    ":closed_loop_metrics",
+    "//humanoid_nmpc/humanoid_common_mpc_app/node:exit_codes",
+    "@abseil-cpp//absl/base:nullability",
+    "@abseil-cpp//absl/flags:flag",
+    "@abseil-cpp//absl/flags:parse",
+    "@abseil-cpp//absl/status:statusor",
+    "@abseil-cpp//absl/strings:str_format",
+]
+
+# Two recorded labels compared offline, from their archived documents (no simulation):
+# --candidate=<label> --baseline=<label> [--robot=<robot>].
+cc_binary(
+    name = "compare_closed_loop",
+    srcs = ["exe/compareClosedLoopMain.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = _CLOSED_LOOP_RECORDINGS,
+    deps = _COMPARE_CLOSED_LOOP_DEPS,
+)
+
+# The same as a test, so that `make compare-closed-loop CANDIDATE=<label> BASELINE=<label> [ROBOT=<robot>]` runs it under
+# Bazel's machine lock (tools/bazel serializes `bazel test`, not `bazel run`). Manual: it needs the labels as arguments.
+cc_test(
+    name = "compare_closed_loop_labels",
+    size = "small",
+    srcs = ["exe/compareClosedLoopMain.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = _CLOSED_LOOP_RECORDINGS,
+    tags = ["manual"],
+    deps = _COMPARE_CLOSED_LOOP_DEPS,
+)
+
+# The solve benchmark, `bazel run`-able for one robot: --robot=<robot> --label=<label> [--states=<recorded states>]
+# [--baseline=<label>].
+cc_binary(
+    name = "benchmark_mpc_solve",
+    testonly = True,
+    srcs = ["exe/benchmarkMpcSolveMain.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = [
+        "//humanoid_nmpc/humanoid_common_mpc:gait_config",
+    ] + glob(
+        [
+            "data/benchmark/**/*.json",
+            "data/benchmark/states/*.txt",
+        ],
+        allow_empty = True,
+    ) + sorted({file: None for files in _ROBOT_DATA.values() for file in files}.keys()),
+    deps = [
+        ":solve_benchmark",
+        ":solve_benchmark_gate",
+        ":validation_io",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/flags:flag",
+        "@abseil-cpp//absl/flags:parse",
+        "@abseil-cpp//absl/log:globals",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@pinocchio",
+    ],
+)
+
+# The same per robot as a test, so that `make benchmark-mpc-solve ROBOT=<robot> LABEL=<label>` runs it under Bazel's
+# machine lock (tools/bazel serializes `bazel test`, not `bazel run`). Manual and exclusive: the timings are only worth
+# something on a quiet machine.
+[
+    cc_test(
+        name = "benchmark_mpc_solve_" + robot,
+        size = "enormous",
+        srcs = ["exe/benchmarkMpcSolveMain.cpp"],
+        args = ["--robot=" + robot],
+        copts = FIRST_PARTY_COPTS,
+        data = data + [
+            "//humanoid_nmpc/humanoid_common_mpc:gait_config",
+        ] + glob(
+            [
+                "data/benchmark/**/*.json",
+                "data/benchmark/states/*.txt",
+            ],
+            allow_empty = True,
+        ),
+        tags = [
+            "exclusive",
+            "manual",
+        ],
+        deps = [
+            ":solve_benchmark",
+            ":solve_benchmark_gate",
+            ":validation_io",
+            "@abseil-cpp//absl/base:nullability",
+            "@abseil-cpp//absl/flags:flag",
+            "@abseil-cpp//absl/flags:parse",
+            "@abseil-cpp//absl/log:globals",
+            "@abseil-cpp//absl/status:statusor",
+            "@abseil-cpp//absl/strings",
+            "@pinocchio",
+        ],
+    )
+    for robot, data in _ROBOT_DATA.items()
+]
+
+# The worktree state of a run's provenance (Makefile: VALIDATION_WORKTREE_STATE), in throwaway git repositories: the
+# contents of untracked files change it, ignored files do not.
+py_test(
+    name = "test_worktree_state",
+    size = "small",
+    srcs = ["tools/test_worktree_state.py"],
+    data = ["tools/worktree_state.sh"],
+)

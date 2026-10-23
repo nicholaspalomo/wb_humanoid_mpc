@@ -51,6 +51,9 @@ namespace ocs2::humanoid {
  * Under this controller it is the heuristic with the clearest mandate. The foot cost's xy weights are the only thing
  * in the problem that can move a foot sideways in response to a push while the mode schedule holds the timing fixed,
  * and nothing is currently writing them a target.
+ *
+ * Like every LocomotionHeuristic, its const methods are safe to call concurrently; configure() is not, and must not run
+ * while they do.
  */
 class CapturePointHeuristic final : public FootholdHeuristic {
  public:
@@ -66,6 +69,8 @@ class CapturePointHeuristic final : public FootholdHeuristic {
  private:
   CapturePointParameters parameters_;
   scalar_t nominalComHeight_ = 0.0;
+  // [m/s^2] the model's gravity (LocomotionHeuristicModelParameters::gravity), set by configure().
+  scalar_t gravity_ = kGravitationalAcceleration;
 };
 
 }  // namespace ocs2::humanoid

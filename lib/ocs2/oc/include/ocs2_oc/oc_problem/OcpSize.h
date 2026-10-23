@@ -31,6 +31,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <vector>
 
+#include "absl/base/nullability.h"
+
 #include <ocs2_core/Types.h>
 
 namespace ocs2 {
@@ -84,6 +86,6 @@ bool operator==(const OcpSize& lhs, const OcpSize& rhs) noexcept;
  */
 OcpSize extractSizesFromProblem(const std::vector<VectorFunctionLinearApproximation>& dynamics,
                                 const std::vector<ScalarFunctionQuadraticApproximation>& cost,
-                                const std::vector<VectorFunctionLinearApproximation>* constraints);
+                                const std::vector<VectorFunctionLinearApproximation>* absl_nullable constraints);
 
 }  // namespace ocs2

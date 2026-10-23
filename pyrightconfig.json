@@ -1,0 +1,25 @@
+{
+  "extraPaths": [
+    "humanoid_nmpc/humanoid_common_mpc_pyutils",
+    "humanoid_nmpc/humanoid_mpc_config/python",
+    "humanoid_nmpc/humanoid_mpc_ipc/python",
+    "humanoid_nmpc/humanoid_rerun_viewer/python",
+    "humanoid_nmpc/humanoid_rerun_viewer/test",
+    "humanoid_nmpc/remote_control",
+    "humanoid_nmpc/remote_control/test",
+    "robot_runtime/robot_ipc/python",
+    "robot_runtime/web_viewer/tools",
+    "tools/deploy",
+    "tools/ipc",
+    "tools/launch",
+    "tools/nproto"
+  ],
+  "pythonVersion": "3.11",
+  "typeCheckingMode": "off",
+  "exclude": [
+    "**/__pycache__",
+    "**/.*",
+    "**/bazel-*",
+    "lib"
+  ]
+}

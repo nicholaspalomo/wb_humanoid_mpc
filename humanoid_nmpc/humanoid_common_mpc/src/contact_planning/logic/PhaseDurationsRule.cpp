@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -27,13 +31,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cmath>
+#include <string>
 
 #include "absl/strings/str_cat.h"
+
+#include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
 #include "humanoid_common_mpc/contact_planning/logic/ContactLogicHelpers.h"
 
 namespace ocs2::humanoid {
 
-static_assert(N_CONTACTS == 2, "the phase duration rule is written for a biped (the other foot is 1 - foot)");
+static_assert(kNumContacts == kBipedFootCount, "the phase duration rule is written for a biped (the other foot is 1 - foot)");
 
 std::string PhaseDurationsRule::describe() const {
   std::string out = absl::StrCat("swing in [", limits_.minSwingDuration, ", ", limits_.maxSwingDuration,
@@ -51,13 +58,13 @@ void PhaseDurationsRule::configure(const ContactPlanningConfig& config) {
 
 bool PhaseDurationsRule::propagate(const ContactLogicState& s, MiqpAssignment& a, bool& changed) const {
   const int N = s.numNodes;
-  for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
-    std::int8_t kappa = s.input->contacts[foot] ? 1 : 0;
+  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+    int8_t kappa = s.input->contacts[foot] ? 1 : 0;
     // The phase active at planning time has lasted a non-integer number of nodes: count it rounded down against the
     // minimum duration and rounded up against the maximum, so that neither limit is violated by the grid. Once the
     // phase switched inside the horizon both counts are exact and coincide.
-    int tauMin = s.initialPhaseNodes(foot, /*roundUp=*/false);
-    int tauMax = s.initialPhaseNodes(foot, /*roundUp=*/true);
+    int tauMin = s.initialPhaseNodes(foot, ContactLogicState::NodeRounding::kDown);
+    int tauMax = s.initialPhaseNodes(foot, ContactLogicState::NodeRounding::kUp);
     // The (fractional, possibly negative) node index at which the CURRENT phase began. The tie break below needs the
     // phase's age rounded to the NEAREST node, which is neither of the two counts above, and it cannot be
     // reconstructed from them: it used to be recovered as `lround(phaseElapsedTime / dt) + (tauMin - initialPhaseNodes)`,
@@ -108,7 +115,7 @@ bool PhaseDurationsRule::propagate(const ContactLogicState& s, MiqpAssignment& a
           // still reported the plan optimal. See MiqpPropagateFn and ContactLogicRule for the contract, and
           // testContactPlanningRegression for the enumeration over the partial assignments the search reaches.
           const size_t other = 1 - foot;
-          const std::int8_t otherValue = a[static_cast<size_t>(ContactLogicState::contactBinaryIndex(k, other))];
+          const int8_t otherValue = a[static_cast<size_t>(ContactLogicState::contactBinaryIndex(k, other))];
           const bool otherDecided = otherValue != kMiqpFree && s.stateBefore(a, other, k) != -1;
           if (!otherDecided || otherValue == 0) {
             mustSwitch = false;
@@ -133,16 +140,16 @@ bool PhaseDurationsRule::propagate(const ContactLogicState& s, MiqpAssignment& a
           }
         }
         if (mustStay && !fixBinary(a, index, kappa, changed)) return false;
-        if (mustSwitch && !fixBinary(a, index, static_cast<std::int8_t>(1 - kappa), changed)) return false;
+        if (mustSwitch && !fixBinary(a, index, static_cast<int8_t>(1 - kappa), changed)) return false;
       }
-      const std::int8_t value = a[static_cast<size_t>(index)];
+      const int8_t value = a[static_cast<size_t>(index)];
       if (value == kMiqpFree) break;
       if (value == kappa) {
         ++tauMin;
         ++tauMax;
       } else {
-        tauMin = s.switchedPhaseNodes(k, foot, /*roundUp=*/false);
-        tauMax = s.switchedPhaseNodes(k, foot, /*roundUp=*/true);
+        tauMin = s.switchedPhaseNodes(k, foot, ContactLogicState::NodeRounding::kDown);
+        tauMax = s.switchedPhaseNodes(k, foot, ContactLogicState::NodeRounding::kUp);
         // The new phase begins at the switch, which is where switchedPhaseNodes() measures its two counts from; the
         // nearest-node count the tie break uses has to be measured from the same place.
         phaseStartNode = s.switchNode(k, foot);

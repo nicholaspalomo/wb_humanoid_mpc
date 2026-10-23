@@ -1,0 +1,40 @@
+// A field a message no longer has, and what replaced it (tools/nproto/README.md, "Retired fields"). A message lists its
+// retired fields with the message option (nproto.retired_field) of retired_field_options.proto:
+//
+//   import "nproto/retired_field_options.proto";
+//
+//   // Next ID: 4
+//   message TaskFile {
+//     option (nproto.generate_struct) = "ocs2::humanoid::mpc_config::TaskFile";
+//     option (nproto.retired_field) = { name: "use_dcm_terminal_cost" replacement: "list dcm_terminal_cost under costs" };
+//
+//     reserved 4 to max;
+//     ...
+//   }
+//
+// The strict textproto parsers (nproto/Textproto.h, nproto_textproto.py) then answer a file that still carries
+// the field with "<file>:<line>:<column>: 'useDcmTerminalCost' is retired: list dcm_terminal_cost under costs" instead
+// of a bare unknown-field error. `reserved "name"` cannot do this: protobuf's C++ text parser skips a reserved name
+// without a word (tools/hooks/proto_file_layout.py refuses it).
+//
+// The message lives in the options library (//tools/nproto:options_proto), which nproto generates no structs for: it is
+// only ever read as an option, by the parsers and the generator.
+syntax = "proto3";
+
+package nproto;
+
+import "nproto/options.proto";
+
+// Next ID: 3
+message RetiredField {
+  option (nproto.generate_struct) = "nproto::options::RetiredField";
+
+  reserved 3 to max;
+
+  // The retired name. An unknown field name hits it when the two are equal after both are snake-cased and lower-cased,
+  // so that "useDcmTerminalCost" and "use_dcm_terminal_cost" are one entry. It must not be a live field of the message
+  // (the generator refuses that).
+  string name = 1;
+  // What to write instead, the rest of the error message: "list dcm_terminal_cost under costs".
+  string replacement = 2;
+}

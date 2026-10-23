@@ -29,15 +29,38 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/cost/BasePoseShapedQuadraticStateCost.h"
 
+#include <memory>
+#include <utility>
+
+#include "absl/base/nullability.h"
+#include "absl/log/die_if_null.h"
+#include "absl/memory/memory.h"
+#include "absl/status/statusor.h"
+
+#include "humanoid_common_mpc/common/StatusMacros.h"
+
 namespace ocs2::humanoid {
 
-BasePoseShapedQuadraticStateCost::BasePoseShapedQuadraticStateCost(matrix_t Q, const SwitchedModelReferenceManager& referenceManager)
-    : QuadraticStateCost(std::move(Q)), referenceManagerPtr_(&referenceManager) {}
+absl::StatusOr<std::unique_ptr<BasePoseShapedQuadraticStateCost>> BasePoseShapedQuadraticStateCost::Create(
+    matrix_t stateWeights,
+    const SwitchedModelReferenceManager* absl_nonnull referenceManager,
+    const MpcRobotModelBase<scalar_t>* absl_nonnull mpcRobotModel) {
+  // The constructor is private, so std::make_unique cannot reach it.
+  std::unique_ptr<BasePoseShapedQuadraticStateCost> cost =
+      absl::WrapUnique(new BasePoseShapedQuadraticStateCost(referenceManager, mpcRobotModel));
+  RETURN_IF_ERROR(cost->setStateWeights(std::move(stateWeights)));
+  return cost;
+}
 
-vector_t BasePoseShapedQuadraticStateCost::getStateDeviation(scalar_t time,
-                                                             const vector_t& state,
-                                                             const TargetTrajectories& targetTrajectories) const {
-  return state - referenceManagerPtr_->shapeBasePose(time, targetTrajectories.getDesiredState(time));
+BasePoseShapedQuadraticStateCost::BasePoseShapedQuadraticStateCost(const SwitchedModelReferenceManager* absl_nonnull referenceManager,
+                                                                   const MpcRobotModelBase<scalar_t>* absl_nonnull mpcRobotModel)
+    : TuningQuadraticStateCost(mpcRobotModel), referenceManagerPtr_(ABSL_DIE_IF_NULL(referenceManager)) {}
+
+vector_t BasePoseShapedQuadraticStateCost::getReference(scalar_t time,
+                                                        const vector_t& /*state*/,
+                                                        const TargetTrajectories& targetTrajectories,
+                                                        const PreComputation& /*preComputation*/) const {
+  return referenceManagerPtr_->shapeBasePose(time, mpcRobotModel().getDesiredState(targetTrajectories, time));
 }
 
 }  // namespace ocs2::humanoid

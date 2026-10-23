@@ -27,19 +27,20 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <gtest/gtest.h>
-
-#include <Eigen/Core>
 #include <cmath>
+#include <limits>
 #include <memory>
 
-#include <ocs2_core/penalties/penalties/PieceWisePolynomialBarrierPenalty.h>
+#include "Eigen/Core"
+#include "gtest/gtest.h"
+#include "ocs2_core/penalties/penalties/PieceWisePolynomialBarrierPenalty.h"
 
 #include "humanoid_centroidal_mpc_test/CentroidalTestingModelInterface.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/constraint/BasisScalingNonNegativityConstraint.h"
 #include "humanoid_common_mpc/gait/GaitSchedule.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
+#include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
 
 namespace ocs2::humanoid {
 
@@ -49,7 +50,7 @@ namespace ocs2::humanoid {
 static constexpr size_t kNumBasisPerFoot = 11;
 /// Two-foot layout: [λ_left(11), λ_right(11), joint_vel(24)] = 46.
 static constexpr size_t kJointDim = 24;
-static constexpr size_t kInputDim = kNumBasisPerFoot * N_CONTACTS + kJointDim;
+static constexpr size_t kInputDim = kNumBasisPerFoot * kNumContacts + kJointDim;
 /// Arbitrary state dimension (constraint math is independent of state).
 static constexpr size_t kStateDim = 36;
 
@@ -60,13 +61,13 @@ static constexpr size_t kRightLambdaStart = kNumBasisPerFoot;
 
 /// Barrier penalty parameters. PieceWisePolynomialBarrierPenalty returns
 /// non-zero values only for h < delta; for h >= delta, value/grad/hess = 0.
-static constexpr scalar_t kBarrierMu = 1e-2;
-static constexpr scalar_t kBarrierDelta = 1e-3;
+static constexpr scalar_t kBarrierMu = 1.0e-2;
+static constexpr scalar_t kBarrierDelta = 1.0e-3;
 
 /// Test tolerances.
-static constexpr scalar_t kTolerance = 1e-10;
-static constexpr scalar_t kFiniteDiffEps = 1e-7;
-static constexpr scalar_t kFiniteDiffTolerance = 1e-4;
+static constexpr scalar_t kTolerance = 1.0e-10;
+static constexpr scalar_t kFiniteDiffEps = 1.0e-7;
+static constexpr scalar_t kFiniteDiffTolerance = 1.0e-4;
 
 /// Mode numbers from MotionPhaseDefinition.h.
 static constexpr size_t kModeDoubleStance = 3;  // Both feet in contact
@@ -97,9 +98,9 @@ class BasisScalingNonNegativityConstraintTest : public ::testing::Test {
     std::shared_ptr<GaitSchedule> gaitSchedule =
         std::make_shared<GaitSchedule>(doubleStanceModeSchedule, doubleStanceModeSequenceTemplate, /*phaseTransitionStanceTime=*/0.0);
 
-    referenceManager_ = std::make_unique<SwitchedModelReferenceManager>(gaitSchedule, /*swingTrajectoryPtr=*/nullptr,
-                                                                        testingModelInterface_->getPinocchioInterface(),
-                                                                        testingModelInterface_->getMpcRobotModel());
+    referenceManager_ = std::make_unique<SwitchedModelReferenceManager>(
+        gaitSchedule, std::make_unique<SwingTrajectoryPlanner>(SwingTrajectoryPlanner::Config(), kNumContacts),
+        testingModelInterface_->getPinocchioInterface(), testingModelInterface_->getMpcRobotModel());
 
     // Create constraints for left and right feet.
     leftFootConstraint_ = std::make_unique<BasisScalingNonNegativityConstraint>(*referenceManager_, kLeftFootIndex, kLeftLambdaStart,
@@ -111,7 +112,7 @@ class BasisScalingNonNegativityConstraintTest : public ::testing::Test {
   /// Creates an input vector with all λ set to the given value.
   vector_t makeInput(scalar_t lambdaValue) const {
     vector_t input = vector_t::Zero(kInputDim);
-    input.head(kNumBasisPerFoot * N_CONTACTS).setConstant(lambdaValue);
+    input.head(kNumBasisPerFoot * kNumContacts).setConstant(lambdaValue);
     return input;
   }
 
@@ -124,7 +125,9 @@ class BasisScalingNonNegativityConstraintTest : public ::testing::Test {
   }
 
   vector_t makeState() const { return vector_t::Zero(kStateDim); }
-  TargetTrajectories makeEmptyTargets() const { return TargetTrajectories({}, {}, {}); }
+  TargetTrajectories makeEmptyTargets() const {
+    return TargetTrajectories(/*desiredTimeTrajectory=*/{}, /*desiredStateTrajectory=*/{}, /*desiredInputTrajectory=*/{});
+  }
   PreComputation makePreComp() const { return PreComputation(); }
 
   PieceWisePolynomialBarrierPenalty::Config barrierConfig_;
@@ -139,7 +142,7 @@ class BasisScalingNonNegativityConstraintTest : public ::testing::Test {
 TEST_F(BasisScalingNonNegativityConstraintTest, CloneProducesSameValue) {
   std::unique_ptr<StateInputCost> clone = std::unique_ptr<StateInputCost>(leftFootConstraint_->clone());
   const vector_t state = makeState();
-  const vector_t input = makeInput(5e-4);  // In active penalty region (h < delta).
+  const vector_t input = makeInput(5.0e-4);  // In active penalty region (h < delta).
   const TargetTrajectories targets = makeEmptyTargets();
   const PreComputation preComp = makePreComp();
 
@@ -153,7 +156,7 @@ TEST_F(BasisScalingNonNegativityConstraintTest, CloneProducesSameValue) {
 
 TEST_F(BasisScalingNonNegativityConstraintTest, PositiveLambdaInActiveRegion) {
   const vector_t state = makeState();
-  const vector_t input = makeInput(5e-4);
+  const vector_t input = makeInput(5.0e-4);
   const TargetTrajectories targets = makeEmptyTargets();
   const PreComputation preComp = makePreComp();
 
@@ -178,7 +181,7 @@ TEST_F(BasisScalingNonNegativityConstraintTest, NegativeLambdaProducesHighCost) 
   const PreComputation preComp = makePreComp();
 
   scalar_t valueNeg = leftFootConstraint_->getValue(kTestTime, state, makeInput(-0.01), targets, preComp);
-  scalar_t valuePos = leftFootConstraint_->getValue(kTestTime, state, makeInput(5e-4), targets, preComp);
+  scalar_t valuePos = leftFootConstraint_->getValue(kTestTime, state, makeInput(5.0e-4), targets, preComp);
 
   EXPECT_TRUE(std::isfinite(valueNeg));
   EXPECT_GT(valueNeg, valuePos) << "Negative λ should produce higher cost than positive λ";
@@ -190,7 +193,7 @@ TEST_F(BasisScalingNonNegativityConstraintTest, CostMonotonicallyDecreases) {
   const PreComputation preComp = makePreComp();
 
   scalar_t prevValue = std::numeric_limits<scalar_t>::max();
-  for (scalar_t lambda : {-0.01, -0.001, 0.0, 1e-4, 5e-4, 9e-4}) {
+  for (scalar_t lambda : {-0.01, -0.001, 0.0, 1.0e-4, 5.0e-4, 9.0e-4}) {
     scalar_t value = leftFootConstraint_->getValue(kTestTime, state, makeInput(lambda), targets, preComp);
     EXPECT_LT(value, prevValue) << "Cost should decrease monotonically, failed at λ=" << lambda;
     prevValue = value;
@@ -202,10 +205,10 @@ TEST_F(BasisScalingNonNegativityConstraintTest, ValueScalesWithNumBasis) {
   const TargetTrajectories targets = makeEmptyTargets();
   const PreComputation preComp = makePreComp();
 
-  scalar_t leftValue = leftFootConstraint_->getValue(kTestTime, state, makeInput(5e-4), targets, preComp);
+  scalar_t leftValue = leftFootConstraint_->getValue(kTestTime, state, makeInput(5.0e-4), targets, preComp);
 
   PieceWisePolynomialBarrierPenalty penalty(barrierConfig_);
-  scalar_t expectedValue = kNumBasisPerFoot * penalty.getValue(0.0, 5e-4);
+  scalar_t expectedValue = kNumBasisPerFoot * penalty.getValue(0.0, 5.0e-4);
 
   EXPECT_NEAR(leftValue, expectedValue, kTolerance);
 }
@@ -214,7 +217,7 @@ TEST_F(BasisScalingNonNegativityConstraintTest, LeftAndRightConstraintsAreIndepe
   const vector_t state = makeState();
   const TargetTrajectories targets = makeEmptyTargets();
   const PreComputation preComp = makePreComp();
-  const vector_t input = makeInputPerFoot(1.0, 5e-4);
+  const vector_t input = makeInputPerFoot(1.0, 5.0e-4);
 
   scalar_t leftValue = leftFootConstraint_->getValue(kTestTime, state, input, targets, preComp);
   scalar_t rightValue = rightFootConstraint_->getValue(kTestTime, state, input, targets, preComp);
@@ -227,7 +230,7 @@ TEST_F(BasisScalingNonNegativityConstraintTest, LeftAndRightConstraintsAreIndepe
 
 TEST_F(BasisScalingNonNegativityConstraintTest, QuadraticApproximationDimensions) {
   const vector_t state = makeState();
-  const vector_t input = makeInput(5e-4);
+  const vector_t input = makeInput(5.0e-4);
   const TargetTrajectories targets = makeEmptyTargets();
   const PreComputation preComp = makePreComp();
 
@@ -245,7 +248,7 @@ TEST_F(BasisScalingNonNegativityConstraintTest, QuadraticApproximationDimensions
 
 TEST_F(BasisScalingNonNegativityConstraintTest, ApproximationValueMatchesGetValue) {
   const vector_t state = makeState();
-  const vector_t input = makeInput(5e-4);
+  const vector_t input = makeInput(5.0e-4);
   const TargetTrajectories targets = makeEmptyTargets();
   const PreComputation preComp = makePreComp();
 
@@ -257,7 +260,7 @@ TEST_F(BasisScalingNonNegativityConstraintTest, ApproximationValueMatchesGetValu
 
 TEST_F(BasisScalingNonNegativityConstraintTest, StateGradientIsZero) {
   const vector_t state = makeState();
-  const vector_t input = makeInput(5e-4);
+  const vector_t input = makeInput(5.0e-4);
   const TargetTrajectories targets = makeEmptyTargets();
   const PreComputation preComp = makePreComp();
 
@@ -270,7 +273,7 @@ TEST_F(BasisScalingNonNegativityConstraintTest, StateGradientIsZero) {
 
 TEST_F(BasisScalingNonNegativityConstraintTest, InputGradientNonZeroOnlyInLambdaSegment) {
   const vector_t state = makeState();
-  const vector_t input = makeInput(5e-4);
+  const vector_t input = makeInput(5.0e-4);
   const TargetTrajectories targets = makeEmptyTargets();
   const PreComputation preComp = makePreComp();
 
@@ -287,7 +290,7 @@ TEST_F(BasisScalingNonNegativityConstraintTest, InputGradientNonZeroOnlyInLambda
 
 TEST_F(BasisScalingNonNegativityConstraintTest, RightFootGradientInCorrectSegment) {
   const vector_t state = makeState();
-  const vector_t input = makeInput(5e-4);
+  const vector_t input = makeInput(5.0e-4);
   const TargetTrajectories targets = makeEmptyTargets();
   const PreComputation preComp = makePreComp();
 
@@ -304,7 +307,7 @@ TEST_F(BasisScalingNonNegativityConstraintTest, RightFootGradientInCorrectSegmen
 
 TEST_F(BasisScalingNonNegativityConstraintTest, HessianIsDiagonalInActiveRegion) {
   const vector_t state = makeState();
-  const vector_t input = makeInput(5e-4);
+  const vector_t input = makeInput(5.0e-4);
   const TargetTrajectories targets = makeEmptyTargets();
   const PreComputation preComp = makePreComp();
 
@@ -407,7 +410,7 @@ TEST_F(BasisScalingNonNegativityConstraintTest, MixedLambdaValues) {
 
   vector_t input = vector_t::Zero(kInputDim);
   for (size_t i = 0; i < kNumBasisPerFoot; ++i) {
-    input(kLeftLambdaStart + i) = (i % 2 == 0) ? 1.0 : 5e-4;
+    input(kLeftLambdaStart + i) = (i % 2 == 0) ? 1.0 : 5.0e-4;
   }
 
   scalar_t value = leftFootConstraint_->getValue(kTestTime, state, input, targets, preComp);
@@ -425,7 +428,7 @@ TEST_F(BasisScalingNonNegativityConstraintTest, MixedLambdaValues) {
 
 TEST_F(BasisScalingNonNegativityConstraintTest, UniformLambdaGivesUniformGradient) {
   const vector_t state = makeState();
-  const vector_t input = makeInput(5e-4);
+  const vector_t input = makeInput(5.0e-4);
   const TargetTrajectories targets = makeEmptyTargets();
   const PreComputation preComp = makePreComp();
 

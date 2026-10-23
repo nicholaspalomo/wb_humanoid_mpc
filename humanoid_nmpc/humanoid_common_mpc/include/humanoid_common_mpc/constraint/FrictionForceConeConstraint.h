@@ -32,9 +32,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <vector>
 
-#include <ocs2_core/constraint/StateInputConstraint.h>
-#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
+#include "absl/base/nullability.h"
+#include "absl/log/absl_check.h"
+#include "ocs2_core/constraint/StateInputConstraint.h"
 
+#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 
@@ -83,6 +85,8 @@ namespace ocs2::humanoid {
  * semi-definite whatever the penalty; getQuadraticApproximation() still returns the exact second derivatives, minus the
  * Hessian shift, for anyone who asks. The gated term keeps ConstraintOrder::Quadratic: its row is concave, so its
  * Hessian can only add curvature to the penalty.
+ *
+ * Not thread-safe; the solver gives each worker thread its own clone().
  */
 class FrictionForceConeConstraint final : public StateInputConstraint {
  public:
@@ -92,20 +96,28 @@ class FrictionForceConeConstraint final : public StateInputConstraint {
    * frictionCoefficient: The coefficient of friction.
    * regularization: A positive number to regulize the friction constraint. refer to the FrictionForceConeConstraint documentation.
    * gripperForce: Gripper force in normal direction.
-   * hessianDiagonalShift: The Hessian shift to assure a strictly-convex quadratic constraint approximation.
+   * hessianDiagonalShift: The Hessian shift to assure a strictly-convex quadratic constraint approximation. It is
+   *   subtracted from the diagonal of the input Hessian and of the state Hessian, which is in the ambient state; the
+   *   solver pulls the state Hessian back to the tangent, E^T H E, where the quaternion block's E (G(xi) / 2 at a unit
+   *   xi, E^T E = I / 4) leaves a quarter of the shift on the three rotation rows.
    */
   struct Config {
-    explicit Config(scalar_t frictionCoefficientParam = 0.7,
-                    scalar_t regularizationParam = 25.0,
+    static constexpr scalar_t kDefaultFrictionCoefficient = 0.7;
+    /** [N^2] the regularization under the square roots, sqrt(regularization) = 5 N. */
+    static constexpr scalar_t kDefaultRegularization = 25.0;
+    static constexpr scalar_t kDefaultHessianDiagonalShift = 1.0e-6;
+
+    explicit Config(scalar_t frictionCoefficientParam = kDefaultFrictionCoefficient,
+                    scalar_t regularizationParam = kDefaultRegularization,
                     scalar_t gripperForceParam = 0.0,
-                    scalar_t hessianDiagonalShiftParam = 1e-6)
+                    scalar_t hessianDiagonalShiftParam = kDefaultHessianDiagonalShift)
         : frictionCoefficient(frictionCoefficientParam),
           regularization(regularizationParam),
           gripperForce(gripperForceParam),
           hessianDiagonalShift(hessianDiagonalShiftParam) {
-      assert(frictionCoefficient > 0.0);
-      assert(regularization > 0.0);
-      assert(hessianDiagonalShift >= 0.0);
+      ABSL_CHECK_GT(frictionCoefficient, 0.0) << "FrictionForceConeConstraint: frictionCoefficient must be positive";
+      ABSL_CHECK_GT(regularization, 0.0) << "FrictionForceConeConstraint: regularization must be positive";
+      ABSL_CHECK_GE(hessianDiagonalShift, 0.0) << "FrictionForceConeConstraint: hessianDiagonalShift must be non-negative";
     }
 
     scalar_t frictionCoefficient;
@@ -151,13 +163,16 @@ class FrictionForceConeConstraint final : public StateInputConstraint {
   const matrix_t& getContactForceInputJacobian() const { return contactForceInputJacobian_; }
 
   ~FrictionForceConeConstraint() override = default;
-  FrictionForceConeConstraint* clone() const override { return new FrictionForceConeConstraint(*this); }
+  FrictionForceConeConstraint& operator=(const FrictionForceConeConstraint&) = delete;
+  FrictionForceConeConstraint(FrictionForceConeConstraint&&) = delete;
+  FrictionForceConeConstraint& operator=(FrictionForceConeConstraint&&) = delete;
+  FrictionForceConeConstraint* absl_nonnull clone() const override { return new FrictionForceConeConstraint(*this); }
 
   bool isActive(scalar_t time) const override;
   void setActive(bool active) override { isActive_ = active; }
   bool getActive() const override { return isActive_; }
   /** One row when schedule gated, two when not: the friction row, then Fz >= 0. See the class comment. */
-  size_t getNumConstraints(scalar_t time) const override { return scheduleGated_ ? 1 : 2; }
+  size_t getNumConstraints(scalar_t /*time*/) const override { return scheduleGated_ ? kNumGatedConstraints : kNumUngatedConstraints; }
   vector_t getValue(scalar_t time, const vector_t& state, const vector_t& input, const PreComputation& preComp) const override;
   VectorFunctionLinearApproximation getLinearApproximation(scalar_t time,
                                                            const vector_t& state,
@@ -168,10 +183,11 @@ class FrictionForceConeConstraint final : public StateInputConstraint {
                                                                  const vector_t& input,
                                                                  const PreComputation& preComp) const override;
 
-  /** Sets the estimated terrain normal expressed in the world frame. */
-  void setSurfaceNormalInWorld(const vector3_t& surfaceNormalInWorld);
-
  private:
+  /** The rows of the schedule-gated form (the friction row) and of the un-gated one (the friction row and Fz >= 0). */
+  static constexpr int kNumGatedConstraints = 1;
+  static constexpr int kNumUngatedConstraints = 2;
+
   struct LocalForceDerivatives {
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW
     // 3 x contactInputDim_: derivative of the local-frame force w.r.t. THIS CONTACT'S INPUT BLOCK. It used to be the
@@ -189,7 +205,7 @@ class FrictionForceConeConstraint final : public StateInputConstraint {
     std::vector<matrix_t> d2Cone_du2;  // one contactInputDim_ x contactInputDim_ per row
   };
 
-  FrictionForceConeConstraint(const FrictionForceConeConstraint& other);
+  FrictionForceConeConstraint(const FrictionForceConeConstraint& rhs);
   vector_t coneConstraint(const vector3_t& localForces) const;
   LocalForceDerivatives computeLocalForceDerivatives() const;
   ConeLocalDerivatives computeConeLocalDerivatives(const vector3_t& localForces) const;
@@ -200,8 +216,8 @@ class FrictionForceConeConstraint final : public StateInputConstraint {
   matrix_t frictionConeSecondDerivativeInput(size_t inputDim, const matrix_t& d2Cone_du2) const;
   matrix_t frictionConeSecondDerivativeState(size_t stateDim) const;
 
-  const SwitchedModelReferenceManager* referenceManagerPtr_;
-  const MpcRobotModelBase<scalar_t>* mpcRobotModelPtr_;
+  const SwitchedModelReferenceManager* absl_nonnull referenceManagerPtr_;
+  const MpcRobotModelBase<scalar_t>* absl_nonnull mpcRobotModelPtr_;
 
   const Config config_;
   const size_t contactPointIndex_;
@@ -218,7 +234,7 @@ class FrictionForceConeConstraint final : public StateInputConstraint {
   const matrix_t contactForceInputJacobian_;  // 3 x contactInputDim_
 
   // rotation world to terrain
-  matrix3_t t_R_w = matrix3_t::Identity();
+  matrix3_t t_R_w_ = matrix3_t::Identity();
 
   bool isActive_ = true;
   // Fixed by the formulation at load time rather than tuned, so it is const and the parallel solve reads it without

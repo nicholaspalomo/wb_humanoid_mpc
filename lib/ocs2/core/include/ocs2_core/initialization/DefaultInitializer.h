@@ -29,6 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include "absl/base/nullability.h"
+
 #include <ocs2_core/initialization/Initializer.h>
 
 namespace ocs2 {
@@ -46,7 +48,7 @@ class DefaultInitializer final : public Initializer {
 
   ~DefaultInitializer() override = default;
 
-  DefaultInitializer* clone() const override { return new DefaultInitializer(*this); }
+  DefaultInitializer* absl_nonnull clone() const override { return new DefaultInitializer(*this); }
 
   void compute(scalar_t time, const vector_t& state, scalar_t nextTime, vector_t& input, vector_t& nextState) override {
     input.setZero(inputDim_);

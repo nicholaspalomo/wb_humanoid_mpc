@@ -34,32 +34,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2 {
 
-/** Factory function from URDF file
- * @param [in] urdfFile: Path to the URDF file.
- */
-PinocchioInterface getPinocchioInterfaceFromUrdfFile(const std::string& urdfFile);
-
 /** Factory function from URDF file with root joint
  * @param [in] urdfFile: Path to the URDF file.
  * @param [in] rootJoint: Root joint to which the robot is attached (eg. a 6 DOF base).
  */
 PinocchioInterface getPinocchioInterfaceFromUrdfFile(const std::string& urdfFile, const PinocchioInterface::JointModel& rootJoint);
-
-/** Factory function from URDF string
- * @param [in] xmlString: A URDF loaded as an std::string.
- */
-PinocchioInterface getPinocchioInterfaceFromUrdfString(const std::string& xmlString);
-
-/** Factory function from URDF string with root joint
- * @param [in] xmlString: A URDF loaded as an std::string.
- * @param [in] rootJoint: Root joint to which the robot is attached (eg. a 6 DOF base).
- */
-PinocchioInterface getPinocchioInterfaceFromUrdfString(const std::string& xmlString, const PinocchioInterface::JointModel& rootJoint);
-
-/** Factory function from URDF model tree
- * @param [in] urdfTree: Pointer to a URDF model tree.
- */
-PinocchioInterface getPinocchioInterfaceFromUrdfModel(const std::shared_ptr<::urdf::ModelInterface>& urdfTree);
 
 /** Factory function from URDF model tree with root joint
  * @param [in] urdfTree: Pointer to a URDF model tree.

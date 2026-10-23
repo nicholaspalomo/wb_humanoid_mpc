@@ -1,0 +1,19 @@
+edition = "2023";
+
+package humanoid_mpc_config;
+
+import "nproto/options.proto";
+
+// An orientation weight or value by its Euler angles, ZYX order: yaw about z, then pitch about the new y, then roll
+// about the new x. The tuning stays in Euler angles also where the MPC's orientation is a quaternion: one conversion
+// layer maps it (humanoid_nmpc/docs/quaternion_base_orientation/README.md). Absent angles are 0.
+// Next ID: 4
+message YawPitchRoll {
+  option (nproto.generate_struct) = "ocs2::humanoid::mpc_config::YawPitchRoll";
+
+  reserved 4 to max;
+
+  double yaw = 1 [default = 0.0];
+  double pitch = 2 [default = 0.0];
+  double roll = 3 [default = 0.0];
+}

@@ -77,8 +77,8 @@ _make_targets() {
 complete -F _make_targets make
 MAKE_COMPLETION
 
-# Auto-source Bazel+ROS2 environment
-echo '# Bazel + ROS2 environment' >> "${CONTAINER_HOME}/.bashrc"
+# Auto-source the Bazel environment (setup_env.sh)
+echo '# Bazel environment' >> "${CONTAINER_HOME}/.bashrc"
 echo 'WORKSPACE_DIR="/wb_humanoid_mpc_ws/workspace/wb_humanoid_mpc"' >> "${CONTAINER_HOME}/.bashrc"
 echo 'if [ -f "${WORKSPACE_DIR}/setup_env.sh" ]; then' >> "${CONTAINER_HOME}/.bashrc"
 echo '  cd "${WORKSPACE_DIR}" && source setup_env.sh && cd - >/dev/null' >> "${CONTAINER_HOME}/.bashrc"
@@ -95,11 +95,6 @@ echo 'fi' >> "${CONTAINER_HOME}/.bashrc"
 # Auto-install Git pre-commit hook
 if [ -f "${WORKSPACE_DIR}/Makefile" ]; then
   cd "${WORKSPACE_DIR}" && make install-hooks 2>/dev/null || true
-fi
-
-# Symlink PlotJuggler binary to PATH if installed under ROS 2
-if [ -f "/opt/ros/${ROS_DISTRO:-jazzy}/lib/plotjuggler/plotjuggler" ]; then
-  ln -sf "/opt/ros/${ROS_DISTRO:-jazzy}/lib/plotjuggler/plotjuggler" /usr/local/bin/plotjuggler 2>/dev/null || true
 fi
 
 # Register Jupyter kernel for VS Code / Antigravity

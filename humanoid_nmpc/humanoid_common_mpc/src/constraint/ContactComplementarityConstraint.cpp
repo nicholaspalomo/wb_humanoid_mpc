@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -26,10 +30,42 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/constraint/ContactComplementarityConstraint.h"
 
 #include <cmath>
+#include <memory>
 
 #include "absl/log/check.h"
+#include "absl/memory/memory.h"
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
+#include "absl/strings/str_cat.h"
 
 namespace ocs2::humanoid {
+
+absl::StatusOr<std::unique_ptr<ContactComplementarityConstraint>> ContactComplementarityConstraint::Create(
+    const FootprintCornerHeights& cornerHeights,
+    const MpcRobotModelBase<scalar_t>& mpcRobotModel,
+    size_t contactPointIndex,
+    scalar_t terrainHeight,
+    scalar_t forceReference,
+    scalar_t heightReference,
+    scalar_t gapSmoothing) {
+  // Negated comparisons, so that NaN is refused too.
+  if (!(forceReference > 0.0)) {
+    return absl::InvalidArgumentError(
+        absl::StrCat("[ContactComplementarityConstraint] the force reference must be positive, got ", forceReference,
+                     "; it is the robot's weight, robotMass * g, taken from the URDF rather than configured"));
+  }
+  if (!(heightReference > 0.0)) {
+    return absl::InvalidArgumentError(
+        absl::StrCat("[ContactComplementarityConstraint] contact_implicit.height_reference must be positive, got ", heightReference));
+  }
+  if (!(gapSmoothing > 0.0)) {
+    return absl::InvalidArgumentError(
+        absl::StrCat("[ContactComplementarityConstraint] contact_implicit.gap_smoothing must be positive, got ", gapSmoothing));
+  }
+  // The constructor is private, so std::make_unique cannot call it (ToTW #134).
+  return absl::WrapUnique(new ContactComplementarityConstraint(cornerHeights, mpcRobotModel, contactPointIndex, terrainHeight,
+                                                               forceReference, heightReference, gapSmoothing));
+}
 
 ContactComplementarityConstraint::ContactComplementarityConstraint(const FootprintCornerHeights& cornerHeights,
                                                                    const MpcRobotModelBase<scalar_t>& mpcRobotModel,
@@ -45,15 +81,7 @@ ContactComplementarityConstraint::ContactComplementarityConstraint(const Footpri
       gapSmoothing_(gapSmoothing),
       inverseForceReference_(1.0 / forceReference),
       inverseHeightReference_(1.0 / heightReference),
-      normalForceRow_(normalContactForceRow(mpcRobotModel, contactPointIndex)) {
-  // The last line of defense, not the check an operator should meet: validateContactImplicitConfig() is the
-  // Status-returning check of the same task-file values, for the caller to run before it builds any term. The force
-  // reference is not a task-file key at all.
-  CHECK_GT(forceReference, 0.0) << "[ContactComplementarityConstraint] the force reference must be positive; it is the robot's weight, "
-                                   "robotMass * g, taken from the URDF rather than configured";
-  CHECK_GT(heightReference, 0.0) << "[ContactComplementarityConstraint] contact_implicit.heightReference must be positive";
-  CHECK_GT(gapSmoothing_, 0.0) << "[ContactComplementarityConstraint] contact_implicit.gapSmoothing must be positive";
-}
+      normalForceRow_(normalContactForceRow(mpcRobotModel, contactPointIndex)) {}
 
 ContactComplementarityConstraint::ContactComplementarityConstraint(const ContactComplementarityConstraint& rhs)
     : StateInputConstraint(rhs),
@@ -66,7 +94,7 @@ ContactComplementarityConstraint::ContactComplementarityConstraint(const Contact
       normalForceRow_(rhs.normalForceRow_) {}
 
 void ContactComplementarityConstraint::setGapSmoothing(scalar_t gapSmoothing) {
-  CHECK_GT(gapSmoothing, 0.0) << "[ContactComplementarityConstraint] contact_implicit.gapSmoothing must be positive";
+  CHECK_GT(gapSmoothing, 0.0) << "[ContactComplementarityConstraint] contact_implicit.gap_smoothing must be positive";
   gapSmoothing_ = gapSmoothing;
 }
 
@@ -74,19 +102,19 @@ scalar_t ContactComplementarityConstraint::getGap(const vector_t& state) const {
   return smoothMinimumHeight(cornerHeightsPtr_->getHeights(state), gapSmoothing_).value - terrainHeight_;
 }
 
-vector_t ContactComplementarityConstraint::getValue(scalar_t time,
+vector_t ContactComplementarityConstraint::getValue(scalar_t /*time*/,
                                                     const vector_t& state,
                                                     const vector_t& input,
-                                                    const PreComputation& preComp) const {
+                                                    const PreComputation& /*preComp*/) const {
   const scalar_t height = getGap(state) * inverseHeightReference_;
   const scalar_t normalForce = normalForceRow_.dot(input) * inverseForceReference_;
   return (vector_t(1) << normalForce * height).finished();
 }
 
-VectorFunctionLinearApproximation ContactComplementarityConstraint::getLinearApproximation(scalar_t time,
+VectorFunctionLinearApproximation ContactComplementarityConstraint::getLinearApproximation(scalar_t /*time*/,
                                                                                            const vector_t& state,
                                                                                            const vector_t& input,
-                                                                                           const PreComputation& preComp) const {
+                                                                                           const PreComputation& /*preComp*/) const {
   const SmoothMinimumHeight gap = smoothMinimumHeight(cornerHeightsPtr_->getHeights(state), gapSmoothing_);
   // Both factors are carried in their normalized form, so each derivative block picks up the scale of the factor that
   // survives the product rule: d(f_hat h_hat)/dx = f_hat dh_hat/dx, and dh_hat/dx is dh/dx over the reference height.

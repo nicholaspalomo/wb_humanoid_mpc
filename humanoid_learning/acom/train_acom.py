@@ -1,48 +1,58 @@
-"""****************************************************************************
-Copyright (c) 2026, Nicholas Palomo. All rights reserved.
-
-Redistribution and use in source and binary forms, with or without
-modification, are permitted provided that the following conditions are met:
-
-* Redistributions of source code must retain the above copyright notice, this
-  list of conditions and the following disclaimer.
-
-* Redistributions in binary form must reproduce the above copyright notice,
-  this list of conditions and the following disclaimer in the documentation
-  and/or other materials provided with the distribution.
-
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
-FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
-DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
-SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
-CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
-OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-****************************************************************************"""
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 """Training pipeline for Angular Center of Mass (aCOM) using JAX and Optax.
 
 Optimizes the SIREN network parameters by minimizing the Frobenius norm error
-between the analytical network Jacobian and the locked-inertia normalized CMM.
+between the map from joint velocities to the ACoM attitude's angular velocity,
+J_l(Delta_theta) J_Delta_theta, and the locked-inertia normalized CMM
+Abar_omega,j = I_G^-1 A_omega,j, both in base axes (README.md section 1.2).
 """
 
+from collections.abc import Callable
 import os
 import time
-from typing import Dict, List, Optional, Tuple
+from typing import TypeAlias
+
 import jax
 import jax.numpy as jnp
 import matplotlib
 
+# The diagnostic figures are rendered off-screen, so the backend is chosen before pyplot is first imported.
 matplotlib.use("Agg")
+# pylint: disable=wrong-import-position  # pyplot is imported after matplotlib.use() above.
 import matplotlib.pyplot as plt
 import numpy as np
 import optax
-from tensorboardX import SummaryWriter
+import tensorboardX
 
-from humanoid_learning.acom.models import SirenACOM
+from humanoid_learning.acom import models
+
+# pylint: enable=wrong-import-position
 
 # Fraction of the dataset used for training; the remainder is the validation set.
 _TRAIN_SPLIT_FRACTION = 0.85
@@ -52,40 +62,88 @@ _TRAIN_SPLIT_FRACTION = 0.85
 # Frobenius objective toward zero.
 _WEIGHT_DECAY = 1e-4
 
+# The jitted training and evaluation steps of create_train_step.
+_TrainStep: TypeAlias = Callable[
+    [models.SirenParams, optax.OptState, jax.Array, jax.Array],
+    tuple[
+        models.SirenParams,
+        optax.OptState,
+        jax.Array,
+        dict[str, jax.Array],
+        models.SirenParams,
+        jax.Array,
+    ],
+]
+_EvalStep: TypeAlias = Callable[
+    [models.SirenParams, jax.Array, jax.Array], tuple[jax.Array, dict[str, jax.Array]]
+]
+
 
 def create_train_step(
-    model: SirenACOM, optimizer: optax.GradientTransformation, reg_weight: float = 1e-4
-):
+    model: models.SirenACOM,
+    optimizer: optax.GradientTransformation,
+    reg_weight: float = 1e-4,
+) -> tuple[_TrainStep, _EvalStep]:
     """Creates a JIT-compiled training step function."""
+    # pylint: disable=invalid-name  # target_A_bar: the notation of Chen et al., IROS 2023 (README.md).
 
     # Vectorized Jacobian and forward evaluation over batch
-    v_jacobian = jax.vmap(
-        lambda params, q: model.jacobian_qj(params, q), in_axes=(None, 0)
-    )
-    v_forward = jax.vmap(lambda params, q: model.forward(params, q), in_axes=(None, 0))
+    v_jacobian = jax.vmap(model.jacobian_qj, in_axes=(None, 0))
+    v_forward = jax.vmap(model.forward, in_axes=(None, 0))
+    v_left_jacobian = jax.vmap(models.so3_left_jacobian)
 
-    def loss_fn(params, q_batch, target_A_bar):
-        # Compute Jacobians: (B, 3, n_j)
+    def loss_fn(
+        params: models.SirenParams, q_batch: jax.Array, target_A_bar: jax.Array
+    ) -> tuple[jax.Array, dict[str, jax.Array]]:
+        # Delta_theta: (B, 3) and J_Delta_theta: (B, 3, n_j).
+        offsets = v_forward(params, q_batch)
         jacobians = v_jacobian(params, q_batch)
 
-        # Frobenius loss on Jacobian error
-        jacobian_diff = jacobians - target_A_bar
-        frob_loss = jnp.mean(jnp.sum(jnp.square(jacobian_diff), axis=(-2, -1)))
+        # What the runtime's composition xi (x) Exp(Delta_theta) turns joint velocities into, in base axes:
+        # J_l(Delta_theta) J_Delta_theta (models.SirenACOM.acom_joint_rate_jacobian). Fitting J_Delta_theta alone
+        # would be right only at Delta_theta = 0, and the shipped networks' offsets average 20 to 35 degrees.
+        rate_jacobians = jnp.einsum("bij,bjk->bik", v_left_jacobian(offsets), jacobians)
+        frob_loss = jnp.mean(
+            jnp.sum(jnp.square(rate_jacobians - target_A_bar), axis=(-2, -1))
+        )
+        # The error of J_Delta_theta alone, reported and not optimized.
+        jacobian_frob = jnp.mean(
+            jnp.sum(jnp.square(jacobians - target_A_bar), axis=(-2, -1))
+        )
 
         # Regularization on offset magnitude (keep Delta_theta centered near zero)
-        offsets = v_forward(params, q_batch)
         reg_loss = reg_weight * jnp.mean(jnp.sum(jnp.square(offsets), axis=-1))
+
+        # The relative error the C++ acceptance test grades, ||J_l J - Abar||_F / ||Abar||_F, per sample.
+        relative_errors = jnp.linalg.norm(
+            rate_jacobians - target_A_bar, axis=(-2, -1)
+        ) / jnp.linalg.norm(target_A_bar, axis=(-2, -1))
 
         total_loss = frob_loss + reg_loss
         return total_loss, {
             "frob_loss": frob_loss,
+            "jacobian_frob": jacobian_frob,
             "reg_loss": reg_loss,
+            "relative_errors": relative_errors,
+            "rate_jacobians": rate_jacobians,
             "jacobians": jacobians,
             "offsets": offsets,
         }
 
     @jax.jit
-    def train_step(params, opt_state, q_batch, target_A_bar):
+    def train_step(
+        params: models.SirenParams,
+        opt_state: optax.OptState,
+        q_batch: jax.Array,
+        target_A_bar: jax.Array,
+    ) -> tuple[
+        models.SirenParams,
+        optax.OptState,
+        jax.Array,
+        dict[str, jax.Array],
+        models.SirenParams,
+        jax.Array,
+    ]:
         (loss, aux), grads = jax.value_and_grad(loss_fn, has_aux=True)(
             params, q_batch, target_A_bar
         )
@@ -99,17 +157,19 @@ def create_train_step(
         return params, opt_state, loss, aux, grads, grad_norm
 
     @jax.jit
-    def eval_step(params, q_batch, target_A_bar):
+    def eval_step(
+        params: models.SirenParams, q_batch: jax.Array, target_A_bar: jax.Array
+    ) -> tuple[jax.Array, dict[str, jax.Array]]:
         loss, aux = loss_fn(params, q_batch, target_A_bar)
         return loss, aux
 
     return train_step, eval_step
 
 
-def create_jacobian_diagnostic_figure(
+def create_jacobian_diagnostic_figure(  # pylint: disable=invalid-name  # target_A_bar: Chen et al., IROS 2023.
     target_A_bar: np.ndarray, pred_jacobian: np.ndarray
 ) -> plt.Figure:
-    """Creates a 3-panel heatmap comparing target and predicted CMM connection Jacobians."""
+    """Creates a 3-panel heatmap comparing the target connection with the network's J_l(Delta_theta) J_Delta_theta."""
     diff = np.abs(pred_jacobian - target_A_bar)
 
     fig, axes = plt.subplots(3, 1, figsize=(10, 6), sharex=True)
@@ -132,7 +192,7 @@ def create_jacobian_diagnostic_figure(
         pred_jacobian, aspect="auto", cmap="coolwarm", vmin=vmin, vmax=vmax
     )
     axes[1].set_title(
-        "SIREN Learned Jacobian $\\mathbf{J}_{\\Delta\\theta}(\\mathbf{q}_j)$"
+        "SIREN rate map $\\mathbf{J}_l(\\Delta\\theta) \\mathbf{J}_{\\Delta\\theta}(\\mathbf{q}_j)$"
     )
     axes[1].set_yticks([0, 1, 2])
     axes[1].set_yticklabels(["Roll", "Pitch", "Yaw"])
@@ -140,7 +200,7 @@ def create_jacobian_diagnostic_figure(
 
     im2 = axes[2].imshow(diff, aspect="auto", cmap="viridis")
     axes[2].set_title(
-        "Absolute Error $|\\mathbf{J}_{\\Delta\\theta} - \\bar{\\mathbf{A}}_{\\omega, j}|$"
+        "Absolute Error $|\\mathbf{J}_l \\mathbf{J}_{\\Delta\\theta} - \\bar{\\mathbf{A}}_{\\omega, j}|$"
     )
     axes[2].set_yticks([0, 1, 2])
     axes[2].set_yticklabels(["Roll", "Pitch", "Yaw"])
@@ -152,7 +212,7 @@ def create_jacobian_diagnostic_figure(
 
 
 def train_acom(
-    dataset: Dict[str, np.ndarray],
+    dataset: dict[str, np.ndarray],
     in_dim: int,
     hidden_dim: int = 64,
     num_layers: int = 2,  # sine layers; 2 is the only count the C++ evaluator loads
@@ -163,17 +223,18 @@ def train_acom(
     reg_weight: float = 1e-4,
     seed: int = 42,
     verbose: bool = True,
-    log_dir: Optional[str] = None,
+    log_dir: str | None = None,
     log_histograms: bool = True,
     histogram_freq: int = 10,
     log_figures: bool = True,
-) -> Tuple[SirenACOM, List[Tuple[jnp.ndarray, jnp.ndarray]], Dict[str, List[float]]]:
+) -> tuple[models.SirenACOM, models.SirenParams, dict[str, list[float]]]:
     """Trains a SIREN aCOM model with TensorBoard logging."""
+    # pylint: disable=invalid-name  # A_train, A_val, ...: A_bar of Chen et al., IROS 2023 (README.md).
     # Initialize TensorBoard SummaryWriter if log_dir provided
-    writer: Optional[SummaryWriter] = None
+    writer: tensorboardX.SummaryWriter | None = None
     if log_dir is not None:
         os.makedirs(log_dir, exist_ok=True)
-        writer = SummaryWriter(log_dir=log_dir)
+        writer = tensorboardX.SummaryWriter(log_dir=log_dir)
         if verbose:
             print(f"Logging TensorBoard metrics to: {log_dir}")
 
@@ -195,7 +256,7 @@ def train_acom(
     A_val = jnp.array(A_all[num_train:])
 
     # Initialize model
-    model = SirenACOM(
+    model = models.SirenACOM(
         in_dim=in_dim,
         hidden_dim=hidden_dim,
         num_layers=num_layers,
@@ -218,7 +279,7 @@ def train_acom(
         model, optimizer, reg_weight=reg_weight
     )
 
-    history = {
+    history: dict[str, list[float]] = {
         "train_loss": [],
         "train_frob": [],
         "train_reg": [],
@@ -227,6 +288,9 @@ def train_acom(
         "val_frob": [],
         "val_reg": [],
         "val_rmse": [],
+        "val_jacobian_frob": [],
+        "val_mean_relative_error": [],
+        "val_worst_relative_error": [],
     }
 
     # The parameters at the lowest validation Frobenius loss, kept alongside the running ones.
@@ -284,6 +348,10 @@ def train_acom(
         avg_val_loss = float(val_loss)
         avg_val_frob = float(val_aux["frob_loss"])
         avg_val_reg = float(val_aux["reg_loss"])
+        val_jacobian_frob = float(val_aux["jacobian_frob"])
+        val_relative_errors = np.array(val_aux["relative_errors"])
+        val_mean_relative_error = float(np.mean(val_relative_errors))
+        val_worst_relative_error = float(np.max(val_relative_errors))
 
         # Calculate RMSE per Jacobian entry (in rad/s per rad/s)
         val_rmse = float(np.sqrt(avg_val_frob / A_val.shape[-2] / A_val.shape[-1]))
@@ -294,7 +362,7 @@ def train_acom(
             best_params = jax.tree_util.tree_map(np.array, params)
 
         # Per-axis decomposition on validation set
-        val_jacobians = np.array(val_aux["jacobians"])
+        val_jacobians = np.array(val_aux["rate_jacobians"])
         val_targets = np.array(A_val)
         axis_diff = val_jacobians - val_targets
         roll_err = float(np.mean(np.sum(np.square(axis_diff[:, 0, :]), axis=-1)))
@@ -322,6 +390,9 @@ def train_acom(
         history["val_frob"].append(avg_val_frob)
         history["val_reg"].append(avg_val_reg)
         history["val_rmse"].append(val_rmse)
+        history["val_jacobian_frob"].append(val_jacobian_frob)
+        history["val_mean_relative_error"].append(val_mean_relative_error)
+        history["val_worst_relative_error"].append(val_worst_relative_error)
 
         # Log to TensorBoard
         if writer is not None:
@@ -333,6 +404,16 @@ def train_acom(
             writer.add_scalar("loss/val_frobenius", avg_val_frob, epoch)
             writer.add_scalar("loss/val_regularization", avg_val_reg, epoch)
             writer.add_scalar("loss/val_rmse_rad_per_rad", val_rmse, epoch)
+            writer.add_scalar(
+                "loss/val_relative_error_mean", val_mean_relative_error, epoch
+            )
+            writer.add_scalar(
+                "loss/val_relative_error_worst", val_worst_relative_error, epoch
+            )
+            # J_Delta_theta alone against the target: what the loss fitted before it composed J_l(Delta_theta).
+            writer.add_scalar(
+                "diagnostics/val_jacobian_alone_frobenius", val_jacobian_frob, epoch
+            )
 
             # Gradient metrics
             writer.add_scalar("gradients/global_l2_norm", avg_grad_norm, epoch)
@@ -415,7 +496,8 @@ def train_acom(
             print(
                 f"Epoch {epoch:3d}/{num_epochs} | "
                 f"Train: {avg_train_loss:.5f} (Frob: {avg_train_frob:.5f}) | "
-                f"Val: {avg_val_loss:.5f} (RMSE: {val_rmse:.4f}) | "
+                f"Val: {avg_val_loss:.5f} (RMSE: {val_rmse:.4f}, "
+                f"rel: {val_mean_relative_error:.3f} mean, {val_worst_relative_error:.3f} worst) | "
                 f"GradNorm: {avg_grad_norm:.4f} | "
                 f"Time: {elapsed:.1f}s"
             )

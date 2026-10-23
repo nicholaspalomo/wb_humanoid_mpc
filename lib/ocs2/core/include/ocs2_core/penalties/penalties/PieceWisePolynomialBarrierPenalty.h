@@ -29,6 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include "absl/base/nullability.h"
+
 #include <ocs2_core/penalties/penalties/PenaltyBase.h>
 
 namespace ocs2 {
@@ -56,12 +58,15 @@ class PieceWisePolynomialBarrierPenalty final : public PenaltyBase {
    * delta: relaxation parameter, see class description
    */
   struct Config {
-    Config() : Config(1.0, 1e-3) {}
+    static constexpr scalar_t kDefaultMu = 1.0;
+    static constexpr scalar_t kDefaultDelta = 1e-3;
+
+    Config() : Config(kDefaultMu, kDefaultDelta) {}
     Config(scalar_t muParam, scalar_t deltaParam) : mu(muParam), delta(deltaParam) {}
     scalar_t mu;
     scalar_t delta;
 
-    scalar_t getZeroCrossingValue() const { return mu * delta * delta / 6; };
+    scalar_t getZeroCrossingValue() const { return mu * delta * delta / kCubicFactorial; };
   };
 
   /**
@@ -71,7 +76,7 @@ class PieceWisePolynomialBarrierPenalty final : public PenaltyBase {
   explicit PieceWisePolynomialBarrierPenalty(Config config) : config_(std::move(config)) {}
 
   ~PieceWisePolynomialBarrierPenalty() override = default;
-  PieceWisePolynomialBarrierPenalty* clone() const override { return new PieceWisePolynomialBarrierPenalty(*this); }
+  PieceWisePolynomialBarrierPenalty* absl_nonnull clone() const override { return new PieceWisePolynomialBarrierPenalty(*this); }
   std::string name() const override { return "PieceWisePolynomialBarrierPenalty"; }
 
   scalar_t getValue(scalar_t t, scalar_t h) const override;
@@ -85,6 +90,12 @@ class PieceWisePolynomialBarrierPenalty final : public PenaltyBase {
   void getParameters(vector_t& parameters) const override;
 
  private:
+  // The factorials of the polynomial: on (0, delta) the penalty is the cubic
+  // mu (delta - h)^3 / (3! delta) = mu (-h^3 / (3! delta) + h^2 / 2 - delta h / 2! + delta^2 / 3!), on h <= 0 it is that
+  // cubic's quadratic Taylor polynomial at h = 0, and the derivatives follow term by term (h^3 / 3! -> h^2 / 2!).
+  static constexpr int kCubicFactorial = 6;
+  static constexpr int kQuadraticFactorial = 2;
+
   PieceWisePolynomialBarrierPenalty(const PieceWisePolynomialBarrierPenalty& other) = default;
 
   Config config_;

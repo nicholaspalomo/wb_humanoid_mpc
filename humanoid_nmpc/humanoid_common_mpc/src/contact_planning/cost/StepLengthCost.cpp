@@ -30,8 +30,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/cost/StepLengthCost.h"
 
 #include <algorithm>
+#include <string>
 
 #include "absl/strings/str_cat.h"
+#include "ocs2_core/Dimensions.h"
 
 namespace ocs2::humanoid {
 
@@ -53,10 +55,11 @@ vector2_t StepLengthCost::nominalDisplacementPerNode(const vector2_t& velocityCo
 
 void StepLengthCost::addToStage(const ContactPlanningContext& ctx, int /*node*/, StageAccumulator& stage) const {
   const vector2_t dNominal = nominalDisplacementPerNode(ctx.input->velocityCommand, ctx.dt);
-  for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
-    for (int axis = 0; axis < 2; ++axis) {
+  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+    for (int axis = 0; axis < kHorizontalPositionDim; ++axis) {
       // dp - d_nom (1 - c) = dp + d_nom c - d_nom
-      stage.addQuadraticResidual({}, {{idx_.footDelta[foot][axis], 1.0}, {idx_.contact[foot], dNominal(axis)}}, -dNominal(axis), weight_);
+      stage.addQuadraticResidual(/*xCoefficients=*/{}, {{idx_.footDelta[foot][axis], 1.0}, {idx_.contact[foot], dNominal(axis)}},
+                                 -dNominal(axis), weight_);
     }
   }
 }

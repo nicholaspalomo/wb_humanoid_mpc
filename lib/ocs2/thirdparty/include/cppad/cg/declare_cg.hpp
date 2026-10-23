@@ -346,6 +346,12 @@ bool IdenticalOne(const cg::CG<Base>& x);
 template<class Base>
 bool IdenticalEqualPar(const cg::CG<Base>& x, const cg::CG<Base>& y);
 
+// The hash code CppAD files a constant under (core/base_hash.hpp), see identical.hpp. Local change of this fork
+// (lib/ocs2/README.md): declared here, before <cppad/cppad.hpp>, so that the recorder finds it in place of the
+// default, which hashes the bytes of the CG object and so its heap address.
+template<class Base>
+unsigned short hash_code(const cg::CG<Base>& x);
+
 // EqualOpSeq function
 template<class Base>
 bool EqualOpSeq(const cg::CG<Base>& u, const cg::CG<Base>& v);

@@ -1,0 +1,1 @@
+tools/clang_tidy/testdata/ExplicitConstructor.h:6:3: google-explicit-constructor

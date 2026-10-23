@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -28,6 +32,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <vector>
 
+#include "absl/base/nullability.h"
+#include "absl/status/status.h"
+
+#include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
 #include "humanoid_common_mpc/contact_planning/search/SearchStage.h"
 
 namespace ocs2::humanoid {
@@ -58,13 +66,15 @@ namespace ocs2::humanoid {
  * which makes the merge pad the tail with STANCE and throws away the last steps' anticipation. It ends at
  * `maxStretch`, clipped so that no phase of the incumbent is stretched past the gait limits and so that the last
  * committed node is still the one live at the commit boundary (commitWindowStretch).
+ *
+ * Not thread-safe, like every ContactPlanningTerm: the planner that owns it configures and evaluates it from one thread at a time.
  */
 class CadenceStretchStage final : public SearchStage {
  public:
   std::string describe() const override;
   std::vector<std::string> requiredBlocks() const override { return {}; }
   void configure(const ContactPlanningConfig& config) override;
-  void afterSearch(SearchRun& run) const override;
+  absl::Status afterSearch(SearchRun& run) const override;
 
   /**
    * The largest stretch that keeps every phase of `assignment` within the gait limits, never below 1. Public for the
@@ -93,7 +103,7 @@ class CadenceStretchStage final : public SearchStage {
                                     const MiqpAssignment& assignment,
                                     int numNodes,
                                     scalar_t maxStretch,
-                                    const ContactPlannerInput* input = nullptr);
+                                    const ContactPlannerInput* absl_nullable input = nullptr);
 
   /**
    * The largest stretch that keeps the LAST committed node live at the commit boundary, never below 1 (infinity when at
@@ -115,7 +125,7 @@ class CadenceStretchStage final : public SearchStage {
 
  private:
   int samples_ = 0;
-  scalar_t maxStretch_ = 1.25;
+  scalar_t maxStretch_ = CadenceStretchParameters::kDefaultMaxStretch;
   scalar_t timeBudget_ = 0.0;
 };
 

@@ -29,6 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include "ocs2_core/Dimensions.h"
+
 #include <ocs2_core/Types.h>
 
 namespace ocs2 {
@@ -44,13 +46,13 @@ namespace ocs2 {
  * @return matrix 3x3
  */
 template <typename SCALAR>
-Eigen::Matrix<SCALAR, 3, 3> skewSymmetricMatrix(Eigen::Matrix<SCALAR, 3, 1> v) {
-  Eigen::Matrix<SCALAR, 3, 3> skewSymmetricMatrix;
+Eigen::Matrix<SCALAR, kPositionDim, kPositionDim> skewSymmetricMatrix(Eigen::Matrix<SCALAR, kPositionDim, 1> v) {
+  Eigen::Matrix<SCALAR, kPositionDim, kPositionDim> skewSymmetricMatrix;
   // clang-format off
-  skewSymmetricMatrix << SCALAR(0.0),       -v(2),        v(1),
-                                v(2), SCALAR(0.0),       -v(0),
-                               -v(1),        v(0), SCALAR(0.0);
-  // clan-format on
+  skewSymmetricMatrix <<       SCALAR(0.0), -v(kZAxisIndex),  v(kYAxisIndex),
+                            v(kZAxisIndex),     SCALAR(0.0), -v(kXAxisIndex),
+                           -v(kYAxisIndex),  v(kXAxisIndex),     SCALAR(0.0);
+  // clang-format on
   return skewSymmetricMatrix;
 }
 

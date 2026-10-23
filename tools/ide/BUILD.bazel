@@ -1,0 +1,43 @@
+load("@rules_python//python:defs.bzl", "py_library", "py_test")
+
+# The editor's view of the build (README.md): compile_commands.json for clangd, written from Bazel's own compile
+# actions, and the wrapper that runs clangd in the dev container for an editor on the host. The generator runs outside
+# Bazel, as `python3 -m tools.ide.compile_commands`, because it runs Bazel itself.
+py_library(
+    name = "compile_commands",
+    srcs = ["compile_commands.py"],
+)
+
+py_test(
+    name = "test_compile_commands",
+    size = "small",
+    srcs = ["test_compile_commands.py"],
+    deps = [":compile_commands"],
+)
+
+py_test(
+    name = "test_clangd_in_dev_container",
+    size = "small",
+    srcs = ["test_clangd_in_dev_container.py"],
+    data = ["clangd_in_dev_container.sh"],
+)
+
+# The repository files that keep the database and the Python import roots current: the Makefile targets that build,
+# the launch and deployment scripts, the dev container's start, .bazelrc's loading options, the local CI emulator's
+# environment, and pyrightconfig.json. It reads the checkout through MODULE.bazel's runfiles link.
+py_test(
+    name = "test_ide_setup",
+    size = "small",
+    srcs = ["test_ide_setup.py"],
+    data = [
+        "//:.bazelrc",
+        "//:MODULE.bazel",
+        "//:Makefile",
+        "//:docker-compose.yaml",
+        "//:pyrightconfig.json",
+        "//:tools/ci_local.sh",
+        "//tools/deploy:deploy_robot.sh",
+        "//tools/deploy:session.sh",
+    ],
+    deps = ["//tools/hooks:lint_files"],
+)

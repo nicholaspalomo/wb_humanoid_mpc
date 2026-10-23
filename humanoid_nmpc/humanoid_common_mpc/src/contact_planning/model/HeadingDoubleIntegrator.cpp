@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -26,6 +30,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/model/HeadingDoubleIntegrator.h"
 
 #include <algorithm>
+#include <string>
 
 #include "absl/strings/str_cat.h"
 
@@ -51,9 +56,9 @@ void HeadingDoubleIntegrator::bind(const Layout& layout) {
 void HeadingDoubleIntegrator::declareVariables(LayoutBuilder& layout) const {
   layout.addState(var::kHeading);
   layout.addState(var::kHeadingRate);
-  for (size_t foot = 0; foot < N_CONTACTS; ++foot) layout.addState(var::footYaw(foot));
-  for (size_t foot = 0; foot < N_CONTACTS; ++foot) layout.addInput(var::yawTorque(foot));
-  for (size_t foot = 0; foot < N_CONTACTS; ++foot) layout.addInput(var::footYawDelta(foot));
+  for (size_t foot = 0; foot < kNumContacts; ++foot) layout.addState(var::footYaw(foot));
+  for (size_t foot = 0; foot < kNumContacts; ++foot) layout.addInput(var::yawTorque(foot));
+  for (size_t foot = 0; foot < kNumContacts; ++foot) layout.addInput(var::footYawDelta(foot));
 }
 
 void HeadingDoubleIntegrator::addDynamics(const ContactPlanningContext& ctx, int /*node*/, OcpQpStage& s) const {
@@ -62,7 +67,7 @@ void HeadingDoubleIntegrator::addDynamics(const ContactPlanningContext& ctx, int
   s.A(idx_.heading, idx_.heading) = 1.0;
   s.A(idx_.heading, idx_.headingRate) = dt;
   s.A(idx_.headingRate, idx_.headingRate) = 1.0;
-  for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+  for (size_t foot = 0; foot < kNumContacts; ++foot) {
     s.A(idx_.footYaw[foot], idx_.footYaw[foot]) = 1.0;
     s.B(idx_.heading, idx_.yawTorque[foot]) = 0.5 * dt * dt / inertia;
     s.B(idx_.headingRate, idx_.yawTorque[foot]) = dt / inertia;
@@ -71,7 +76,7 @@ void HeadingDoubleIntegrator::addDynamics(const ContactPlanningContext& ctx, int
 }
 
 void HeadingDoubleIntegrator::addInputBounds(const ContactPlanningContext& /*ctx*/, int /*node*/, InputBoundsBuilder& bounds) const {
-  for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+  for (size_t foot = 0; foot < kNumContacts; ++foot) {
     bounds.add(idx_.yawTorque[foot], -torqueBound_, torqueBound_);
     bounds.add(idx_.footYawDelta[foot], -kYawBigM, kYawBigM);
   }
@@ -80,7 +85,7 @@ void HeadingDoubleIntegrator::addInputBounds(const ContactPlanningContext& /*ctx
 void HeadingDoubleIntegrator::setInitialState(const ContactPlanningContext& ctx, vector_t& x0) const {
   x0(idx_.heading) = ctx.input->heading;
   x0(idx_.headingRate) = ctx.input->headingRate;
-  for (size_t foot = 0; foot < N_CONTACTS; ++foot) x0(idx_.footYaw[foot]) = ctx.input->footYaws[foot];
+  for (size_t foot = 0; foot < kNumContacts; ++foot) x0(idx_.footYaw[foot]) = ctx.input->footYaws[foot];
 }
 
 void HeadingDoubleIntegrator::decode(const ContactPlanningContext& ctx, const MiqpResult& result, ContactPlan& plan) const {
@@ -92,7 +97,7 @@ void HeadingDoubleIntegrator::decode(const ContactPlanningContext& ctx, const Mi
     const vector_t& x = result.solution.x[static_cast<size_t>(k)];
     plan.heading[static_cast<size_t>(k)] = x(idx_.heading);
     plan.headingRate[static_cast<size_t>(k)] = x(idx_.headingRate);
-    for (size_t foot = 0; foot < N_CONTACTS; ++foot) plan.footYaws[static_cast<size_t>(k)][foot] = x(idx_.footYaw[foot]);
+    for (size_t foot = 0; foot < kNumContacts; ++foot) plan.footYaws[static_cast<size_t>(k)][foot] = x(idx_.footYaw[foot]);
   }
 }
 

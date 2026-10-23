@@ -1,17 +1,10 @@
 load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
 load("@rules_cc//cc:cc_test.bzl", "cc_test")
+load("//bazel:copts.bzl", "FIRST_PARTY_COPTS")
 # humanoid_state_estimator - State estimation for the humanoid controllers.
 
 package(default_visibility = ["//visibility:public"])
-
-_COPTS = [
-    "-std=c++20",
-    "-Wall",
-    "-Wextra",
-    "-Wpedantic",
-    "-Werror=return-type",
-]
 
 # A linear Kalman filter whose state, inputs and measurements are organized in named channels.
 cc_library(
@@ -19,10 +12,11 @@ cc_library(
     srcs = ["src/KalmanFilter.cpp"],
     hdrs = ["include/humanoid_state_estimator/KalmanFilter.h"],
     includes = ["include"],
-    copts = _COPTS,
+    copts = FIRST_PARTY_COPTS,
     deps = [
         "//humanoid_nmpc/humanoid_common_mpc:humanoid_common_mpc_types",
-        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_core_types",
+        "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/container:flat_hash_map",
         "@abseil-cpp//absl/functional:function_ref",
         "@abseil-cpp//absl/status",
@@ -34,19 +28,145 @@ cc_library(
     ],
 )
 
+# The leg kinematics, the contact-aided base estimator around the Kalman filter, and the robot process's state
+# estimator stage by name (StateEstimatorRegistry: ground_truth, kalman). Pinocchio stays behind ContactKinematics.cpp:
+# no public header includes it.
+cc_library(
+    name = "state_estimator",
+    srcs = [
+        "src/ContactKinematics.cpp",
+        "src/KalmanBaseEstimator.cpp",
+        "src/KalmanStateEstimator.cpp",
+        "src/StateEstimatorRegistry.cpp",
+    ],
+    hdrs = [
+        "include/humanoid_state_estimator/ContactKinematics.h",
+        "include/humanoid_state_estimator/GroundTruthStateEstimator.h",
+        "include/humanoid_state_estimator/KalmanBaseEstimator.h",
+        "include/humanoid_state_estimator/KalmanStateEstimator.h",
+        "include/humanoid_state_estimator/StateEstimator.h",
+        "include/humanoid_state_estimator/StateEstimatorNames.h",
+        "include/humanoid_state_estimator/StateEstimatorRegistry.h",
+    ],
+    includes = ["include"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":kalman_filter",
+        "//humanoid_nmpc/humanoid_common_mpc:humanoid_common_mpc_types",
+        "//lib/ocs2:ocs2_core_types",
+        "//robot_runtime/robot_model",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/container:flat_hash_map",
+        "@abseil-cpp//absl/memory",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
+        "@eigen",
+        "@pinocchio",
+    ],
+)
+
+# A closed-form walk of test/data/prismatic_biped.urdf, and the states a backend without a position sensor publishes.
+cc_library(
+    name = "walking_trajectory",
+    testonly = True,
+    srcs = [
+        "test/MeasuredState.cpp",
+        "test/WalkingTrajectory.cpp",
+    ],
+    hdrs = [
+        "test/MeasuredState.h",
+        "test/WalkingTrajectory.h",
+    ],
+    copts = FIRST_PARTY_COPTS,
+    data = ["test/data/prismatic_biped.urdf"],
+    deps = [
+        "//humanoid_nmpc/humanoid_common_mpc:humanoid_common_mpc_types",
+        "//lib/ocs2:ocs2_core_types",
+        "//robot_runtime/robot_model",
+        "@eigen",
+    ],
+)
+
+cc_test(
+    name = "test_contact_kinematics",
+    size = "small",
+    srcs = ["test/testContactKinematics.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = ["//robot_models/drc_atlas/drc_atlas_description"],
+    deps = [
+        ":state_estimator",
+        ":walking_trajectory",
+        "//robot_runtime/robot_model",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@eigen",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "test_kalman_base_estimator",
+    size = "small",
+    srcs = ["test/testKalmanBaseEstimator.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":state_estimator",
+        ":walking_trajectory",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@eigen",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "test_state_estimator_registry",
+    size = "small",
+    srcs = ["test/testStateEstimatorRegistry.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":state_estimator",
+        ":walking_trajectory",
+        "//robot_runtime/robot_model",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The realtime property of the state estimators' estimate() and reset(); its own target for the allocation counter.
+cc_test(
+    name = "test_state_estimator_allocations",
+    size = "small",
+    srcs = ["test/testStateEstimatorAllocations.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    linkstatic = True,
+    deps = [
+        ":allocation_counter",
+        ":state_estimator",
+        ":walking_trajectory",
+        "//robot_runtime/robot_model",
+        "@abseil-cpp//absl/status:statusor",
+        "@googletest//:gtest_main",
+    ],
+)
+
 cc_test(
     name = "test_kalman_filter",
     size = "small",
     srcs = ["test/testKalmanFilter.cpp"],
-    copts = _COPTS,
+    copts = FIRST_PARTY_COPTS,
     deps = [
         ":kalman_filter",
+        "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
         "@abseil-cpp//absl/types:span",
         "@eigen",
-        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_core_types",
         "@googletest//:gtest_main",
     ],
 )
@@ -58,9 +178,10 @@ cc_library(
     testonly = True,
     srcs = ["test/AllocationCounter.cpp"],
     hdrs = ["test/AllocationCounter.h"],
-    copts = _COPTS,
+    copts = FIRST_PARTY_COPTS,
     linkstatic = True,
     alwayslink = True,
+    deps = ["@abseil-cpp//absl/base:nullability"],
 )
 
 # The real-time property: once the workspace is sized, a step makes no heap allocation. A target of its own, because the
@@ -69,16 +190,17 @@ cc_test(
     name = "test_kalman_filter_allocations",
     size = "small",
     srcs = ["test/testKalmanFilterAllocations.cpp"],
-    copts = _COPTS,
+    copts = FIRST_PARTY_COPTS,
     linkstatic = True,
     deps = [
         ":allocation_counter",
         ":kalman_filter",
+        "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
         "@eigen",
-        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_core_types",
         "@googletest//:gtest_main",
     ],
 )
@@ -89,14 +211,18 @@ cc_binary(
     name = "benchmark_kalman_filter",
     testonly = True,
     srcs = ["benchmark/benchmarkKalmanFilter.cpp"],
-    copts = _COPTS,
+    copts = FIRST_PARTY_COPTS,
     deps = [
         ":allocation_counter",
         ":kalman_filter",
+        "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:str_format",
+        "@abseil-cpp//absl/strings:string_view",
+        "@abseil-cpp//absl/time",
         "@eigen",
-        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_core_types",
     ],
 )

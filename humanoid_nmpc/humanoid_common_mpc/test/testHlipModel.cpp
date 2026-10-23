@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -23,26 +27,56 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <gtest/gtest.h>
-
 #include <cmath>
+#include <limits>
 #include <utility>
+
+#include "absl/log/absl_check.h"
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
+#include "gtest/gtest.h"
 
 #include "humanoid_common_mpc/contact_planning/hlip/HlipModel.h"
 
 namespace ocs2::humanoid {
 namespace {
 
-constexpr scalar_t kTol = 1e-9;
+constexpr scalar_t kTol = 1.0e-9;
 
 /** The cadence and height of the paper's experiments (arXiv:2502.15630, Table I). */
 HlipModel makePaperModel() {
-  return HlipModel(0.35, 0.0, 0.62, 9.81);
+  absl::StatusOr<HlipModel> model = HlipModel::Create(0.35, 0.0, 0.62, 9.81);
+  ABSL_CHECK_OK(model.status());
+  return *std::move(model);
 }
 
 /** A cadence with a non-zero double support, which changes every matrix in the step-to-step map. */
 HlipModel makeDoubleSupportModel() {
-  return HlipModel(0.3, 0.1, 0.85, 9.81);
+  absl::StatusOr<HlipModel> model = HlipModel::Create(0.3, 0.1, 0.85, 9.81);
+  ABSL_CHECK_OK(model.status());
+  return *std::move(model);
+}
+
+// Every bound of the model is refused, NaN included, instead of ending the process.
+TEST(HlipModel, createRefusesAnOutOfBoundsCadenceOrPendulum) {
+  const scalar_t nan = std::numeric_limits<scalar_t>::quiet_NaN();
+  EXPECT_TRUE(HlipModel::Create(/*sspDuration=*/0.3, /*dspDuration=*/0.0, /*comHeight=*/0.85, /*gravity=*/9.81).ok());
+  for (const scalar_t ssp : {0.0, -0.1, nan}) {
+    EXPECT_EQ(HlipModel::Create(ssp, /*dspDuration=*/0.0, /*comHeight=*/0.85, /*gravity=*/9.81).status().code(),
+              absl::StatusCode::kInvalidArgument);
+  }
+  for (const scalar_t dsp : {-0.01, nan}) {
+    EXPECT_EQ(HlipModel::Create(/*sspDuration=*/0.3, dsp, /*comHeight=*/0.85, /*gravity=*/9.81).status().code(),
+              absl::StatusCode::kInvalidArgument);
+  }
+  for (const scalar_t height : {0.0, -0.85, nan}) {
+    EXPECT_EQ(HlipModel::Create(/*sspDuration=*/0.3, /*dspDuration=*/0.0, height, /*gravity=*/9.81).status().code(),
+              absl::StatusCode::kInvalidArgument);
+  }
+  for (const scalar_t gravity : {0.0, -9.81, nan}) {
+    EXPECT_EQ(HlipModel::Create(/*sspDuration=*/0.3, /*dspDuration=*/0.0, /*comHeight=*/0.85, gravity).status().code(),
+              absl::StatusCode::kInvalidArgument);
+  }
 }
 
 TEST(HlipModel, naturalFrequencyAndStepDuration) {
@@ -71,9 +105,9 @@ TEST(HlipModel, deadbeatGainIsNilpotent) {
   // steps without a single tuned gain.
   for (const HlipModel& model : {makePaperModel(), makeDoubleSupportModel()}) {
     const HlipModel::Matrix2 closedLoop = model.stepToStepA() + model.stepToStepB() * model.deadbeatGain().transpose();
-    EXPECT_NEAR(closedLoop.trace(), 0.0, 1e-9);
-    EXPECT_NEAR(closedLoop.determinant(), 0.0, 1e-9);
-    EXPECT_NEAR((closedLoop * closedLoop).norm(), 0.0, 1e-9);
+    EXPECT_NEAR(closedLoop.trace(), 0.0, 1.0e-9);
+    EXPECT_NEAR(closedLoop.determinant(), 0.0, 1.0e-9);
+    EXPECT_NEAR((closedLoop * closedLoop).norm(), 0.0, 1.0e-9);
   }
 }
 
@@ -82,8 +116,8 @@ TEST(HlipModel, periodOneOrbitIsAFixedPoint) {
   for (const scalar_t stepLength : {0.0, 0.15, -0.2}) {
     const HlipModel::State orbit = model.periodOneOrbit(stepLength);
     const HlipModel::State next = model.applyStepToStep(orbit, stepLength);
-    EXPECT_NEAR(next(0), orbit(0), 1e-9);
-    EXPECT_NEAR(next(1), orbit(1), 1e-9);
+    EXPECT_NEAR(next(0), orbit(0), 1.0e-9);
+    EXPECT_NEAR(next(1), orbit(1), 1.0e-9);
   }
 }
 
@@ -105,25 +139,25 @@ TEST(HlipModel, periodOneOrbitAdvancesByTheStepEveryStep) {
     const scalar_t end = start + sampleTime;
     displacement += 0.5 * sampleTime * (model.flowSingleSupport(afterDrift, start)(1) + model.flowSingleSupport(afterDrift, end)(1));
   }
-  EXPECT_NEAR(displacement, stepLength, 1e-6);
-  EXPECT_NEAR(displacement / model.stepDuration(), velocity, 1e-6);
+  EXPECT_NEAR(displacement, stepLength, 1.0e-6);
+  EXPECT_NEAR(displacement / model.stepDuration(), velocity, 1.0e-6);
 }
 
 TEST(HlipModel, periodTwoOrbitAlternates) {
   const HlipModel model = makePaperModel();
   const scalar_t leftStep = 0.25;
   const scalar_t rightStep = -0.25;
-  const std::pair<HlipModel::State, HlipModel::State> orbit = model.periodTwoOrbit(leftStep, rightStep);
+  const HlipModel::PeriodTwoOrbit orbit = model.periodTwoOrbit(leftStep, rightStep);
 
-  const HlipModel::State afterLeft = model.applyStepToStep(orbit.first, leftStep);
-  EXPECT_NEAR(afterLeft(0), orbit.second(0), 1e-9);
-  EXPECT_NEAR(afterLeft(1), orbit.second(1), 1e-9);
-  const HlipModel::State afterRight = model.applyStepToStep(orbit.second, rightStep);
-  EXPECT_NEAR(afterRight(0), orbit.first(0), 1e-9);
-  EXPECT_NEAR(afterRight(1), orbit.first(1), 1e-9);
+  const HlipModel::State afterLeft = model.applyStepToStep(orbit.beforeFirstStep, leftStep);
+  EXPECT_NEAR(afterLeft(0), orbit.beforeSecondStep(0), 1.0e-9);
+  EXPECT_NEAR(afterLeft(1), orbit.beforeSecondStep(1), 1.0e-9);
+  const HlipModel::State afterRight = model.applyStepToStep(orbit.beforeSecondStep, rightStep);
+  EXPECT_NEAR(afterRight(0), orbit.beforeFirstStep(0), 1.0e-9);
+  EXPECT_NEAR(afterRight(1), orbit.beforeFirstStep(1), 1.0e-9);
 
   // A symmetric lateral orbit stands still on average: the pre-impact positions mirror each other.
-  EXPECT_NEAR(orbit.first(0), -orbit.second(0), 1e-9);
+  EXPECT_NEAR(orbit.beforeFirstStep(0), -orbit.beforeSecondStep(0), 1.0e-9);
 }
 
 TEST(HlipModel, deadbeatControllerRecoversInTwoSteps) {
@@ -136,8 +170,8 @@ TEST(HlipModel, deadbeatControllerRecoversInTwoSteps) {
     const scalar_t command = model.deadbeatStepLength(state, orbit, stepLength);
     state = model.applyStepToStep(state, command);
   }
-  EXPECT_NEAR(state(0), orbit(0), 1e-9);
-  EXPECT_NEAR(state(1), orbit(1), 1e-9);
+  EXPECT_NEAR(state(0), orbit(0), 1.0e-9);
+  EXPECT_NEAR(state(1), orbit(1), 1.0e-9);
 }
 
 TEST(HlipModel, deadbeatControllerLeavesTheOrbitAlone) {

@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -25,7 +29,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <ocs2_core/Types.h>
+#include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
@@ -49,10 +53,20 @@ namespace ocs2::humanoid {
  *
  * With the shipped rho_1 = 40 and rho_2 = 0.02 the half point sits at sqrt(0.02), 14 % of a component's range (0.099
  * m/s of Atlas's 0.7 m/s forward command); alpha is about 0.83 at a fifth of the range and passes 0.99 only near 28 %.
+ *
+ * A copyable value type with const methods only, so concurrent calls on one blend are safe.
  */
 class HlipStandingBlend {
  public:
+  // The weight alpha at phi = threshold, the half point: at or above it the planner walks, below it it stands.
+  static constexpr scalar_t kHalfPointWeight = 0.5;
+
   explicit HlipStandingBlend(const HlipBlendParameters& parameters) : parameters_(parameters) {}
+  HlipStandingBlend(const HlipStandingBlend&) = default;
+  HlipStandingBlend& operator=(const HlipStandingBlend&) = default;
+  HlipStandingBlend(HlipStandingBlend&&) = default;
+  HlipStandingBlend& operator=(HlipStandingBlend&&) = default;
+  ~HlipStandingBlend() = default;
 
   /**
    * phi: the squared norm of the commands and the measured CENTER-OF-MASS velocity under the threshold metric P.
@@ -73,7 +87,7 @@ class HlipStandingBlend {
 
   /** Whether the blend asks for a stepping gait rather than a standing one. */
   bool isWalking(const vector2_t& velocityCommand, scalar_t yawRateCommand, const vector2_t& comVelocity) const {
-    return weight(velocityCommand, yawRateCommand, comVelocity) >= 0.5;
+    return weight(velocityCommand, yawRateCommand, comVelocity) >= kHalfPointWeight;
   }
 
   const HlipBlendParameters& getParameters() const { return parameters_; }

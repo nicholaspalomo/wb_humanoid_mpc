@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -23,10 +27,10 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <gtest/gtest.h>
-
 #include <memory>
 #include <string>
+
+#include "gtest/gtest.h"
 
 #include "humanoid_common_mpc/contact_planning/ContactPlannerFactory.h"
 
@@ -75,8 +79,8 @@ TEST(ContactPlannerFactory, unknownPlannerListsTheOnesThatExist) {
 
 // An invalid configuration comes back as a Status that names the key to change, for every planner, and nothing
 // throws: makeContactPlanner returns a StatusOr, and its callers (ContactPlannerModule, also on the planning thread)
-// handle the Status, not an exception. The mixed-integer planner validates in its constructor by throwing, and the
-// H-LIP one does not validate at all, so the same invalid key used to throw for one and build the other.
+// handle the Status, not an exception. The mixed-integer planner used to validate in its constructor by throwing, and
+// the H-LIP one did not validate at all, so the same invalid key used to throw for one and build the other.
 TEST(ContactPlannerFactory, invalidConfigurationIsAStatusThatNamesTheKeyForEveryPlanner) {
   for (const std::string& name : knownPlannerNames()) {
     ContactPlanningConfig config = makeConfig();

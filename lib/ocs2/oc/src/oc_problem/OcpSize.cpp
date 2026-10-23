@@ -29,6 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "ocs2_oc/oc_problem/OcpSize.h"
 
+#include "absl/base/nullability.h"
+
 namespace ocs2 {
 bool operator==(const OcpSize& lhs, const OcpSize& rhs) noexcept {
   // use && instead of &= to enable short-circuit evaluation
@@ -46,7 +48,7 @@ bool operator==(const OcpSize& lhs, const OcpSize& rhs) noexcept {
 
 OcpSize extractSizesFromProblem(const std::vector<VectorFunctionLinearApproximation>& dynamics,
                                 const std::vector<ScalarFunctionQuadraticApproximation>& cost,
-                                const std::vector<VectorFunctionLinearApproximation>* constraints) {
+                                const std::vector<VectorFunctionLinearApproximation>* absl_nullable constraints) {
   const int numStages = dynamics.size();
 
   OcpSize problemSize(dynamics.size());

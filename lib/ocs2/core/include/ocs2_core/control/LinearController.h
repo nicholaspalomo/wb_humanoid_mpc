@@ -29,6 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include "absl/base/nullability.h"
+
 #include <ocs2_core/Types.h>
 #include <ocs2_core/control/ControllerBase.h>
 #include <ocs2_core/misc/LinearInterpolation.h>
@@ -67,19 +69,9 @@ class LinearController final : public ControllerBase {
   ~LinearController() override = default;
 
   /** Clone */
-  LinearController* clone() const override;
-
-  /**
-   * @brief setController Assign control law
-   * @param [in] controllerTime: Time stamp array of the controller
-   * @param [in] controllerBias: The bias array.
-   * @param [in] controllerGain: The feedback gain array.
-   */
-  void setController(const scalar_array_t& controllerTime, const vector_array_t& controllerBias, const matrix_array_t& controllerGain);
+  LinearController* absl_nonnull clone() const override;
 
   vector_t computeInput(scalar_t t, const vector_t& x) override;
-
-  void concatenate(const ControllerBase* nextController, int index, int length) override;
 
   int size() const override;
 
@@ -91,16 +83,12 @@ class LinearController final : public ControllerBase {
 
   void display() const override;
 
-  void getFeedbackGain(scalar_t time, matrix_t& gain) const;
+  void flatten(const scalar_array_t& timeArray, const std::vector<std::vector<double>* absl_nonnull>& flatArray2) const override;
 
-  void getBias(scalar_t time, vector_t& bias) const;
-
-  scalar_array_t controllerEventTimes() const override;
-
-  void flatten(const scalar_array_t& timeArray, const std::vector<std::vector<double>*>& flatArray2) const override;
-
-  static LinearController unFlatten(const size_array_t& stateDim, const size_array_t& inputDim, const scalar_array_t& timeArray,
-                                    const std::vector<std::vector<double> const*>& flatArray2);
+  static LinearController unFlatten(const size_array_t& stateDim,
+                                    const size_array_t& inputDim,
+                                    const scalar_array_t& timeArray,
+                                    const std::vector<const std::vector<double>* absl_nonnull>& flatArray2);
 
  private:
   void flattenSingle(scalar_t time, std::vector<double>& flatArray) const;
@@ -108,7 +96,6 @@ class LinearController final : public ControllerBase {
  public:
   scalar_array_t timeStamp_;
   vector_array_t biasArray_;
-  vector_array_t deltaBiasArray_;
   matrix_array_t gainArray_;
 
   friend void swap(LinearController& a, LinearController& b) noexcept;

@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -25,6 +29,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <string>
+#include <vector>
+
 #include "humanoid_common_mpc/contact_planning/problem/LipIndices.h"
 #include "humanoid_common_mpc/contact_planning/problem/LipModelBlock.h"
 
@@ -33,6 +40,8 @@ namespace ocs2::humanoid {
 /**
  * `foothold_integrator`: the foot positions p_i, their displacements dp_i (inputs, |dp| <= bigM) and the contact
  * binaries c_i in {0, 1}: p_{i,k+1} = p_{i,k} + dp_{i,k}. Owns the binaries the mixed-integer solver branches on.
+ *
+ * Not thread-safe, like every ContactPlanningTerm: the planner that owns it configures and evaluates it from one thread at a time.
  */
 class FootholdIntegrator final : public LipModelBlock {
  public:

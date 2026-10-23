@@ -30,8 +30,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <ocs2_core/constraint/StateInputConstraintCppAd.h>
-#include <ocs2_pinocchio_interface/PinocchioInterface.h>
+#include <string>
+
+#include "absl/base/nullability.h"
+#include "ocs2_core/constraint/StateInputConstraintCppAd.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
@@ -43,8 +46,10 @@ namespace ocs2::humanoid {
 
 /**
  * Implements the constraint h(t,x,u) >= 0 to constrain the contact moment in the x-y plane.
+ *
+ * One instance per contact, added to the MPC's inequality constraints; the reference manager and the robot model must
+ * outlive it. Like every OCS2 term it is cloned for each solver thread, and a single instance is not thread-safe.
  */
-
 class ContactMomentXYConstraintCppAd final : public StateInputConstraintCppAd {
  public:
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
@@ -53,17 +58,20 @@ class ContactMomentXYConstraintCppAd final : public StateInputConstraintCppAd {
                                  size_t contactPointIndex,
                                  const PinocchioInterface& pinocchioInterface,
                                  const MpcRobotModelBase<ad_scalar_t>& mpcRobotModel,
-                                 std::string costName,
+                                 const std::string& costName,
                                  const ModelSettings& modelSettings,
                                  bool scheduleGated = true);
 
   ~ContactMomentXYConstraintCppAd() override = default;
-  ContactMomentXYConstraintCppAd* clone() const override { return new ContactMomentXYConstraintCppAd(*this); }
+  ContactMomentXYConstraintCppAd& operator=(const ContactMomentXYConstraintCppAd&) = delete;
+  ContactMomentXYConstraintCppAd(ContactMomentXYConstraintCppAd&&) = delete;
+  ContactMomentXYConstraintCppAd& operator=(ContactMomentXYConstraintCppAd&&) = delete;
+  ContactMomentXYConstraintCppAd* absl_nonnull clone() const override { return new ContactMomentXYConstraintCppAd(*this); }
 
   bool isActive(scalar_t time) const override;
   void setActive(bool isActive) override { isActive_ = isActive; }
   bool getActive() const override { return isActive_; }
-  size_t getNumConstraints(scalar_t time) const override { return numConstraints_; };
+  size_t getNumConstraints(scalar_t /*time*/) const override { return kNumConstraints; };
 
   /**
    * Whether this term is gated on the mode schedule's contact flag.
@@ -84,13 +92,13 @@ class ContactMomentXYConstraintCppAd final : public StateInputConstraintCppAd {
                                  const ad_vector_t& input,
                                  const ad_vector_t& parameters) const override;
 
-  const SwitchedModelReferenceManager* referenceManagerPtr_;
-  const MpcRobotModelBase<ad_scalar_t>* mpcRobotModelPtr_;
+  const SwitchedModelReferenceManager* absl_nonnull referenceManagerPtr_;
+  const MpcRobotModelBase<ad_scalar_t>* absl_nonnull mpcRobotModelPtr_;
   const ContactRectangle contactRectangle_;
   const size_t contactPointIndex_;
   PinocchioInterfaceCppAd pinocchioInterfaceCppAd_;
 
-  const static size_t numConstraints_ = 4;
+  static constexpr size_t kNumConstraints = 4;
   bool isActive_ = true;
   // Fixed by the formulation at load time rather than tuned, so it is const and the parallel solve reads it without
   // synchronization. It has to survive the copy the SQP solver makes of the whole problem per worker thread.

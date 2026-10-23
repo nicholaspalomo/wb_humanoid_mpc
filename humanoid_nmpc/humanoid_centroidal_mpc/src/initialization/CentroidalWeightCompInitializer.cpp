@@ -30,9 +30,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_centroidal_mpc/initialization/CentroidalWeightCompInitializer.h"
 
-#include "humanoid_centroidal_mpc/dynamics/DynamicsHelperFunctions.h"
+#include <utility>
 
-#include <ocs2_centroidal_model/AccessHelperFunctions.h>
+#include "absl/base/nullability.h"
+#include "ocs2_centroidal_model/AccessHelperFunctions.h"
+
+#include "humanoid_centroidal_mpc/dynamics/DynamicsHelperFunctions.h"
 
 namespace ocs2::humanoid {
 
@@ -43,26 +46,22 @@ CentroidalWeightCompInitializer::CentroidalWeightCompInitializer(CentroidalModel
                                                                  const SwitchedModelReferenceManager& referenceManager,
                                                                  const MpcRobotModelBase<scalar_t>& mpcRobotModel,
                                                                  bool extendNormalizedMomentum)
-    : info_(std::move(info)),
+    : mpcRobotModelPtr_(&mpcRobotModel),
+      info_(std::move(info)),
       referenceManagerPtr_(&referenceManager),
-      mpcRobotModelPtr_(&mpcRobotModel),
       extendNormalizedMomentum_(extendNormalizedMomentum) {}
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-CentroidalWeightCompInitializer::CentroidalWeightCompInitializer(const CentroidalWeightCompInitializer& rhs)
-    : info_(rhs.info_),
-      referenceManagerPtr_(rhs.referenceManagerPtr_),
-      mpcRobotModelPtr_(rhs.mpcRobotModelPtr_),
-      extendNormalizedMomentum_(rhs.extendNormalizedMomentum_) {}
+CentroidalWeightCompInitializer::CentroidalWeightCompInitializer(const CentroidalWeightCompInitializer& rhs) = default;
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-CentroidalWeightCompInitializer* CentroidalWeightCompInitializer::clone() const {
+CentroidalWeightCompInitializer* absl_nonnull CentroidalWeightCompInitializer::clone() const {
   return new CentroidalWeightCompInitializer(*this);
 }
 
@@ -71,8 +70,8 @@ CentroidalWeightCompInitializer* CentroidalWeightCompInitializer::clone() const 
 /******************************************************************************************************/
 
 void CentroidalWeightCompInitializer::compute(
-    scalar_t time, const vector_t& state, scalar_t nextTime, vector_t& input, vector_t& nextState) {
-  const auto contactFlags = referenceManagerPtr_->getContactFlags(time);
+    scalar_t time, const vector_t& state, scalar_t /*nextTime*/, vector_t& input, vector_t& nextState) {
+  const contact_flag_t contactFlags = referenceManagerPtr_->getContactFlags(time);
   input = weightCompensatingInput(info_, contactFlags, *mpcRobotModelPtr_, state);
   nextState = state;
   if (!extendNormalizedMomentum_) {

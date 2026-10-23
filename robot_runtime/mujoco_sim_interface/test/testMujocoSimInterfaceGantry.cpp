@@ -27,42 +27,87 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <gtest/gtest.h>
-
+#include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <optional>
+#include <string>
+#include <utility>
+#include <vector>
 
-#include <mujoco/mujoco.h>
+#include "absl/base/nullability.h"
+#include "absl/log/absl_check.h"
+#include "absl/log/log.h"
+#include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
+#include "gtest/gtest.h"
+#include "mujoco/mujoco.h"
 
 #include "mujoco_sim_interface/MujocoSimInterface.h"
+#include "mujoco_sim_interface/MujocoUtils.h"
+#include "mujoco_sim_interface/viewer/ViewerNames.h"
+#include "robot_model/RobotJointAction.h"
 
 /*
- * The virtual gantry and the simulator's own resets, headless, on the shipped Atlas scene. A robot caught on the gantry
- * after walking away from the origin used to be welded back to the scene's anchor at the origin; the pull made the step
- * numerically unstable, MuJoCo's automatic reset then rewound the clock, and every later MPC solve failed because the
- * controller's plans were timestamped hundreds of seconds in the future.
+ * The virtual gantry and the simulator's own resets, headless, on the shipped Atlas scene, and the weld of every shipped
+ * scene. A robot caught on the gantry after walking away from the origin used to be welded back to the scene's anchor at
+ * the origin; the pull made the step numerically unstable, MuJoCo's automatic reset then rewound the clock, and every
+ * later MPC solve failed because the controller's plans were timestamped hundreds of seconds in the future.
+ *
+ * GRAVITY_COMP is operated with the robot hanging from the gantry, and its limbs should then hover where they are,
+ * neither float up nor sink. Each scene is held to that by its weld, and the legacy kinematic_teleport, which the Unitree
+ * G1 and R1 fell back to until their scenes declared the weld, is shown to fail it.
  */
 
 namespace robot::mujoco_sim_interface {
 namespace {
 
-constexpr const char* kAtlasScene = "robot_models/drc_atlas/drc_atlas_description/urdf/atlas.xml";
-constexpr const char* kAtlasUrdf = "robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf";
+constexpr char kAtlasScene[] = "robot_models/drc_atlas/drc_atlas_description/urdf/atlas.xml";
+constexpr char kAtlasUrdf[] = "robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf";
 
-std::unique_ptr<MujocoSimInterface> makeSim(bool gantryLocked) {
-  MujocoSimConfig config;
-  config.scenePath = kAtlasScene;
-  config.headless = true;
-  config.isGantryLocked = gantryLocked;
-  config.gantryHold = "weld_constraint";
-  // A render snapshot after every step, so readLatestMjState shows the state of the step just taken.
-  config.renderFrequencyHz = 1.0e6;
-  return std::make_unique<MujocoSimInterface>(config, kAtlasUrdf);
+/** A shipped scene that declares the gantry weld, and its robot. */
+struct WeldedScene {
+  std::string scene;
+  std::string urdf;
+};
+
+/** Every shipped scene: each declares the gantry weld. */
+std::vector<WeldedScene> weldedScenes() {
+  return {
+      {.scene = kAtlasScene, .urdf = kAtlasUrdf},
+      {.scene = "robot_models/engineai_sa01/engineai_sa01_description/urdf/zq_sa01.xml",
+       .urdf = "robot_models/engineai_sa01/engineai_sa01_description/urdf/zq_sa01.urdf"},
+      {.scene = "robot_models/unitree_g1/g1_description/urdf/g1_29dof.xml",
+       .urdf = "robot_models/unitree_g1/g1_description/urdf/g1_29dof.urdf"},
+      {.scene = "robot_models/unitree_r1/unitree_r1_description/urdf/R1.xml",
+       .urdf = "robot_models/unitree_r1/unitree_r1_description/urdf/R1.urdf"},
+  };
 }
 
-int baseBody(const mjModel* model) {
+/** A simulator of `robot` on the gantry hold named `hold` (kWeldConstraintGantryHoldName by default). */
+std::unique_ptr<MujocoSimInterface> makeSimOf(const WeldedScene& robot,
+                                              bool gantryLocked,
+                                              absl::string_view hold = kWeldConstraintGantryHoldName) {
+  MujocoSimConfig config;
+  config.scenePath = robot.scene;
+  config.viewer.names = {kNoViewerName};
+  config.isGantryLocked = gantryLocked;
+  config.gantryHold = std::string(hold);
+  // A render snapshot after every step, so readLatestMjState shows the state of the step just taken.
+  config.renderFrequencyHz = 1.0e6;
+  absl::StatusOr<std::unique_ptr<MujocoSimInterface>> sim = MujocoSimInterface::Create(config, robot.urdf);
+  ABSL_CHECK_OK(sim);
+  return *std::move(sim);
+}
+
+std::unique_ptr<MujocoSimInterface> makeSim(bool gantryLocked) {
+  return makeSimOf({.scene = kAtlasScene, .urdf = kAtlasUrdf}, gantryLocked);
+}
+
+int baseBody(const mjModel* absl_nonnull model) {
   for (int body = 1; body < model->nbody; ++body) {
     if (model->body_jntnum[body] > 0 && model->jnt_type[model->body_jntadr[body]] == mjJNT_FREE) return body;
   }
@@ -71,20 +116,20 @@ int baseBody(const mjModel* model) {
 
 /** The base's position, heading and the clock after the simulator's last step. */
 struct BaseSnapshot {
-  double x;
-  double y;
-  double z;
-  double yaw;
-  double time;
-  bool finite;
+  double x = 0.0;
+  double y = 0.0;
+  double z = 0.0;
+  double yaw = 0.0;
+  double time = 0.0;
+  bool finite = false;
 };
 
 BaseSnapshot snapshot(const MujocoSimInterface& sim) {
   MjState state(sim.getModel());
   sim.readLatestMjState(state);
   const int body = baseBody(sim.getModel());
-  const mjtNum* position = state.data->xpos + 3 * body;
-  const mjtNum* quaternion = state.data->xquat + 4 * body;
+  const mjtNum* absl_nonnull position = state.data->xpos + 3 * body;
+  const mjtNum* absl_nonnull quaternion = state.data->xquat + 4 * body;
   BaseSnapshot result;
   result.x = position[0];
   result.y = position[1];
@@ -112,16 +157,101 @@ int stepsFor(const MujocoSimInterface& sim, double seconds) {
   return static_cast<int>(std::ceil(seconds / sim.getModel()->opt.timestep));
 }
 
+/** A joint of the robot description and where the scene keeps its position and velocity. */
+struct SceneJoint {
+  size_t robotJoint = 0;  // index into the RobotJointAction
+  int qposAddress = 0;
+  int dofAddress = 0;
+};
+
+/** The joints of `sim`'s robot that its scene declares, by name, as the simulator maps them. */
+std::vector<SceneJoint> sceneJoints(const MujocoSimInterface& sim) {
+  const mjModel* absl_nonnull scene = sim.getModel();
+  const std::vector<std::string>& names = sim.getRobotDescription().getJointNames();
+  std::vector<SceneJoint> joints;
+  for (size_t joint = 0; joint < names.size(); ++joint) {
+    const int id = mj_name2id(scene, mjOBJ_JOINT, names[joint].c_str());
+    if (id < 0) continue;
+    joints.push_back({.robotJoint = joint, .qposAddress = scene->jnt_qposadr[id], .dofAddress = scene->jnt_dofadr[id]});
+  }
+  return joints;
+}
+
+/** The largest excursion of any joint [rad] over a run on the gantry, from two postures. */
+struct JointDrift {
+  double sinceCaught = 0.0;   // from the posture the robot was caught in
+  double sinceSettled = 0.0;  // from its posture at the end of the settling time
+};
+
+/**
+ * Runs `robot` on the locked gantry by the hold named `hold` for `settleSeconds` and then `seconds`, with the torques on
+ * and commanding what GRAVITY_COMP commands: each joint's gravity torque at the current posture, and a damping of the
+ * joint's velocity with no position feedback. The gravity torque is MuJoCo's own (the bias force with the robot at
+ * rest), so the scene's model is the controller's model. The damping is kDampingPerStep of the joint's own inertia per
+ * step, kd = kDampingPerStep M_jj / dt, well inside the explicit limit 2 M_jj / dt on the lightest link: it takes out the
+ * swing of the catch, which the scene's own joint damping (zero on the G1 and the SA01) does not, and the simulator no
+ * longer adds damping of its own while the torques are on. Returns the joints' largest excursions over the whole run from where they were
+ * caught, and over `seconds` from where they were after `settleSeconds`.
+ */
+JointDrift jointDriftUnderGravityCompensation(const WeldedScene& robot, absl::string_view hold, double settleSeconds, double seconds) {
+  const absl::StatusOr<GantryHold> expectedHold = gantryHoldFromName(hold);
+  ABSL_CHECK_OK(expectedHold);
+  const std::unique_ptr<MujocoSimInterface> sim = makeSimOf(robot, /*gantryLocked=*/true, hold);
+  ABSL_CHECK(sim->gantryHold() == *expectedHold) << robot.scene << " fell back from " << hold;
+  const mjModel* absl_nonnull scene = sim->getModel();
+  const std::vector<SceneJoint> joints = sceneJoints(*sim);
+  ABSL_CHECK_GE(joints.size(), 12u) << robot.scene;
+  sim->enableTorques();
+  step(*sim, /*steps=*/1);  // the first snapshot: the posture the robot was caught in
+
+  MjState state(scene);
+  sim->readLatestMjState(state);
+  std::vector<double> caught;
+  caught.reserve(joints.size());
+  for (const SceneJoint& joint : joints) caught.push_back(state.data->qpos[joint.qposAddress]);
+
+  const int settleSteps = stepsFor(*sim, settleSeconds);
+  std::vector<double> settled = caught;
+  JointDrift drift;
+  for (int i = 0; i < settleSteps + stepsFor(*sim, seconds); ++i) {
+    // The gravity torque at the posture of the last step: the bias force with every velocity zero.
+    mju_zero(state.data->qvel, scene->nv);
+    mj_forward(scene, state.data);
+    constexpr double kDampingPerStep = 0.02;
+    model::RobotJointAction& action = sim->getRobotJointAction();
+    for (const SceneJoint& joint : joints) {
+      std::optional<model::JointAction>& slot = action[joint.robotJoint];
+      ABSL_CHECK(slot.has_value());
+      slot->kp = 0.0;
+      slot->kd = kDampingPerStep * state.data->qM[scene->dof_Madr[joint.dofAddress]] / scene->opt.timestep;
+      slot->feed_forward_effort = state.data->qfrc_bias[joint.dofAddress];
+    }
+    sim->applyJointAction();
+    sim->simulationStep();
+
+    sim->readLatestMjState(state);
+    for (size_t k = 0; k < joints.size(); ++k) {
+      const double position = state.data->qpos[joints[k].qposAddress];
+      if (i + 1 == settleSteps) settled[k] = position;
+      drift.sinceCaught = std::max(drift.sinceCaught, std::abs(position - caught[k]));
+      if (i >= settleSteps) drift.sinceSettled = std::max(drift.sinceSettled, std::abs(position - settled[k]));
+    }
+  }
+  LOG(INFO) << robot.scene << " on " << hold << ": largest joint drift " << drift.sinceCaught << " rad since caught, " << drift.sinceSettled
+            << " rad over " << seconds << " s after " << settleSeconds << " s";
+  return drift;
+}
+
 TEST(SimGantry, MuJoCosOwnAutomaticResetIsDisabled) {
   // The simulator recovers from a bad step itself, without rewinding the clock (see the header comment above).
-  const std::unique_ptr<MujocoSimInterface> sim = makeSim(true);
+  const std::unique_ptr<MujocoSimInterface> sim = makeSim(/*gantryLocked=*/true);
   EXPECT_NE(sim->getModel()->opt.disableflags & mjDSBL_AUTORESET, 0);
 }
 
 TEST(SimGantry, TheGantryHoldsTheRobotWhereItWasCaught) {
   // A robot caught 5 m and 3 m from the origin, turned by 1 rad: the gantry holds it there, at the gantry height and
   // with its heading, instead of welding it back to the scene's anchor above the origin facing +x.
-  const std::unique_ptr<MujocoSimInterface> sim = makeSim(false);
+  const std::unique_ptr<MujocoSimInterface> sim = makeSim(/*gantryLocked=*/false);
   const double height = sim->getGantryHeight();
   ASSERT_GT(height, 0.5);
   sim->setBaseStateForTesting(basePose(/*x=*/5.0, /*y=*/-3.0, height, /*yaw=*/1.0), kAtRest);
@@ -138,8 +268,59 @@ TEST(SimGantry, TheGantryHoldsTheRobotWhereItWasCaught) {
   EXPECT_EQ(sim->resetEpoch(), 0u) << "holding the robot must not have needed a reset";
 }
 
+TEST(SimGantry, EveryWeldedSceneHoldsItsRobotWhereItWasCaught) {
+  // Each scene's weld holds its own robot's base (body2) from the world (body1), so that a robot caught away from the
+  // origin and turned hangs there, at the gantry height and with its heading.
+  for (const WeldedScene& robot : weldedScenes()) {
+    const std::unique_ptr<MujocoSimInterface> sim = makeSimOf(robot, /*gantryLocked=*/false);
+    ASSERT_EQ(sim->gantryHold(), GantryHold::kWeldConstraint) << robot.scene << " fell back from its weld";
+    const double height = sim->getGantryHeight();
+    ASSERT_GT(height, 0.5) << robot.scene;
+    sim->setBaseStateForTesting(basePose(/*x=*/2.0, /*y=*/-1.0, height, /*yaw=*/0.7), kAtRest);
+    step(*sim, /*steps=*/5);
+    sim->lockGantry();
+    step(*sim, stepsFor(*sim, /*seconds=*/2.0));
+
+    const BaseSnapshot held = snapshot(*sim);
+    ASSERT_TRUE(held.finite) << robot.scene;
+    EXPECT_NEAR(held.x, 2.0, 0.05) << robot.scene;
+    EXPECT_NEAR(held.y, -1.0, 0.05) << robot.scene;
+    EXPECT_NEAR(held.z, height, 0.05) << robot.scene;
+    EXPECT_NEAR(held.yaw, 0.7, 0.05) << robot.scene;
+    EXPECT_EQ(sim->resetEpoch(), 0u) << robot.scene;
+  }
+}
+
+TEST(SimGantry, OnEveryWeldedSceneGravityCompensationHoldsTheLimbsWhereTheyHang) {
+  // The acceptance test of GRAVITY_COMP on the gantry: the limbs hover in place, neither float up nor sink. The weld
+  // carries the base while mj_step integrates the dynamics, so each joint's gravity torque holds exactly its links'
+  // weight. The weld is a soft constraint: taking the robot's weight in the first 0.1 s, it lets the base sag by under a
+  // millimeter and pitch by up to 0.4 deg, which swings the limbs by up to 0.4 deg (the R1's hips). The DRC Atlas's
+  // heavy torso then settles slowest, by 2 mrad over 8 s on its back pitch joint; the others hold to 1e-5 rad within
+  // the first second. Settled, every joint holds to the fourth decimal.
+  constexpr double kCatch = 0.01;    // [rad], 0.6 deg over the whole run: the swing of the catch and the settling
+  constexpr double kHover = 1.0e-4;  // [rad], 0.006 deg over 3 s, settled
+  for (const WeldedScene& robot : weldedScenes()) {
+    const JointDrift drift =
+        jointDriftUnderGravityCompensation(robot, kWeldConstraintGantryHoldName, /*settleSeconds=*/8.0, /*seconds=*/3.0);
+    EXPECT_LT(drift.sinceCaught, kCatch) << robot.scene;
+    EXPECT_LT(drift.sinceSettled, kHover) << robot.scene;
+  }
+}
+
+TEST(SimGantry, OnKinematicTeleportTheSameTorquesDriveTheLimbsAway) {
+  // The legacy hold leaves the base in free fall during each step, where a chain keeps its shape with no joint torque at
+  // all: the gravity torque is surplus lift, and the limbs leave their posture by tens of degrees, into the stops.
+  constexpr double kDrift = 0.5;  // [rad], 29 deg in 3 s
+  for (const WeldedScene& robot : weldedScenes()) {
+    const JointDrift drift =
+        jointDriftUnderGravityCompensation(robot, kKinematicTeleportGantryHoldName, /*settleSeconds=*/0.0, /*seconds=*/3.0);
+    EXPECT_GT(drift.sinceCaught, kDrift) << robot.scene;
+  }
+}
+
 TEST(SimGantry, EachLockAnchorsAtWhereTheRobotIsThen) {
-  const std::unique_ptr<MujocoSimInterface> sim = makeSim(false);
+  const std::unique_ptr<MujocoSimInterface> sim = makeSim(/*gantryLocked=*/false);
   const double height = sim->getGantryHeight();
   sim->setBaseStateForTesting(basePose(/*x=*/1.0, /*y=*/1.0, height, /*yaw=*/0.0), kAtRest);
   sim->lockGantry();
@@ -158,8 +339,62 @@ TEST(SimGantry, EachLockAnchorsAtWhereTheRobotIsThen) {
   EXPECT_NEAR(held.yaw, -0.5, 0.05);
 }
 
+/** The relpose quaternion (w, x, y, z) of the scene's gantry weld, its first weld constraint. */
+std::array<double, 4> weldRelposeQuaternion(const MujocoSimInterface& sim) {
+  // MuJoCo's weld data: the anchor (3), the relpose position (3), the relpose quaternion (4) and the torque scale.
+  constexpr int kRelposeQuaternionOffset = 6;
+  const mjModel* absl_nonnull model = sim.getModel();
+  for (int id = 0; id < model->neq; ++id) {
+    if (model->eq_type[id] != mjEQ_WELD) continue;
+    const mjtNum* absl_nonnull data = model->eq_data + mjNEQDATA * id + kRelposeQuaternionOffset;
+    return {data[0], data[1], data[2], data[3]};
+  }
+  ADD_FAILURE() << "the scene declares no weld";
+  return {1.0, 0.0, 0.0, 0.0};
+}
+
+TEST(SimGantry, ACatchAnchorsAtTheNearestUprightAttitude) {
+  // Caught with yaw 0.4, pitch 0.75 and roll 0.75 (ZYX): the anchor is the twist of the attitude about the vertical,
+  // the nearest upright attitude, whose heading 2 atan2(z, w) differs from the ZYX yaw by about 0.31 rad here. The
+  // ZYX yaw's anchor turned the robot about the vertical while the weld lifted it upright.
+  const std::unique_ptr<MujocoSimInterface> sim = makeSim(/*gantryLocked=*/false);
+  const double height = sim->getGantryHeight();
+  constexpr double kYaw = 0.4;
+  constexpr double kPitch = 0.75;
+  constexpr double kRoll = 0.75;
+  // q = q_z(yaw) q_y(pitch) q_x(roll), (w, x, y, z).
+  const double cy = std::cos(0.5 * kYaw);
+  const double sy = std::sin(0.5 * kYaw);
+  const double cp = std::cos(0.5 * kPitch);
+  const double sp = std::sin(0.5 * kPitch);
+  const double cr = std::cos(0.5 * kRoll);
+  const double sr = std::sin(0.5 * kRoll);
+  const std::array<double, 4> tilted = {cy * cp * cr + sy * sp * sr, cy * cp * sr - sy * sp * cr, cy * sp * cr + sy * cp * sr,
+                                        sy * cp * cr - cy * sp * sr};
+  sim->setBaseStateForTesting({1.0, 2.0, height, tilted[0], tilted[1], tilted[2], tilted[3]}, kAtRest);
+  sim->lockGantry();
+  step(*sim, /*steps=*/1);
+  const double twistHeading = 2.0 * std::atan2(tilted[3], tilted[0]);
+  EXPECT_NEAR(twistHeading, 0.0926, 1.0e-3);
+  const std::array<double, 4> anchored = weldRelposeQuaternion(*sim);
+  EXPECT_NEAR(anchored[0], std::cos(0.5 * twistHeading), 1.0e-9);
+  EXPECT_NEAR(anchored[1], 0.0, 1.0e-12);
+  EXPECT_NEAR(anchored[2], 0.0, 1.0e-12);
+  EXPECT_NEAR(anchored[3], std::sin(0.5 * twistHeading), 1.0e-9);
+
+  // A level robot is anchored at its own heading.
+  sim->unlockGantry();
+  step(*sim, /*steps=*/1);
+  sim->setBaseStateForTesting(basePose(/*x=*/0.0, /*y=*/0.0, height, /*yaw=*/1.0), kAtRest);
+  sim->lockGantry();
+  step(*sim, /*steps=*/1);
+  const std::array<double, 4> level = weldRelposeQuaternion(*sim);
+  EXPECT_NEAR(level[0], std::cos(0.5), 1.0e-9);
+  EXPECT_NEAR(level[3], std::sin(0.5), 1.0e-9);
+}
+
 TEST(SimGantry, AnUnstableStepIsRecoveredWithoutRewindingTheClock) {
-  const std::unique_ptr<MujocoSimInterface> sim = makeSim(false);
+  const std::unique_ptr<MujocoSimInterface> sim = makeSim(/*gantryLocked=*/false);
   step(*sim, /*steps=*/200);
   const BaseSnapshot before = snapshot(*sim);
   ASSERT_GT(before.time, 0.0);
@@ -186,7 +421,7 @@ TEST(SimGantry, AnUnstableStepIsRecoveredWithoutRewindingTheClock) {
 }
 
 TEST(SimGantry, ABaseBelowTheFloorLimitIsResetCaughtAndCounted) {
-  const std::unique_ptr<MujocoSimInterface> sim = makeSim(false);
+  const std::unique_ptr<MujocoSimInterface> sim = makeSim(/*gantryLocked=*/false);
   step(*sim, /*steps=*/100);
   const double time = snapshot(*sim).time;
   sim->setBaseStateForTesting(basePose(2.0, 0.0, 0.1, 0.0), kAtRest);
@@ -198,7 +433,7 @@ TEST(SimGantry, ABaseBelowTheFloorLimitIsResetCaughtAndCounted) {
 }
 
 TEST(SimGantry, AnExplicitResetKeepsTheClockAndCounts) {
-  const std::unique_ptr<MujocoSimInterface> sim = makeSim(true);
+  const std::unique_ptr<MujocoSimInterface> sim = makeSim(/*gantryLocked=*/true);
   step(*sim, /*steps=*/300);
   const double time = snapshot(*sim).time;
   sim->reset();

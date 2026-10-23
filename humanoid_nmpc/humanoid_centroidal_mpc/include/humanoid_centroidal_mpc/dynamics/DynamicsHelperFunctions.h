@@ -30,18 +30,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <pinocchio/fwd.hpp>
+#include "pinocchio/fwd.hpp"
 
 #include <array>
-#include <cppad/cg.hpp>
-#include <iostream>
 #include <memory>
 
-#include <pinocchio/algorithm/center-of-mass.hpp>
-
-#include <ocs2_centroidal_model/AccessHelperFunctions.h>
-#include <ocs2_pinocchio_interface/PinocchioInterface.h>
-#include <ocs2_robotic_tools/common/RotationTransforms.h>
+#include "cppad/cg.hpp"
+#include "ocs2_centroidal_model/AccessHelperFunctions.h"
+#include "ocs2_core/PhysicalConstants.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
+#include "ocs2_robotic_tools/common/RotationTransforms.h"
+#include "pinocchio/algorithm/center-of-mass.hpp"
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
@@ -62,12 +61,12 @@ inline vector_t weightCompensatingInput(const CentroidalModelInfoTpl<scalar_t>& 
                                         const MpcRobotModelBase<scalar_t>& mpcRobotModel) {
   // The mass of THIS model, read per call: a function-static cache kept the first model's weight for every model in the
   // process.
-  const scalar_t totalGravitationalForce = info.robotMass * 9.81;
+  const scalar_t totalGravitationalForce = info.robotMass * kGravitationalAcceleration;
   const size_t numStanceLegs = numberOfLegsInContacts(contactFlags);
   vector_t input = vector_t::Zero(mpcRobotModel.getInputDim());
   if (numStanceLegs > 0) {
     const vector3_t forceInInertialFrame(0.0, 0.0, totalGravitationalForce / numStanceLegs);
-    for (size_t i = 0; i < contactFlags.size(); i++) {
+    for (size_t i = 0; i < contactFlags.size(); ++i) {
       if (contactFlags[i]) {
         mpcRobotModel.setContactForce(input, forceInInertialFrame, i);
       }
@@ -85,12 +84,12 @@ inline vector_t weightCompensatingInput(const CentroidalModelInfoTpl<scalar_t>& 
                                         const vector_t& state) {
   // The mass of THIS model, read per call: a function-static cache kept the first model's weight for every model in the
   // process.
-  const scalar_t totalGravitationalForce = info.robotMass * 9.81;
+  const scalar_t totalGravitationalForce = info.robotMass * kGravitationalAcceleration;
   const size_t numStanceLegs = numberOfLegsInContacts(contactFlags);
   vector_t input = vector_t::Zero(mpcRobotModel.getInputDim());
   if (numStanceLegs > 0) {
     const vector3_t forceInInertialFrame(0.0, 0.0, totalGravitationalForce / numStanceLegs);
-    for (size_t i = 0; i < contactFlags.size(); i++) {
+    for (size_t i = 0; i < contactFlags.size(); ++i) {
       if (contactFlags[i]) {
         mpcRobotModel.setContactForceInWorldFrame(state, input, forceInInertialFrame, i);
       }

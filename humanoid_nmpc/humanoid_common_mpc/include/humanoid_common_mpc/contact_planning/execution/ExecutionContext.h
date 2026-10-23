@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -25,6 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include "absl/base/nullability.h"
+
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlan.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
@@ -32,16 +38,19 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * What the execution rules of the reference manager read at one solver cycle: the measured contact state, the active
- * plan, the measured and predicted center of mass, and the per-foot touch-down shifts the cadence rule computes for
- * the schedule adaptation. Filled by ContactPlanningReferenceManager::modifyReferences() (and, for the tests, by
- * adaptScheduleToContactEvents()).
+ * What the execution rules of the reference manager read at one solver cycle: the configuration, the measured contact
+ * state, the active plan, the measured and predicted center of mass, and the per-foot touch-down shifts the cadence rule
+ * computes for the schedule adaptation. Filled by ContactPlanningReferenceManager::modifyReferences() (and, for the
+ * tests, by adaptScheduleToContactEvents()).
  */
 struct ExecutionContext {
+  /** A context of `config`, which must outlive it; every other field at its default. */
+  explicit ExecutionContext(const ContactPlanningConfig& config) : config(&config) {}
+
   scalar_t time = 0.0;
   contact_flag_t measuredContact = makeFeetArray(true);
-  const ContactPlan* activePlan = nullptr;  // a valid plan, or null while none is active
-  const ContactPlanningConfig* config = nullptr;
+  const ContactPlan* absl_nullable activePlan = nullptr;  // a valid plan, or null while none is active
+  const ContactPlanningConfig* absl_nonnull config;       // the configuration of the cycle (the constructor's)
   bool hasPredictedComState = false;
   vector2_t com = vector2_t::Zero();  // measured CoM position / velocity at this cycle
   vector2_t comVelocity = vector2_t::Zero();

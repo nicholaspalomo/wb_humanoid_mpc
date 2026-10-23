@@ -1,0 +1,55 @@
+# proto-file: robot_runtime/robot_ipc/proto/network_config.proto
+# proto-message: robot_ipc_proto.NetworkConfig
+#
+# An example network file for the hardware split (humanoid_nmpc/docs/distributed_runtime/README.md, "Deployment"):
+# the robot process on the robot's computer, the MPC node, the GUI and the teleoperation on the laptop. Copy it, put the
+# two machines' addresses in `host`, and give the same file to both sides:
+#
+#   make deploy-robot ROBOT=drc_atlas HOST=<robot> NETWORK=<this file>   # copied next to the robot's compose file
+#   make launch-drc-atlas-mpc NETWORK=<this file>                         # on the laptop
+#
+# Discovery is unicast to both hosts (Wi-Fi multicast is unreliable), and each process uses the network interface of its
+# node's host, which must be an address of its machine. Each machine must accept UDP from the other on the bus's ports:
+# 7410-7449 for domain 0 (7400 + 250 * domain_id + 10..49), e.g.
+#
+#   sudo ufw allow from <laptop address> to any port 7410:7449 proto udp    # on the robot
+#   sudo ufw allow from <robot address> to any port 7410:7449 proto udp     # on the laptop
+#
+# An address that changes (DHCP) needs a new file: give the robot a static address or a DHCP reservation. The kernels
+# must allow the receive buffer below: the Makefile's launch and deploy targets raise net.core.rmem_max to it on both
+# machines (sudo, once per machine; make udp-buffers NETWORK=<this file> [HOST=<robot>], tools/deploy/README.md).
+
+# LINT.IfChange(dds_ports)
+domain_id: 0
+# LINT.ThenChange(//config/ipc/network.textproto:dds_ports, //tools/deploy/netem.sh:bus_ports, //docker-compose.bridge.yaml:bus_ports, //.devcontainer/README.md:bus_ports)
+
+# LINT.IfChange(two_machine_nodes)
+nodes { name: "robot"        host: "192.168.1.10" }  # the robot's computer
+nodes { name: "mpc"          host: "192.168.1.20" }  # the laptop: the MPC node
+nodes { name: "operator"     host: "192.168.1.20" }  # the laptop: the remote_control GUI
+nodes { name: "teleop"       host: "192.168.1.20" }  # the laptop: teleoperation
+nodes { name: "config_push"  host: "192.168.1.20" }  # the laptop: push_robot_config
+# LINT.ThenChange(//config/ipc/network.textproto:localhost_nodes)
+
+# LINT.IfChange(two_machine_topics)
+topics { name: "robot/mpc_observation"             qos_profile: "latest"           publishers: "robot" }
+topics { name: "robot/state"                       qos_profile: "latest"           publishers: "robot" }
+topics { name: "robot/fsm_state"                   qos_profile: "reliable_latest"  publishers: "robot" }
+topics { name: "robot/loop_timing"                 qos_profile: "latest"           publishers: "robot" }
+topics { name: "robot/config_save_status"          qos_profile: "reliable_events"  publishers: "robot" }
+topics { name: "mpc/policy"                        qos_profile: "reliable_latest"  publishers: "mpc" }
+topics { name: "mpc/status"                        qos_profile: "reliable_latest"  publishers: "mpc" }
+topics { name: "viz/scene"                         qos_profile: "reliable_latest"  publishers: "mpc" }
+topics { name: "viz/telemetry"                     qos_profile: "latest"           publishers: "mpc" }
+topics { name: "operator/walking_velocity_command" qos_profile: "latest"           publishers: ["operator", "teleop"] }
+topics { name: "operator/fsm_command"              qos_profile: "reliable_events"  publishers: "operator" }
+topics { name: "operator/mpc_parameters"           qos_profile: "reliable_latest"  publishers: "operator" }
+topics { name: "operator/pd_gains"                 qos_profile: "reliable_latest"  publishers: "operator" }
+topics { name: "operator/joint_targets"            qos_profile: "reliable_latest"  publishers: "operator" }
+topics { name: "operator/dodgeball_throw"          qos_profile: "reliable_events"  publishers: "operator" }
+topics { name: "operator/config_save"              qos_profile: "reliable_events"  publishers: ["operator", "config_push"] }
+# LINT.ThenChange(//config/ipc/network.textproto:topic_qos)
+
+# Wi-Fi: datagrams within one 1500 B frame, so that a lost frame costs one DDS fragment, which RELIABLE sends again,
+# instead of a 14 kB datagram; a receive buffer of ten policies; a peer that vanished is unmatched after 3 s.
+transport { max_message_size_bytes: 1400 socket_receive_buffer_bytes: 8388608 lease_duration_ms: 3000 }

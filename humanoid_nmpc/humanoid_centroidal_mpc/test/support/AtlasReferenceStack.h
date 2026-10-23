@@ -32,20 +32,23 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <memory>
 #include <string>
 
-#include <ocs2_centroidal_model/CentroidalModelInfo.h>
-#include <ocs2_mpc/MPC_Settings.h>
-#include <ocs2_mpc_test/ScriptedMpc.h>
-#include <ocs2_pinocchio_interface/PinocchioInterface.h>
-
+#include "absl/base/nullability.h"
 #include "absl/strings/string_view.h"
+#include "ocs2_centroidal_model/CentroidalModelInfo.h"
+#include "ocs2_mpc/MPC_Settings.h"
+#include "ocs2_mpc_test/ScriptedMpc.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
 
+#include "humanoid_centroidal_mpc/CentroidalMpcConfig.h"
 #include "humanoid_centroidal_mpc/command/CentroidalMpcTargetTrajectoriesCalculator.h"
 #include "humanoid_centroidal_mpc/common/CentroidalMpcRobotModel.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
+#include "humanoid_common_mpc/config/ConfigFiles.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlannerModule.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningReferenceManager.h"
 #include "humanoid_common_mpc/reference_manager/ProceduralMpcMotionManager.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
+#include "humanoid_mpc_config/contact_planning_file.nproto.h"
 
 namespace ocs2::humanoid {
 
@@ -53,9 +56,9 @@ namespace ocs2::humanoid {
 std::string atlasRunfilePath(absl::string_view relativePath);
 
 /**
- * The DRC Atlas references of the centroidal MPC, wired as CentroidalMpcRobotSim wires them - reference manager, gait
- * schedule, swing trajectories, target calculator, procedural motion manager, and under contact planning the planner
- * module - around an ocs2::mpc_test::ScriptedMpc instead of the SQP solver. Every run() of that MPC goes through
+ * The DRC Atlas references of the centroidal MPC, wired as the MPC node (CentroidalMpcNode) wires them - reference
+ * manager, gait schedule, swing trajectories, target calculator, procedural motion manager, and under contact planning
+ * the planner module - around an ocs2::mpc_test::ScriptedMpc instead of the SQP solver. Every run() of that MPC goes through
  * SolverBase::run(), so the reference manager and the modules run exactly as they do before a real solve, and a reset of
  * the MPC resets them exactly as MPC_BASE::reset() does in the robot's controller. No CppAD model is built.
  */
@@ -71,18 +74,28 @@ class AtlasReferenceStack {
    */
   explicit AtlasReferenceStack(ScheduleSource scheduleSource = ScheduleSource::kGaitSchedule, absl::string_view plannerType = "");
 
+  /**
+   * The stack as above under the contact planner, started from `contactPlanningFile` in place of the shipped contact
+   * planner's file (read at construction, not retained): a fresh start on an edited file, for the reload tests.
+   */
+  AtlasReferenceStack(const mpc_config::ContactPlanningFile& contactPlanningFile, absl::string_view plannerType);
+
+  /** The typed DRC Atlas files the stack is built from: its task, reference and contact planner's file. */
+  const CentroidalMpcConfig& config() const { return config_; }
   const ModelSettings& modelSettings() const { return *modelSettings_; }
   const PinocchioInterface& pinocchioInterface() const { return *pinocchioInterface_; }
   const CentroidalModelInfo& centroidalModelInfo() const { return info_; }
   const CentroidalMpcRobotModel<scalar_t>& model() const { return *model_; }
-  /** The task file's initialState: the robot standing at the origin. */
+  /** The task file's initial_state: the robot standing at the origin. */
   const vector_t& initialState() const { return initialState_; }
   scalar_t horizon() const { return mpcSettings_.timeHorizon_; }
 
   SwitchedModelReferenceManager& referenceManager() { return *referenceManager_; }
+  /** The reference manager, shared, for a component that keeps it as the stack's own ones do. */
+  std::shared_ptr<SwitchedModelReferenceManager> referenceManagerPtr() const { return referenceManager_; }
   /** Null under the gait schedule. */
-  ContactPlanningReferenceManager* planningReferenceManager() { return planningReferenceManager_.get(); }
-  ContactPlannerModule* contactPlannerModule() { return contactPlannerModule_.get(); }
+  ContactPlanningReferenceManager* absl_nullable planningReferenceManager() { return planningReferenceManager_.get(); }
+  ContactPlannerModule* absl_nullable contactPlannerModule() { return contactPlannerModule_.get(); }
   ProceduralMpcMotionManager& motionManager() { return *motionManager_; }
   CentroidalMpcTargetTrajectoriesCalculator& targetCalculator() { return *targetCalculator_; }
   mpc_test::ScriptedMpc& mpc() { return *mpc_; }
@@ -96,16 +109,20 @@ class AtlasReferenceStack {
   /** `state` moved to base position (x, y) and heading `yaw`, standing still. */
   vector_t standingAt(const vector_t& state, scalar_t x, scalar_t y, scalar_t yaw) const;
 
+  /** The paths of the DRC Atlas files in the runfiles: the task, reference and gait textprotos and the URDF. */
   const std::string& taskFile() const { return taskFile_; }
   const std::string& referenceFile() const { return referenceFile_; }
   const std::string& urdfFile() const { return urdfFile_; }
   const std::string& gaitFile() const { return gaitFile_; }
+  /** The DRC Atlas joint PD gains file beside the task file (config/controller/joint_pd_gains.textproto). */
+  std::string pdGainsFile() const { return jointPdGainsFileBeside(taskFile_); }
 
  private:
   std::string taskFile_;
   std::string referenceFile_;
   std::string urdfFile_;
   std::string gaitFile_;
+  CentroidalMpcConfig config_;
 
   mpc::Settings mpcSettings_;
   std::unique_ptr<ModelSettings> modelSettings_;
@@ -120,6 +137,11 @@ class AtlasReferenceStack {
   std::unique_ptr<CentroidalMpcTargetTrajectoriesCalculator> targetCalculator_;
   std::shared_ptr<ProceduralMpcMotionManager> motionManager_;
   std::unique_ptr<mpc_test::ScriptedMpc> mpc_;
+
+  /** Builds the stack; `contactPlanningFile` (null: the shipped one) replaces the contact planner's file. */
+  void build(ScheduleSource scheduleSource,
+             absl::string_view plannerType,
+             const mpc_config::ContactPlanningFile* absl_nullable contactPlanningFile);
 };
 
 }  // namespace ocs2::humanoid

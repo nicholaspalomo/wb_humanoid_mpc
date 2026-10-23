@@ -1,0 +1,33 @@
+syntax = "proto3";
+
+package nproto_test;
+
+import "nproto/options.proto";
+import "tools/nproto/test/outer.proto";
+import "tools/nproto/test/scalars.proto";
+import "tools/nproto/test/severity.proto";
+
+// Oneofs become std::variant members, with std::monostate for "none set" and two alternatives of one type.
+// Next ID: 11
+message Oneofs {
+  option (nproto.generate_struct) = "nproto::test::Oneofs";
+
+  reserved 11 to max;
+
+  // The shape of something.
+  oneof shape {
+    double radius = 1;
+    // A second double alternative: the variant tells them apart by index.
+    double side = 2;
+    string label = 3;
+    Scalars scalars = 4;
+    Severity severity = 5;
+    Outer.Inner inner = 6;
+    bytes blob = 7;
+  }
+  oneof flag {
+    bool enabled = 8;
+    int64 count = 9;
+  }
+  int32 plain = 10;
+}

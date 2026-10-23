@@ -30,42 +30,71 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_centroidal_mpc/constraint/JointMimicKinematicConstraint.h"
 
+#include <memory>
+#include <string>
+#include <utility>
+
+#include "absl/memory/memory.h"
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
+#include "absl/strings/str_cat.h"
+
+#include "humanoid_common_mpc/common/StatusMacros.h"
+
 namespace ocs2::humanoid {
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
 
+absl::StatusOr<std::unique_ptr<JointMimicKinematicConstraint>> JointMimicKinematicConstraint::Create(
+    const MpcRobotModelBase<scalar_t>& mpcRobotModel,
+    const std::string& parentJointName,
+    const std::string& childJointName,
+    scalar_t multiplier,
+    scalar_t positionGain) {
+  // Negated, so that NaN is refused too.
+  if (!(positionGain > 0.0)) {
+    return absl::InvalidArgumentError(absl::StrCat("[JointMimicKinematicConstraint] the positionGain of the mimic joint ", childJointName,
+                                                   " must be positive, got ", positionGain));
+  }
+  Config config;
+  config.parentJointName = parentJointName;
+  config.childJointName = childJointName;
+  ASSIGN_OR_RETURN(config.parentJointIndex, mpcRobotModel.findJointIndex(parentJointName));
+  ASSIGN_OR_RETURN(config.childJointIndex, mpcRobotModel.findJointIndex(childJointName));
+  config.multiplier = multiplier;
+  config.positionGain = positionGain;
+  // The constructor is private, so std::make_unique cannot reach it.
+  return absl::WrapUnique(new JointMimicKinematicConstraint(mpcRobotModel, std::move(config)));
+}
+
 JointMimicKinematicConstraint::JointMimicKinematicConstraint(const MpcRobotModelBase<scalar_t>& mpcRobotModel, Config config)
-    : StateInputConstraint(ConstraintOrder::Linear), mpcRobotModelPtr_(&mpcRobotModel), config_(config) {}
+    : StateInputConstraint(ConstraintOrder::Linear), mpcRobotModelPtr_(&mpcRobotModel), config_(std::move(config)) {}
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-JointMimicKinematicConstraint::JointMimicKinematicConstraint(const JointMimicKinematicConstraint& rhs)
-    : StateInputConstraint(rhs),
-      mpcRobotModelPtr_(rhs.mpcRobotModelPtr_),
-      config_(rhs.config_),
-      // isActive_ is copied deliberately: the SQP solver clones the whole problem once per worker thread,
-      // and a copy constructor that dropped this flag silently reverted a deactivated term to active.
-      isActive_(rhs.isActive_) {}
+// isActive_ is copied deliberately: the SQP solver clones the whole problem once per worker thread,
+// and a copy constructor that dropped this flag silently reverted a deactivated term to active.
+JointMimicKinematicConstraint::JointMimicKinematicConstraint(const JointMimicKinematicConstraint& rhs) = default;
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-bool JointMimicKinematicConstraint::isActive(scalar_t time) const {
+bool JointMimicKinematicConstraint::isActive(scalar_t /*time*/) const {
   return isActive_;
 }
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-vector_t JointMimicKinematicConstraint::getValue(scalar_t time,
+vector_t JointMimicKinematicConstraint::getValue(scalar_t /*time*/,
                                                  const vector_t& state,
                                                  const vector_t& input,
-                                                 const PreComputation& preComp) const {
+                                                 const PreComputation& /*preComp*/) const {
   vector_t jointAngles = mpcRobotModelPtr_->getJointAngles(state);
   vector_t jointVelocities = mpcRobotModelPtr_->getJointVelocities(state, input);
   scalar_t posError = config_.multiplier * jointAngles[config_.parentJointIndex] - jointAngles[config_.childJointIndex];

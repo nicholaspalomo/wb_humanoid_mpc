@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -23,10 +27,10 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <gtest/gtest.h>
-
 #include <cmath>
 #include <optional>
+
+#include "gtest/gtest.h"
 
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
@@ -35,7 +39,7 @@ namespace ocs2::humanoid {
 
 namespace {
 
-constexpr scalar_t kTol = 1e-9;
+constexpr scalar_t kTol = 1.0e-9;
 constexpr scalar_t kLiftOff = 1.0;
 constexpr scalar_t kTouchDown = 1.5;  // a 0.5 s swing, longer than swingTimeScale so nothing is scaled down
 constexpr scalar_t kTerrainHeight = 0.0;
@@ -59,7 +63,7 @@ SwingTrajectoryPlanner::Config atlasConfig(scalar_t touchDownVelocity) {
 }
 
 SwingTrajectoryPlanner plannerWith(scalar_t touchDownVelocity) {
-  SwingTrajectoryPlanner planner(atlasConfig(touchDownVelocity), N_CONTACTS);
+  SwingTrajectoryPlanner planner(atlasConfig(touchDownVelocity), kNumContacts);
   planner.update(singleSwingSchedule(), kTerrainHeight);
   return planner;
 }
@@ -141,11 +145,11 @@ TEST(SwingLandingVelocity, ADescentRateKeepsMoreClearanceOverTheFinalApproach) {
  * so the swing is sampled just after lift-off.
  */
 TEST(SwingLandingVelocity, LiftOffIsUnaffectedByTheDescentRate) {
-  constexpr scalar_t kJustAfter = 1e-9;
+  constexpr scalar_t kJustAfter = 1.0e-9;
   for (const scalar_t touchDownVelocity : {-0.05, 0.0}) {
     const SwingTrajectoryPlanner planner = plannerWith(touchDownVelocity);
-    EXPECT_NEAR(planner.getZvelocityConstraint(/*leg=*/0, kLiftOff + kJustAfter), 0.05, 1e-7);
-    EXPECT_NEAR(planner.getZpositionConstraint(/*leg=*/0, kLiftOff + kJustAfter), kTerrainHeight, 1e-7);
+    EXPECT_NEAR(planner.getZvelocityConstraint(/*leg=*/0, kLiftOff + kJustAfter), 0.05, 1.0e-7);
+    EXPECT_NEAR(planner.getZpositionConstraint(/*leg=*/0, kLiftOff + kJustAfter), kTerrainHeight, 1.0e-7);
     // Still standing at the instant of lift-off.
     EXPECT_NEAR(planner.getZvelocityConstraint(/*leg=*/0, kLiftOff), 0.0, kTol);
   }
@@ -172,12 +176,13 @@ TEST(SwingLandingVelocity, AnExtendedSwingContinuesDownAtTheSearchVelocity) {
   const scalar_array_t touchDownHeights(3, kTerrainHeight + config.touchDownHeightOffset);
   feet_array_t<std::optional<SwingTrajectoryPlanner::GroundSearch>> searches =
       makeFeetArray(std::optional<SwingTrajectoryPlanner::GroundSearch>{});
-  searches[0] = SwingTrajectoryPlanner::GroundSearch{kLiftOff, kTouchDown, kSearchVelocity};
-  SwingTrajectoryPlanner extended(config, N_CONTACTS);
+  searches[0] =
+      SwingTrajectoryPlanner::GroundSearch{.liftOffTime = kLiftOff, .plannedTouchDownTime = kTouchDown, .descentVelocity = kSearchVelocity};
+  SwingTrajectoryPlanner extended(config, kNumContacts);
   extended.update(extendedSchedule, makeFeetArray(liftOffHeights), makeFeetArray(touchDownHeights), searches);
 
   // Up to the planned touch-down nothing changes.
-  for (scalar_t t = kLiftOff + 1e-6; t <= kTouchDown; t += 0.01) {
+  for (scalar_t t = kLiftOff + 1.0e-6; t <= kTouchDown; t += 0.01) {
     EXPECT_NEAR(extended.getZpositionConstraint(/*leg=*/0, t), planned.getZpositionConstraint(/*leg=*/0, t), kTol) << "t=" << t;
     EXPECT_NEAR(extended.getZvelocityConstraint(/*leg=*/0, t), planned.getZvelocityConstraint(/*leg=*/0, t), kTol) << "t=" << t;
   }
@@ -191,18 +196,18 @@ TEST(SwingLandingVelocity, AnExtendedSwingContinuesDownAtTheSearchVelocity) {
     EXPECT_NEAR(extended.getImpactProximityFactor(/*leg=*/0, t), 1.0, kTol) << "the touch-down proximity is held, t=" << t;
   }
   // The foot is back in contact at the extended touch-down.
-  EXPECT_NEAR(extended.getZvelocityConstraint(/*leg=*/0, kTouchDown + kExtension + 1e-6), 0.0, kTol);
+  EXPECT_NEAR(extended.getZvelocityConstraint(/*leg=*/0, kTouchDown + kExtension + 1.0e-6), 0.0, kTol);
 
   // What re-fitting the spline over the extended swing did instead: right after the planned touch-down the reference
   // sits higher and descends much faster than the search velocity.
-  SwingTrajectoryPlanner refitted(config, N_CONTACTS);
+  SwingTrajectoryPlanner refitted(config, kNumContacts);
   refitted.update(extendedSchedule, kTerrainHeight);
   const scalar_t probe = kTouchDown + 0.005;
-  EXPECT_GT(refitted.getZpositionConstraint(/*leg=*/0, probe), extended.getZpositionConstraint(/*leg=*/0, probe) + 2e-3);
+  EXPECT_GT(refitted.getZpositionConstraint(/*leg=*/0, probe), extended.getZpositionConstraint(/*leg=*/0, probe) + 2.0e-3);
   EXPECT_LT(refitted.getZvelocityConstraint(/*leg=*/0, probe), -2.0 * kSearchVelocity);
 
   // A search that does not name this swing (or a zero velocity) leaves the reference at the planned touch-down height.
-  searches[0] = SwingTrajectoryPlanner::GroundSearch{kLiftOff, kTouchDown, 0.0};
+  searches[0] = SwingTrajectoryPlanner::GroundSearch{.liftOffTime = kLiftOff, .plannedTouchDownTime = kTouchDown, .descentVelocity = 0.0};
   extended.update(extendedSchedule, makeFeetArray(liftOffHeights), makeFeetArray(touchDownHeights), searches);
   EXPECT_NEAR(extended.getZpositionConstraint(/*leg=*/0, kTouchDown + 0.03), landingHeight, kTol);
   EXPECT_NEAR(extended.getZvelocityConstraint(/*leg=*/0, kTouchDown + 0.03), 0.0, kTol);

@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -29,7 +33,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <functional>
 #include <vector>
 
-#include <ocs2_core/Types.h>
+#include "absl/base/nullability.h"
+#include "absl/status/statusor.h"
+#include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc/contact_planning/OcpQpHpipm.h"
 
@@ -42,8 +48,8 @@ struct MiqpBinaryVariable {
 };
 
 /** Value of a binary variable in a (partial) assignment: -1 free, 0 or 1 fixed. */
-using MiqpAssignment = std::vector<std::int8_t>;
-constexpr std::int8_t kMiqpFree = -1;
+using MiqpAssignment = std::vector<int8_t>;
+inline constexpr int8_t kMiqpFree = -1;
 
 /**
  * Logical propagation hook. Receives a partial assignment, may fix further variables that are implied by the fixed ones, and
@@ -64,16 +70,24 @@ using MiqpPropagateFn = std::function<bool(MiqpAssignment& assignment)>;
  */
 using MiqpAssignmentCostFn = std::function<scalar_t(const MiqpAssignment& assignment)>;
 
+/** The limits and switches of one branch-and-bound search (MixedIntegerOcpQp). Passive data. */
 struct MiqpSettings {
-  int maxNodes = 300;              // branch-and-bound node limit (QP relaxations solved, heuristics included)
-  scalar_t maxSolveTime = 0.1;     // [s] wall-clock limit; the best incumbent so far is returned when exceeded
-  scalar_t integralityTol = 1e-4;  // |v - round(v)| below this counts as integral
-  scalar_t absoluteGap = 1e-6;     // nodes whose bound is within this gap of the incumbent are pruned
+  static constexpr int kDefaultMaxNodes = 300;
+  static constexpr scalar_t kDefaultMaxSolveTime = 0.1;  // [s]
+  static constexpr scalar_t kDefaultIntegralityTolerance = 1.0e-4;
+  static constexpr scalar_t kDefaultAbsoluteGap = 1.0e-6;
+  static constexpr int kDefaultMaxDiveIterations = 64;
+
+  int maxNodes = kDefaultMaxNodes;                         // branch-and-bound node limit (QP relaxations solved, heuristics included)
+  scalar_t maxSolveTime = kDefaultMaxSolveTime;            // [s] wall-clock limit; the best incumbent so far is returned when exceeded
+  scalar_t integralityTol = kDefaultIntegralityTolerance;  // |v - round(v)| below this counts as integral
+  scalar_t absoluteGap = kDefaultAbsoluteGap;              // nodes whose bound is within this gap of the incumbent are pruned
   bool useDivingHeuristic = true;  // after the root relaxation, dive (fix integral values, round the rest) for an early incumbent
-  int maxDiveIterations = 64;
+  int maxDiveIterations = kDefaultMaxDiveIterations;
   bool verbose = false;
 };
 
+/** What one branch-and-bound search found: the incumbent, its bound and the search counters. Passive data. */
 struct MiqpResult {
   bool hasIncumbent = false;
   OcpQpSolution solution;             // trajectories of the incumbent (all binaries integral)
@@ -103,10 +117,15 @@ struct MiqpResult {
  *
  * Note that for disjunctive constraints (big-M) the relaxation bounds are weak, so the search is effectively an enumeration
  * of the admissible assignments with pruning by propagation; the node and time limits make it an anytime method.
+ *
+ * Not thread-safe: solve() and solveFixed() use the one QP solver the instance owns. Not copyable (OcpQpHpipmSolver).
  */
 class MixedIntegerOcpQp {
  public:
   MixedIntegerOcpQp(OcpQpHpipmSolver::Settings qpSettings, MiqpSettings settings);
+  MixedIntegerOcpQp(const MixedIntegerOcpQp&) = delete;
+  MixedIntegerOcpQp& operator=(const MixedIntegerOcpQp&) = delete;
+  ~MixedIntegerOcpQp() = default;
 
   /**
    * @param problem            The OCP-QP. The binaries' box bounds are overwritten by the search.
@@ -115,36 +134,43 @@ class MixedIntegerOcpQp {
    * @param propagate          Logical propagation hook, may be empty.
    * @param warmStart          Optional complete assignment tried first to obtain an incumbent, may be nullptr.
    * @param assignmentCost     Optional logical cost on the binaries, may be empty.
+   * @return The search result. An initial assignment of the wrong size, a binary without an input box constraint, or a
+   *         problem the QP solver rejects (OcpQpHpipmSolver::solve()) is an error status instead.
    */
-  MiqpResult solve(OcpQpProblem& problem,
-                   const std::vector<MiqpBinaryVariable>& binaries,
-                   const MiqpAssignment& initialAssignment,
-                   const MiqpPropagateFn& propagate,
-                   const MiqpAssignment* warmStart = nullptr,
-                   const MiqpAssignmentCostFn& assignmentCost = nullptr);
+  absl::StatusOr<MiqpResult> solve(OcpQpProblem& problem,
+                                   const std::vector<MiqpBinaryVariable>& binaries,
+                                   const MiqpAssignment& initialAssignment,
+                                   const MiqpPropagateFn& propagate,
+                                   const MiqpAssignment* absl_nullable warmStart = nullptr,
+                                   const MiqpAssignmentCostFn& assignmentCost = nullptr);
 
   /**
    * Solves the QP with every binary fixed to `assignment` (which must be complete after propagation). Returns false if the
    * propagation rejects the assignment or the QP fails; `objective` then is +inf. Used for local search around an incumbent.
+   * An assignment of the wrong size, a binary without a box constraint or a problem the QP solver rejects is an error
+   * status, with `objective` at +inf.
    */
-  bool solveFixed(OcpQpProblem& problem,
-                  const std::vector<MiqpBinaryVariable>& binaries,
-                  MiqpAssignment assignment,
-                  const MiqpPropagateFn& propagate,
-                  const MiqpAssignmentCostFn& assignmentCost,
-                  OcpQpSolution& solution,
-                  scalar_t& objective);
+  absl::StatusOr<bool> solveFixed(OcpQpProblem& problem,
+                                  const std::vector<MiqpBinaryVariable>& binaries,
+                                  MiqpAssignment assignment,
+                                  const MiqpPropagateFn& propagate,
+                                  const MiqpAssignmentCostFn& assignmentCost,
+                                  OcpQpSolution& solution,
+                                  scalar_t& objective);
 
   const MiqpSettings& getSettings() const { return settings_; }
   void setSettings(const MiqpSettings& settings) { settings_ = settings; }
 
  private:
+  class Search;  // the state of one solve(), MixedIntegerOcpQp.cpp
+
   struct BinaryLocation {
-    int stage;
-    int boxIndex;  // index into the stage's idxbu / lbu / ubu
+    int stage = 0;
+    int boxIndex = 0;  // index into the stage's idxbu / lbu / ubu
   };
 
-  std::vector<BinaryLocation> locateBinaries(const OcpQpProblem& problem, const std::vector<MiqpBinaryVariable>& binaries) const;
+  absl::StatusOr<std::vector<BinaryLocation>> locateBinaries(const OcpQpProblem& problem,
+                                                             const std::vector<MiqpBinaryVariable>& binaries) const;
   void applyAssignment(OcpQpProblem& problem, const std::vector<BinaryLocation>& locations, const MiqpAssignment& assignment) const;
   int firstFractional(const OcpQpSolution& solution,
                       const std::vector<MiqpBinaryVariable>& binaries,

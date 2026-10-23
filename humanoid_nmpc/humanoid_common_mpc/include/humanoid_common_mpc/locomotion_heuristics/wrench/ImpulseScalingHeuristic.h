@@ -54,6 +54,9 @@ namespace ocs2::humanoid {
  *
  * Purely vertical, which is what keeps the cheap yaw-invariant input path valid for the whole layer whenever this is
  * the only wrench heuristic listed - see WrenchHeuristic::producesHorizontalForce().
+ *
+ * Like every LocomotionHeuristic, its const methods are safe to call concurrently; configure() is not, and must not run
+ * while they do.
  */
 class ImpulseScalingHeuristic final : public WrenchHeuristic {
  public:

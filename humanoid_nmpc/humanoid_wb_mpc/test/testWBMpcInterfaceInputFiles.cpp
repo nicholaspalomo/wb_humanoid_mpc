@@ -27,9 +27,7 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <pinocchio/fwd.hpp>  // forward declarations must be included first.
-
-#include <gtest/gtest.h>
+#include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
 #include <cstdlib>
 #include <filesystem>
@@ -39,27 +37,29 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <vector>
 
+#include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
+#include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "gtest/gtest.h"
 
-#include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_wb_mpc/WBMpcInterface.h"
 
 /**
- * WBMpcInterface::Create() on a missing input file. The constructor used to check the three files for existence and
- * throw std::invalid_argument, after its member initializer had already loaded the model settings - which read the URDF
- * as well as the task file - so a missing URDF surfaced as whatever the URDF parser threw, and a missing reference file
- * as an exception out of a function that returns a Status. Create() now checks all three before anything reads them and
- * returns NotFound naming the path. None of these builds a CppAD model: every case returns before the problem is set up.
+ * The path forms of WBMpcInterface::Create() and CreateControllerModels() on input files that are missing, do not parse
+ * or do not convert. Both check the three files for existence before anything reads them and return NotFound naming the
+ * path; a task or reference file that does not parse is an InvalidArgument naming its line and column; and an error of
+ * the typed files' conversion is prefixed with the file it is about. None of these builds a CppAD model: every case
+ * returns before the problem is set up.
  */
 namespace ocs2::humanoid {
 namespace {
 
 std::string runfilePath(absl::string_view relativePath) {
   std::vector<std::filesystem::path> roots;
-  if (const char* srcDir = std::getenv("TEST_SRCDIR")) {
+  if (const char* absl_nullable srcDir = std::getenv("TEST_SRCDIR")) {
     roots.emplace_back(std::filesystem::path(srcDir) / "_main");
   }
   roots.emplace_back(std::filesystem::current_path());
@@ -70,14 +70,41 @@ std::string runfilePath(absl::string_view relativePath) {
   return std::string();
 }
 
+std::string readFile(const std::string& path) {
+  std::ifstream in(path);
+  return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+}
+
+/** `content` with `from` replaced by `to` exactly once; fails the test when `from` does not occur exactly once. */
+std::string replacedOnce(const std::string& content, absl::string_view from, absl::string_view to) {
+  const std::string::size_type position = content.find(from);
+  EXPECT_NE(position, std::string::npos) << "'" << from << "' not found";
+  if (position == std::string::npos) return content;
+  EXPECT_EQ(content.find(from, position + 1), std::string::npos) << "'" << from << "' occurs more than once";
+  std::string result = content;
+  result.replace(position, from.size(), std::string(to));
+  return result;
+}
+
+/** The 1-based line of `content` that `needle` starts on; 0 when it does not occur. */
+int lineOf(const std::string& content, absl::string_view needle) {
+  const std::string::size_type position = content.find(needle);
+  if (position == std::string::npos) return 0;
+  int line = 1;
+  for (std::string::size_type i = 0; i < position; ++i) {
+    if (content[i] == '\n') ++line;
+  }
+  return line;
+}
+
 class WBMpcInterfaceInputFilesTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    taskFile_ = runfilePath("robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.yaml");
+    taskFile_ = runfilePath("robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.textproto");
     urdfFile_ = runfilePath("robot_models/unitree_g1/g1_description/urdf/g1_29dof.urdf");
-    referenceFile_ = runfilePath("robot_models/unitree_g1/g1_wb_mpc/config/command/reference.yaml");
+    referenceFile_ = runfilePath("robot_models/unitree_g1/g1_wb_mpc/config/command/reference.textproto");
     ASSERT_FALSE(taskFile_.empty() || urdfFile_.empty() || referenceFile_.empty()) << "the G1 whole-body files are not in the runfiles";
-    missing_ = (std::filesystem::path(testing::TempDir()) / "testWBMpcInterfaceInputFiles_missing.yaml").string();
+    missing_ = (std::filesystem::path(testing::TempDir()) / "testWBMpcInterfaceInputFiles_missing.textproto").string();
     ASSERT_FALSE(std::filesystem::exists(missing_));
   }
 
@@ -86,6 +113,14 @@ class WBMpcInterfaceInputFilesTest : public ::testing::Test {
     EXPECT_EQ(created.status().code(), absl::StatusCode::kNotFound) << what << ": " << created.status();
     EXPECT_TRUE(absl::StrContains(created.status().message(), missing_)) << what << ": " << created.status();
     EXPECT_TRUE(absl::StrContains(created.status().message(), what)) << created.status();
+  }
+
+  /** `content`, written for the test as the file `name`. */
+  static std::string written(absl::string_view name, const std::string& content) {
+    const std::string path =
+        (std::filesystem::path(testing::TempDir()) / absl::StrCat("testWBMpcInterfaceInputFiles_", name, ".textproto")).string();
+    std::ofstream(path) << content;
+    return path;
   }
 
   std::string taskFile_, urdfFile_, referenceFile_, missing_;
@@ -105,22 +140,65 @@ TEST_F(WBMpcInterfaceInputFilesTest, AMissingReferenceFileIsNotFoundNamingItsPat
   expectNotFoundNamingTheMissingFile(WBMpcInterface::Create(taskFile_, urdfFile_, missing_), "reference file");
 }
 
-TEST_F(WBMpcInterfaceInputFilesTest, ExistingFilesPassTheCheckAndAreRead) {
+TEST_F(WBMpcInterfaceInputFilesTest, ATaskFileThatDoesNotParseIsAnInvalidArgumentNamingItsLine) {
   // Positive control, without building the problem: with all three files present Create() gets past the check and reads
-  // the task file, whose interface.verbose is made unreadable here - the refusal is then that key's, not a NotFound.
-  std::ifstream in(taskFile_);
-  std::string task((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-  const std::string block = "\ninterface:\n  verbose: ";
-  const size_t value = task.find(block);
-  ASSERT_NE(value, std::string::npos) << "the shipped task file no longer carries interface.verbose";
-  const size_t valueStart = value + block.size();
-  task.replace(valueStart, task.find_first_of(" \n", valueStart) - valueStart, "sometimes");
-  const std::string brokenTask = (std::filesystem::path(testing::TempDir()) / "testWBMpcInterfaceInputFiles_task.yaml").string();
-  std::ofstream(brokenTask) << task;
-
+  // the task file, whose interface.verbose is made unreadable here - the refusal is then the parser's, not a NotFound.
+  const std::string brokenTask = written("task", replacedOnce(readFile(taskFile_), "  verbose: false", "  verbose: sometimes"));
   const absl::StatusOr<std::unique_ptr<WBMpcInterface>> created = WBMpcInterface::Create(brokenTask, urdfFile_, referenceFile_);
   EXPECT_EQ(created.status().code(), absl::StatusCode::kInvalidArgument) << created.status();
-  EXPECT_TRUE(absl::StrContains(created.status().message(), ModelSettings::kInterfaceVerboseKey)) << created.status();
+  EXPECT_TRUE(absl::StrContains(created.status().message(), absl::StrCat(brokenTask, ":"))) << created.status();
+  EXPECT_TRUE(absl::StrContains(created.status().message(), "verbose")) << created.status();
+}
+
+TEST_F(WBMpcInterfaceInputFilesTest, ModelSettingsThatDoNotConvertAreAnInvalidArgumentPrefixedWithTheTaskFile) {
+  // A fixed joint cannot swing: the model settings refuse it by its field, and the path form names the file.
+  const std::string brokenTask = written(
+      "model_settings",
+      replacedOnce(readFile(taskFile_), "left_shoulder_y: \"left_shoulder_pitch_joint\"", "left_shoulder_y: \"left_wrist_roll_joint\""));
+  const absl::StatusOr<std::unique_ptr<WBMpcInterface>> created = WBMpcInterface::Create(brokenTask, urdfFile_, referenceFile_);
+  EXPECT_EQ(created.status().code(), absl::StatusCode::kInvalidArgument) << created.status();
+  EXPECT_TRUE(absl::StartsWith(created.status().message(), absl::StrCat(brokenTask, ": [ModelSettings]"))) << created.status();
+  EXPECT_TRUE(absl::StrContains(created.status().message(), "model_settings.arm_joint_names.left_shoulder_y")) << created.status();
+}
+
+TEST_F(WBMpcInterfaceInputFilesTest, ASolverSettingThatDoesNotParseIsAnInvalidArgumentNotAnException) {
+  // Both factories return the parser's error as a Status, naming the line of mpc.time_horizon; nothing is thrown.
+  const std::string content = replacedOnce(readFile(taskFile_), "  time_horizon: 1.1", "  time_horizon: forever");
+  const std::string brokenTask = written("solver_settings", content);
+  const std::string place = absl::StrCat(brokenTask, ":", lineOf(content, "  time_horizon: forever"), ":");
+  const absl::StatusOr<std::unique_ptr<WBMpcInterface>> created = WBMpcInterface::Create(brokenTask, urdfFile_, referenceFile_);
+  EXPECT_EQ(created.status().code(), absl::StatusCode::kInvalidArgument) << created.status();
+  EXPECT_TRUE(absl::StrContains(created.status().message(), place)) << created.status();
+  const absl::StatusOr<std::unique_ptr<WBMpcInterface>> models =
+      WBMpcInterface::CreateControllerModels(brokenTask, urdfFile_, referenceFile_);
+  EXPECT_EQ(models.status().code(), absl::StatusCode::kInvalidArgument) << models.status();
+  EXPECT_TRUE(absl::StrContains(models.status().message(), place)) << models.status();
+}
+
+TEST_F(WBMpcInterfaceInputFilesTest, ASolverSettingThatDoesNotConvertIsPrefixedWithTheTaskFile) {
+  // A name that is not an integrator parses as a string; the conversion refuses it by its field, in both factories.
+  const std::string brokenTask =
+      written("integrator", replacedOnce(readFile(taskFile_), "  integrator_type: \"RK4\"", "  integrator_type: \"RK5\""));
+  for (const bool controllerModels : {false, true}) {
+    SCOPED_TRACE(controllerModels);
+    const absl::StatusOr<std::unique_ptr<WBMpcInterface>> created =
+        controllerModels ? WBMpcInterface::CreateControllerModels(brokenTask, urdfFile_, referenceFile_)
+                         : WBMpcInterface::Create(brokenTask, urdfFile_, referenceFile_);
+    EXPECT_EQ(created.status().code(), absl::StatusCode::kInvalidArgument) << created.status();
+    EXPECT_TRUE(absl::StartsWith(created.status().message(), absl::StrCat(brokenTask, ": "))) << created.status();
+    EXPECT_TRUE(absl::StrContains(created.status().message(), "multiple_shooting.integrator_type")) << created.status();
+  }
+}
+
+TEST_F(WBMpcInterfaceInputFilesTest, AModeScheduleThatDoesNotConvertIsPrefixedWithTheReferenceFile) {
+  // Two modes take one event time between them; the reference file's error names the reference file, not the task file.
+  const std::string brokenReference =
+      written("reference", replacedOnce(readFile(referenceFile_), "  event_times: 0.5\n", "  event_times: 0.5\n  event_times: 0.7\n"));
+  const absl::StatusOr<std::unique_ptr<WBMpcInterface>> created =
+      WBMpcInterface::CreateControllerModels(taskFile_, urdfFile_, brokenReference);
+  EXPECT_EQ(created.status().code(), absl::StatusCode::kInvalidArgument) << created.status();
+  EXPECT_TRUE(absl::StartsWith(created.status().message(), absl::StrCat(brokenReference, ": "))) << created.status();
+  EXPECT_TRUE(absl::StrContains(created.status().message(), "initial_mode_schedule")) << created.status();
 }
 
 }  // namespace ocs2::humanoid

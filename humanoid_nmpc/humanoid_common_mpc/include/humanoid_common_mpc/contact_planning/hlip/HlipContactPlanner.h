@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -25,9 +29,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
+
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
+#include "ocs2_core/Dimensions.h"
 
 #include "humanoid_common_mpc/contact_planning/ContactPlan.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlannerInterface.h"
@@ -72,6 +81,10 @@ namespace ocs2::humanoid {
  * - the committed window on the nodes the executed schedule was sampled on, every later boundary to the nearest node -
  * and the contacts, footholds and ZMP follow those nodes, while the deadbeat step and the center of mass are evaluated
  * at the continuous times. `planner.dt` should be small (0.025 s is a millisecond-scale plan, since nothing is solved).
+ *
+ * Not thread-safe: plan() and setConfig() must not run concurrently with each other or with the const methods. The
+ * const methods may be called concurrently with each other. Built with Create(); neither copyable nor movable
+ * (ContactPlannerInterface).
  */
 class HlipContactPlanner final : public ContactPlannerInterface {
  public:
@@ -93,22 +106,32 @@ class HlipContactPlanner final : public ContactPlannerInterface {
     bool isSingleSupport() const { return swingFoot >= 0; }
   };
 
-  /** The configuration must already be valid (ContactPlanningConfig::validateStatus()). */
-  explicit HlipContactPlanner(ContactPlanningConfig config);
+  /** What buildGait() continues the committed window with. */
+  enum class GaitKind {
+    kStanding,  // double support over the rest of the horizon
+    kWalking,   // the nominal cadence
+  };
+
+  /**
+   * Builds the planner of a configuration. Returns the Status of ContactPlanningConfig::validateStatus() when the
+   * configuration does not validate, and the H-LIP model's when its cadence or pendulum is out of bounds.
+   */
+  static absl::StatusOr<std::unique_ptr<HlipContactPlanner>> Create(ContactPlanningConfig config);
 
   ContactPlan plan(const ContactPlannerInput& input) override;
-  /** Refuses a configuration that does not validate (the H-LIP model CHECK-fails on it) and keeps the running one. */
+  /** Refuses a configuration that does not validate (or whose H-LIP model cannot be built) and keeps the running one. */
   absl::Status setConfig(const ContactPlanningConfig& config) override;
   /** The planner keeps nothing between plans, so this does nothing; it exists for the interface. */
   void reset() override {}
-  std::string getFormulationSummary() const override { return formulationSummary(config_); }
+  std::string getFormulationSummary() const override { return summaryOf(config_, model_); }
 
   /**
    * The same summary for a configuration, without building a planner. It ends with the start-up check below: whether
    * the first step out of a standstill fits `hlip.maxStepWidth` and, when it does not, whether the reduced model
-   * recovers from the clipped step or locks (startUpLateralWidths).
+   * recovers from the clipped step or locks (startUpLateralWidths). InvalidArgument when the configuration's H-LIP model
+   * cannot be built (HlipModel::Create()).
    */
-  static std::string formulationSummary(const ContactPlanningConfig& config);
+  static absl::StatusOr<std::string> formulationSummary(const ContactPlanningConfig& config);
 
   /**
    * The lateral step the deadbeat law demands of the first step out of a standstill, in meters, before any clip.
@@ -124,21 +147,22 @@ class HlipContactPlanner final : public ContactPlannerInterface {
    * reduced model forward to tell the two apart.
    *
    * Shortening the single support is what shrinks the demand: less time falling before the foot lands. At the shipped
-   * `hlip.dspDuration` of 0.05 s and the Atlas's 1.0805 m pendulum (its model's, which shared.comHeight: 0 resolves
+   * `hlip.dspDuration` of 0.05 s and the Atlas's 1.0805 m pendulum (its model's, which an unset shared.comHeight resolves
    * to) it drops from 0.47 m at a 0.35 s single support to 0.39 m at 0.25 s, which against a 0.45 m reach is the
    * difference between not fitting and fitting. The double support and the pendulum have to be named with the figures
    * because both enter the deadbeat gain: at 0.35 s the demand is 0.45 m with dspDuration 0 and 0.49 m with 0.1, and
    * on the 0.85 m pendulum the Atlas was once hand-set to it was 0.52 m at 0.35 s / 0.05 s.
    */
-  static scalar_t startUpLateralStep(const ContactPlanningConfig& config);
+  static absl::StatusOr<scalar_t> startUpLateralStep(const ContactPlanningConfig& config);
 
   /**
    * [m] the lateral distance between the feet after each of the first `numSteps` steps out of a standstill, in the
    * reduced model under the planner's own step law and step clip: the start-up startUpLateralStep() describes the first
    * step of, rolled forward. The width settles at `hlip.stepWidth` when the gait recovers, and alternates between two
-   * values when a clipped first step has locked it.
+   * values when a clipped first step has locked it. Both return InvalidArgument when the configuration's H-LIP model
+   * cannot be built (HlipModel::Create()).
    */
-  static std::vector<scalar_t> startUpLateralWidths(const ContactPlanningConfig& config, int numSteps);
+  static absl::StatusOr<std::vector<scalar_t>> startUpLateralWidths(const ContactPlanningConfig& config, int numSteps);
 
   const ContactPlanningConfig& getConfig() const { return config_; }
   const HlipModel& getModel() const { return model_; }
@@ -181,14 +205,22 @@ class HlipContactPlanner final : public ContactPlannerInterface {
    * double support phase covering the rest of the horizon (after finishing a swing still in flight at the end of the
    * window), a walking input continues the cadence.
    */
-  std::vector<GaitPhase> buildGait(const ContactPlannerInput& input, bool walking) const;
+  std::vector<GaitPhase> buildGait(const ContactPlannerInput& input, GaitKind kind) const;
 
   /** The foot that swings next, from the last swung foot when it is known and from the phase timing otherwise. */
   static size_t nextSwingFoot(const ContactPlannerInput& input);
 
  private:
-  /** The H-LIP of a configuration. */
-  static HlipModel makeModel(const ContactPlanningConfig& config);
+  /** `model` must be the H-LIP of `config` (makeModel()). */
+  HlipContactPlanner(ContactPlanningConfig config, const HlipModel& model);
+
+  /** The H-LIP of a configuration; InvalidArgument when its cadence or pendulum is out of bounds. */
+  static absl::StatusOr<HlipModel> makeModel(const ContactPlanningConfig& config);
+
+  /** formulationSummary(), startUpLateralStep() and startUpLateralWidths() on `model`, the H-LIP of `config`. */
+  static std::string summaryOf(const ContactPlanningConfig& config, const HlipModel& model);
+  static scalar_t startUpLateralStepOf(const ContactPlanningConfig& config, const HlipModel& model);
+  static std::vector<scalar_t> startUpLateralWidthsOf(const ContactPlanningConfig& config, const HlipModel& model, int numSteps);
 
   /** The lateral step clipped to the reachable side of the stance foot: [minStepWidth, maxStepWidth] for the left. */
   static scalar_t clipLateralStep(const HlipParameters& params, scalar_t lateralStep, bool placesLeftFoot);
@@ -196,16 +228,69 @@ class HlipContactPlanner final : public ContactPlannerInterface {
   /** The heading at `time`: the commanded yaw rate, scaled by the blend weight `alpha`, integrated from the planning instant. */
   scalar_t headingAt(const ContactPlannerInput& input, scalar_t time, scalar_t alpha) const;
 
+  /** A deadbeat step and whether the reachable region cut it, which costs the deadbeat property. */
+  struct DeadbeatStep {
+    vector2_t step = vector2_t::Zero();  // [m] in the heading frame
+    bool clipped = false;
+  };
+
   /**
    * The deadbeat step that places `swingFoot`, in the heading frame: the pre-impact state of the step per axis, the
-   * commanded velocity in that frame, and the foot being placed. `clipped` reports whether the reachable region cut
-   * the step, which costs the deadbeat property and is counted onto the plan.
+   * commanded velocity in that frame, and the foot being placed. A clipped step is counted onto the plan.
    */
-  vector2_t deadbeatStep(const HlipModel::State& preImpactX,
-                         const HlipModel::State& preImpactY,
-                         const vector2_t& commandedVelocity,
-                         size_t swingFoot,
-                         bool& clipped) const;
+  DeadbeatStep deadbeatStep(const HlipModel::State& preImpactX,
+                            const HlipModel::State& preImpactY,
+                            const vector2_t& commandedVelocity,
+                            size_t swingFoot) const;
+
+  /** The reduced model at the start of one phase of the gait, and the feet during it (plan()). */
+  struct PhaseRollOut {
+    vector2_t comPosition = vector2_t::Zero();  // world, at the start of the phase
+    vector2_t comVelocity = vector2_t::Zero();
+    size_t stanceFoot = kContactLeftIndex;  // single support only
+    Eigen::Matrix<scalar_t, kHorizontalPositionDim, kHorizontalPositionDim> world_R_phase =
+        Eigen::Matrix<scalar_t, kHorizontalPositionDim, kHorizontalPositionDim>::Identity();
+    HlipModel::State stateX = HlipModel::State::Zero();  // relative to the stance foot, in the phase's heading frame
+    HlipModel::State stateY = HlipModel::State::Zero();
+    feet_array_t<vector2_t> feet{};  // during the phase: a swinging foot at its landing spot
+    feet_array_t<scalar_t> footYaws = makeFeetArray(0.0);
+  };
+
+  /** The roll-out of a whole gait, one entry per phase, and how many of its steps were clipped. */
+  struct GaitRollOut {
+    std::vector<PhaseRollOut> phases;
+    int numClippedSteps = 0;
+  };
+
+  /** The center of mass of the reduced model at one instant, in the world frame. */
+  struct ComState {
+    vector2_t position = vector2_t::Zero();
+    vector2_t velocity = vector2_t::Zero();
+  };
+
+  // The steps of plan().
+
+  /** A valid plan on the node grid of the configuration, every node and interval at the input's measured values. */
+  ContactPlan initialPlan(const ContactPlannerInput& input) const;
+  /** Rolls the reduced model forward through `gait`, placing every swing at its deadbeat step. */
+  GaitRollOut rollOutGait(const ContactPlannerInput& input,
+                          const std::vector<GaitPhase>& gait,
+                          scalar_t alpha,
+                          const vector2_t& plannedCommand) const;
+  /** The center of mass of the roll-out `entry` of `phase` at `time`. */
+  ComState comAt(const GaitPhase& phase, const PhaseRollOut& entry, scalar_t time) const;
+  /** Fills the per-node center of mass, footholds and (with the heading model) heading of `plan`. */
+  void fillNodes(const ContactPlannerInput& input,
+                 const std::vector<GaitPhase>& gait,
+                 const std::vector<PhaseRollOut>& rollOut,
+                 scalar_t alpha,
+                 ContactPlan& plan) const;
+  /** Fills `plan.phaseZmp`: the stance foot of every single support, none in double support. */
+  static void fillPhaseZmps(const std::vector<GaitPhase>& gait, const std::vector<PhaseRollOut>& rollOut, ContactPlan& plan);
+  /** Blends the center of mass and the phase ZMPs of a standing plan towards the center of `standingFeet` by `alpha`. */
+  static void blendTowardsStanding(const feet_array_t<vector2_t>& standingFeet, scalar_t alpha, ContactPlan& plan);
+  /** Fills the per-interval contacts and ZMP and the continuous-time phases of `plan` from `gait`. */
+  void fillContactsAndPhases(const ContactPlannerInput& input, const std::vector<GaitPhase>& gait, ContactPlan& plan) const;
 
   ContactPlanningConfig config_;
   HlipModel model_;

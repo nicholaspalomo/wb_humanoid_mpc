@@ -42,22 +42,32 @@ namespace ocs2::humanoid {
  * integrated forward, and a heuristic that moved them would be steering the robot rather than shaping how it carries
  * itself along the path it was told to take.
  *
- * The members are named rather than packed into a vector3_t because the base pose this is added to is Euler ZYX with
- * YAW FIRST, so roll is index 5, pitch is index 4 and height is index 2 - an ordering that is the reverse of the
- * (roll, pitch, yaw) every textbook writes, and one that a bare vector would invite getting wrong at each of the ten
- * call sites. The mapping is performed in exactly one place; see the base_pose_heuristic_seam directive in
- * SwitchedModelReferenceManager.cpp.
+ * The members are named rather than packed into a vector3_t because the offsets are added to the base's ZYX Euler angles
+ * at the Euler boundary, which come YAW FIRST, (yaw, pitch, roll), so roll is index 2 and pitch index 1, and the height
+ * is index 2 of the base position - an ordering that is the reverse of the (roll, pitch, yaw) every textbook writes,
+ * and one that a bare vector would invite getting wrong at each of the ten call sites. The mapping is performed in
+ * exactly one place; see the base_pose_heuristic_seam directive in SwitchedModelReferenceManager.cpp.
  */
 // LINT.IfChange(base_pose_offset_convention)
 struct BasePoseOffset {
-  scalar_t roll = 0.0;    // [rad] added to base pose index 5
-  scalar_t pitch = 0.0;   // [rad] added to base pose index 4
-  scalar_t height = 0.0;  // [m] added to base pose index 2
+  scalar_t roll = 0.0;    // [rad] added to index 2 of the base's ZYX Euler angles (yaw, pitch, roll)
+  scalar_t pitch = 0.0;   // [rad] added to index 1 of the base's ZYX Euler angles
+  scalar_t height = 0.0;  // [m] added to index 2 (z) of the base position
+  /**
+   * [rad/s] The time derivatives of `roll` and `pitch` along the reference, d/dt at fixed command: what the seam adds
+   * to the reference's Euler rates so that its angular velocity (or, on the centroidal state, its angular momentum) is
+   * the derivative of the attitude it shapes rather than the unshaped one's. Only a heuristic of the gait phase has
+   * one; a function of the command alone is constant along a constant command and leaves them at 0.
+   */
+  scalar_t rollRate = 0.0;
+  scalar_t pitchRate = 0.0;
 
   BasePoseOffset& operator+=(const BasePoseOffset& other) {
     roll += other.roll;
     pitch += other.pitch;
     height += other.height;
+    rollRate += other.rollRate;
+    pitchRate += other.pitchRate;
     return *this;
   }
 };
@@ -86,6 +96,11 @@ struct BasePoseHeuristicContext {
    * offset there instead of continuing its cycle.
    */
   scalar_t gaitPhase = 0.0;
+  /**
+   * [1/s] d(gaitPhase)/dt at this node, from SwitchedModelReferenceManager::getPhaseVariableRate(): 0.5 over the
+   * duration of the single-support mode the node is in, and 0 through double support, where the phase is frozen.
+   */
+  scalar_t gaitPhaseRate = 0.0;
 };
 
 /**
@@ -99,16 +114,22 @@ struct BasePoseHeuristicContext {
  * figure 4-5).
  *
  * The offsets are added at the point of use, per node, in SwitchedModelReferenceManager::getDesiredState(), and NOT in
- * the target-trajectory calculator where the zeros are written. Three reasons, all decisive: the target trajectory has
- * three knots over the whole horizon and could not represent a limit cycle at gait frequency; it is published one
+ * the target-trajectory calculator where the zeros are written. Three reasons, all decisive: the target trajectory's
+ * knots are placed by the command (three on a straight walk) and could not represent a limit cycle at gait frequency; it is published one
  * solve ahead of the solver that consumes it; and it is also what the operator's own delta-pose commands are measured
  * against, so shaping it would make the commanded pose drift away from what was asked for.
+ *
+ * Like every LocomotionHeuristic, its const methods are safe to call concurrently; configure() is not, and must not run
+ * while they do.
  */
 class BasePoseHeuristic : public LocomotionHeuristic {
  public:
   ~BasePoseHeuristic() override = default;
 
-  /** The offset this heuristic contributes at one shooting node. Must be a pure function of its coefficients and `context`. */
+  /**
+   * The offset this heuristic contributes at one shooting node, with its rates (BasePoseOffset::rollRate, pitchRate).
+   * Must be a pure function of its coefficients and `context`.
+   */
   virtual BasePoseOffset offset(const BasePoseHeuristicContext& context) const = 0;
 };
 

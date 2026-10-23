@@ -29,6 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include "absl/base/nullability.h"
+
 #include <ocs2_core/PreComputation.h>
 #include <ocs2_core/Types.h>
 #include <ocs2_core/constraint/StateConstraint.h>
@@ -47,7 +49,7 @@ class StateConstraintCollection : public Collection<StateConstraint> {
  public:
   StateConstraintCollection() = default;
   ~StateConstraintCollection() override = default;
-  StateConstraintCollection* clone() const override;
+  StateConstraintCollection* absl_nonnull clone() const override;
 
   /** Returns the number of active constraints at a given time. */
   size_t getNumConstraints(scalar_t time) const;

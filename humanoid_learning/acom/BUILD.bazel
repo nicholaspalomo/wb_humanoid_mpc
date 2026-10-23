@@ -31,8 +31,8 @@ py_library(
 py_binary(
     name = "train_main",
     srcs = ["train_main.py"],
-    # One description target (the XML and the URDF) and one centroidal MPC target (the task.yaml the fixed joints and
-    # the robot name are read from) per robot in train_main.py's _ROBOT_CONFIGS. A robot registered there without them
+    # One description target (the XML and the URDF) and one centroidal MPC target (the task.textproto the fixed joints
+    # and the robot name are read from) per robot in train_main.py's _ROBOT_CONFIGS. A robot registered there without them
     # listed here trains fine from a source checkout and fails under `bazel run` with a missing file, because the
     # runfiles tree is the only place the training binary can see the model from.
     # LINT.IfChange(acom_train_data)
@@ -47,11 +47,14 @@ py_binary(
     # LINT.ThenChange(//humanoid_learning/acom/train_main.py:robot_paths)
     deps = [
         ":acom_lib",
+        # The task file's schema, parsed strictly: linked against the protobuf of @operator_deps, which pins the same
+        # release as this hub's (tests/test_acom.py checks it).
+        "//humanoid_nmpc/humanoid_mpc_config:config_py_proto",
+        "//tools/nproto:nproto_textproto",
         requirement("jax"),
         requirement("matplotlib"),
         requirement("numpy"),
         requirement("optax"),
-        requirement("pyyaml"),
         requirement("tensorboardx"),
     ],
 )

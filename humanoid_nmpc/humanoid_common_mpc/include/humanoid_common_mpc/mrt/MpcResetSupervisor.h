@@ -31,13 +31,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <atomic>
 #include <chrono>
-#include <condition_variable>
 #include <cstddef>
 #include <cstdint>
-#include <functional>
-#include <mutex>
 #include <optional>
 
+#include "absl/functional/function_ref.h"
 #include "absl/status/status.h"
 
 #include "humanoid_common_mpc/common/Types.h"
@@ -67,19 +65,34 @@ namespace ocs2::humanoid {
  *
  * CLOCK. observeTime() is the control thread's check that the observation time never runs backwards; when it does,
  * everything planned is timed on the old clock, so a reset is requested.
+ *
+ * REMOTE SOLVER. When the solver runs in another process (humanoid_mpc_ipc's RemoteMpcLink and MpcServer), the
+ * controller keeps its supervisor and the MPC process has one of its own. The controller side requests resets as
+ * before; the link sends the request counters (resetsRequested()) with every observation and serves the tickets as
+ * the solver thread would, completing each one when the first policy solved after it arrives. The MPC side accounts
+ * for the solves, and the link mirrors its health, and the link's own, into the controller's supervisor with
+ * setRemoteHealth() from its IO thread. The control thread adds its own verdict on the newest policy with
+ * setRemotePolicyExpired(), so that a link whose IO thread has stalled cannot leave the controller executing a plan past
+ * its end: isHealthy() is false while either says so.
  */
 class MpcResetSupervisor {
  public:
   struct Config {
     // LINT.IfChange(reset_supervisor_defaults)
+    /// The defaults of the fields below, by field.
+    static constexpr int kDefaultMaxConsecutiveFailures = 3;
+    static constexpr scalar_t kDefaultInitialRetryInterval = 0.1;  // [s]
+    static constexpr scalar_t kDefaultMaxRetryInterval = 2.0;      // [s]
     /// Consecutive failed solves after which the MPC is declared unhealthy.
-    size_t maxConsecutiveFailures = 3;
+    size_t maxConsecutiveFailures = kDefaultMaxConsecutiveFailures;
     /// [s] Wait before the first attempt once unhealthy; doubled after every further failure, up to maxRetryInterval.
-    scalar_t initialRetryInterval = 0.1;
-    scalar_t maxRetryInterval = 2.0;
+    scalar_t initialRetryInterval = kDefaultInitialRetryInterval;
+    scalar_t maxRetryInterval = kDefaultMaxRetryInterval;
     // LINT.ThenChange(//humanoid_nmpc/docs/mpc_reset/README.md:controller_reset_events)
+    /// [s] The default of clockRewindTolerance.
+    static constexpr scalar_t kDefaultClockRewindTolerance = 1.0e-6;
     /// [s] A time earlier than the previous one by more than this is a rewind of the clock.
-    scalar_t clockRewindTolerance = 1e-6;
+    scalar_t clockRewindTolerance = kDefaultClockRewindTolerance;
   };
 
   MpcResetSupervisor() : MpcResetSupervisor(Config()) {}
@@ -87,6 +100,7 @@ class MpcResetSupervisor {
 
   MpcResetSupervisor(const MpcResetSupervisor&) = delete;
   MpcResetSupervisor& operator=(const MpcResetSupervisor&) = delete;
+  ~MpcResetSupervisor() = default;
 
   const Config& getConfig() const { return config_; }
 
@@ -105,14 +119,21 @@ class MpcResetSupervisor {
 
   // ------------------------------------------------------------------ any thread
 
-  /** Asks the solver thread for a reset of the MPC. */
+  /**
+   * Asks the solver thread for a reset of the MPC. Lock-free - two atomic increments, no mutex, no notification - so
+   * that the control thread (a SCHED_FIFO realtime thread) never waits on a lock another thread holds: a solver thread
+   * waiting out a back-off polls the counters (waitBeforeRetry()).
+   */
   void requestReset(ResetKind kind = ResetKind::kFull);
 
   /** True from a requestReset() until the solver thread has completed a reset that serves it. */
   bool hasOutstandingReset() const;
 
-  /** False from the maxConsecutiveFailures-th failed solve in a row until the next solve that succeeds. */
-  bool isHealthy() const { return healthy_.load(); }
+  /**
+   * False from the maxConsecutiveFailures-th failed solve in a row until the next solve that succeeds; with a remote
+   * solver, while setRemoteHealth() or setRemotePolicyExpired() says so.
+   */
+  bool isHealthy() const { return healthy_.load() && !remotePolicyExpired_.load(); }
 
   /** Failed solves since the last one that succeeded. */
   size_t numConsecutiveFailures() const { return consecutiveFailures_.load(); }
@@ -120,6 +141,18 @@ class MpcResetSupervisor {
   /** Resets requested and served so far, of any kind and full ones, for tests and diagnostics. */
   uint64_t numResetsServed() const { return resetsServed_.load(); }
   uint64_t numFullResetsServed() const { return fullResetsServed_.load(); }
+
+  /** The two request counters, as humanoid_mpc_msgs.ResetRequests carries them. */
+  struct ResetCounters {
+    uint64_t requested = 0;
+    uint64_t fullRequested = 0;
+  };
+
+  /**
+   * Resets requested so far, of any kind and full ones. They only grow. Read in the order takeResetRequest() reads
+   * them, so that fullRequested counts every full request that requested counts.
+   */
+  ResetCounters resetsRequested() const;
 
   // ------------------------------------------------------------------ solver thread
 
@@ -140,10 +173,21 @@ class MpcResetSupervisor {
   std::chrono::duration<scalar_t> onSolveResult(const absl::Status& status);
 
   /**
-   * Waits up to `duration`. Returns early when a reset is requested after the failure that caused the wait (an operator
-   * re-entering WB_MPC should not wait out the back-off) or when `stop()` becomes true (polled every 10 ms).
+   * Waits up to `duration`. Returns early, within kRetryPollPeriod, when a reset is requested after the failure that
+   * caused the wait (resetRequestedSinceLastFailure(): an operator re-entering WB_MPC should not wait out the back-off)
+   * or when `stop()` becomes true: both are polled, so that requestReset() needs no lock to wake it.
    */
-  void waitBeforeRetry(std::chrono::duration<scalar_t> duration, const std::function<bool()>& stop);
+  void waitBeforeRetry(std::chrono::duration<scalar_t> duration, absl::FunctionRef<bool()> stop) const;
+
+  /**
+   * Whether a reset has been requested since the last failed solve (onSolveResult()) requested its own: what ends a
+   * back-off early. Meaningful after a failure; for a caller that waits out the back-off on a clock of its own
+   * (InProcessMpcLink::Execution::kCaller) instead of with waitBeforeRetry().
+   */
+  bool resetRequestedSinceLastFailure() const;
+
+  /** How often waitBeforeRetry() looks at the request counters and `stop`. */
+  static constexpr std::chrono::milliseconds kRetryPollPeriod{5};
 
   // ------------------------------------------------------------------ control thread
 
@@ -153,7 +197,29 @@ class MpcResetSupervisor {
    */
   scalar_t observeTime(scalar_t time);
 
+  // ------------------------------------------------------------------ the link to a remote solver
+
+  /**
+   * Sets what isHealthy() and numConsecutiveFailures() report, for a controller whose solver runs in another process:
+   * the MPC process's own supervisor accounts for the solves, and the link (RemoteMpcLink) mirrors the health it
+   * reports, combined with the link's own, here. Never called when the solver runs in this process, where
+   * onSolveResult() owns both values. Logs nothing; the link logs the transitions with their cause.
+   */
+  void setRemoteHealth(bool healthy, size_t consecutiveFailures);
+
+  /**
+   * The control thread's watchdog over the remote link: whether the newest policy the link has accepted has expired
+   * at the control thread's own time (RemoteMpcLink::setCurrentObservation()). isHealthy() reads false while it has,
+   * whatever setRemoteHealth() last said, so that the hold does not depend on the link's IO thread running. Called by
+   * the control thread only, and only when the verdict changes; never when the solver runs in this process. Lock-free:
+   * one atomic store, no allocation, no logging.
+   */
+  void setRemotePolicyExpired(bool expired) { remotePolicyExpired_.store(expired); }
+
  private:
+  /** The factor the back-off interval grows by with every failure past maxConsecutiveFailures. */
+  static constexpr scalar_t kRetryIntervalGrowthFactor = 2.0;
+
   const Config config_;
 
   // A full request increments fullResetsRequested_ before resetsRequested_, so a ticket that sees the second sees the first.
@@ -163,11 +229,9 @@ class MpcResetSupervisor {
   std::atomic<uint64_t> fullResetsServed_{0};
 
   std::atomic<bool> healthy_{true};
+  std::atomic<bool> remotePolicyExpired_{false};  // written by the control thread only
   std::atomic<size_t> consecutiveFailures_{0};
   uint64_t requestsAtLastFailure_ = 0;  // solver thread
-
-  std::mutex waitMutex_;
-  std::condition_variable waitCondition_;
 
   std::optional<scalar_t> lastObservationTime_;  // control thread
 };

@@ -1,0 +1,48 @@
+edition = "2023";
+
+package humanoid_mpc_config;
+
+import "humanoid_mpc_config/config_options.proto";
+import "nproto/options.proto";
+import "nproto/retired_field_options.proto";
+
+// The MPC interface's and the MPC node's own settings (the task file's interface block).
+// Next ID: 3
+message InterfaceConfig {
+  option (nproto.generate_struct) = "ocs2::humanoid::mpc_config::InterfaceConfig";
+  // Two switches that nothing read, and that no other key replaces.
+  option (nproto.retired_field) = {
+    name: "use_analytical_gradients_dynamics"
+    replacement: "nothing read it, and nothing replaces it: delete the key"
+  };
+  option (nproto.retired_field) = {
+    name: "use_analytical_gradients_constraints"
+    replacement: "nothing read it, and nothing replaces it: delete the key"
+  };
+
+  reserved 3 to max;
+
+  // Whether the MPC interface logs its settings as it loads them.
+  bool verbose = 1 [
+    default = false,
+    (humanoid_mpc_config.tuning) = {
+      exclude_reason: "a log switch, not a tuning parameter"
+    }
+  ];
+  // [s] How long the MPC node keeps the last operator/walking_velocity_command in force without a newer one; past it
+  // the motion manager gets the stop command (zero velocities, the last command's pelvis height), once, until the next
+  // command (node::MpcNodeRuntime::Config::walkingCommandTimeout). Positive: a publisher that is killed, or a laptop
+  // that loses the link, must not leave the robot walking. The GUI and the teleoperation publishers renew the command
+  // at 25 Hz, every 0.04 s, so the default of 0.5 s outlasts a dozen lost messages and stops a stale command within
+  // half a second.
+  // LINT.IfChange(walking_command_timeout)
+  double walking_command_timeout = 2 [
+    default = 0.5,
+    (humanoid_mpc_config.tuning) = {
+      reload: RELOAD_START_UP
+      unit: "s"
+      minimum: 0
+    }
+  ];
+  // LINT.ThenChange(//humanoid_nmpc/remote_control/remote_control/teleop.py:walking_command_rate)
+}

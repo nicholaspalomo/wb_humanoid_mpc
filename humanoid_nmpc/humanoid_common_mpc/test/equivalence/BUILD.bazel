@@ -1,0 +1,320 @@
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
+load("//bazel:copts.bzl", "FIRST_PARTY_COPTS")
+
+# The Pinocchio-oracle equivalence suite of the quaternion base orientation (humanoid_nmpc/docs/
+# quaternion_base_orientation/README.md, sections 2.2 and 2.12): every shipped robot's MPC model on the quaternion root
+# Composite(Translation, Spherical) and on the Euler root Composite(Translation, SphericalZYX), compared through the
+# chart of humanoid_mpc_validation/chart/EulerChart.h at seeded random states. Pinocchio alone is the oracle: the
+# root-joint tests build no MPC and read no production root joint.
+
+package(default_visibility = ["//visibility:public"])
+
+# Both models of a robot from the same reduced URDF, the chart's velocity maps, the random motions and the comparisons.
+cc_library(
+    name = "root_joint_model_pair",
+    testonly = True,
+    srcs = ["RootJointModelPair.cpp"],
+    hdrs = ["RootJointModelPair.h"],
+    copts = FIRST_PARTY_COPTS,
+    # Every shipped MPC configuration: its task file names the joints the model keeps, its description the URDF.
+    # LINT.IfChange(equivalence_robot_data)
+    data = [
+        "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+        "//robot_models/drc_atlas/drc_atlas_description",
+        "//robot_models/engineai_sa01/engineai_sa01_centroidal_mpc",
+        "//robot_models/engineai_sa01/engineai_sa01_description",
+        "//robot_models/unitree_g1/g1_centroidal_mpc",
+        "//robot_models/unitree_g1/g1_description",
+        "//robot_models/unitree_g1/g1_wb_mpc",
+        "//robot_models/unitree_r1/unitree_r1_centroidal_mpc",
+        "//robot_models/unitree_r1/unitree_r1_description",
+    ],
+    # LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/test/equivalence/RootJointModelPair.cpp:equivalence_robots)
+    deps = [
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc:humanoid_common_mpc_types",
+        "//humanoid_nmpc/humanoid_common_mpc:orientation",
+        "//humanoid_nmpc/humanoid_mpc_validation:euler_chart",
+        "//robot_runtime/robot_core:resource_paths",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/memory",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:str_format",
+        "@abseil-cpp//absl/strings:string_view",
+        "@abseil-cpp//absl/types:span",
+        "@eigen",
+        "@googletest//:gtest",
+        "@pinocchio",
+        "@urdf",
+    ],
+)
+
+_EQUIVALENCE_TEST_DEPS = [
+    ":root_joint_model_pair",
+    "//humanoid_nmpc/humanoid_common_mpc:humanoid_common_mpc_types",
+    "//humanoid_nmpc/humanoid_common_mpc:orientation",
+    "//humanoid_nmpc/humanoid_mpc_validation:euler_chart",
+    "@abseil-cpp//absl/base:nullability",
+    "@abseil-cpp//absl/status:statusor",
+    "@abseil-cpp//absl/strings",
+    "@eigen",
+    "@googletest//:gtest_main",
+    "@pinocchio",
+]
+
+# Frame placements, frame Jacobians, twists and accelerations, the center of mass, and the chart itself against
+# Pinocchio's root velocity and configuration integrator.
+cc_test(
+    name = "testRootJointKinematicsEquivalence",
+    size = "small",
+    srcs = ["testRootJointKinematicsEquivalence.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = _EQUIVALENCE_TEST_DEPS,
+)
+
+# The centroidal momentum, the centroidal momentum matrix and its time derivative, the momentum rate, the composite
+# inertias, and the base velocity the centroidal MPC recovers from the momentum.
+cc_test(
+    name = "testRootJointCentroidalEquivalence",
+    size = "small",
+    srcs = ["testRootJointCentroidalEquivalence.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = _EQUIVALENCE_TEST_DEPS,
+)
+
+# The mass matrix, the nonlinear effects and gravity, inverse dynamics (with and without external wrenches), forward
+# dynamics and the energies.
+cc_test(
+    name = "testRootJointDynamicsEquivalence",
+    size = "small",
+    srcs = ["testRootJointDynamicsEquivalence.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = _EQUIVALENCE_TEST_DEPS,
+)
+
+# The production root, Composite(Translation, Spherical), against Pinocchio's own FreeFlyer through the velocity map
+# J_m = blockdiag(R', I, I): placements, twists, accelerations, rnea, crba, nonlinear effects, aba and the centroidal
+# map, and the closed-form structure of the momentum matrix's base block, on every shipped robot and at gimbal lock.
+cc_test(
+    name = "testRootJointFreeFlyerEquivalence",
+    size = "small",
+    srcs = ["testRootJointFreeFlyerEquivalence.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = _EQUIVALENCE_TEST_DEPS + ["//lib/ocs2:ocs2_core"],
+)
+
+# The MRT joint controllers' feedforward torques (computeJointTorques, computeBaseHeldJointTorques) on the quaternion
+# root against the Euler root's equations of motion: equal for the free base, and for the held base apart by the rate
+# map's rate M_jw (dT_B/dt) dTheta.
+cc_test(
+    name = "testMrtTorqueChartEquivalence",
+    size = "small",
+    srcs = ["testMrtTorqueChartEquivalence.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = _EQUIVALENCE_TEST_DEPS + [
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//lib/ocs2:ocs2_pinocchio_interface",
+        "//robot_runtime/robot_core:resource_paths",
+    ],
+)
+
+# What only the quaternion root handles: a pitch of +-90 degrees (the dynamics there is the level dynamics under a
+# rotated gravity), paths through gimbal lock and across a yaw of +-pi, the negated quaternion, and the Euler
+# boundary's inverse at gimbal lock.
+cc_test(
+    name = "testQuaternionRootOnlyCases",
+    size = "small",
+    srcs = ["testQuaternionRootOnlyCases.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = _EQUIVALENCE_TEST_DEPS,
+)
+
+# ----------------------------------------------------------------------------------------- MPC-level equivalence
+
+# The MPC level of the suite (MpcEquivalenceFixture.h): each configuration's shipped MPC on the quaternion layout against
+# its Euler side, the Euler-coordinate flow maps of both formulations on the Euler-root twin of the MPC's own Pinocchio
+# model (EulerMpcOracle.h) and the Euler formulation's SQP iteration on the Euler chart (EulerChartStateManifold.h),
+# through the chart, under a walking reference built from the configuration's shipped files: no recorded data.
+cc_library(
+    name = "mpc_equivalence",
+    testonly = True,
+    srcs = [
+        "EulerChartStateManifold.cpp",
+        "EulerMpcOracle.cpp",
+        "MpcEquivalenceFixture.cpp",
+    ],
+    hdrs = [
+        "EulerChartStateManifold.h",
+        "EulerMpcOracle.h",
+        "MpcEquivalenceFixture.h",
+    ],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        "//humanoid_nmpc/humanoid_centroidal_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc:humanoid_common_mpc_types",
+        "//humanoid_nmpc/humanoid_common_mpc:orientation",
+        "//humanoid_nmpc/humanoid_mpc_validation:closed_loop_metrics",
+        "//humanoid_nmpc/humanoid_mpc_validation:euler_chart",
+        "//humanoid_nmpc/humanoid_wb_mpc",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_oc",
+        "//lib/ocs2:ocs2_pinocchio_interface",
+        "//lib/ocs2:ocs2_sqp",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/functional:function_ref",
+        "@abseil-cpp//absl/log:absl_check",
+        "@abseil-cpp//absl/log:globals",
+        "@abseil-cpp//absl/memory",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:str_format",
+        "@abseil-cpp//absl/strings:string_view",
+        "@eigen",
+        "@googletest//:gtest",
+        "@pinocchio",
+    ],
+)
+
+# Each configuration's shipped files (validation::robotConfigurations()).
+# LINT.IfChange(mpc_equivalence_robots)
+_MPC_EQUIVALENCE_ROBOTS = {
+    "drc_atlas": [
+        "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+        "//robot_models/drc_atlas/drc_atlas_description",
+    ],
+    "engineai_sa01": [
+        "//robot_models/engineai_sa01/engineai_sa01_centroidal_mpc",
+        "//robot_models/engineai_sa01/engineai_sa01_description",
+    ],
+    "unitree_g1": [
+        "//robot_models/unitree_g1/g1_centroidal_mpc",
+        "//robot_models/unitree_g1/g1_description",
+    ],
+    "unitree_g1_wb": [
+        "//robot_models/unitree_g1/g1_wb_mpc",
+        "//robot_models/unitree_g1/g1_description",
+    ],
+    "unitree_r1": [
+        "//robot_models/unitree_r1/unitree_r1_centroidal_mpc",
+        "//robot_models/unitree_r1/unitree_r1_description",
+    ],
+}
+# LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_validation/include/humanoid_mpc_validation/closed_loop/RobotConfiguration.h:robot_configurations)
+
+_MPC_TEST_DEPS = [
+    ":mpc_equivalence",
+    "//humanoid_nmpc/humanoid_common_mpc",
+    "//humanoid_nmpc/humanoid_common_mpc:humanoid_common_mpc_types",
+    "//humanoid_nmpc/humanoid_common_mpc:orientation",
+    "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
+    "//humanoid_nmpc/humanoid_mpc_validation:euler_chart",
+    "//lib/ocs2:ocs2_core",
+    "//lib/ocs2:ocs2_oc",
+    "@abseil-cpp//absl/base:nullability",
+    "@abseil-cpp//absl/status",
+    "@abseil-cpp//absl/status:statusor",
+    "@abseil-cpp//absl/strings",
+    "@abseil-cpp//absl/strings:str_format",
+    "@abseil-cpp//absl/strings:string_view",
+    "@eigen",
+    "@googletest//:gtest_main",
+    "@pinocchio",
+]
+
+# The MPC-level equivalence of one configuration (MPC_EQUIVALENCE_CONFIGURATION): the dynamics, their linearization and
+# the SQP's shooting interval against the oracle (testMpcDynamicsEquivalence), RK4 rollouts through ordinary attitudes,
+# across a yaw of +-pi and through gimbal lock (testMpcRolloutEquivalence), the quadratic state costs to second order
+# under the task file's Euler-written weights (testMpcOrientationCostEquivalence), one real-time SQP iteration on the
+# quaternion manifold against the Euler-chart iteration (EulerChartStateManifold, testMpcSqpStepEquivalence), and the
+# SQP's convergence on the shipped tuning, iterated and in real time, or the known cycle of the configurations that do
+# not converge (testMpcSqpConvergence). The five test files share one binary so that the robot's CppAD libraries are
+# generated once. Exclusive: one at a time.
+[
+    cc_test(
+        name = "testMpcEquivalence_" + robot,
+        size = "enormous",
+        srcs = [
+            "testMpcDynamicsEquivalence.cpp",
+            "testMpcOrientationCostEquivalence.cpp",
+            "testMpcRolloutEquivalence.cpp",
+            "testMpcSqpConvergence.cpp",
+            "testMpcSqpStepEquivalence.cpp",
+        ],
+        copts = FIRST_PARTY_COPTS,
+        data = data,
+        env = {"MPC_EQUIVALENCE_CONFIGURATION": robot},
+        tags = ["exclusive"],
+        deps = _MPC_TEST_DEPS + [
+            "//humanoid_nmpc/humanoid_mpc_validation:closed_loop_metrics",
+            "//humanoid_nmpc/humanoid_mpc_validation:sqp_step_diagnostics",
+            "//lib/ocs2:ocs2_sqp",
+        ],
+    )
+    for robot, data in _MPC_EQUIVALENCE_ROBOTS.items()
+]
+
+# The deterministic evaluation points of the two term tests below, built from the configuration's shipped task file, and
+# the points inside the bands of the piecewise polynomial barriers; the precomputation requests that precede every
+# evaluation of a term, the checks that a test covered every term of its collections, each where it is not zero, and the
+# soft stance-foot constraint of the tests' problem copies.
+cc_library(
+    name = "term_probe_points",
+    testonly = True,
+    srcs = ["TermProbePoints.cpp"],
+    hdrs = ["TermProbePoints.h"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":mpc_equivalence",
+        "//humanoid_nmpc/humanoid_centroidal_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc:humanoid_common_mpc_types",
+        "//humanoid_nmpc/humanoid_common_mpc:orientation",
+        "//humanoid_nmpc/humanoid_mpc_validation:euler_chart",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_oc",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/container:flat_hash_set",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
+        "@abseil-cpp//absl/types:span",
+        "@eigen",
+        "@pinocchio",
+    ],
+)
+
+# Every term of one configuration's optimal control problem on the quaternion root, at deterministic points built from
+# the shipped task file (TermProbePoints.h), to first and second order. First (testQuaternionRootTermDerivatives.cpp):
+# each cost, soft constraint and constraint, intermediate and final, and the flow map against Richardson-extrapolated
+# central differences of their double-precision values along the state manifold and the inputs, at every point - the
+# stance feet's twist constraint with the term its held rate map drops from its state Jacobian added. Second
+# (testQuaternionRootTermHessians.cpp): each cost's and soft constraint's Hessian, pulled back as the solver pulls it
+# back, against the Gauss-Newton or penalty model its class prescribes, built from its verified first order, and
+# against its exact Hessian minus the curvature that model drops. Each fails a term of its collections that no point
+# checks, or that it checks only where what it checks is zero. The two test files share one binary so that the robot's
+# CppAD libraries are generated once. Exclusive: one at a time.
+[
+    cc_test(
+        name = "testQuaternionRootTermDerivatives_" + robot,
+        size = "enormous",
+        srcs = [
+            "testQuaternionRootTermDerivatives.cpp",
+            "testQuaternionRootTermHessians.cpp",
+        ],
+        copts = FIRST_PARTY_COPTS,
+        data = data,
+        env = {"MPC_EQUIVALENCE_CONFIGURATION": robot},
+        tags = ["exclusive"],
+        deps = _MPC_TEST_DEPS + [
+            ":term_probe_points",
+            "//humanoid_nmpc/humanoid_centroidal_mpc",
+            "//lib/ocs2:ocs2_pinocchio_interface",
+            "@abseil-cpp//absl/container:flat_hash_set",
+        ],
+    )
+    for robot, data in _MPC_EQUIVALENCE_ROBOTS.items()
+]

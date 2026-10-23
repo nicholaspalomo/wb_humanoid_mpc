@@ -1,0 +1,19 @@
+edition = "2023";
+
+package humanoid_mpc_config;
+
+import "nproto/options.proto";
+
+// Where a top-level block of a file shows in the tuning GUI, the message option (humanoid_mpc_config.group) of
+// config_options.proto: its tab and its place on it. Without it a block shows in the "Block:" choice of the MPC tab, in
+// file order.
+// Next ID: 3
+message TuningGroupOptions {
+  option (nproto.generate_struct) = "ocs2::humanoid::mpc_config::TuningGroupOptions";
+
+  reserved 3 to max;
+
+  // "MPC parameters", "Command limits", "PD gains", "Solver & horizon".
+  string tab = 1 [default = ""];
+  int32 order = 2 [default = 0];
+}

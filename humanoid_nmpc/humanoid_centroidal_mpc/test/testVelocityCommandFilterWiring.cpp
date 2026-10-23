@@ -27,30 +27,26 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <pinocchio/fwd.hpp>  // forward declarations must be included first.
-
-#include <gtest/gtest.h>
+#include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
 #include <cmath>
-#include <filesystem>
-#include <fstream>
-#include <sstream>
-#include <stdexcept>
-#include <string>
-#include <utility>
+#include <functional>
 #include <vector>
 
-#include <ocs2_core/misc/LoadData.h>
-
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #include "absl/strings/match.h"
-#include "absl/strings/str_cat.h"
+#include "gtest/gtest.h"
 
+#include "humanoid_common_mpc/config/reference/ReferenceFromConfig.h"
+#include "humanoid_common_mpc/config/reference/ReferenceSettings.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
+#include "humanoid_mpc_config/reference_file.nproto.h"
 #include "support/AtlasReferenceStack.h"
 
 /*
- * The command filter of ProceduralMpcMotionManager as the DRC Atlas runs it: configured by reference.yaml's
- * velocityCommandFilterBreakFrequency, hot-reloaded with the command limits, run on the solver clock, reset with the
+ * The command filter of ProceduralMpcMotionManager as the DRC Atlas runs it: configured by the reference file's
+ * velocity_command_filter_break_frequency, hot-reloaded with the command limits, run on the solver clock, reset with the
  * manager - and shipped off, so that the reference the MPC follows is the operator's command as before.
  */
 
@@ -61,31 +57,6 @@ constexpr scalar_t kStart = 300.0;       // [s] far from zero: the filter runs o
 constexpr scalar_t kSolvePeriod = 0.01;  // [s]
 constexpr scalar_t kRawCommand = 0.5;    // of the forward command limit
 
-std::string readFile(const std::string& path) {
-  std::ifstream in(path);
-  std::stringstream buffer;
-  buffer << in.rdbuf();
-  return buffer.str();
-}
-
-/** A copy of the shipped reference.yaml with the given top-level `key: value` lines rewritten. */
-std::string shippedReferenceWith(const std::string& shipped,
-                                 const std::vector<std::pair<std::string, std::string>>& values,
-                                 const std::string& name) {
-  std::string content = readFile(shipped);
-  for (const std::pair<std::string, std::string>& entry : values) {
-    const std::string keyLine = absl::StrCat("\n", entry.first, ":");
-    const std::string::size_type position = content.find(keyLine);
-    EXPECT_NE(position, std::string::npos) << entry.first << " is not in " << shipped;
-    if (position == std::string::npos) continue;
-    const std::string::size_type valueStart = position + keyLine.size();
-    content.replace(valueStart, content.find('\n', valueStart) - valueStart, absl::StrCat(" ", entry.second));
-  }
-  const std::string file = (std::filesystem::path(::testing::TempDir()) / name).string();
-  std::ofstream(file) << content;
-  return file;
-}
-
 class VelocityCommandFilterWiringTest : public ::testing::Test {
  protected:
   /** Solves at kStart, kStart + kSolvePeriod, ... and returns the forward reference of every solve. */
@@ -94,7 +65,7 @@ class VelocityCommandFilterWiringTest : public ::testing::Test {
     stack_.referenceManager().setTargetTrajectories(stack_.resetTarget(start, state));
     std::vector<scalar_t> references;
     for (size_t k = 0; k < numSolves; ++k) {
-      stack_.mpc().run(start + static_cast<scalar_t>(k) * kSolvePeriod, state, ModeNumber::STANCE);
+      stack_.mpc().run(start + static_cast<scalar_t>(k) * kSolvePeriod, state, ModeNumber::kStance);
       references.push_back(stack_.motionManager().getRampedVelocityCommand()(0));
     }
     return references;
@@ -103,10 +74,22 @@ class VelocityCommandFilterWiringTest : public ::testing::Test {
   scalar_t scaledCommand() const { return kRawCommand * maxDisplacementVelocityX_; }
 
   void SetUp() override {
-    boost::property_tree::ptree pt;
-    loadData::readPropertyTree(stack_.referenceFile(), pt);
-    maxDisplacementVelocityX_ = pt.get<scalar_t>("maxDisplacementVelocityX");
+    const absl::StatusOr<ReferenceSettings> shipped = referenceSettingsFromConfig(stack_.config().reference);
+    ASSERT_TRUE(shipped.ok()) << shipped.status();
+    maxDisplacementVelocityX_ = shipped->maxDisplacementVelocityX;
     stack_.command(kRawCommand);
+  }
+
+  /**
+   * A hot reload of the shipped reference file edited by `edit`, as the parameter updater applies one: the file is
+   * converted, and only a file that converts reaches the motion manager. The conversion's or the manager's refusal.
+   */
+  absl::Status reloadShippedReferenceWith(const std::function<void(mpc_config::ReferenceFile&)>& edit) {
+    mpc_config::ReferenceFile reference = stack_.config().reference;
+    edit(reference);
+    const absl::StatusOr<ReferenceSettings> settings = referenceSettingsFromConfig(reference);
+    if (!settings.ok()) return settings.status();
+    return stack_.motionManager().applyCommandLimits(*settings);
   }
 
   AtlasReferenceStack stack_;
@@ -116,8 +99,7 @@ class VelocityCommandFilterWiringTest : public ::testing::Test {
 TEST_F(VelocityCommandFilterWiringTest, theShippedFilterIsOffAndTheReferenceIsTheCommand) {
   EXPECT_EQ(stack_.motionManager().getVelocityCommandFilterBreakFrequency(), 0.0);
   // The acceleration ramp after the filter is switched off here, so that the reference shows the filter alone.
-  stack_.motionManager().reloadCommandLimits(
-      shippedReferenceWith(stack_.referenceFile(), {{"maxLinearAcceleration", "0.0"}}, "shipped_filter.yaml"));
+  ASSERT_TRUE(reloadShippedReferenceWith([](mpc_config::ReferenceFile& reference) { reference.max_linear_acceleration = 0.0; }).ok());
   ASSERT_EQ(stack_.motionManager().getVelocityCommandFilterBreakFrequency(), 0.0);
   for (const scalar_t reference : forwardReferences(/*numSolves=*/5)) EXPECT_EQ(reference, scaledCommand());
 }
@@ -125,14 +107,16 @@ TEST_F(VelocityCommandFilterWiringTest, theShippedFilterIsOffAndTheReferenceIsTh
 TEST_F(VelocityCommandFilterWiringTest, aReloadedBreakFrequencyLagsTheReferenceOnTheSolverClock) {
   const scalar_t breakFrequency = 2.0;
   const scalar_t tau = 1.0 / (2.0 * M_PI * breakFrequency);
-  stack_.motionManager().reloadCommandLimits(shippedReferenceWith(
-      stack_.referenceFile(), {{"maxLinearAcceleration", "0.0"}, {"velocityCommandFilterBreakFrequency", "2.0"}}, "filter_on.yaml"));
+  ASSERT_TRUE(reloadShippedReferenceWith([breakFrequency](mpc_config::ReferenceFile& reference) {
+                reference.max_linear_acceleration = 0.0;
+                reference.velocity_command_filter_break_frequency = breakFrequency;
+              }).ok());
   ASSERT_EQ(stack_.motionManager().getVelocityCommandFilterBreakFrequency(), breakFrequency);
 
   const std::vector<scalar_t> references = forwardReferences(/*numSolves=*/60);
   for (size_t k = 0; k < references.size(); ++k) {
     const scalar_t elapsed = (kStart + static_cast<scalar_t>(k) * kSolvePeriod) - kStart;
-    EXPECT_NEAR(references[k], scaledCommand() * (1.0 - std::exp(-elapsed / tau)), 1e-9) << "solve " << k;
+    EXPECT_NEAR(references[k], scaledCommand() * (1.0 - std::exp(-elapsed / tau)), 1.0e-9) << "solve " << k;
   }
 
   // A reset of the manager restarts the filter from rest, as a fresh manager starts: the command is held, the
@@ -144,17 +128,22 @@ TEST_F(VelocityCommandFilterWiringTest, aReloadedBreakFrequencyLagsTheReferenceO
   EXPECT_GT(afterReset[1], 0.0);
 }
 
-TEST_F(VelocityCommandFilterWiringTest, anInvalidBreakFrequencyFailsTheReloadNamingTheKeyAndKeepsTheFilter) {
-  stack_.motionManager().reloadCommandLimits(
-      shippedReferenceWith(stack_.referenceFile(), {{"velocityCommandFilterBreakFrequency", "3.0"}}, "filter_valid.yaml"));
+TEST_F(VelocityCommandFilterWiringTest, anInvalidBreakFrequencyFailsTheReloadNamingTheFieldAndKeepsTheFilter) {
+  ASSERT_TRUE(reloadShippedReferenceWith([](mpc_config::ReferenceFile& reference) {
+                reference.velocity_command_filter_break_frequency = 3.0;
+              }).ok());
   ASSERT_EQ(stack_.motionManager().getVelocityCommandFilterBreakFrequency(), 3.0);
-  try {
-    stack_.motionManager().reloadCommandLimits(
-        shippedReferenceWith(stack_.referenceFile(), {{"velocityCommandFilterBreakFrequency", "-1.0"}}, "filter_invalid.yaml"));
-    ADD_FAILURE() << "a negative break frequency was accepted";
-  } catch (const std::invalid_argument& error) {
-    EXPECT_TRUE(absl::StrContains(error.what(), "velocityCommandFilterBreakFrequency")) << error.what();
-  }
+  const absl::Status refused =
+      reloadShippedReferenceWith([](mpc_config::ReferenceFile& reference) { reference.velocity_command_filter_break_frequency = -1.0; });
+  EXPECT_EQ(refused.code(), absl::StatusCode::kInvalidArgument) << "a negative break frequency was accepted";
+  EXPECT_TRUE(absl::StrContains(refused.message(), "velocity_command_filter_break_frequency")) << refused;
+  EXPECT_EQ(stack_.motionManager().getVelocityCommandFilterBreakFrequency(), 3.0);
+
+  // The manager refuses it as well when it is handed one, applying the limits before it and keeping the filter.
+  absl::StatusOr<ReferenceSettings> settings = referenceSettingsFromConfig(stack_.config().reference);
+  ASSERT_TRUE(settings.ok()) << settings.status();
+  settings->velocityCommandFilterBreakFrequency = -1.0;
+  EXPECT_EQ(stack_.motionManager().applyCommandLimits(*settings).code(), absl::StatusCode::kInvalidArgument);
   EXPECT_EQ(stack_.motionManager().getVelocityCommandFilterBreakFrequency(), 3.0);
 }
 

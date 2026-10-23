@@ -30,6 +30,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/locomotion_heuristics/foothold/HighSpeedTurningHeuristic.h"
 
 #include <cmath>
+#include <string>
 
 #include "absl/strings/str_cat.h"
 

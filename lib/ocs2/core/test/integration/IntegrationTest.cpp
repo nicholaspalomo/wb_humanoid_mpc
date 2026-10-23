@@ -105,17 +105,17 @@ TEST(IntegrationTest, SecondOrderSystem_ODE45_OCS2) {
   testSecondOrderSystem(IntegratorType::ODE45_OCS2);
 }
 
-TEST(IntegrationTest, SecondOrderSystem_AdamsBashfort) {
-  testSecondOrderSystem(IntegratorType::ADAMS_BASHFORTH);
+TEST(IntegrationTest, SecondOrderSystem_EULER) {
+  testSecondOrderSystem(IntegratorType::EULER);
 }
 
-#if (BOOST_VERSION / 100000 == 1 && BOOST_VERSION / 100 % 1000 > 55)
-
-TEST(IntegrationTest, SecondOrderSystem_AdamsBashfortMoulton) {
-  testSecondOrderSystem(IntegratorType::ADAMS_BASHFORTH_MOULTON);
+TEST(IntegrationTest, SecondOrderSystem_MODIFIED_MIDPOINT) {
+  testSecondOrderSystem(IntegratorType::MODIFIED_MIDPOINT);
 }
 
-#endif
+TEST(IntegrationTest, SecondOrderSystem_RK4) {
+  testSecondOrderSystem(IntegratorType::RK4);
+}
 
 TEST(IntegrationTest, integratorType_from_string) {
   IntegratorType type = integrator_type::fromString("ODE45");

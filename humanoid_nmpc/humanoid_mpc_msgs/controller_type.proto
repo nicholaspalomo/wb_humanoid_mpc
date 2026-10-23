@@ -1,0 +1,16 @@
+syntax = "proto3";
+
+package humanoid_mpc_msgs;
+
+import "nproto/options.proto";
+
+enum ControllerType {
+  option (nproto.generate_enum) = "ocs2::humanoid::msgs::ControllerType";
+
+  // LINT.IfChange(controller_types)
+  CONTROLLER_TYPE_UNKNOWN = 0;
+  CONTROLLER_TYPE_FEEDFORWARD = 1;      // ocs2::FeedforwardController
+  CONTROLLER_TYPE_LINEAR = 2;           // ocs2::LinearController (feedforward plus feedback gains)
+  CONTROLLER_TYPE_MANIFOLD_LINEAR = 3;  // ocs2::ManifoldLinearController (feedback gains on the tangent of a state manifold)
+  // LINT.ThenChange(//lib/ocs2/core/include/ocs2_core/control/ControllerType.h:controller_types, //humanoid_nmpc/humanoid_mpc_ipc/src/MpcMessageConversions.cpp)
+}

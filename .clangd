@@ -1,0 +1,23 @@
+# clangd's settings for this checkout (tools/ide/README.md). compile_commands.json holds the command lines Bazel runs
+# with GCC; clang reads them except for the flags removed here, which are GCC's own or would turn a warning clang does
+# not know into an error. Diagnostics are the editor's; the build's warnings stay the build's (bazel/copts.bzl).
+# LINT.IfChange(compile_flags)
+CompileFlags:
+  Remove:
+    - -fno-canonical-system-headers
+    - -Werror
+    - -Werror=*
+    - -Wno-error=*
+  Add:
+    - -Wno-unknown-warning-option
+    # Abseil's macros use __COUNTER__, which clang 22 reports under the build's -Wpedantic.
+    - -Wno-c2y-extensions
+# LINT.ThenChange(//bazel/copts.bzl:first_party_copts)
+---
+# The generated sources (the .pb.cc files, about a fifth of the database), which the execution root's link to this file
+# reaches, stay out of the background index; clangd still indexes one when it is opened, and the generated headers when
+# a first-party source includes them.
+If:
+  PathMatch: 'bazel-out/.*'
+Index:
+  Background: Skip

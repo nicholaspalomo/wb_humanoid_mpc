@@ -28,17 +28,19 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <pinocchio/fwd.hpp>
+#include "pinocchio/fwd.hpp"
+
+#include "humanoid_common_mpc/HumanoidPreComputation.h"
 
 #include <functional>
+#include <utility>
 
-#include <pinocchio/algorithm/frames.hpp>
-#include <pinocchio/algorithm/jacobian.hpp>
-#include <pinocchio/algorithm/kinematics.hpp>
-
-#include <ocs2_core/misc/Numerics.h>
-
-#include <humanoid_common_mpc/HumanoidPreComputation.h>
+#include "absl/base/nullability.h"
+#include "ocs2_core/Dimensions.h"
+#include "ocs2_core/misc/Numerics.h"
+#include "pinocchio/algorithm/frames.hpp"
+#include "pinocchio/algorithm/jacobian.hpp"
+#include "pinocchio/algorithm/kinematics.hpp"
 
 namespace ocs2::humanoid {
 
@@ -52,11 +54,9 @@ HumanoidPreComputation::HumanoidPreComputation(PinocchioInterface pinocchioInter
       swingTrajectoryPlannerPtr_(&swingTrajectoryPlanner),
       mpcRobotModelPtr_(&mpcRobotModel),
       positionErrorGainZ_(mpcRobotModel.modelSettings.footConstraintConfig.positionErrorGain_z) {
-  eeNormalVelConConfigs_.resize(N_CONTACTS);
-  R_world_to_contacts_.resize(N_CONTACTS);
-  footHeightReferences_.resize(N_CONTACTS);
-  for (size_t i = 0; i < N_CONTACTS; i++) {
-    R_world_to_contacts_[i] = matrix3_t::Identity();
+  eeNormalVelConConfigs_.resize(kNumContacts);
+  footHeightReferences_.resize(kNumContacts);
+  for (size_t i = 0; i < kNumContacts; ++i) {
     footHeightReferences_[i] = 0.0;
   }
 }
@@ -69,7 +69,6 @@ HumanoidPreComputation::HumanoidPreComputation(const HumanoidPreComputation& rhs
     : pinocchioInterface_(rhs.pinocchioInterface_),
       swingTrajectoryPlannerPtr_(rhs.swingTrajectoryPlannerPtr_),
       mpcRobotModelPtr_(rhs.mpcRobotModelPtr_),
-      R_world_to_contacts_(rhs.R_world_to_contacts_),
       eeNormalVelConConfigs_(rhs.eeNormalVelConConfigs_),
       footHeightReferences_(rhs.footHeightReferences_),
       // Carried across the clone the SQP solver makes per worker thread; dropping it would reset every worker's gain
@@ -79,7 +78,7 @@ HumanoidPreComputation::HumanoidPreComputation(const HumanoidPreComputation& rhs
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-HumanoidPreComputation* HumanoidPreComputation::clone() const {
+HumanoidPreComputation* absl_nonnull HumanoidPreComputation::clone() const {
   return new HumanoidPreComputation(*this);
 }
 
@@ -99,7 +98,7 @@ void HumanoidPreComputation::updatePinocchioModelKinematics(const vector_t& q) {
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-void HumanoidPreComputation::request(RequestSet request, scalar_t t, const vector_t& x, const vector_t& u) {
+void HumanoidPreComputation::request(RequestSet request, scalar_t t, const vector_t& x, const vector_t& /*u*/) {
   if (!request.containsAny(Request::Cost + Request::Constraint + Request::SoftConstraint)) {
     return;
   }
@@ -110,12 +109,12 @@ void HumanoidPreComputation::request(RequestSet request, scalar_t t, const vecto
   const std::function<EndEffectorKinematicsLinearVelConstraint::Config(size_t)> eeNormalVelConConfig = [&](size_t footIndex) {
     EndEffectorKinematicsLinearVelConstraint::Config config;
     config.b = (vector_t(1) << -swingTrajectoryPlannerPtr_->getZvelocityConstraint(footIndex, t)).finished();
-    config.Av = (matrix_t(1, 3) << 0.0, 0.0, 1.0).finished();
+    config.Av = (matrix_t(1, kPositionDim) << 0.0, 0.0, 1.0).finished();
     // The gain comes from this object, not from the shared ModelSettings, so that the parameter updater can retune it
     // per worker thread while the controller runs; see setNormalVelocityPositionErrorGain.
     if (!numerics::almost_eq(positionErrorGainZ_, /*y=*/0.0)) {
       config.b(0) -= positionErrorGainZ_ * swingTrajectoryPlannerPtr_->getZpositionConstraint(footIndex, t);
-      config.Ax = (matrix_t(1, 3) << 0.0, 0.0, positionErrorGainZ_).finished();
+      config.Ax = (matrix_t(1, kPositionDim) << 0.0, 0.0, positionErrorGainZ_).finished();
     }
     return config;
   };
@@ -129,12 +128,10 @@ void HumanoidPreComputation::request(RequestSet request, scalar_t t, const vecto
   // It is widened anyway because the coupling is invisible and the formulation moved underneath it: the soft
   // normal-velocity servo is a SOFT constraint that reads eeNormalVelConConfigs_, so a caller that one day asks for
   // soft constraints alone would silently evaluate it against a stale swing reference rather than fail. One extra
-  // flag in the guard removes that trap for the cost of two frame lookups on a cost-only request.
+  // flag in the guard removes that trap for the cost of two swing references on a cost-only request.
   if (request.containsAny(Request::Constraint + Request::SoftConstraint)) {
-    for (size_t i = 0; i < N_CONTACTS; i++) {
+    for (size_t i = 0; i < kNumContacts; ++i) {
       eeNormalVelConConfigs_[i] = eeNormalVelConConfig(i);
-      pinocchio::FrameIndex frameID = pinocchioInterface_.getModel().getFrameId(mpcRobotModelPtr_->modelSettings.contactNames6DoF[i]);
-      R_world_to_contacts_[i] = pinocchioInterface_.getData().oMf[frameID].rotation().inverse();
       footHeightReferences_[i] = swingTrajectoryPlannerPtr_->getZpositionConstraint(i, t);
     }
   }

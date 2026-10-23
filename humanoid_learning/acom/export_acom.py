@@ -1,27 +1,29 @@
-"""****************************************************************************
-Copyright (c) 2026, Nicholas Palomo. All rights reserved.
-
-Redistribution and use in source and binary forms, with or without
-modification, are permitted provided that the following conditions are met:
-
-* Redistributions of source code must retain the above copyright notice, this
-  list of conditions and the following disclaimer.
-
-* Redistributions in binary form must reproduce the above copyright notice,
-  this list of conditions and the following disclaimer in the documentation
-  and/or other materials provided with the distribution.
-
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
-FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
-DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
-SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
-CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
-OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-****************************************************************************"""
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 """Export utilities for Angular Center of Mass (aCOM) models.
 
@@ -30,22 +32,22 @@ C++ header files for real-time inference in MPC and whole-body controllers.
 """
 
 import json
-from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
 
 def export_to_json(
-    params: List[Tuple[np.ndarray, np.ndarray]], filepath: str, omega_0: float = 30.0
-):
+    params: list[tuple[np.ndarray, np.ndarray]], filepath: str, omega_0: float = 30.0
+) -> None:
     """Exports model parameters to a JSON file."""
+    layers: list[dict[str, object]] = []
     data = {
         "omega_0": float(omega_0),
         "num_layers": len(params),
-        "layers": [],
+        "layers": layers,
     }
     for i, (w, b) in enumerate(params):
-        data["layers"].append(
+        layers.append(
             {
                 "layer_idx": i,
                 "weight": np.array(w).tolist(),
@@ -54,18 +56,18 @@ def export_to_json(
                 "out_dim": int(w.shape[0]),
             }
         )
-    with open(filepath, "w") as f:
+    with open(filepath, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
 
 
 def export_to_cpp_header(
-    params: List[Tuple[np.ndarray, np.ndarray]],
+    params: list[tuple[np.ndarray, np.ndarray]],
     filepath: str,
     class_name: str = "AcomSirenWeights",
     omega_0: float = 30.0,
-    joint_names: Optional[List[str]] = None,
-    provenance: Optional[Dict[str, object]] = None,
-):
+    joint_names: list[str] | None = None,
+    provenance: dict[str, object] | None = None,
+) -> None:
     """Generates a standalone C++ header file containing SIREN weights and biases.
 
     Args:
@@ -104,6 +106,10 @@ def export_to_cpp_header(
             # A value must not be able to end the comment early.
             text = f"{key}: {value}".replace("*/", "* /")
             lines.append(f" *   {text}")
+    # The joint names are raw pointers, so they carry nullability (AGENTS.md); the header needs the annotation's macro.
+    nullability_include = (
+        ['#include "absl/base/nullability.h"', ""] if joint_names is not None else []
+    )
     lines.extend(
         [
             " ******************************************************************************/",
@@ -112,13 +118,14 @@ def export_to_cpp_header(
             "",
             "#include <cstddef>",
             "",
+            *nullability_include,
             "namespace ocs2::humanoid::acom {",
             "",
             f"struct {class_name} {{",
             f"  static constexpr double omega_0 = {omega_0};",
-            f"  static constexpr std::size_t num_layers = {len(params)};",
-            f"  static constexpr std::size_t input_dim = {input_dim};",
-            f"  static constexpr std::size_t output_dim = {params[-1][0].shape[0]};",
+            f"  static constexpr size_t num_layers = {len(params)};",
+            f"  static constexpr size_t input_dim = {input_dim};",
+            f"  static constexpr size_t output_dim = {params[-1][0].shape[0]};",
             "",
         ]
     )
@@ -128,7 +135,7 @@ def export_to_cpp_header(
         lines.append("  // MPC's Pinocchio joint ordering exactly.")
         joined = ", ".join(f'"{name}"' for name in joint_names)
         lines.append(
-            f"  static inline const char* const joint_names[{input_dim}] = {{{joined}}};"
+            f"  static inline const char* absl_nonnull const joint_names[{input_dim}] = {{{joined}}};"
         )
         lines.append("")
 
@@ -138,8 +145,8 @@ def export_to_cpp_header(
         out_dim, in_dim = w_np.shape
 
         lines.append(f"  // Layer {idx}: ({out_dim} x {in_dim})")
-        lines.append(f"  static constexpr std::size_t W{idx}_rows = {out_dim};")
-        lines.append(f"  static constexpr std::size_t W{idx}_cols = {in_dim};")
+        lines.append(f"  static constexpr size_t W{idx}_rows = {out_dim};")
+        lines.append(f"  static constexpr size_t W{idx}_cols = {in_dim};")
 
         # Flattened row-major weight array
         w_str = ", ".join(f"{val:.10e}" for val in w_np.flatten())
@@ -161,5 +168,5 @@ def export_to_cpp_header(
         ]
     )
 
-    with open(filepath, "w") as f:
+    with open(filepath, "w", encoding="utf-8") as f:
         f.write("\n".join(lines))

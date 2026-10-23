@@ -1,0 +1,25 @@
+syntax = "proto3";
+
+package humanoid_mpc_msgs;
+
+import "nproto/options.proto";
+
+// The health of the MPC solver as its MpcResetSupervisor on the MPC side reports it.
+// Next ID: 7
+message MpcSolverStatus {
+  option (nproto.generate_struct) = "ocs2::humanoid::msgs::MpcSolverStatus";
+
+  reserved 7 to max;
+
+  bool healthy = 1;
+  uint64 consecutive_failures = 2;
+  // Empty after a successful solve.
+  string last_error = 3;
+  // Wall time of the last solve [ms], on the MPC machine.
+  double solve_time_ms = 4;
+  // Solves attempted since the MPC process started.
+  uint64 solve_count = 5;
+  // The MPC process: a random nonzero number its MpcServer draws when it is built. A restarted MPC node counts its solves
+  // from zero again, and the robot tells it from the one before by this (RemoteMpcLink). 0: not set.
+  fixed64 server_instance = 6;
+}

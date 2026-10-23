@@ -1,0 +1,54 @@
+# proto-file: humanoid_nmpc/humanoid_mpc_config/reference_file.proto
+# proto-message: humanoid_mpc_config.ReferenceFile
+target_displacement_velocity: 0.5
+target_rotation_velocity: 0.5
+
+max_displacement_velocity_x: 2.4
+max_displacement_velocity_y: 1.2
+max_delta_pelvis_height: 0.4
+max_rotation_velocity: 1.0
+# First-order low-pass filter on the operator's velocity command, run on the solver time ahead of the acceleration
+# ramps: break frequency f_c [Hz], time constant 1 / (2 pi f_c). 0 switches it off and the command passes through
+# unchanged, which is what every robot has effectively run so far: the "5 Hz" filter this key replaces never updated
+# its state and scaled the command by t / (t + 0.032 s), t the wall-clock time since start-up - within 3% of the
+# identity after a second. A filter lags every command, a stop included, by about its time constant: try e.g. 2.0
+# (80 ms) in simulation before a robot. Reloaded with the limits above while the controller runs.
+velocity_command_filter_break_frequency: 0.0  # [Hz] command low-pass filter, 0 = off
+target_joint_state_interpolation_time_constant: 0.5
+
+default_base_height: 0.7911
+default_joint_state { joint: "left_hip_pitch_joint" value: -0.05 }
+default_joint_state { joint: "left_hip_roll_joint" value: 0.0 }
+default_joint_state { joint: "left_hip_yaw_joint" value: 0.0 }
+default_joint_state { joint: "left_knee_joint" value: 0.1 }
+default_joint_state { joint: "left_ankle_pitch_joint" value: -0.05 }
+default_joint_state { joint: "left_ankle_roll_joint" value: 0.0 }
+default_joint_state { joint: "right_hip_pitch_joint" value: -0.05 }
+default_joint_state { joint: "right_hip_roll_joint" value: 0.0 }
+default_joint_state { joint: "right_hip_yaw_joint" value: 0.0 }
+default_joint_state { joint: "right_knee_joint" value: 0.1 }
+default_joint_state { joint: "right_ankle_pitch_joint" value: -0.05 }
+default_joint_state { joint: "right_ankle_roll_joint" value: 0.0 }
+default_joint_state { joint: "waist_yaw_joint" value: 0.0 }
+default_joint_state { joint: "waist_roll_joint" value: 0.0 }
+default_joint_state { joint: "waist_pitch_joint" value: 0.0 }
+default_joint_state { joint: "left_shoulder_pitch_joint" value: 0.0 }
+default_joint_state { joint: "left_shoulder_roll_joint" value: 0.0 }
+default_joint_state { joint: "left_shoulder_yaw_joint" value: 0.0 }
+default_joint_state { joint: "left_elbow_joint" value: 0.0 }
+default_joint_state { joint: "right_shoulder_pitch_joint" value: 0.0 }
+default_joint_state { joint: "right_shoulder_roll_joint" value: 0.0 }
+default_joint_state { joint: "right_shoulder_yaw_joint" value: 0.0 }
+default_joint_state { joint: "right_elbow_joint" value: 0.0 }
+
+initial_mode_schedule {
+  mode_sequence: "STANCE"
+  mode_sequence: "STANCE"
+  event_times: 0.5
+}
+
+default_mode_sequence_template {
+  mode_sequence: "STANCE"
+  switching_times: 0.0
+  switching_times: 0.5
+}

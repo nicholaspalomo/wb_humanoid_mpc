@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -29,8 +33,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <vector>
 
-#include <ocs2_core/automatic_differentiation/CppAdInterface.h>
-#include <ocs2_pinocchio_interface/PinocchioInterface.h>
+#include "ocs2_core/automatic_differentiation/CppAdInterface.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
@@ -54,14 +58,17 @@ namespace ocs2::humanoid {
  * about the normal), pitched contact is the expected case rather than an exceptional one.
  *
  * WHY THIS CLASS EXISTS AT ALL, rather than a PinocchioEndEffectorKinematicsCppAd over the corner frames: that class
- * generates SIX code-generated models per frame set - position, velocity, orientation, orientation error, orientation
- * with respect to a plane, and angular velocity - and only the first is ever read here. Over a four-corner set that is
+ * generates SIX code-generated models per frame set - position, velocity, orientation, orientation with respect to a
+ * plane, angular velocity and twist - and only the first is ever read here. Over a four-corner set that is
  * five large dead models per foot, which measurably slowed a clean build and pushed a test past its timeout. One tape
  * of N heights replaces them.
  *
  * The terrain height is deliberately NOT subtracted inside the tape: it is a configured scalar that the parameter
  * updater re-reads at runtime, and baking it into a generated model would freeze it at whatever it was when the model
  * was generated.
+ *
+ * Not thread-safe: the generated CppAD model keeps evaluation buffers, so even the const methods of one object must not
+ * run concurrently. Each term that reads the heights owns its own clone, which the solver clones per worker thread.
  */
 class FootprintCornerHeights {
  public:
@@ -86,6 +93,9 @@ class FootprintCornerHeights {
   FootprintCornerHeights(const FootprintCornerHeights& rhs);
   ~FootprintCornerHeights() = default;
   FootprintCornerHeights& operator=(const FootprintCornerHeights&) = delete;
+  // Not movable: the taped height function captures `this` (createAdInterface()).
+  FootprintCornerHeights(FootprintCornerHeights&&) = delete;
+  FootprintCornerHeights& operator=(FootprintCornerHeights&&) = delete;
 
   std::unique_ptr<FootprintCornerHeights> clone() const { return std::make_unique<FootprintCornerHeights>(*this); }
 
@@ -104,6 +114,12 @@ class FootprintCornerHeights {
   matrix_t getHeightsJacobian(const vector_t& state) const;
 
  private:
+  /** How createAdInterface() obtains the generated library. */
+  enum class LibraryCreation {
+    kRegenerate,
+    kLoadIfAvailable,
+  };
+
   ad_vector_t heightsFunction(const ad_vector_t& state) const;
 
   /**
@@ -114,11 +130,11 @@ class FootprintCornerHeights {
    * that outlived its source and then had to regenerate would tape through a dangling pointer. The SQP solver clones
    * the whole problem once per worker thread, so that is not a hypothetical lifetime.
    *
-   * @param regenerate  true to compile the library afresh; false to load it, compiling only if it is missing. A clone
-   *        always passes false: the source has already created it, and regenerating once per worker thread would turn
-   *        a solver start-up into a series of compiler invocations.
+   * @param creation  kRegenerate to compile the library afresh; kLoadIfAvailable to load it, compiling only if it is
+   *        missing. A clone always loads: the source has already created it, and regenerating once per worker thread
+   *        would turn a solver start-up into a series of compiler invocations.
    */
-  void createAdInterface(bool regenerate);
+  void createAdInterface(LibraryCreation creation);
 
   std::vector<std::string> frameNames_;
   /** Pinocchio frame indices of frameNames_, resolved once so the taped function does no string lookups. */
@@ -136,7 +152,7 @@ class FootprintCornerHeights {
  */
 struct SmoothMinimumHeight {
   /** [m] the smoothed minimum. Always in [min(heights), min(heights) + log(N) * smoothing]. */
-  scalar_t value;
+  scalar_t value = 0.0;
   /** The gradient of `value` with respect to the heights: non-negative and summing to one. */
   vector_t weights;
 };

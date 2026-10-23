@@ -1,6 +1,6 @@
 # Basis-Vector Contact Inputs
 
-With `contactInputParameterization: basis_vectors` in a robot's `config/mpc/task.yaml`, the centroidal NMPC no longer
+With `contact_input_parameterization: "basis_vectors"` in a robot's `config/mpc/task.textproto`, the centroidal NMPC no longer
 optimizes each foot's contact wrench $W = (F, \tau) \in \mathbb{R}^6$ directly. It optimizes non-negative scalings
 $\lambda$ of a fixed set of wrench generators instead,
 
@@ -14,11 +14,11 @@ for every contact, whatever the soft-constraint lists say (section 7).
 This document covers the three choices that formulation involves, each made by name in the task file, and one fix to
 how a wrench is written into the input:
 
-| Choice | Task-file key | Names | Default |
+| Choice | Task-file field | Names | Default |
 | --- | --- | --- | --- |
-| How the contact inputs are parameterized | `contactInputParameterization` | `wrench`, `basis_vectors` | `wrench` |
-| Which generators make up $B$ | `contacts.basisGeneratorSet` | `conservative_inner_approximation`, `exact_wrench_cone` | `conservative_inner_approximation` |
-| How the singular input cost is regularized | `contacts.basisRegularization` | `full_diagonal`, `null_space` | `full_diagonal` |
+| How the contact inputs are parameterized | `contact_input_parameterization` | `wrench`, `basis_vectors` | `wrench` |
+| Which generators make up $B$ | `contacts.basis_generator_set` | `conservative_inner_approximation`, `exact_wrench_cone` | `conservative_inner_approximation` |
+| How the singular input cost is regularized | `contacts.basis_regularization` | `full_diagonal`, `null_space` | `full_diagonal` |
 
 The DRC Atlas and the EngineAI SA01 ship `basis_vectors`, the Unitree G1 and R1 `wrench`. **The generator set and the
 regularization every robot ships are the defaults, which is what has always run.** Their alternatives change the closed
@@ -30,18 +30,18 @@ select them.
 ## 1. Block diagram
 
 ```
- task.yaml                                          humanoid_common_mpc / humanoid_centroidal_mpc
- ---------                                          ---------------------------------------------
+ task.textproto                                     humanoid_common_mpc / humanoid_centroidal_mpc
+ --------------                                     ---------------------------------------------
 
- contactInputParameterization: basis_vectors ----> loadContactInputParameterization (registry: wrench | basis_vectors)
+ contact_input_parameterization: "basis_vectors" -> contactInputParameterizationFromConfig (registry: wrench | basis_vectors)
                                                           | CentroidalMpcInterface::setupContactInputParameterization
                                                           v
- contacts.contactWrenchConeSoftConstraint  --+     loadContactWrenchConeBases(taskFile, modelSettings)
-   frictionCoefficient (mu)                  |       ContactWrenchConeConstraint::loadConfig (every key required)
-   torsionalFrictionCoefficient (mu_t)       +-->  ContactWrenchConeBasisMatrix::Create(config, footprint, set)
-   numBasisVectors (N)                       |       registry: getBasisGeneratorSetBuilder(set)
- contacts.contact_rectangle                --+         conservative_inner_approximation  -> N + 7 columns
- contacts.basisGeneratorSet ----------------+          exact_wrench_cone                 -> 8N columns
+ contacts.contact_wrench_cone_soft_constraint --+  contactWrenchConeBasesFromConfig(contacts, modelSettings)
+   friction_coefficient (mu)                    |    contactWrenchConeConfigFromConfig (every field required)
+   torsional_friction_coefficient (planner only)+-> ContactWrenchConeBasisMatrix::Create(config, footprint, set)
+   num_basis_vectors (N)                        |    registry: getBasisGeneratorSetBuilder(set)
+ contacts.contact_rectangle                   --+      conservative_inner_approximation  -> N + 7 columns
+ contacts.basis_generator_set ------------------+      exact_wrench_cone                 -> 4N columns
                                                      checks every column against buildLocalWrenchConeRows
                                                           |
                                                           v
@@ -62,61 +62,117 @@ each $B_i \lambda_i$ into the world frame inside the CppAD tape, so they do not 
 
 ---
 
-## 2. The cone wrench mode enforces (H-representation)
+## 2. The contact wrench cone of a rectangular footprint
 
-`buildLocalWrenchConeRows` builds the rows `ContactWrenchConeConstraint` enforces in wrench mode, and it is the single
-definition both formulations are checked against. Dropping the affine offsets (`minNormalForce`, `gripperForce`), a
-local wrench $W = (F_x, F_y, F_z, \tau_x, \tau_y, \tau_z)$ is admissible when
+The cone both formulations bound is the **contact wrench cone (CWC)** of Caron, Pham and Nakamura ("Stability of
+surface contacts for humanoid robots: Closed-form formulae of the Contact Wrench Cone for rectangular support areas",
+ICRA 2015): the set of local wrenches $W = (F, \tau)$, moments about the contact frame origin, that point forces at the
+four footprint corners $p_c$ can produce while each lies inside its own friction pyramid $\mathcal{K}$,
+
+$$\text{CWC} = \Big\{ \textstyle\sum_{c=1}^{4} \big(f_c,\; p_c \times f_c\big) \;:\; f_c \in \mathcal{K} \Big\}.$$
+
+A force anywhere on the rectangle is such a combination: a force $f \in \mathcal{K}$ at $p = \sum_c w_c p_c$
+($w_c \ge 0$, $\sum_c w_c = 1$) has the wrench $\sum_c w_c (f, p_c \times f)$, and every corner term is admissible.
+So this is the exact cone of any pressure distribution on the rectangle with Coulomb friction linearized by
+$\mathcal{K}$.
+
+### 2.1 The friction pyramid is inscribed
+
+$\mathcal{K}$ has $N$ facets (`num_basis_vectors`) and $N$ edges, and it is **inscribed** in the Coulomb cone
+$\lVert F_t \rVert \le \mu F_z$: its edges lie on that cone,
+
+$$e_k = \big(\mu \cos\varphi_k,\; \mu \sin\varphi_k,\; 1\big), \qquad \varphi_k = \tfrac{(2k+1)\pi}{N},$$
+
+and its facets, half a sector away at $\theta_k = 2\pi k / N$, are
+
+$$\mu \cos(\pi/N)\, F_z - (\cos\theta_k F_x + \sin\theta_k F_y) \ge 0.$$
+
+The tangential ratio it admits runs from $\mu\cos(\pi/N)$ in a facet direction (`inscribedFrictionCoefficient`) to
+$\mu$ at an edge, and never exceeds $\mu$. The pyramid used to be **circumscribed** - facets at $\mu F_z$, edges at
+$\mu / \cos(\pi/N)$ - which admitted up to 41 % more friction than the ground provides at $N = 4$ (a ratio of
+$0.707$ for $\mu = 0.5$). `testContactWrenchConeRows` sweeps 7200 directions for every $N$ and checks the bound.
+
+### 2.2 The V-representation: corner forces along the edges
+
+A conic combination of pyramids is the conic hull of their edges, so the CWC is the conic hull of the $4N$ wrenches
+
+$$g_{k,c} = \big(e_k,\; p_c \times e_k\big),$$
+
+`cornerContactWrenchGenerators`, column $4k + c$. With a footprint of positive length and width every one of them is
+an extreme ray (it lies on five independent facets of section 2.3; the test checks the rank), so no smaller set spans
+the cone.
+
+### 2.3 The H-representation (`buildLocalWrenchConeRows`)
+
+Write the wrench about the footprint center $c_0$, $\tau^c = \tau - c_0 \times F$, with half extents $X$, $Y$. The rows
+are, in order:
 
 $$
 \begin{aligned}
-&\mu F_z - (\cos\theta_k F_x + \sin\theta_k F_y) \ge 0, \quad \theta_k = 2\pi k / N, \; k = 0 \dots N-1 && \text{(friction facets)}\\
-&F_z \ge 0 \\
+&\mu\cos(\pi/N)\, F_z - (\cos\theta_k F_x + \sin\theta_k F_y) \ge 0, \quad k = 0 \dots N-1 && \text{(friction facets)}\\
+&F_z \ge F_{\min} \\
 &x_{\min} F_z \le -\tau_y \le x_{\max} F_z, \qquad y_{\min} F_z \le \tau_x \le y_{\max} F_z && \text{(center of pressure)}\\
-&\left| \tau_z + p_y F_x - p_x F_y \right| \le \mu_t F_z && \text{(torsion about the patch point } p\text{)}
+&\text{the torsion facets} && \text{(yaw moment)}
 \end{aligned}
 $$
 
-The friction rows give $F_z \ge 0$ by themselves, and a wrench with $F_z = 0$ must be zero, so the cone is pointed and
-is the cone over its slice at $F_z = 1$. On that slice the rows bound three things **independently**:
+The friction facets hold because the net force is a sum of forces in $\mathcal{K}$, a convex cone; the CoP rows because
+every corner lies on the footprint. Both are facets of the CWC. The **torsion facets** are the remaining ones, those
+whose normal has a yaw component. For $N = 4$ the pyramid is $|F_x|, |F_y| \le \mu' F_z$ with
+$\mu' = \mu\cos(\pi/4)$, the $x$ and $y$ friction separate, and Fourier-Motzkin elimination of the corner forces gives
+Caron et al.'s closed form
 
-* the tangential force $f = (F_x, F_y)$ lies in the friction polygon $\mathcal{P}$ (the $N$ facets);
-* the center of pressure $c = (-\tau_y, \tau_x)$ lies in the footprint $\mathcal{R}$;
-* the torsion about the patch point $t = \tau_z + p_y F_x - p_x F_y$ lies in $\mathcal{T} = [-\mu_t, \mu_t]$.
+$$
+\underbrace{-\mu'(X+Y)F_z + |Y F_x - \mu' \tau^c_x| + |X F_y - \mu' \tau^c_y|}_{\tau_{\min}}
+\;\le\; \tau^c_z \;\le\;
+\underbrace{\mu'(X+Y)F_z - |Y F_x + \mu' \tau^c_x| - |X F_y + \mu' \tau^c_y|}_{\tau_{\max}},
+$$
 
-The map $(f, c, t) \mapsto W = (f, 1, c_y, -c_x, t - p_y f_x + p_x f_y)$ is an affine bijection from
-$\mathcal{P} \times \mathcal{R} \times \mathcal{T}$ onto the slice.
+eight rows once the absolute values are expanded (four sign pairs per side), sixteen rows in all with the friction and
+CoP rows. For $N \ne 4$ the friction no longer separates and there is no closed form; the code finds the torsion facets
+for every $N$ the same way, as the facets of the conic hull of the $4N$ generators: every five-generator subset of full
+rank spans a candidate hyperplane, which is a facet when every generator lies on one side of it. Every facet of a
+six-dimensional pointed cone contains five independent generators, so none is missed, and the side test makes every
+row valid. The enumeration runs in a frame with moments about $c_0$ divided by $\max(X, Y)$ and unit-norm generators,
+and a row $(n_F, n_\tau)$ found there is $(n_F - n_\tau / L \times c_0,\; n_\tau / L)$ in the contact frame, scaled to a
+unit yaw coefficient. It costs $\binom{4N}{5}$ small LU factorizations at construction - 4368 at $N = 4$, about
+$2 \cdot 10^5$ at the largest allowed $N = 8$. For $N = 4$ it reproduces Caron's sixteen rows (`FourFacetsGiveCaronsClosedFormRows`).
 
-## 3. The exact generator set (V-representation)
+**What the torsion rows bound.** They bound the yaw moment the corner friction can supply given the rest of the wrench,
+not the yaw moment about a fixed point. The previous rows, $|\tau_z + p_y F_x - p_x F_y| \le \mu_t F_z$ about the patch
+point $p$, rejected a lateral force applied at an off-center CoP - a wrench four corner forces produce without any
+twisting - as soon as its moment arm times the force exceeded $\mu_t F_z$: on a 0.4 m foot, $0.3 F_z$ sideways at the
+toe was refused. `torsional_friction_coefficient` therefore no longer enters the cone; the online contact planner still
+reads it as its per-foot yaw torque budget, capped at the cone's torsion limit for a normal force at the footprint
+center, $\mu'(X + Y) F_z$ at $N = 4$ (`torsionLimitsOfNormalForceAt`).
 
-The vertices of a product of polytopes are the products of their vertices, and an affine bijection maps vertices to
-vertices. The slice therefore has exactly $N \cdot 4 \cdot 2 = 8N$ vertices, and the cone exactly $8N$ extreme rays:
-every friction-pyramid edge
+**The affine offsets.** $F_{\min}$ is the offset of the normal-force row; the gripper force $F_g$ is an extra normal
+force at the footprint center seen by the friction and torsion rows (not by the CoP rows), i.e. $b = u \cdot (0, 0, F_g,
+c_{0,y} F_g, -c_{0,x} F_g, 0)$ for each such row $u$.
 
-$$f_k = \frac{\mu}{\cos(\pi/N)} \left(\cos\tfrac{(2k+1)\pi}{N},\, \sin\tfrac{(2k+1)\pi}{N}\right)$$
+**What the tests show** (`//humanoid_nmpc/humanoid_common_mpc:testContactWrenchConeRows`), on footprints centered,
+off-center and with the contact frame on an edge, for $N = 3 \dots 8$: every wrench of non-negative corner forces inside
+their pyramids, built from cross products, satisfies the rows (soundness); every wrench that satisfies the rows, interior
+or pushed onto the boundary along a random direction, is reproduced by corner forces with a zero non-negative
+least-squares residual (tightness); the generators are extreme rays of the rows.
 
-at every footprint corner $c$, with the torsional limit of either sign $s = \pm 1$:
+## 3. The exact generator set
 
-$$b_{k,c,s} = \left(f_{k,x},\; f_{k,y},\; 1,\; c_y,\; -c_x,\; s\,\mu_t + p_x f_{k,y} - p_y f_{k,x}\right).$$
-
-That is `exact_wrench_cone`, column $(4k + c)\cdot 2 + s$. Its conic hull **is** the cone of section 2 - neither
-larger nor smaller. With $\mu_t > 0$ and a footprint of positive area no smaller set can achieve that, because every
-extreme ray has to be a generator (with $\mu_t = 0$ the two torsion signs give the same column, which is harmless). It
-costs input dimension: 32 scalings per foot for $N = 4$ instead of 11, which grows the QP and the CppAD dynamics.
+`exact_wrench_cone` is the V-representation of section 2.2: $4N$ columns, $g_{k,c}$ at column $4k + c$, with the
+corners in the order $(x_{\max}, y_{\max}), (x_{\max}, y_{\min}), (x_{\min}, y_{\max}), (x_{\min}, y_{\min})$. Its conic
+hull **is** the cone wrench mode enforces - neither larger nor smaller - and no smaller set achieves that, because every
+extreme ray has to be a generator. It costs input dimension: 16 scalings per foot for $N = 4$ instead of 11.
 
 ## 4. Why the shipped set is only an inner approximation
 
 `conservative_inner_approximation` has $N + 7$ columns: the $N$ friction edges applied at the patch point, one pure
 normal force at the patch point, a normal force at each of the four footprint corners, and a normal force at the patch
-point with torsion $\pm\mu_t$. Every column has $F_z = 1$, so at $F_z = 1$ the scalings are convex weights, and each
-column spends its weight on **one** of the three limits: the friction edges carry all the tangential force, the corner
-rays all the center-of-pressure excursion from $p$, the torsion rays all the torsion. The three therefore share one
-budget,
-
-$$\rho_{\mathcal{P}}(f) + \rho_{\mathcal{R}}(c - p) + \rho_{\mathcal{T}}(t) \;\lesssim\; 1,$$
-
-where each $\rho$ is the fraction of its own limit in use, while the rows of section 2 allow each of them up to 1 at
-the same time. The set is **sound** - every column is inside the cone - but strongly conservative:
+point with the upper and the lower torsion limit the cone allows there (`torsionLimitsOfNormalForceAt`). Every column
+has $F_z = 1$, so at $F_z = 1$ the scalings are convex weights, and each column spends its weight on **one** of the
+three limits: the friction edges carry all the tangential force, the corner rays all the center-of-pressure excursion
+from $p$, the torsion rays all the torsion. The three therefore share one budget, while the cone lets them trade off
+against each other only through the torsion facets. The set is **sound** - every column is inside the cone - but
+strongly conservative:
 
 * its projection onto the force alone is exact: any force of the friction pyramid, applied at the patch point with no
   torsion, is representable;
@@ -125,12 +181,12 @@ the same time. The set is **sound** - every column is inside the cone - but stro
 * it cannot combine torsion with either: at the torsional limit, no tangential force and no center-of-pressure
   excursion.
 
-Sampling the cone on the DRC Atlas and EngineAI SA01 geometries, it reproduces only a few percent of the admissible
+Sampling the cone on the DRC Atlas and EngineAI SA01 geometries, it reproduces only a small part of the admissible
 wrenches (`testContactWrenchConeBasisMatrix` logs the figure for every geometry it checks). Braking, push-off and push
 recovery all want tangential force with the center of pressure near an edge of the foot, which is exactly what this
 set cannot express - so basis mode with this set plans with a much smaller contact-wrench set than wrench mode does.
 
-**What no generator set can represent.** `minNormalForce` and `gripperForce` are affine offsets of the cone, and a
+**What no generator set can represent.** `min_normal_force` and `gripper_force` are affine offsets of the cone, and a
 conic combination is homogeneous ($\lambda = 0$ always gives $W = 0$). Neither is enforced in basis mode, and
 `CentroidalMpcInterface` warns when either is configured.
 
@@ -138,7 +194,7 @@ conic combination is homogeneous ($\lambda = 0$ always gives $W = 0$). Neither i
 | Generator set | Columns per foot | Spans |
 | --- | --- | --- |
 | `conservative_inner_approximation` (default) | $N + 7$ | a strict inner approximation of the wrench-mode cone |
-| `exact_wrench_cone` | $8N$ | exactly the wrench-mode cone |
+| `exact_wrench_cone` | $4N$ | exactly the wrench-mode cone |
 <!-- LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/contact/ContactWrenchConeBasisMatrix.h:basis_generator_set_names) -->
 
 ## 5. The input cost and its regularization
@@ -147,7 +203,7 @@ The task file writes the input weight $R$ in wrench space. In basis mode it beco
 
 $$R_{\text{basis}} = M^\top R\, M + \text{reg} \cdot \operatorname{blkdiag}(S, 0_{\text{joints}}),$$
 
-with `reg` = `contacts.basisScalingRegularization`. Each $B_i$ has more columns than rows, so $M^\top R M$ is singular
+with `reg` = `contacts.basis_scaling_regularization`. Each $B_i$ has more columns than rows, so $M^\top R M$ is singular
 on $\operatorname{null}(B_i)$: the scalings that produce no wrench. $S$ removes that singularity, and how it does so
 decides what the optimizer actually sees on the wrench. Minimizing $u^\top R_{\text{basis}} u$ over the inputs that
 produce a given wrench leaves $W^\top G\, W$ with
@@ -169,7 +225,7 @@ the regularization vanishes on $\operatorname{range}(B^\top)$, the minimum over 
 at $\lambda_n = 0$, and $G = R$ **exactly**. $R_{\text{basis}}$ is still positive definite on the scalings as long as
 $\text{reg} > 0$ and $R$ gives every contact force and moment a positive weight: $B^\top R B$ is positive definite on
 $\operatorname{range}(B^\top)$ and the projector on $\operatorname{null}(B)$. `checkLambdaBlockPositiveDefinite` reports
-the case where it is not, naming the keys to change.
+the case where it is not, naming the fields to change.
 
 <!-- LINT.IfChange(regularization_names) -->
 | Regularization | $S$ per foot | Metric on the wrench |
@@ -180,9 +236,10 @@ the case where it is not, naming the keys to change.
 
 Both are built by `transformWrenchInputCostToBasisSpace(R, config)` from one `BasisInputsCostTransformConfig`
 (`CentroidalMpcInterface::getBasisInputsCostTransformConfig`), whose `regularization` names $S$ and which the OCP
-factory (`HumanoidCostConstraintFactory::setBasisInputsCostTransform`) and the online parameter updater share, so a hot
+factory (`HumanoidCostConstraintFactory::setBasisInputsCostTransform`) and the online parameter updater (its centroidal
+`BasisInputsCostApplier`, `humanoid_centroidal_mpc/parameter_update/`) share, so a hot
 reload applies the same regularization as the start-up. Start-up refuses a configuration whose $\lambda$ block is not
-positive definite (a zero `reg`, or `null_space` with a contact wrench direction $R$ does not weigh), naming the key;
+positive definite (a zero `reg`, or `null_space` with a contact wrench direction $R$ does not weigh), naming the field;
 the updater refuses such a reload and keeps the running $R$.
 
 ## 6. Writing a wrench into the input
@@ -200,34 +257,35 @@ cannot tape an active-set solve and keeps the clamp; no taped path calls a sette
 ## 7. Selecting each choice
 
 The registries are the single place a parameterization, a generator set or a regularization is added, and each rejects
-an unknown name with a message that names its key and lists the valid names:
+an unknown name with a message that names its field and lists the valid names:
 
 * `contactInputParameterizationNames()` / `contactInputParameterizationFromName(name)` in
-  `common/ContactInputParameterization.h`, read by `loadContactInputParameterization(taskFile)`;
+  `common/ContactInputParameterization.h`, read by `contactInputParameterizationFromConfig(task)`;
 * `getBasisGeneratorSetBuilder(name)` / `basisGeneratorSetNames()` in `ContactWrenchConeBasisMatrix.h`, used by
-  `ContactWrenchConeBasisMatrix::Create(config, footprint, name)` and read by `loadContactWrenchConeBases`;
+  `ContactWrenchConeBasisMatrix::Create(config, footprint, name)` and read by `contactWrenchConeBasesFromConfig`;
 * `getBasisRegularizationBuilder(name)` / `basisRegularizationNames()` in `BasisInputsCostTransform.h`, used through
   `BasisInputsCostTransformConfig::regularization`.
 
 <!-- LINT.IfChange(contact_input_parameterization_names) -->
-| Key | Where | Read | Values |
+| Field | Where | Read | Values |
 | --- | --- | --- | --- |
-| `contactInputParameterization` | top level of `task.yaml` | at start-up | `wrench` (default when absent), `basis_vectors` |
-| `contacts.basisGeneratorSet` | `contacts` | at start-up | section 4 |
-| `contacts.basisRegularization` | `contacts` | at start-up and on every hot reload | section 5 |
-| `contacts.basisScalingRegularization` | `contacts` | at start-up and on every hot reload | `reg` of section 5, $\ge 0$ |
-| `contacts.basisNonNegativityBarrier.mu`, `.delta` | `contacts` | at start-up and on every hot reload | the barrier below |
+| `contact_input_parameterization` | top level of `task.textproto` | at start-up | `wrench` (default when absent), `basis_vectors` |
+| `contacts.basis_generator_set` | `contacts` | at start-up | section 4 |
+| `contacts.basis_regularization` | `contacts` | at start-up and on every hot reload | section 5 |
+| `contacts.basis_scaling_regularization` | `contacts` | at start-up and on every hot reload | `reg` of section 5, $\ge 0$ |
+| `contacts.basis_non_negativity_barrier.mu`, `.delta` | `contacts` | at start-up and on every hot reload | the barrier below |
 <!-- LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/common/ContactInputParameterization.h:contact_input_parameterization_names) -->
 
 The parameterization and the generator set fix the input dimension, so they take effect at the next start; a hot
 reload that changes the parameterization is reported by the parameter updater rather than applied. The tuning GUI
 labels the `contacts` sliders to match: the geometry of the cone and of the footprint `(restart)`, and the barrier of a
 block the selected parameterization does not read - the soft wrench cone's under `basis_vectors`, the basis blocks
-under `wrench` - `(not applicable: ...)`. The `useContactBasisVectorInputs` boolean that used to select the
-parameterization is refused at start-up, whatever its value, with a message naming its replacement, by both MPCs. The
-whole-body MPC implements the wrench parameterization only and refuses `basis_vectors`. A value of any of these keys
-that is not a number or a name is refused by its key, at start-up before any CppAD model is built, and on a hot reload
-by keeping the running value.
+under `wrench` - `(not applicable: ...)`. The `use_contact_basis_vector_inputs` boolean that used to select the
+parameterization is a retired field of the task file: a file that carries it is refused when it is read, whatever its
+value, with a message naming its replacement. The
+whole-body MPC implements the wrench parameterization only and refuses `basis_vectors`. A value of any of these fields
+that is out of range or an unknown name is refused by its field, at start-up before any CppAD model is built, and on a
+hot reload by keeping the running value.
 
 **The barrier.** Under `basis_vectors` the bound $\lambda \ge 0$ is the contact wrench cone: nothing else in the
 problem bounds the individual scalings (`friction_force_cone` bounds only the assembled force). So
@@ -235,10 +293,10 @@ problem bounds the individual scalings (`friction_force_cone` bounds only the as
 exactly when `zero_wrench` is, whatever the soft-constraint lists say; a listed `contact_wrench_cone` builds nothing
 more. It used to be built only when `contact_wrench_cone` was listed, so dropping that entry silently removed the cone.
 
-**The ground.** `contacts.contactWrenchConeSoftConstraint` is read by one loader,
-`ContactWrenchConeConstraint::loadConfig`, for the wrench cone, for these generators and for the online contact
-planner's friction and torsion bounds. Every one of its five geometry keys is required: a missing key used to leave the
-library default of the config (mu 0.7, 5 N) in place without a word.
+**The ground.** `contacts.contact_wrench_cone_soft_constraint` is read by one conversion,
+`contactWrenchConeConfigFromConfig`, for the wrench cone, for these generators and for the online contact
+planner's friction and torsion bounds. Every one of its five geometry fields is required: a missing field used to leave
+the library default of the config (mu 0.7, 5 N) in place without a word.
 
 ## 8. CppAD libraries
 
@@ -247,22 +305,27 @@ $n_b N_{\text{contacts}} + n_j$, and some tapes (the external-torque cost, the c
 itself. `basisInputsLibraryKey(B_0, B_1)` returns `basis<n_b>_<16 hex digits>`, a content hash of the bases that is
 stable across processes and platforms, and `kWrenchInputsLibraryKey` is its wrench-mode counterpart. The dynamics
 library carries the key in its name (`dynamics_basis11_...`), and `CentroidalMpcInterface` appends the key of the
-parameterization to the CppAD model folder before any term is built -
-`cppad_code_gen/cppad_centroidal_mpc_<robot>/wrench_inputs` or `.../basis11_<hash>` - so every taped term is keyed
-by it. OCS2 loads a cached library by name without checking its domain, and every robot ships
-`recompileLibrariesCppAd: false`, so without that key switching the parameterization or the basis loaded a library
-built for another input dimension and the process exited on its first evaluation. The first start of a centroidal
-robot with a parameterization or a basis it has not run before compiles every library once, into that key's folder.
+parameterization to the CppAD model folder before any term is built - below the folder's state-layout tag,
+`cppad_code_gen/cppad_centroidal_mpc_<robot>/translation_spherical_quaternion_v1/wrench_inputs` or
+`.../basis11_<hash>` (`kStateLayoutTag`, humanoid_nmpc/docs/quaternion_base_orientation/README.md, section 3.2) - so
+every taped term is keyed by it. Every robot ships `model_settings.recompile_libraries_cpp_ad: false`, and OCS2 loads a
+cached library by name: before it checked the loaded library's domain and range, switching the parameterization or the
+basis without that key loaded a library built for another input dimension and the process exited on its first
+evaluation. The check now refuses such a library at start-up, naming its folder, but a library of the same dimensions
+and another basis would still load, so the key stays. The first start of
+a centroidal robot with a parameterization or a basis it has not run before compiles every library once, into that
+key's folder.
 
 ## 9. Tests
 
 | Target | What it shows |
 | --- | --- |
+| `//humanoid_nmpc/humanoid_common_mpc:testContactWrenchConeRows` | the pyramid admits no tangential ratio above $\mu$ in any direction; corner forces inside their pyramids always satisfy the rows and every wrench satisfying them is produced by corner forces; for $N = 4$ the rows are Caron et al.'s closed form; the lateral-force-at-the-toe counterexample is admitted; the affine offsets; degenerate footprints refused |
 | `//humanoid_nmpc/humanoid_common_mpc:testContactWrenchConeBasisMatrix` | every column of every set lies inside the rows; every sampled wrench of the cone is a non-negative combination of the exact set, whose columns are exactly the cone's vertices and none redundant; the conservative set provably misses the audit's counterexamples and its coverage is logged; the registry, the key-naming errors, the NNLS and the library key |
 | `//humanoid_nmpc/humanoid_common_mpc:testBasisInputsCostTransform` | `null_space` leaves the wrench metric exactly $R$ and the regularization vanishes on $\operatorname{range}(M^\top)$; `full_diagonal` is the old transform bit for bit and distorts the metric by $\text{reg}\,(BB^\top)^{-1}$; positive definiteness and when it fails |
 | `//humanoid_nmpc/humanoid_centroidal_mpc:testBasisInputsModelDecorator` | wrenches whose minimum-norm scalings are negative, and the weight seen from a pitched foot, round-trip exactly; the exact set decorates the same model |
 | `//humanoid_nmpc/humanoid_centroidal_mpc_test:test_basis_inputs_formulation` | the full Atlas interface in both modes: dimensions, dynamics, the input cost, and that the shipped defaults are unchanged; the CppAD folder keyed by the parameterization and the basis; the barrier built without `contact_wrench_cone`; `null_space` reaching the start-up input cost |
-| `//humanoid_nmpc/humanoid_common_mpc:testContactInputParameterization` | the parameterization registry, its loader and the refusal of the retired boolean; the shipped robots select what they ran before; every key of the wrench-cone block required by name; the bases a task file's `basisGeneratorSet` builds |
-| `//humanoid_nmpc/humanoid_centroidal_mpc:testContactInputParameterizationWiring` | `CentroidalMpcInterface::Create` refuses, by key and before any CppAD model is built, the retired boolean, an unknown parameterization, generator set or regularization, a negative, zero or unparsable `basisScalingRegularization`, an unparsable barrier `mu` or `delta`, and a wrench-cone block missing a key (for the basis and for the contact planner) |
-| `//humanoid_nmpc/humanoid_centroidal_mpc:testMpcParameterUpdaterModule` | on the shipped Atlas: a hot reload reproduces the factory's basis-space $R$, applies a named `basisRegularization`, refuses an unknown shape, an unparsable weight or an indefinite $\lambda$ block and keeps the running $R$, keeps the running barrier when its `mu` is not a number, reports a changed parameterization as structural, and logs no failure for cone terms the problem does not carry |
+| `//humanoid_nmpc/humanoid_common_mpc:testContactInputParameterization` | the parameterization registry, its conversion and the refusal of the retired boolean; the shipped robots select what they ran before; every field of the wrench-cone block required by name; the bases a task file's `basis_generator_set` builds |
+| `//humanoid_nmpc/humanoid_centroidal_mpc:testContactInputParameterizationWiring` | `CentroidalMpcInterface::Create` refuses, by field and before any CppAD model is built, the retired boolean, an unknown parameterization, generator set or regularization, a negative, zero or unparsable `basis_scaling_regularization`, an unparsable barrier `mu` or `delta`, and a wrench-cone block missing a field (for the basis and for the contact planner) |
+| `//humanoid_nmpc/humanoid_centroidal_mpc:testMpcParameterUpdaterModule` | on the shipped Atlas: a hot reload reproduces the factory's basis-space $R$, applies a named `basis_regularization`, refuses an unknown shape, an unparsable weight or an indefinite $\lambda$ block and keeps the running $R$, keeps the running barrier when its `mu` is not a number, reports a changed parameterization as structural, and logs no failure for cone terms the problem does not carry |
 | `//humanoid_nmpc/humanoid_wb_mpc:testWBMpcFormulation` | the whole-body MPC refuses `basis_vectors`, the retired boolean and the contact planner by name |

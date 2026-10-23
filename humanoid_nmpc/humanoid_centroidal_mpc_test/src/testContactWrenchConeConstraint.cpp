@@ -27,7 +27,6 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <gtest/gtest.h>
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -36,9 +35,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <vector>
 
+#include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
+#include "gtest/gtest.h"
 
 #include "humanoid_centroidal_mpc/common/CentroidalMpcRobotModel.h"
 #include "humanoid_centroidal_mpc_test/CentroidalTestingModelInterface.h"
@@ -49,38 +50,38 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact/ContactRectangle.h"
 #include "humanoid_common_mpc/contact/ContactWrenchConeBasisMatrix.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
+#include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
 
 namespace ocs2::humanoid {
 
 namespace {
 
-static constexpr size_t kContactPointIndex = 0;
-static constexpr size_t kFourBasisVectors = 4;
-static constexpr size_t kEightBasisVectors = 8;
-static constexpr size_t kExpectedConstraintsFourBasis = 11;
-static constexpr size_t kExpectedConstraintsEightBasis = 15;
+constexpr size_t kContactPointIndex = 0;
+constexpr size_t kFourBasisVectors = 4;
+constexpr size_t kEightBasisVectors = 8;
+// 4 friction facets, the normal force, 4 CoP rows and Caron et al.'s 8 torsion rows (ICRA 2015).
+constexpr size_t kExpectedConstraintsFourBasis = 17;
 
-static constexpr scalar_t kTestMu = 0.6;
-static constexpr scalar_t kTestMuRot = 0.1;
-static constexpr scalar_t kTestMinFz = 10.0;
-static constexpr scalar_t kTestFz = 100.0;
-static constexpr scalar_t kTestFx = 30.0;
-static constexpr scalar_t kTestFy = 10.0;
-static constexpr scalar_t kTestMz = 1.0;
-static constexpr scalar_t kTestBaseHeight = 0.8;
-static constexpr scalar_t kTolerance = 1e-4;
-static constexpr scalar_t kPrecisionTolerance = 1e-6;
-static constexpr scalar_t kFiniteDiffEps = 1e-7;
-static constexpr scalar_t kFiniteDiffTolerance = 1e-5;
+constexpr scalar_t kTestMu = 0.6;
+constexpr scalar_t kTestMuRot = 0.1;
+constexpr scalar_t kTestMinFz = 10.0;
+constexpr scalar_t kTestFz = 100.0;
+constexpr scalar_t kTestFx = 30.0;
+constexpr scalar_t kTestFy = 10.0;
+constexpr scalar_t kTestMz = 1.0;
+constexpr scalar_t kTestBaseHeight = 0.8;
+constexpr scalar_t kTolerance = 1.0e-4;
+constexpr scalar_t kPrecisionTolerance = 1.0e-6;
+constexpr scalar_t kFiniteDiffEps = 1.0e-7;
+constexpr scalar_t kFiniteDiffTolerance = 1.0e-5;
 
-static constexpr size_t kYawConstraintPlusIdx = 9;
-static constexpr size_t kYawConstraintMinusIdx = 10;
+constexpr size_t kFirstTorsionRowFourBasis = 9;
 
 /** Central differences of the constraint's value with respect to the state. */
 matrix_t stateJacobianByFiniteDifferences(const ContactWrenchConeConstraint& constraint, const vector_t& state, const vector_t& input) {
   const PreComputation preComp;
   matrix_t jacobian(constraint.getNumConstraints(0.0), state.size());
-  for (long index = 0; index < state.size(); ++index) {
+  for (Eigen::Index index = 0; index < state.size(); ++index) {
     vector_t plus = state;
     plus(index) += kFiniteDiffEps;
     vector_t minus = state;
@@ -107,7 +108,9 @@ class CountingRobotModel final : public CentroidalMpcRobotModel<scalar_t> {
     ++liveInstances_;
   }
   ~CountingRobotModel() override { --liveInstances_; }
-  CountingRobotModel* clone() const override { return new CountingRobotModel(modelSettings_, pinocchioInterface_, info_); }
+  CountingRobotModel(const CountingRobotModel&) = delete;
+  CountingRobotModel& operator=(const CountingRobotModel&) = delete;
+  CountingRobotModel* absl_nonnull clone() const override { return new CountingRobotModel(modelSettings_, pinocchioInterface_, info_); }
 
   static int liveInstances() { return liveInstances_; }
 
@@ -129,9 +132,9 @@ class TestContactWrenchConeConstraint : public ::testing::Test {
     ModeSequenceTemplate initModeSequenceTemplate({0.5, 0.5}, {3, 3});
     std::shared_ptr<GaitSchedule> gaitSchedulePtr =
         std::make_shared<GaitSchedule>(initModeSchedule, initModeSequenceTemplate, /*phaseTransitionStanceTime=*/0.0);
-    referenceManager_ = std::make_unique<SwitchedModelReferenceManager>(gaitSchedulePtr, /*swingTrajectoryPtr=*/nullptr,
-                                                                        testingModelInterface_->getPinocchioInterface(),
-                                                                        testingModelInterface_->getMpcRobotModel());
+    referenceManager_ = std::make_unique<SwitchedModelReferenceManager>(
+        gaitSchedulePtr, std::make_unique<SwingTrajectoryPlanner>(SwingTrajectoryPlanner::Config(), kNumContacts),
+        testingModelInterface_->getPinocchioInterface(), testingModelInterface_->getMpcRobotModel());
   }
 
   std::unique_ptr<CentroidalTestingModelInterface> testingModelInterface_;
@@ -160,7 +163,9 @@ TEST_F(TestContactWrenchConeConstraint, NumberOfConstraintsAndBasisVectors) {
                                           testingModelInterface_->getPinocchioInterface(), testingModelInterface_->getMpcRobotModel(),
                                           config8);
 
-  EXPECT_EQ(constraint8.getNumConstraints(0.0), kExpectedConstraintsEightBasis);
+  // Eight facets have no closed form: the torsion rows are the enumerated facets of the corner cone.
+  EXPECT_EQ(constraint8.getNumConstraints(0.0), buildLocalWrenchConeRows(config8, contactRectangle).numRows());
+  EXPECT_GT(constraint8.getNumConstraints(0.0), kEightBasisVectors + 5);
 }
 
 TEST_F(TestContactWrenchConeConstraint, FrictionConeAndNormalForceValues) {
@@ -174,8 +179,9 @@ TEST_F(TestContactWrenchConeConstraint, FrictionConeAndNormalForceValues) {
                                          config);
 
   const CentroidalMpcRobotModel<scalar_t>& robotModel = testingModelInterface_->getMpcRobotModel();
-  vector_t state = vector_t::Zero(robotModel.getStateDim());
-  state[2] = kTestBaseHeight;
+  // Level at the test height: the identity quaternion, the joints straight.
+  vector_t state = robotModel.getNeutralState();
+  robotModel.setBasePosition(state, vector3_t(0.0, 0.0, kTestBaseHeight));
 
   vector_t input = vector_t::Zero(robotModel.getInputDim());
   robotModel.setContactForce(input, vector3_t(kTestFx, 0.0, kTestFz), kContactPointIndex);
@@ -183,49 +189,61 @@ TEST_F(TestContactWrenchConeConstraint, FrictionConeAndNormalForceValues) {
   PreComputation preComp;
   vector_t val = constraint.getValue(/*time=*/0.0, state, input, preComp);
 
-  // For N=4, directions are (1,0), (0,1), (-1,0), (0,-1)
-  // 1. mu*Fz - Fx = 0.6*100 - 30 = 30.0
-  EXPECT_NEAR(val[0], 30.0, kTolerance);
-  // 2. mu*Fz - Fy = 0.6*100 - 0 = 60.0
-  EXPECT_NEAR(val[1], 60.0, kTolerance);
-  // 3. mu*Fz + Fx = 0.6*100 + 30 = 90.0
-  EXPECT_NEAR(val[2], 90.0, kTolerance);
-  // 4. mu*Fz + Fy = 0.6*100 + 0 = 60.0
-  EXPECT_NEAR(val[3], 60.0, kTolerance);
+  // For N=4, the facet normals are (1,0), (0,1), (-1,0), (0,-1), at the inscribed mu' = mu cos(pi/4).
+  const scalar_t muFz = kTestMu * std::cos(M_PI / 4.0) * kTestFz;
+  // 1. mu' Fz - Fx
+  EXPECT_NEAR(val[0], muFz - kTestFx, kTolerance);
+  // 2. mu' Fz - Fy
+  EXPECT_NEAR(val[1], muFz, kTolerance);
+  // 3. mu' Fz + Fx
+  EXPECT_NEAR(val[2], muFz + kTestFx, kTolerance);
+  // 4. mu' Fz + Fy
+  EXPECT_NEAR(val[3], muFz, kTolerance);
   // 5. Normal force: Fz - minFz = 100 - 10 = 90.0
   EXPECT_NEAR(val[4], 90.0, kTolerance);
 }
 
-TEST_F(TestContactWrenchConeConstraint, ContactPatchOffsetMoments) {
+TEST_F(TestContactWrenchConeConstraint, TorsionRowsAreCaronsClosedForm) {
+  // A footprint whose center (0.1, 0) is not the contact frame origin.
   PolygonBounds bounds(0.0, 0.2, -0.05, 0.05);
   ContactRectangle contactRectangle(bounds, ContactCenterPoint("foot_l_contact", "left_ankle_roll_joint", vector3_t::Zero()));
 
-  vector3_t explicitPatchOffset(0.1, 0.0, 0.0);
-  ContactWrenchConeConstraint::Config config(kFourBasisVectors, kTestMu, kTestMuRot, /*minNormalForceParam=*/0.0, /*gripperForceParam=*/0.0,
-                                             explicitPatchOffset);
+  ContactWrenchConeConstraint::Config config(kFourBasisVectors, kTestMu, kTestMuRot, /*minNormalForceParam=*/0.0,
+                                             /*gripperForceParam=*/0.0);
   ContactWrenchConeConstraint constraint(*referenceManager_, contactRectangle, kContactPointIndex,
                                          testingModelInterface_->getPinocchioInterface(), testingModelInterface_->getMpcRobotModel(),
                                          config);
 
   const CentroidalMpcRobotModel<scalar_t>& robotModel = testingModelInterface_->getMpcRobotModel();
-  vector_t state = vector_t::Zero(robotModel.getStateDim());
-  state[2] = kTestBaseHeight;
+  // Level at the test height: the identity quaternion, the joints straight.
+  vector_t state = robotModel.getNeutralState();
+  robotModel.setBasePosition(state, vector3_t(0.0, 0.0, kTestBaseHeight));
 
   vector_t input = vector_t::Zero(robotModel.getInputDim());
-  robotModel.setContactForce(input, vector3_t(0.0, kTestFy, kTestFz), kContactPointIndex);
-
-  // Set contact moment at foot origin Mz = 1.0 Nm:
-  // M_patch_z = Mz - (x_offset * Fy - y_offset * Fx) = 1.0 - (0.1 * 10.0 - 0.0) = 0.0 Nm
-  robotModel.setContactMoment(input, vector3_t(0.0, 0.0, kTestMz), kContactPointIndex);
+  const vector3_t force(0.0, kTestFy, kTestFz);
+  const vector3_t moment(0.0, 0.0, kTestMz);
+  robotModel.setContactForce(input, force, kContactPointIndex);
+  robotModel.setContactMoment(input, moment, kContactPointIndex);
 
   PreComputation preComp;
-  vector_t val = constraint.getValue(/*time=*/0.0, state, input, preComp);
+  const vector_t val = constraint.getValue(/*time=*/0.0, state, input, preComp);
 
-  // Constraints 9 and 10 are yaw moment constraints: mu_rot*Fz +/- M_patch_z
-  // mu_rot * Fz = 0.1 * 100 = 10.0 Nm
-  // Since M_patch_z = 0.0, both should be 10.0
-  EXPECT_NEAR(val[kYawConstraintPlusIdx], 10.0, kTolerance);
-  EXPECT_NEAR(val[kYawConstraintMinusIdx], 10.0, kTolerance);
+  // Caron et al. (ICRA 2015) about the footprint center c, with mu' = mu cos(pi/4) and half extents X, Y:
+  //   tau_min = -mu' (X + Y) Fz + |Y Fx - mu' tau_x| + |X Fy - mu' tau_y| <= tau_z <= mu' (X + Y) Fz - |Y Fx + mu' tau_x| - |X Fy + mu'
+  //   tau_y|
+  const scalar_t mu = kTestMu * std::cos(M_PI / 4.0);
+  const scalar_t X = 0.1;
+  const scalar_t Y = 0.05;
+  const vector3_t aboutCenter = moment - vector3_t(0.1, 0.0, 0.0).cross(force);
+  const scalar_t tauMax =
+      mu * (X + Y) * force.z() - std::abs(Y * force.x() + mu * aboutCenter.x()) - std::abs(X * force.y() + mu * aboutCenter.y());
+  const scalar_t tauMin =
+      -mu * (X + Y) * force.z() + std::abs(Y * force.x() - mu * aboutCenter.x()) + std::abs(X * force.y() - mu * aboutCenter.y());
+  ASSERT_LT(tauMin, aboutCenter.z());
+  ASSERT_LT(aboutCenter.z(), tauMax);
+  // Every torsion row has a unit yaw coefficient, so the tightest is the distance to the nearer limit.
+  EXPECT_NEAR(val.tail(val.size() - static_cast<Eigen::Index>(kFirstTorsionRowFourBasis)).minCoeff(),
+              std::min(tauMax - aboutCenter.z(), aboutCenter.z() - tauMin), kTolerance);
 }
 
 TEST_F(TestContactWrenchConeConstraint, LinearAndQuadraticApproximation) {
@@ -240,8 +258,9 @@ TEST_F(TestContactWrenchConeConstraint, LinearAndQuadraticApproximation) {
                                          config);
 
   const CentroidalMpcRobotModel<scalar_t>& robotModel = testingModelInterface_->getMpcRobotModel();
-  vector_t state = vector_t::Zero(robotModel.getStateDim());
-  state[2] = kTestBaseHeight;
+  // Level at the test height: the identity quaternion, the joints straight.
+  vector_t state = robotModel.getNeutralState();
+  robotModel.setBasePosition(state, vector3_t(0.0, 0.0, kTestBaseHeight));
 
   vector_t input = vector_t::Zero(robotModel.getInputDim());
   robotModel.setContactForce(input, vector3_t(10.0, 5.0, 50.0), kContactPointIndex);
@@ -293,9 +312,9 @@ TEST_F(TestContactWrenchConeConstraint, StateDerivativeGoesThroughTheFootOrienta
   const CentroidalMpcRobotModel<scalar_t>& robotModel = testingModelInterface_->getMpcRobotModel();
   const std::vector<std::string>& jointNames = testingModelInterface_->getModelSettings().mpcModelJointNames;
 
-  vector_t state = vector_t::Zero(robotModel.getStateDim());
-  state[robotModel.getBaseStartindex() + 2] = kTestBaseHeight;
-  robotModel.setBaseOrientationEulerZYX(state, vector3_t(0.2, 0.1, -0.05));
+  vector_t state = robotModel.getNeutralState();
+  robotModel.setBasePosition(state, vector3_t(0.0, 0.0, kTestBaseHeight));
+  robotModel.setBaseOrientationEulerZyx(state, vector3_t(0.2, 0.1, -0.05));
   for (const std::string& jointName : {std::string("left_ankle_pitch_joint"), std::string("left_ankle_roll_joint")}) {
     const std::vector<std::string>::const_iterator joint = std::find(jointNames.begin(), jointNames.end(), jointName);
     ASSERT_NE(joint, jointNames.end()) << jointName;
@@ -316,9 +335,10 @@ TEST_F(TestContactWrenchConeConstraint, StateDerivativeGoesThroughTheFootOrienta
     const matrix_t numerical = stateJacobianByFiniteDifferences(constraint, state, input);
     // Positive control: under 600 N the orientation dependence is large, so a zero Jacobian cannot pass.
     ASSERT_GT(numerical.cwiseAbs().maxCoeff(), 100.0) << "gated: " << scheduleGated;
-    for (long row = 0; row < numerical.rows(); ++row) {
-      for (long col = 0; col < numerical.cols(); ++col) {
-        EXPECT_NEAR(analytic(row, col), numerical(row, col), 1e-4) << "gated: " << scheduleGated << ", dfdx(" << row << ", " << col << ")";
+    for (Eigen::Index row = 0; row < numerical.rows(); ++row) {
+      for (Eigen::Index col = 0; col < numerical.cols(); ++col) {
+        EXPECT_NEAR(analytic(row, col), numerical(row, col), 1.0e-4)
+            << "gated: " << scheduleGated << ", dfdx(" << row << ", " << col << ")";
       }
     }
   }
@@ -350,18 +370,19 @@ TEST_F(TestContactWrenchConeConstraint, RefusesABasisVectorModel) {
   ASSERT_TRUE(rightBasis.ok()) << rightBasis.status();
   const BasisInputsModelDecorator<scalar_t> basisModel(
       std::unique_ptr<MpcRobotModelBase<scalar_t>>(testingModelInterface_->getMpcRobotModel().clone()),
-      std::array<ContactWrenchConeBasisMatrix, N_CONTACTS>{*leftBasis, *rightBasis}, testingModelInterface_->getPinocchioInterface());
+      std::array<ContactWrenchConeBasisMatrix, kNumContacts>{*leftBasis, *rightBasis}, testingModelInterface_->getPinocchioInterface());
 
   const absl::StatusOr<std::unique_ptr<ContactWrenchConeConstraint>> onBasis = ContactWrenchConeConstraint::Create(
       *referenceManager_, contactRectangle, kContactPointIndex, testingModelInterface_->getPinocchioInterface(), basisModel, coneConfig);
   ASSERT_FALSE(onBasis.ok()) << "a wrench cone on the basis-vector model evaluates the wrench in the wrong frame";
   EXPECT_EQ(onBasis.status().code(), absl::StatusCode::kInvalidArgument);
-  EXPECT_TRUE(absl::StrContains(onBasis.status().message(), "contactInputParameterization: basis_vectors")) << onBasis.status().message();
+  EXPECT_TRUE(absl::StrContains(onBasis.status().message(), R"(contact_input_parameterization: "basis_vectors")"))
+      << onBasis.status().message();
 
   // And the constructor, for the callers not yet moved to Create(), refuses it the same way.
   EXPECT_DEATH(std::make_unique<ContactWrenchConeConstraint>(*referenceManager_, contactRectangle, kContactPointIndex,
                                                              testingModelInterface_->getPinocchioInterface(), basisModel, coneConfig),
-               "contactInputParameterization: basis_vectors");
+               R"(contact_input_parameterization: "basis_vectors")");
 }
 
 TEST_F(TestContactWrenchConeConstraint, BorrowsItsRobotModelRatherThanLeakingAClone) {

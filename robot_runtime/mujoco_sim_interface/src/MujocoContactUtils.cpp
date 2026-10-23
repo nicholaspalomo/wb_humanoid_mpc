@@ -27,17 +27,115 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include "mujoco_sim_interface/MujocoUtils.h"
-
-#include <urdfdom/urdf_parser/urdf_parser.h>
-
 #include <algorithm>
+#include <array>
 #include <cmath>
+#include <cstdint>
 #include <fstream>
 #include <functional>
 #include <sstream>
+#include <string>
+#include <utility>
+#include <vector>
+
+#include "absl/base/nullability.h"
+#include "absl/log/die_if_null.h"
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
+#include "absl/strings/str_cat.h"
+#include "ocs2_core/Dimensions.h"
+#include "urdfdom/urdf_parser/urdf_parser.h"
+
+#include "mujoco_sim_interface/MujocoUtils.h"
 
 namespace robot::mujoco_sim_interface {
+
+using ::ocs2::kHorizontalPositionDim;
+using ::ocs2::kPositionDim;
+using ::ocs2::kXAxisIndex;
+using ::ocs2::kYAxisIndex;
+using ::ocs2::kZAxisIndex;
+
+namespace {
+
+/// [m] The lowest pendulum height divergentComponentOfMotion() uses, so that a center of mass at or below the ground
+/// still gives a finite natural frequency.
+constexpr double kMinPendulumHeight = 0.05;
+
+/// True when `body` belongs to the robot whose root body is `robotRoot`: it shares that root. The world body never does.
+bool isRobotBody(const mjModel* absl_nonnull model, int body, int robotRoot) {
+  return body != 0 && model->body_rootid[body] == robotRoot;
+}
+
+}  // namespace
+
+absl::StatusOr<MjDataPtr> makeMjData(const mjModel* absl_nonnull model) {
+  MjDataPtr data(mj_makeData(model));
+  if (data == nullptr) {
+    return absl::InternalError("MuJoCo could not create the simulation data of the model (mj_makeData returned null).");
+  }
+  return data;
+}
+
+MjState::MjState(const mjModel* absl_nonnull model) : model(model), data(ABSL_DIE_IF_NULL(mj_makeData(model))), modelFields(model) {}
+
+// LINT.IfChange(mj_state_fields)
+MjState::MjState(const MjState& other)
+    : model(other.model),
+      timestamp(other.timestamp),
+      data(other.model != nullptr ? ABSL_DIE_IF_NULL(mj_makeData(other.model)) : nullptr),
+      metrics(other.metrics),
+      modelFields(other.modelFields),
+      push(other.push) {
+  if (data != nullptr && other.data != nullptr) mj_copyData(data, model, other.data);
+}
+
+MjState& MjState::operator=(const MjState& other) {
+  if (this != &other) {
+    if (data != nullptr) mj_deleteData(data);
+    model = other.model;
+    timestamp = other.timestamp;
+    data = other.model != nullptr ? ABSL_DIE_IF_NULL(mj_makeData(other.model)) : nullptr;
+    metrics = other.metrics;
+    modelFields = other.modelFields;
+    push = other.push;
+    if (data != nullptr && other.data != nullptr) mj_copyData(data, model, other.data);
+  }
+  return *this;
+}
+
+MjState::MjState(MjState&& other) noexcept
+    : model(other.model),
+      timestamp(other.timestamp),
+      data(other.data),
+      metrics(other.metrics),
+      modelFields(std::move(other.modelFields)),
+      push(other.push) {
+  other.data = nullptr;
+  other.model = nullptr;
+  other.modelFields = MjRuntimeModelFields();
+}
+
+MjState& MjState::operator=(MjState&& other) noexcept {
+  if (this != &other) {
+    if (data != nullptr) mj_deleteData(data);
+    model = other.model;
+    timestamp = other.timestamp;
+    data = other.data;
+    metrics = other.metrics;
+    modelFields = std::move(other.modelFields);
+    push = other.push;
+    other.data = nullptr;
+    other.model = nullptr;
+    other.modelFields = MjRuntimeModelFields();
+  }
+  return *this;
+}
+// LINT.ThenChange(//robot_runtime/mujoco_sim_interface/include/mujoco_sim_interface/MujocoUtils.h:mj_state_fields)
+
+MjState::~MjState() {
+  if (data != nullptr) mj_deleteData(data);
+}
 
 void ContactTimeline::append(const ContactTimelineSample& sample) {
   if (!samples_.empty() && sample.time < samples_.back().time) {
@@ -50,7 +148,7 @@ void ContactTimeline::append(const ContactTimelineSample& sample) {
   }
 }
 
-bool isInBodySubtree(const mjModel* model, int bodyId, int ancestorId) {
+bool isInBodySubtree(const mjModel* absl_nonnull model, int bodyId, int ancestorId) {
   if (bodyId < 0 || ancestorId < 0) return false;
   int body = bodyId;
   while (true) {
@@ -60,11 +158,11 @@ bool isInBodySubtree(const mjModel* model, int bodyId, int ancestorId) {
   }
 }
 
-std::vector<int> resolveContactBodies(const mjModel* model,
+std::vector<int> resolveContactBodies(const mjModel* absl_nonnull model,
                                       const std::string& urdfPath,
                                       const std::vector<std::string>& contactFrameNames,
                                       const std::vector<std::string>& contactParentJointNames,
-                                      std::vector<std::string>* errors) {
+                                      std::vector<std::string>* absl_nullable errors) {
   std::vector<int> bodyIds(contactFrameNames.size(), -1);
 
   urdf::ModelInterfaceSharedPtr urdfModel;
@@ -86,9 +184,9 @@ std::vector<int> resolveContactBodies(const mjModel* model,
         bodyIds[i] = model->jnt_bodyid[jointId];
         continue;
       }
-      if (errors) {
-        errors->push_back(contactFrameNames[i] + ": the parent joint '" + contactParentJointNames[i] +
-                          "' is not a joint of the MuJoCo model; falling back to the frame name");
+      if (errors != nullptr) {
+        errors->push_back(absl::StrCat(contactFrameNames[i], ": the parent joint '", contactParentJointNames[i],
+                                       "' is not a joint of the MuJoCo model; falling back to the frame name"));
       }
     }
     // 2. A body named like the frame, 3. the URDF walked up through fixed joints.
@@ -101,9 +199,9 @@ std::vector<int> resolveContactBodies(const mjModel* model,
       const urdf::LinkConstSharedPtr link = urdfModel->getLink(linkName);
       if (!link || !link->parent_joint) break;
       if (link->parent_joint->type != urdf::Joint::FIXED) {
-        if (errors) {
-          errors->push_back(contactFrameNames[i] + ": link '" + linkName + "' hangs on the movable joint '" + link->parent_joint->name +
-                            "' but is not a body of the MuJoCo model");
+        if (errors != nullptr) {
+          errors->push_back(absl::StrCat(contactFrameNames[i], ": link '", linkName, "' hangs on the movable joint '",
+                                         link->parent_joint->name, "' but is not a body of the MuJoCo model"));
         }
         reported = true;
         break;
@@ -111,24 +209,27 @@ std::vector<int> resolveContactBodies(const mjModel* model,
       linkName = link->parent_joint->parent_link_name;
       bodyId = mj_name2id(model, mjOBJ_BODY, linkName.c_str());
     }
-    if (bodyId < 0 && !reported && errors) {
-      errors->push_back(contactFrameNames[i] + ": no MuJoCo body found for the frame or its fixed-joint ancestors" +
-                        (urdfModel ? std::string() : " (the URDF could not be parsed: " + urdfPath + ")"));
+    if (bodyId < 0 && !reported && errors != nullptr) {
+      errors->push_back(absl::StrCat(contactFrameNames[i], ": no MuJoCo body found for the frame or its fixed-joint ancestors",
+                                     urdfModel ? std::string() : absl::StrCat(" (the URDF could not be parsed: ", urdfPath, ")")));
     }
     bodyIds[i] = bodyId;
   }
   return bodyIds;
 }
 
-uint32_t groundTruthContactMask(
-    const mjModel* model, const mjData* data, const std::vector<int>& contactBodyIds, double forceThreshold, int ignoreBodyId) {
+uint32_t groundTruthContactMask(const mjModel* absl_nonnull model,
+                                const mjData* absl_nonnull data,
+                                const std::vector<int>& contactBodyIds,
+                                double forceThreshold,
+                                int ignoreBodyId) {
   uint32_t mask = 0;
-  const size_t numContacts = std::min<size_t>(contactBodyIds.size(), 32);
+  const size_t numContacts = std::min<size_t>(contactBodyIds.size(), kContactMaskCapacity);
   for (int c = 0; c < data->ncon; ++c) {
     const mjContact& contact = data->contact[c];
     if (contact.exclude != 0 || contact.efc_address < 0) continue;  // detected but not active in the constraint solver
     if (contact.geom[0] < 0 || contact.geom[1] < 0) continue;       // flex contacts carry no geoms
-    mjtNum force[6];
+    mjtNum force[kMjSpatialVectorSize];
     mj_contactForce(model, data, c, force);  // contact frame: force[0] is the normal component
     if (force[0] < forceThreshold) continue;
     const int body1 = model->geom_bodyid[contact.geom[0]];
@@ -141,10 +242,9 @@ uint32_t groundTruthContactMask(
       const int robotRoot = model->body_rootid[contactBody];
       // A body belongs to the robot when it shares the contact body's root; the world body never does. (For a robot
       // welded to the world every static body counts as the robot, a limitation accepted for walking robots.)
-      const std::function<bool(int)> isRobot = [&](int body) { return body != 0 && model->body_rootid[body] == robotRoot; };
       const bool oneIsContact = isInBodySubtree(model, body1, contactBody);
       const bool twoIsContact = isInBodySubtree(model, body2, contactBody);
-      if ((oneIsContact && !isRobot(body2)) || (twoIsContact && !isRobot(body1))) {
+      if ((oneIsContact && !isRobotBody(model, body2, robotRoot)) || (twoIsContact && !isRobotBody(model, body1, robotRoot))) {
         mask |= (1u << i);
       }
     }
@@ -152,7 +252,7 @@ uint32_t groundTruthContactMask(
   return mask;
 }
 
-RobotCentroidalState robotCentroidalState(const mjModel* model, const mjData* data) {
+RobotCentroidalState robotCentroidalState(const mjModel* absl_nullable model, const mjData* absl_nullable data) {
   RobotCentroidalState state;
   if (model == nullptr || data == nullptr) return state;
   for (int body = 1; body < model->nbody && state.rootBodyId < 0; ++body) {
@@ -161,23 +261,24 @@ RobotCentroidalState robotCentroidalState(const mjModel* model, const mjData* da
   if (state.rootBodyId < 0) return state;
   state.mass = model->body_subtreemass[state.rootBodyId];
   if (state.mass <= 0.0) return state;
-  for (int axis = 0; axis < 3; ++axis) state.com[axis] = data->subtree_com[3 * state.rootBodyId + axis];
+  for (int axis = 0; axis < kPositionDim; ++axis) state.com[axis] = data->subtree_com[kPositionDim * state.rootBodyId + axis];
   // mj_forward does not fill subtree_linvel; the mass-weighted mean of the body center velocities is the same thing.
-  double momentum[3] = {0.0, 0.0, 0.0};
+  double momentum[kPositionDim] = {0.0, 0.0, 0.0};
   for (int body = state.rootBodyId; body < model->nbody; ++body) {
     if (!isInBodySubtree(model, body, state.rootBodyId)) continue;
     const double mass = model->body_mass[body];
     if (mass <= 0.0) continue;
-    mjtNum velocity[6];  // [angular, linear] of the body's inertial frame, world orientation
+    mjtNum velocity[kMjSpatialVectorSize];  // [angular, linear] of the body's inertial frame, world orientation
     mj_objectVelocity(model, data, mjOBJ_BODY, body, velocity, /*flg_local=*/0);
-    for (int axis = 0; axis < 3; ++axis) momentum[axis] += mass * velocity[3 + axis];
+    for (int axis = 0; axis < kPositionDim; ++axis) momentum[axis] += mass * velocity[kMjMotionLinearOffset + axis];
   }
-  for (int axis = 0; axis < 3; ++axis) state.comVelocity[axis] = momentum[axis] / state.mass;
+  for (int axis = 0; axis < kPositionDim; ++axis) state.comVelocity[axis] = momentum[axis] / state.mass;
   state.valid = true;
   return state;
 }
 
-GroundReaction groundReaction(const mjModel* model, const mjData* data, int rootBodyId, double minNormalForce, int ignoreBodyId) {
+GroundReaction groundReaction(
+    const mjModel* absl_nullable model, const mjData* absl_nullable data, int rootBodyId, double minNormalForce, int ignoreBodyId) {
   GroundReaction reaction;
   if (model == nullptr || data == nullptr || rootBodyId < 0) return reaction;
   for (int c = 0; c < data->ncon; ++c) {
@@ -190,33 +291,70 @@ GroundReaction groundReaction(const mjModel* model, const mjData* data, int root
     const bool oneIsRobot = isInBodySubtree(model, body1, rootBodyId);
     const bool twoIsRobot = isInBodySubtree(model, body2, rootBodyId);
     if (oneIsRobot == twoIsRobot) continue;  // self-contact, or a contact that does not involve the robot
-    mjtNum forceInContactFrame[6];
+    mjtNum forceInContactFrame[kMjSpatialVectorSize];
     mj_contactForce(model, data, c, forceInContactFrame);
     // The contact frame is stored row-major (rows = the frame axes, the normal first, pointing from geom[0] to geom[1]);
     // the normal force is non-negative along it, so the world-frame force below is the one acting on geom[1].
-    double force[3];
-    for (int axis = 0; axis < 3; ++axis) {
-      force[axis] = forceInContactFrame[0] * contact.frame[axis] + forceInContactFrame[1] * contact.frame[3 + axis] +
-                    forceInContactFrame[2] * contact.frame[6 + axis];
+    double force[kPositionDim];
+    for (int axis = 0; axis < kPositionDim; ++axis) {
+      force[axis] = forceInContactFrame[kMjContactNormalRow] * contact.frame[kMjContactNormalRow * kPositionDim + axis] +
+                    forceInContactFrame[kMjContactFirstTangentRow] * contact.frame[kMjContactFirstTangentRow * kPositionDim + axis] +
+                    forceInContactFrame[kMjContactSecondTangentRow] * contact.frame[kMjContactSecondTangentRow * kPositionDim + axis];
     }
     if (oneIsRobot) {
       for (double& f : force) f = -f;  // the robot is geom[0]: it receives the reaction
     }
-    for (int axis = 0; axis < 3; ++axis) reaction.force[axis] += force[axis];
-    reaction.moment[0] += contact.pos[1] * force[2] - contact.pos[2] * force[1];
-    reaction.moment[1] += contact.pos[2] * force[0] - contact.pos[0] * force[2];
-    reaction.moment[2] += contact.pos[0] * force[1] - contact.pos[1] * force[0];
+    for (int axis = 0; axis < kPositionDim; ++axis) reaction.force[axis] += force[axis];
+    // The moment about the origin, r x f.
+    reaction.moment[kXAxisIndex] += contact.pos[kYAxisIndex] * force[kZAxisIndex] - contact.pos[kZAxisIndex] * force[kYAxisIndex];
+    reaction.moment[kYAxisIndex] += contact.pos[kZAxisIndex] * force[kXAxisIndex] - contact.pos[kXAxisIndex] * force[kZAxisIndex];
+    reaction.moment[kZAxisIndex] += contact.pos[kXAxisIndex] * force[kYAxisIndex] - contact.pos[kYAxisIndex] * force[kXAxisIndex];
   }
-  if (reaction.force[2] <= minNormalForce) return reaction;
-  reaction.zmp[0] = -reaction.moment[1] / reaction.force[2];
-  reaction.zmp[1] = reaction.moment[0] / reaction.force[2];
+  if (reaction.force[kZAxisIndex] <= minNormalForce) return reaction;
+  reaction.zmp[kXAxisIndex] = -reaction.moment[kYAxisIndex] / reaction.force[kZAxisIndex];
+  reaction.zmp[kYAxisIndex] = reaction.moment[kXAxisIndex] / reaction.force[kZAxisIndex];
   reaction.valid = true;
   return reaction;
 }
 
-void divergentComponentOfMotion(const double com[3], const double comVelocity[3], double height, double gravity, double dcm[2]) {
-  const double omega = std::sqrt(std::max(gravity, 0.0) / std::max(height, 0.05));
-  for (int axis = 0; axis < 2; ++axis) dcm[axis] = com[axis] + (omega > 0.0 ? comVelocity[axis] / omega : 0.0);
+void divergentComponentOfMotion(const double com[absl_nonnull kPositionDim],
+                                const double comVelocity[absl_nonnull kPositionDim],
+                                double height,
+                                double gravity,
+                                double dcm[absl_nonnull kHorizontalPositionDim]) {
+  const double omega = std::sqrt(std::max(gravity, 0.0) / std::max(height, kMinPendulumHeight));
+  for (int axis = 0; axis < kHorizontalPositionDim; ++axis) dcm[axis] = com[axis] + (omega > 0.0 ? comVelocity[axis] / omega : 0.0);
+}
+
+std::array<mjtNum, kPositionDim> footForceInWorldFrame(const mjModel* absl_nonnull model, const mjData* absl_nonnull data, int sensorId) {
+  const mjtNum* absl_nonnull reading = data->sensordata + model->sensor_adr[sensorId];
+  // The site's world orientation, row-major: it maps the site frame into the world frame.
+  const mjtNum* absl_nonnull siteToWorld = data->site_xmat + kMjMatrixSize * model->sensor_objid[sensorId];
+  std::array<mjtNum, kPositionDim> force{};
+  mju_mulMatVec3(force.data(), siteToWorld, reading);
+  // MuJoCo's reading is the force on the parent's side; the foot carries its opposite.
+  for (mjtNum& component : force) component = -component;
+  return force;
+}
+
+bool isFootForceSensor(const mjModel* absl_nonnull model, int sensorId) {
+  return sensorId >= 0 && sensorId < model->nsensor && model->sensor_type[sensorId] == mjSENS_FORCE &&
+         model->sensor_objtype[sensorId] == mjOBJ_SITE;
+}
+
+VerticalTwist verticalTwistOf(double w, double z) {
+  // The hemisphere w > 0, or w = 0 <= z, as BaseOrientation's headingFromTwist() takes it. |w| keeps a negative zero
+  // from turning atan2(+-0, -0) into +-pi.
+  const bool flip = w < 0.0 || (w == 0.0 && z < 0.0);
+  const double sign = flip ? -1.0 : 1.0;
+  // atan2(0, 0) = 0: an exactly upside-down attitude has the identity twist, and the half angle is continuous above it.
+  const double halfHeading = std::atan2(sign * z, std::abs(sign * w));
+  return {.w = std::cos(halfHeading), .z = std::sin(halfHeading)};
+}
+
+double twistHeadingOf(double w, double z) {
+  const VerticalTwist twist = verticalTwistOf(w, z);
+  return 2.0 * std::atan2(twist.z, twist.w);
 }
 
 }  // namespace robot::mujoco_sim_interface

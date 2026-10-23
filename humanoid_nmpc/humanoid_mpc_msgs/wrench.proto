@@ -1,0 +1,17 @@
+syntax = "proto3";
+
+package humanoid_mpc_msgs;
+
+import "humanoid_mpc_msgs/vector3.proto";
+import "nproto/options.proto";
+
+// Force and torque in the world frame, in that order.
+// Next ID: 3
+message Wrench {
+  option (nproto.generate_struct) = "ocs2::humanoid::msgs::Wrench";
+
+  reserved 3 to max;
+
+  Vector3 force = 1;
+  Vector3 torque = 2;
+}

@@ -1,5 +1,5 @@
 /******************************************************************************
-Copyright (c) 2025. All rights reserved.
+Copyright (c) 2026, Nicholas Palomo. All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are met:
@@ -10,6 +10,10 @@ modification, are permitted provided that the following conditions are met:
 * Redistributions in binary form must reproduce the above copyright notice,
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
+
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
 
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
@@ -28,11 +32,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <memory>
 #include <utility>
 
-#include <ocs2_core/penalties/penalties/SquaredHingePenalty.h>
+#include "ocs2_core/penalties/penalties/PenaltyBase.h"
+#include "ocs2_core/penalties/penalties/SquaredHingePenalty.h"
 
 namespace ocs2::humanoid {
 
 namespace {
+
 /**
  * The penalty that bounds λ from below.
  *
@@ -46,9 +52,9 @@ namespace {
  */
 std::unique_ptr<PenaltyBase> makeLambdaPenalty(const PieceWisePolynomialBarrierPenalty::Config& barrierSettings, bool scheduleGated) {
   if (scheduleGated) {
-    return std::unique_ptr<PenaltyBase>(new PieceWisePolynomialBarrierPenalty(barrierSettings));
+    return std::make_unique<PieceWisePolynomialBarrierPenalty>(barrierSettings);
   }
-  return std::unique_ptr<PenaltyBase>(new SquaredHingePenalty(SquaredHingePenalty::Config(barrierSettings.mu, /*deltaParam=*/0.0)));
+  return std::make_unique<SquaredHingePenalty>(SquaredHingePenalty::Config(barrierSettings.mu, /*deltaParam=*/0.0));
 }
 }  // namespace
 
@@ -96,11 +102,11 @@ bool BasisScalingNonNegativityConstraint::isActive(scalar_t time) const {
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-scalar_t BasisScalingNonNegativityConstraint::getValue(scalar_t time,
-                                                       const vector_t& state,
+scalar_t BasisScalingNonNegativityConstraint::getValue(scalar_t /*time*/,
+                                                       const vector_t& /*state*/,
                                                        const vector_t& input,
-                                                       const TargetTrajectories& targetTrajectories,
-                                                       const PreComputation& preComp) const {
+                                                       const TargetTrajectories& /*targetTrajectories*/,
+                                                       const PreComputation& /*preComp*/) const {
   // h_i = λ_i − 0 = λ_i.  Penalty grows as λ_i → 0⁺.
   const vector_t lambda = input.segment(lambdaStartIdx_, numBasis_);
   return lambda.unaryExpr([&](scalar_t h) { return penaltyPtr_->getValue(/*t=*/0.0, h); }).sum();
@@ -111,11 +117,11 @@ scalar_t BasisScalingNonNegativityConstraint::getValue(scalar_t time,
 /******************************************************************************************************/
 
 ScalarFunctionQuadraticApproximation BasisScalingNonNegativityConstraint::getQuadraticApproximation(
-    scalar_t time,
+    scalar_t /*time*/,
     const vector_t& state,
     const vector_t& input,
-    const TargetTrajectories& targetTrajectories,
-    const PreComputation& preComp) const {
+    const TargetTrajectories& /*targetTrajectories*/,
+    const PreComputation& /*preComp*/) const {
   const size_t stateDim = state.size();
   const size_t inputDim = input.size();
 
@@ -147,7 +153,8 @@ void BasisScalingNonNegativityConstraint::setBarrierPenalty(const PieceWisePolyn
   // Both penalties take (mu, delta). Un-gated the hinge's delta stays 0: it is the offset of the hinge's zero, and the
   // whole point of using a hinge for λ >= 0 is that its zero sits exactly on λ = 0. Writing the barrier's smoothing
   // width there would demand a positive λ from every generator and reinstate the bribe this term exists to remove.
-  const vector_t parameters = (vector_t(2) << barrierSettings.mu, scheduleGated_ ? barrierSettings.delta : 0.0).finished();
+  const vector_t parameters =
+      (vector_t(kMuDeltaParameterCount) << barrierSettings.mu, scheduleGated_ ? barrierSettings.delta : 0.0).finished();
   penaltyPtr_->setParameters(parameters);
 }
 

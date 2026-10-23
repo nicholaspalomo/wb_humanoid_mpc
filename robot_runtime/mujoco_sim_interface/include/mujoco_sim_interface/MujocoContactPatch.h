@@ -29,10 +29,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <mujoco/mujoco.h>
-
 #include <array>
 #include <vector>
+
+#include "absl/base/nullability.h"
+#include "mujoco/mujoco.h"
+#include "ocs2_core/Dimensions.h"
+
+#include "mujoco_sim_interface/MujocoUtils.h"
 
 namespace robot::mujoco_sim_interface {
 
@@ -44,21 +48,24 @@ namespace robot::mujoco_sim_interface {
  */
 struct TargetContactPatch {
   enum class Kind : int {
-    STANCE = 0,           // the foot's current placement (no upcoming swing)
-    SWING_IN_FLIGHT = 1,  // landing pose of the swing in flight
-    NEXT_SWING = 2        // landing pose of the foot's next swing (the foot is still in contact)
+    kStance = 0,         // the foot's current placement (no upcoming swing)
+    kSwingInFlight = 1,  // landing pose of the swing in flight
+    kNextSwing = 2       // landing pose of the foot's next swing (the foot is still in contact)
   };
-  bool valid{false};
-  Kind kind{Kind::STANCE};
-  double x{0.0};
-  double y{0.0};
-  double z{0.0};           // [m] contact frame origin
-  double yaw{0.0};         // [rad] contact frame yaw about the world z axis
-  bool yawPlanned{false};  // the yaw is planned (heading model); otherwise it holds the measured foot yaw
+  bool valid = false;
+  Kind kind{Kind::kStance};
+  double x = 0.0;
+  double y = 0.0;
+  double z = 0.0;           // [m] contact frame origin
+  double yaw = 0.0;         // [rad] contact frame yaw about the world z axis
+  bool yawPlanned = false;  // the yaw is planned (heading model); otherwise it holds the measured foot yaw
 };
 
-/** Corners of the contact patch polygon in the contact frame (x forward, y left), in order around the polygon. */
-using ContactPatchCorners = std::vector<std::array<double, 2>>;
+/**
+ * Corners of the contact patch polygon in the contact frame (x forward, y left), in order around the polygon: points of the
+ * ground plane, (x, y), placed in the world frame as (x, y, z).
+ */
+using ContactPatchCorners = std::vector<std::array<double, ocs2::kHorizontalPositionDim>>;
 
 /** A generic foot outline (0.2 m x 0.1 m) for contact points without a configured patch. */
 ContactPatchCorners defaultContactPatchCorners();
@@ -67,16 +74,19 @@ ContactPatchCorners defaultContactPatchCorners();
  * World-frame corners of `corners` placed at `patch`: rotated by its yaw about z, translated to its origin and lifted
  * by `heightOffset` above its z.
  */
-std::vector<std::array<double, 3>> contactPatchWorldCorners(const TargetContactPatch& patch,
-                                                            const ContactPatchCorners& corners,
-                                                            double heightOffset = 0.0);
+std::vector<std::array<double, ocs2::kPositionDim>> contactPatchWorldCorners(const TargetContactPatch& patch,
+                                                                             const ContactPatchCorners& corners,
+                                                                             double heightOffset = 0.0);
 
 /** How a patch is drawn. */
 struct ContactPatchStyle {
-  std::array<float, 4> rgba{1.0f, 1.0f, 1.0f, 1.0f};
-  bool fill{true};   // thin translucent slab over the bounds of the corners (exact for a rectangle)
-  bool arrow{true};  // arrow along the patch's x axis from its origin, shows the yaw
-  float emission{0.5f};
+  /** The emission of a patch drawn without one. */
+  static constexpr float kDefaultEmission = 0.5f;
+
+  std::array<float, kMjRgbaChannels> rgba{1.0f, 1.0f, 1.0f, 1.0f};  // red, green, blue and alpha
+  bool fill = true;   // thin translucent slab over the bounds of the corners (exact for a rectangle)
+  bool arrow = true;  // arrow along the patch's x axis from its origin, shows the yaw
+  float emission = kDefaultEmission;
 };
 
 /**
@@ -84,7 +94,7 @@ struct ContactPatchStyle {
  * corners, and the filled slab and the heading arrow according to `style`. Returns the number of geoms appended;
  * nothing is appended for an invalid patch, fewer than three corners, or when the scene has no room for all of them.
  */
-int addContactPatchGeoms(mjvScene* scene,
+int addContactPatchGeoms(mjvScene* absl_nullable scene,
                          const TargetContactPatch& patch,
                          const ContactPatchCorners& corners,
                          const ContactPatchStyle& style);

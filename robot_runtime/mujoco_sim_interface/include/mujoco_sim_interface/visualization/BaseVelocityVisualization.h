@@ -29,19 +29,46 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <string>
+
+#include "absl/base/nullability.h"
+#include "mujoco/mujoco.h"
+
 #include "mujoco_sim_interface/visualization/MujocoVisualization.h"
 
 namespace robot::mujoco_sim_interface {
 
 /**
- * Arrows at the center of mass: the measured base velocity (red) against the commanded one (green), and the measured
- * (blue) against the commanded (yellow) yaw rate as vertical arrows.
+ * The commanded base velocity the arrows of BaseVelocityVisualization are drawn against: a velocity along the ground in
+ * the base's heading frame (its attitude's twist about the world vertical, design D9) and the heading rate.
+ */
+struct BaseVelocityCommand {
+  double velocityX = 0.0;  // [m/s] forward
+  double velocityY = 0.0;  // [m/s] lateral
+  double yawRate = 0.0;    // [rad/s] about the world vertical
+};
+
+/**
+ * Arrows at the center of mass: the measured horizontal center-of-mass velocity (red) against the commanded base velocity
+ * turned into the world by the base's heading (green), each as long as its speed, and the measured (blue) against the
+ * commanded (yellow) yaw rate as arrows along the world's vertical. Not thread-safe; the
+ * renderer calls it on its own thread.
  */
 class BaseVelocityVisualization final : public MujocoVisualization {
  public:
   std::string name() const override { return "base_velocity"; }
   std::string description() const override { return "measured (red) vs commanded (green) base velocity and yaw rate at the CoM"; }
   void addSceneGeoms(const VisualizationFrame& frame) override;
+
+  /**
+   * Appends to `scene`, while it has room, the arrows of the measured velocities of the robot in `data` (on which
+   * mj_forward() has run) and of `command`; draws nothing for a model without a robot on a free joint. addSceneGeoms()
+   * draws them with the simulator's command. Retains nothing.
+   */
+  static void addArrows(const mjModel* absl_nonnull model,
+                        const mjData* absl_nonnull data,
+                        const BaseVelocityCommand& command,
+                        mjvScene& scene);
 };
 
 }  // namespace robot::mujoco_sim_interface

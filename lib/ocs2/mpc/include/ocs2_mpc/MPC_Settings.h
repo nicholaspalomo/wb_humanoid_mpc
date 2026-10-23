@@ -41,6 +41,9 @@ namespace mpc {
  * This structure holds all setting parameters for the MPC class.
  */
 struct Settings {
+  /** [Hz] The default of mrtDesiredFrequency_. */
+  static constexpr scalar_t kDefaultMrtDesiredFrequency = 100.0;
+
   /** MPC time horizon length in seconds. */
   scalar_t timeHorizon_ = 1.0;
   /**
@@ -52,33 +55,23 @@ struct Settings {
   /** This value determines to display the log output of MPC. */
   bool debugPrint_ = false;
 
-  /** This value determines to initialize the SLQ with the controller from previous call (warm start)
+  /** This value determines to initialize the solver with the solution from previous call (warm start)
    * or the given operating trajectories (cold start). */
   bool coldStart_ = false;
 
   /**
-   * MPC loop frequency in Hz. This setting is only used in Dummy_Loop for testing. If set to a
-   * positive number, THe MPC loop will be simulated to run by the given frequency (note that this
-   * might not be the MPC's real-time frequency). Any negative number will cause the MPC loop to run
-   * by its maximum possible frequency.
+   * MPC loop frequency in Hz. If set to a positive number, the MPC loop runs at most at the given
+   * frequency, and a dummy simulator advances its plant by one MPC period per solve (note that this
+   * might not be the MPC's real-time frequency). Any non-positive number will cause the MPC loop to
+   * run by its maximum possible frequency.
    */
   scalar_t mpcDesiredFrequency_ = -1;
   /**
-   * MRT loop frequency in Hz. This setting is only used in Dummy_Loop for testing. This should always
-   * set to a positive number which can be interpreted as the tracking controller's frequency.
+   * MRT loop frequency in Hz: the tracking controller's frequency, the control rate of the robot
+   * process. This should always be set to a positive number.
    */
-  scalar_t mrtDesiredFrequency_ = 100.0;
+  scalar_t mrtDesiredFrequency_ = kDefaultMrtDesiredFrequency;
 };
-
-/**
- * Loads the MPC settings from a given file.
- *
- * @param [in] filename: File name which contains the configuration data.
- * @param [in] fieldName: Field name which contains the configuration data.
- * @param [in] verbose: Flag to determine whether to print out the loaded settings or not.
- * @return The MPC settings
- */
-Settings loadSettings(const std::string& filename, const std::string& fieldName = "mpc", bool verbose = true);
 
 }  // namespace mpc
 }  // namespace ocs2

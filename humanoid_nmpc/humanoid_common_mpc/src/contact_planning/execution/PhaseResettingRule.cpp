@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -27,15 +31,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cmath>
+#include <string>
 
 #include "absl/strings/str_cat.h"
 
-namespace ocs2::humanoid {
+#include "humanoid_common_mpc/contact_planning/ContactScheduleAdaptation.h"
 
-namespace {
-constexpr scalar_t kSameSwingTolerance = 1e-6;  // [s] lift-off times closer than this identify the same swing
-constexpr scalar_t kMinTimeShift = 1e-6;        // [s] smaller event shifts are not applied
-}  // namespace
+namespace ocs2::humanoid {
 
 std::string PhaseResettingRule::describe() const {
   return absl::StrCat("early touch-down after ", params_.earlyTouchdownMinSwingRatio, " of the swing, debounced ",
@@ -80,7 +82,7 @@ bool PhaseResettingRule::adaptSwingingFoot(const ExecutionContext& ctx,
     const bool worthReTiming = !onSchedule || touchDown - time > params_.earlyTouchdownMinAdvance;
     if (worthReTiming && time - latch.contactObservedSince >= params_.earlyTouchdownMinContactDuration - kMinTimeShift &&
         truncateSwingPhase(schedule, foot, time).has_value()) {
-      report.type = ContactEventReport::Type::EARLY_TOUCH_DOWN;
+      report.type = ContactEventReport::Type::kEarlyTouchDown;
       report.touchDownTime = time;
       report.timeShift = 0.0;
       latch = SwingTimingLatch{};
@@ -105,7 +107,7 @@ bool PhaseResettingRule::adaptContactFoot(
   const scalar_t shift = target - touchDown;
   if (shift > kMinTimeShift && shiftEventsFrom(schedule, index - 1, shift)) {
     latch.lateExtension = target - plannedTouchDown;
-    report.type = ContactEventReport::Type::LATE_TOUCH_DOWN;
+    report.type = ContactEventReport::Type::kLateTouchDown;
     report.touchDownTime = target;
     report.timeShift = shift;
     return true;
@@ -121,10 +123,12 @@ std::optional<GroundSearchRequest> PhaseResettingRule::groundSearch(const Execut
   // is the planned swing's, continued past the planned touch-down as a straight descent at the search velocity, so that
   // the foot keeps moving down instead of hovering, and the reference never rises when the swing is extended again.
   if (!latch.active || latch.lateExtension <= 0.0) return std::nullopt;
-  const std::optional<std::pair<size_t, size_t>> range = swingPhaseIndexRange(schedule, foot, ctx.time);
+  const std::optional<PhaseIndexRange> range = swingPhaseIndexRange(schedule, foot, ctx.time);
   if (!range.has_value() || range->first == 0) return std::nullopt;
   if (std::abs(schedule.eventTimes[range->first - 1] - latch.liftOffTime) > kSameSwingTolerance) return std::nullopt;
-  return GroundSearchRequest{latch.liftOffTime, latch.plannedTouchDownTime(), params_.lateTouchdownSearchVelocity};
+  return GroundSearchRequest{.liftOffTime = latch.liftOffTime,
+                             .plannedTouchDownTime = latch.plannedTouchDownTime(),
+                             .searchVelocity = params_.lateTouchdownSearchVelocity};
 }
 
 }  // namespace ocs2::humanoid

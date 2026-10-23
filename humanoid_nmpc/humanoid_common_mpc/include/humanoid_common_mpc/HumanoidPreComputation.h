@@ -32,31 +32,37 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <memory>
 #include <string>
+#include <vector>
 
-#include <ocs2_core/PreComputation.h>
-#include <ocs2_pinocchio_interface/PinocchioInterface.h>
-
-#include "humanoid_common_mpc/constraint/EndEffectorKinematicsLinearVelConstraint.h"
-
-#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
+#include "absl/base/nullability.h"
+#include "ocs2_core/PreComputation.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
+#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
+#include "humanoid_common_mpc/constraint/EndEffectorKinematicsLinearVelConstraint.h"
 #include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
 
 namespace ocs2::humanoid {
 
-/** Callback for caching and reference update */
+/**
+ * Callback for caching and reference update
+ *
+ * Not thread-safe: request() updates its Pinocchio data and the cached references; each solver worker thread owns its own clone().
+ */
 class HumanoidPreComputation : public PreComputation {
  public:
   HumanoidPreComputation(PinocchioInterface pinocchioInterface,
                          const SwingTrajectoryPlanner& swingTrajectoryPlanner,
                          const MpcRobotModelBase<scalar_t>& mpcRobotModel);
-  virtual ~HumanoidPreComputation() override = default;
+  ~HumanoidPreComputation() override = default;
+  HumanoidPreComputation& operator=(const HumanoidPreComputation&) = delete;
+  HumanoidPreComputation(HumanoidPreComputation&&) = delete;
+  HumanoidPreComputation& operator=(HumanoidPreComputation&&) = delete;
 
-  virtual HumanoidPreComputation* clone() const override;
+  HumanoidPreComputation* absl_nonnull clone() const override;
 
-  virtual void request(RequestSet request, scalar_t t, const vector_t& x, const vector_t& u) override;
-  const matrix3_t& getRWorldToContacts(size_t contactIndex) const { return R_world_to_contacts_[contactIndex]; }
+  void request(RequestSet request, scalar_t t, const vector_t& x, const vector_t& u) override;
 
   const std::vector<EndEffectorKinematicsLinearVelConstraint::Config>& getEeNormalVelocityConstraintConfigs() const {
     return eeNormalVelConConfigs_;
@@ -85,13 +91,11 @@ class HumanoidPreComputation : public PreComputation {
  protected:
   HumanoidPreComputation(const HumanoidPreComputation& rhs);
 
-  void updatePinocchioModelKinematics(const vector_t& generalizedCoordinates);
+  void updatePinocchioModelKinematics(const vector_t& q);
 
   PinocchioInterface pinocchioInterface_;
-  const SwingTrajectoryPlanner* swingTrajectoryPlannerPtr_;
-  const MpcRobotModelBase<scalar_t>* mpcRobotModelPtr_;
-
-  std::vector<matrix3_t> R_world_to_contacts_;
+  const SwingTrajectoryPlanner* absl_nonnull swingTrajectoryPlannerPtr_;
+  const MpcRobotModelBase<scalar_t>* absl_nonnull mpcRobotModelPtr_;
 
   std::vector<EndEffectorKinematicsLinearVelConstraint::Config> eeNormalVelConConfigs_;
   std::vector<scalar_t> footHeightReferences_;

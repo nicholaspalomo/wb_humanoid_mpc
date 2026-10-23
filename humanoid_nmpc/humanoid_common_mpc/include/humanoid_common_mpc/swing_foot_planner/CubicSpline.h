@@ -30,10 +30,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <ocs2_core/Types.h>
+#include "ocs2_core/Types.h"
 
 namespace ocs2::humanoid {
 
+/**
+ * A cubic polynomial between two nodes of given time, position and velocity. An immutable value.
+ *
+ * Its const methods are safe to call concurrently.
+ */
 class CubicSpline {
  public:
   struct Node {
@@ -42,7 +47,14 @@ class CubicSpline {
     scalar_t velocity;
   };
 
+  /** The spline from `start` to `end`; `start.time` must be before `end.time` (unchecked: the swing planner orders them). */
   CubicSpline(Node start, Node end);
+
+  CubicSpline(const CubicSpline&) = default;
+  CubicSpline& operator=(const CubicSpline&) = default;
+  CubicSpline(CubicSpline&&) = default;
+  CubicSpline& operator=(CubicSpline&&) = default;
+  ~CubicSpline() = default;
 
   scalar_t position(scalar_t time) const;
 

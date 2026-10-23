@@ -1,8 +1,34 @@
-#!/usr/bin/env python3
-"""
-Python validator for Google LINT.IfChange / LINT.ThenChange directives.
-Used in git pre-commit hooks when ifttt-lint Rust binary is not installed locally.
-Matches directives appearing alone on comment lines (shell, C++, Markdown, YAML, etc.).
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+"""Validates the Google LINT.IfChange / LINT.ThenChange directives of the repository.
+
+The pre-commit hook and `make lint` run it where the ifttt-lint Rust binary is not installed. It matches directives
+alone on comment lines (shell, C++, Markdown, YAML, etc.).
 """
 
 import os
@@ -19,29 +45,26 @@ IF_CHANGE_RE = re.compile(
 THEN_CHANGE_RE = re.compile(r"^\s*(?:#|//|<!--|--|;|\*)\s*LINT\.ThenChange\(([^)]+)\)")
 
 
-def parse_targets(target_str):
+def parse_targets(target_str: str) -> list[str]:
+    """The targets of a ThenChange's comma-separated list, each without its leading `//`."""
     targets = []
     for item in target_str.split(","):
         item = item.strip()
         if not item:
             continue
-        if item.startswith("//"):
-            targets.append(item[2:])
-        elif item.startswith(":"):
-            targets.append(item)
-        else:
-            targets.append(item)
+        targets.append(item[2:] if item.startswith("//") else item)
     return targets
 
 
-_LABEL_CACHE = {}
+# The labels of each file read so far; one run reads a file once, however many directives point at it.
+_LABEL_CACHE: dict[str, set[str]] = {}
 
 
-def labels_in(rel_path):
+def labels_in(rel_path: str) -> set[str]:
     """The IfChange labels a file declares, outside Markdown code blocks, so a ThenChange can be checked against them."""
     if rel_path in _LABEL_CACHE:
         return _LABEL_CACHE[rel_path]
-    labels = set()
+    labels: set[str] = set()
     full_path = os.path.join(REPO_ROOT, rel_path)
     if os.path.isfile(full_path):
         in_code_block = False
@@ -59,7 +82,15 @@ def labels_in(rel_path):
     return labels
 
 
-def check_file(rel_path):
+def check_file(rel_path: str) -> list[str]:
+    """The directive errors of one file: duplicate, nested or unmatched blocks, and targets that do not exist.
+
+    Args:
+        rel_path: The file, relative to the repository root.
+
+    Returns:
+        One `<path>:<line>: <problem>` message per error; none for a file that does not exist.
+    """
     full_path = os.path.join(REPO_ROOT, rel_path)
     if not os.path.exists(full_path):
         return []
@@ -68,8 +99,8 @@ def check_file(rel_path):
     with open(full_path, "r", encoding="utf-8", errors="ignore") as f:
         lines = f.readlines()
 
-    if_stack = []
-    seen_labels = set()
+    if_stack: list[tuple[int, str | None]] = []
+    seen_labels: set[str] = set()
     in_markdown_code_block = False
 
     for idx, line in enumerate(lines, 1):
@@ -140,7 +171,8 @@ def check_file(rel_path):
     return errors
 
 
-def main():
+def main() -> None:
+    """Checks the files named on the command line, or every file git would ship; exits 1 on an error."""
     files = sys.argv[1:]
     if not files:
         # What git would ship - tracked files and untracked ones that are not ignored - which is what the pre-commit
@@ -159,7 +191,7 @@ def main():
         except (OSError, subprocess.CalledProcessError):
             files = []
     if not files:
-        for root, dirs, fnames in os.walk(REPO_ROOT):
+        for root, _, fnames in os.walk(REPO_ROOT):
             if ".git" in root or "bazel-" in root or "tools/ifttt-lint" in root:
                 continue
             for fname in fnames:

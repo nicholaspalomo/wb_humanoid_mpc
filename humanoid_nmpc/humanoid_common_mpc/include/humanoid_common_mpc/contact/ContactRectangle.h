@@ -30,6 +30,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <string>
+#include <vector>
+
 #include "humanoid_common_mpc/contact/ContactPolygon.h"
 
 namespace ocs2::humanoid {
@@ -41,18 +44,14 @@ namespace ocs2::humanoid {
 /// \param[in] polygonBounds the maximum extension of the rectangle aligned with the specified frame
 /// \param[in] frameName name of pinocchio frame the polygon is specified in
 /// \param[in] scaleFactor A factor to shrink or extent the polygon
+/// An immutable value: its const methods are safe to call concurrently.
 ///
 class ContactRectangle : public ContactPolygon {
  public:
-  ContactRectangle(const PolygonBounds& polygonBounds, const ContactCenterPoint& contactCenterPoint, const scalar_t& scale_factor = 1.0);
+  /** The corners of a rectangle, the contact points of its polygon. */
+  static constexpr int kNumCorners = 4;
 
-  static std::vector<vector3_t> pointsFromBounds(const PolygonBounds& polygonBounds, const scalar_t& scaleFactor);
-
-  static ContactRectangle loadContactRectangle(const std::string& taskFile,
-                                               const ModelSettings& modelSettings,
-                                               int contactIndex,
-                                               bool verbose = false);
-
+  ContactRectangle(const PolygonBounds& polygonBounds, const ContactCenterPoint& contactCenterPoint, scalar_t scaleFactor = 1.0);
 };  // namespace ContactPolygon
 
 }  // namespace ocs2::humanoid

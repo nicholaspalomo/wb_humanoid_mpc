@@ -30,6 +30,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_wb_mpc/dynamics/WBAccelDynamicsAD.h"
 
+#include <string>
+
+#include "absl/base/nullability.h"
+
 #include "humanoid_wb_mpc/dynamics/DynamicsHelperFunctions.h"
 
 namespace ocs2::humanoid {
@@ -38,11 +42,11 @@ namespace ocs2::humanoid {
 /******************************************************************************************************/
 /******************************************************************************************************/
 WBAccelDynamicsAD::WBAccelDynamicsAD(const PinocchioInterface& pinocchioInterface,
-                                     WBAccelMpcRobotModel<ad_scalar_t>& mpcRobotModel,
+                                     const WBAccelMpcRobotModel<ad_scalar_t>* absl_nonnull mpcRobotModel,
                                      const std::string& modelName,
                                      const ModelSettings& modelSettings)
-    : SystemDynamicsBaseAD(), pinInterfaceCppAd(pinocchioInterface.toCppAd()), mpcRobotModel_(mpcRobotModel) {
-  initialize(mpcRobotModel_.getStateDim(), mpcRobotModel_.getInputDim(), modelName, modelSettings.modelFolderCppAd,
+    : SystemDynamicsBaseAD(), pinInterfaceCppAd_(pinocchioInterface.toCppAd()), mpcRobotModel_(mpcRobotModel) {
+  initialize(mpcRobotModel_->getStateDim(), mpcRobotModel_->getInputDim(), modelName, modelSettings.modelFolderCppAd,
              modelSettings.recompileLibrariesCppAd, modelSettings.verboseCppAd);
 }
 
@@ -50,11 +54,8 @@ WBAccelDynamicsAD::WBAccelDynamicsAD(const PinocchioInterface& pinocchioInterfac
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-ad_vector_t WBAccelDynamicsAD::systemFlowMap(ad_scalar_t time,
-                                             const ad_vector_t& state,
-                                             const ad_vector_t& input,
-                                             const ad_vector_t& parameters) const {
-  return computeStateDerivative<ad_scalar_t>(state, input, pinInterfaceCppAd, mpcRobotModel_);
+ad_vector_t WBAccelDynamicsAD::systemFlowMap(ad_scalar_t /*time*/, const ad_vector_t& state, const ad_vector_t& input) const {
+  return computeStateDerivative<ad_scalar_t>(state, input, pinInterfaceCppAd_, *mpcRobotModel_);
 }
 
 /******************************************************************************************************/

@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -25,17 +29,28 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/constraint/GroundPenetrationConstraint.h"
 
-#include "absl/log/check.h"
+#include <memory>
+
+#include "absl/memory/memory.h"
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
 
 namespace ocs2::humanoid {
+
+absl::StatusOr<std::unique_ptr<GroundPenetrationConstraint>> GroundPenetrationConstraint::Create(
+    const FootprintCornerHeights& cornerHeights, scalar_t terrainHeight) {
+  if (cornerHeights.numCorners() == 0) {
+    return absl::InvalidArgumentError("[GroundPenetrationConstraint] needs at least one point of the foot to keep above the ground");
+  }
+  // The constructor is private, so std::make_unique cannot call it (ToTW #134).
+  return absl::WrapUnique(new GroundPenetrationConstraint(cornerHeights, terrainHeight));
+}
 
 GroundPenetrationConstraint::GroundPenetrationConstraint(const FootprintCornerHeights& cornerHeights, scalar_t terrainHeight)
     : StateConstraint(ConstraintOrder::Linear),
       cornerHeightsPtr_(cornerHeights.clone()),
       numPoints_(cornerHeights.numCorners()),
-      terrainHeight_(terrainHeight) {
-  CHECK_GT(numPoints_, 0U) << "[GroundPenetrationConstraint] needs at least one point of the foot to keep above the ground";
-}
+      terrainHeight_(terrainHeight) {}
 
 GroundPenetrationConstraint::GroundPenetrationConstraint(const GroundPenetrationConstraint& rhs)
     : StateConstraint(rhs),
@@ -43,13 +58,13 @@ GroundPenetrationConstraint::GroundPenetrationConstraint(const GroundPenetration
       numPoints_(rhs.numPoints_),
       terrainHeight_(rhs.terrainHeight_) {}
 
-vector_t GroundPenetrationConstraint::getValue(scalar_t time, const vector_t& state, const PreComputation& preComp) const {
+vector_t GroundPenetrationConstraint::getValue(scalar_t /*time*/, const vector_t& state, const PreComputation& /*preComp*/) const {
   return cornerHeightsPtr_->getHeights(state).array() - terrainHeight_;
 }
 
-VectorFunctionLinearApproximation GroundPenetrationConstraint::getLinearApproximation(scalar_t time,
+VectorFunctionLinearApproximation GroundPenetrationConstraint::getLinearApproximation(scalar_t /*time*/,
                                                                                       const vector_t& state,
-                                                                                      const PreComputation& preComp) const {
+                                                                                      const PreComputation& /*preComp*/) const {
   VectorFunctionLinearApproximation approximation;
   approximation.f = cornerHeightsPtr_->getHeights(state).array() - terrainHeight_;
   approximation.dfdx = cornerHeightsPtr_->getHeightsJacobian(state);

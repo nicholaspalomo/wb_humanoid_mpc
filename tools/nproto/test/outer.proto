@@ -1,0 +1,51 @@
+syntax = "proto3";
+
+package nproto_test;
+
+import "nproto/options.proto";
+
+// Nested types: an enum, a message that refers to a sibling declared after it, and a message nested two deep.
+// Next ID: 6
+message Outer {
+  option (nproto.generate_struct) = "nproto::test::Outer";
+
+  reserved 6 to max;
+
+  enum Kind {
+    KIND_UNSPECIFIED = 0;
+    KIND_STANCE = 1;
+    KIND_SWING = 2;
+  }
+
+  // Next ID: 5
+  message Inner {
+    reserved 5 to max;
+
+    // Next ID: 3
+    message Leaf {
+      reserved 3 to max;
+
+      string label = 1;
+      Kind kind = 2;
+    }
+
+    Kind kind = 1;
+    Leaf leaf = 2;
+    // Declared after Inner: its struct has to come first.
+    Later later = 3;
+    repeated double weights = 4;
+  }
+
+  // Next ID: 2
+  message Later {
+    reserved 2 to max;
+
+    double value = 1;
+  }
+
+  Inner inner = 1;
+  repeated Inner inners = 2;
+  Kind kind = 3;
+  Inner.Leaf leaf = 4;
+  map<string, Inner> inner_by_name = 5;
+}

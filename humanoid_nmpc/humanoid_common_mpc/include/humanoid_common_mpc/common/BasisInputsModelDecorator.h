@@ -29,19 +29,21 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <pinocchio/fwd.hpp>  // forward declarations must be included first.
+#include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
 #include <array>
-#include <cassert>
 #include <memory>
 #include <type_traits>
+#include <utility>
 
-#include <Eigen/Core>
-
-#include <pinocchio/multibody/data.hpp>
-#include <pinocchio/multibody/model.hpp>
-
-#include <ocs2_pinocchio_interface/PinocchioInterface.h>
+#include "Eigen/Core"
+#include "absl/base/nullability.h"
+#include "absl/log/absl_check.h"
+#include "absl/status/statusor.h"
+#include "ocs2_core/Dimensions.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
+#include "pinocchio/multibody/data.hpp"
+#include "pinocchio/multibody/model.hpp"
 
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/Types.h"
@@ -69,38 +71,42 @@ namespace ocs2::humanoid {
  * Every consumer that needs a world-frame wrench (dynamics, inverse dynamics, external
  * torque costs, visualization, telemetry) must use the state-aware accessors.
  *
- * The wrapped model's state accessors are forwarded unchanged.
+ * The wrapped model's state accessors, its tuning layout and its layout-agnostic API (orientation, Euler boundary,
+ * interpolation, tangent maps, measurement helpers) are forwarded unchanged.
  * The input dimension changes: the 6 wrench variables per contact are replaced
  * by numBasisPerFoot_ scaling variables.
  *
  * Template parameter SCALAR_T must match the wrapped model.
+ *
+ * The const methods are safe to call concurrently when the wrapped model's are: the frame rotations are computed on a
+ * copy of the Pinocchio data per call.
  */
 template <typename SCALAR_T>
 class BasisInputsModelDecorator : public MpcRobotModelBase<SCALAR_T> {
  public:
   using Base = MpcRobotModelBase<SCALAR_T>;
 
-  // Spatial wrench/force/moment dimensions.
-  static constexpr size_t kWrenchDim = 6;
-  static constexpr size_t kForceDim = 3;
-  static constexpr size_t kMomentDim = 3;
-
   /**
    * @param wrappedModel       The model to decorate (ownership transferred).
    * @param basisMatrices      Per-contact basis matrices (in the local contact frame).
-   *                           Must have exactly N_CONTACTS elements.
+   *                           Must have exactly kNumContacts elements.
    * @param pinocchioInterface Pinocchio interface used to evaluate the contact frame
    *                           orientations for the world-frame accessors (copied).
    */
   BasisInputsModelDecorator(std::unique_ptr<MpcRobotModelBase<SCALAR_T>> wrappedModel,
-                            const std::array<ContactWrenchConeBasisMatrix, N_CONTACTS>& basisMatrices,
+                            const std::array<ContactWrenchConeBasisMatrix, kNumContacts>& basisMatrices,
                             const PinocchioInterfaceTpl<SCALAR_T>& pinocchioInterface)
-      : Base(wrappedModel->modelSettings, wrappedModel->getStateDim(), computeInputDim(basisMatrices, wrappedModel->modelSettings)),
+      : Base(wrappedModel->modelSettings,
+             MpcRobotModelDimensions{.stateDim = wrappedModel->getStateDim(),
+                                     .inputDim = computeInputDim(basisMatrices, wrappedModel->modelSettings),
+                                     .configurationDim = wrappedModel->getConfigurationDim(),
+                                     .velocityDim = wrappedModel->getVelocityDim()},
+             wrappedModel->getTuningLayout()),
         wrappedModel_(std::move(wrappedModel)),
         pinocchioInterface_(pinocchioInterface),
         numBasisPerFoot_(basisMatrices[0].numBasis()) {
-    for (size_t i = 0; i < N_CONTACTS; ++i) {
-      assert(basisMatrices[i].numBasis() == numBasisPerFoot_);
+    for (size_t i = 0; i < kNumContacts; ++i) {
+      ABSL_CHECK_EQ(basisMatrices[i].numBasis(), numBasisPerFoot_) << "BasisInputsModelDecorator: every foot has one basis size";
       B_local_[i] = basisMatrices[i].getBasisMatrix();
       B_pinv_local_[i] = basisMatrices[i].getBasisMatrixPseudoInverse();
       contactFrameIndices_[i] = ocs2::humanoid::getContactFrameIndex<SCALAR_T>(pinocchioInterface_, *wrappedModel_, i);
@@ -108,7 +114,10 @@ class BasisInputsModelDecorator : public MpcRobotModelBase<SCALAR_T> {
   }
 
   ~BasisInputsModelDecorator() override = default;
-  BasisInputsModelDecorator* clone() const override { return new BasisInputsModelDecorator(*this); }
+  BasisInputsModelDecorator& operator=(const BasisInputsModelDecorator&) = delete;
+  BasisInputsModelDecorator(BasisInputsModelDecorator&&) = delete;
+  BasisInputsModelDecorator& operator=(BasisInputsModelDecorator&&) = delete;
+  BasisInputsModelDecorator* absl_nonnull clone() const override { return new BasisInputsModelDecorator(*this); }
 
   /** Number of basis scalings per foot. */
   size_t getNumBasisPerFoot() const { return numBasisPerFoot_; }
@@ -120,13 +129,10 @@ class BasisInputsModelDecorator : public MpcRobotModelBase<SCALAR_T> {
   const matrix_t& getBasisMatrix(size_t contactIndex) const { return B_local_[contactIndex]; }
 
   /** All local-frame basis matrices. */
-  const std::array<matrix_t, N_CONTACTS>& getBasisMatrices() const { return B_local_; }
+  const std::array<matrix_t, kNumContacts>& getBasisMatrices() const { return B_local_; }
 
   /** Local-frame pseudoinverse of the basis matrix. */
   const matrix_t& getBasisMatrixPseudoInverse(size_t contactIndex) const { return B_pinv_local_[contactIndex]; }
-
-  /** Pinocchio frame index of the given contact. */
-  pinocchio::FrameIndex getPinocchioContactFrameIndex(size_t contactIndex) const { return contactFrameIndices_[contactIndex]; }
 
   /**
    * Constant block-diagonal map from the basis-vector input to the wrapped model's wrench-space input,
@@ -142,8 +148,9 @@ class BasisInputsModelDecorator : public MpcRobotModelBase<SCALAR_T> {
     const size_t wrenchInputDim = wrappedModel_->getInputDim();
     const size_t jointDim = this->modelSettings.mpc_joint_dim;
     matrix_t M = matrix_t::Zero(wrenchInputDim, this->input_dim);
-    for (size_t i = 0; i < N_CONTACTS; ++i) {
-      M.block(wrappedModel_->getContactWrenchStartIndices(i), getContactWrenchStartIndices(i), kWrenchDim, numBasisPerFoot_) = B_local_[i];
+    for (size_t i = 0; i < kNumContacts; ++i) {
+      M.block(wrappedModel_->getContactWrenchStartIndices(i), getContactWrenchStartIndices(i), kContactWrenchDim, numBasisPerFoot_) =
+          B_local_[i];
     }
     M.block(wrappedModel_->getJointVelocitiesStartindex(), getJointVelocitiesStartindex(), jointDim, jointDim).setIdentity();
     return M;
@@ -152,10 +159,11 @@ class BasisInputsModelDecorator : public MpcRobotModelBase<SCALAR_T> {
   /******* Start indices *******/
 
   size_t getBaseStartindex() const override { return wrappedModel_->getBaseStartindex(); }
+  size_t getBaseOrientationStartIndex() const override { return wrappedModel_->getBaseOrientationStartIndex(); }
   size_t getJointStartindex() const override { return wrappedModel_->getJointStartindex(); }
 
   /** Joint velocities/accelerations start after the basis-vector block. */
-  size_t getJointVelocitiesStartindex() const override { return numBasisPerFoot_ * N_CONTACTS; }
+  size_t getJointVelocitiesStartindex() const override { return numBasisPerFoot_ * kNumContacts; }
 
   /** Start index of the λ-block for the given contact. */
   size_t getContactWrenchStartIndices(size_t contactIndex) const override { return numBasisPerFoot_ * contactIndex; }
@@ -170,11 +178,7 @@ class BasisInputsModelDecorator : public MpcRobotModelBase<SCALAR_T> {
   VECTOR_T<SCALAR_T> getGeneralizedCoordinates(const VECTOR_T<SCALAR_T>& state) const override {
     return wrappedModel_->getGeneralizedCoordinates(state);
   }
-  VECTOR6_T<SCALAR_T> getBasePose(const VECTOR_T<SCALAR_T>& state) const override { return wrappedModel_->getBasePose(state); }
   VECTOR3_T<SCALAR_T> getBasePosition(const VECTOR_T<SCALAR_T>& state) const override { return wrappedModel_->getBasePosition(state); }
-  VECTOR3_T<SCALAR_T> getBaseOrientationEulerZYX(const VECTOR_T<SCALAR_T>& state) const override {
-    return wrappedModel_->getBaseOrientationEulerZYX(state);
-  }
   VECTOR3_T<SCALAR_T> getBaseComLinearVelocity(const VECTOR_T<SCALAR_T>& state) const override {
     return wrappedModel_->getBaseComLinearVelocity(state);
   }
@@ -185,12 +189,10 @@ class BasisInputsModelDecorator : public MpcRobotModelBase<SCALAR_T> {
     wrappedModel_->setBaseComLinearVelocity(state, velocity);
   }
   VECTOR_T<SCALAR_T> getJointAngles(const VECTOR_T<SCALAR_T>& state) const override { return wrappedModel_->getJointAngles(state); }
-  VECTOR_T<SCALAR_T> getJointVelocities(const VECTOR_T<SCALAR_T>& state, const VECTOR_T<SCALAR_T>& input) const override {
-    assert(input.size() == this->input_dim);
+  VECTOR_T<SCALAR_T> getJointVelocities(const VECTOR_T<SCALAR_T>& /*state*/, const VECTOR_T<SCALAR_T>& input) const override {
     return input.tail(this->modelSettings.mpc_joint_dim);
   }
   VECTOR_T<SCALAR_T> getGeneralizedVelocities(const VECTOR_T<SCALAR_T>& state, const VECTOR_T<SCALAR_T>& input) override {
-    assert(input.size() == this->input_dim);
     // The wrapped model expects a wrench-space input, but only reads the joint-velocity block
     // to build the generalized velocities. The contact block is therefore left at zero.
     VECTOR_T<SCALAR_T> wrenchInput = VECTOR_T<SCALAR_T>::Zero(wrappedModel_->getInputDim());
@@ -203,24 +205,80 @@ class BasisInputsModelDecorator : public MpcRobotModelBase<SCALAR_T> {
   void setGeneralizedCoordinates(VECTOR_T<SCALAR_T>& state, const VECTOR_T<SCALAR_T>& generalizedCoordinates) const override {
     wrappedModel_->setGeneralizedCoordinates(state, generalizedCoordinates);
   }
-  void setBasePose(VECTOR_T<SCALAR_T>& state, const VECTOR6_T<SCALAR_T>& basePose) const override {
-    wrappedModel_->setBasePose(state, basePose);
-  }
   void setBasePosition(VECTOR_T<SCALAR_T>& state, const VECTOR3_T<SCALAR_T>& position) const override {
     wrappedModel_->setBasePosition(state, position);
-  }
-  void setBaseOrientationEulerZYX(VECTOR_T<SCALAR_T>& state, const VECTOR3_T<SCALAR_T>& eulerAnglesZYX) const override {
-    wrappedModel_->setBaseOrientationEulerZYX(state, eulerAnglesZYX);
   }
   void setJointAngles(VECTOR_T<SCALAR_T>& state, const VECTOR_T<SCALAR_T>& jointAngles) const override {
     wrappedModel_->setJointAngles(state, jointAngles);
   }
-  void setJointVelocities(VECTOR_T<SCALAR_T>& state, VECTOR_T<SCALAR_T>& input, const VECTOR_T<SCALAR_T>& jointVelocities) const override {
-    assert(input.size() == this->input_dim);
+  void setJointVelocities(VECTOR_T<SCALAR_T>& /*state*/,
+                          VECTOR_T<SCALAR_T>& input,
+                          const VECTOR_T<SCALAR_T>& jointVelocities) const override {
     input.tail(this->modelSettings.mpc_joint_dim) = jointVelocities;
   }
   void adaptBasePoseHeight(VECTOR_T<SCALAR_T>& state, scalar_t heightChange) const override {
     wrappedModel_->adaptBasePoseHeight(state, heightChange);
+  }
+
+  /******* Layout-agnostic accessors (delegated to wrapped model) *******/
+
+  VECTOR4_T<SCALAR_T> getBaseOrientation(const VECTOR_T<SCALAR_T>& state) const override {
+    return wrappedModel_->getBaseOrientation(state);
+  }
+  void setBaseOrientation(vector_t& state, const vector4_t& orientation) const override {
+    wrappedModel_->setBaseOrientation(state, orientation);
+  }
+  scalar_t getBaseHeading(const vector_t& state) const override { return wrappedModel_->getBaseHeading(state); }
+  // NOLINTBEGIN(euler-boundary): Euler boundary accessor (design section 4.2)
+  vector6_t getBasePoseEulerZyx(const vector_t& state) const override { return wrappedModel_->getBasePoseEulerZyx(state); }
+  void setBasePoseEulerZyx(vector_t& state, const vector6_t& basePose) const override {
+    wrappedModel_->setBasePoseEulerZyx(state, basePose);
+  }
+  vector3_t getBaseOrientationEulerZyx(const vector_t& state) const override { return wrappedModel_->getBaseOrientationEulerZyx(state); }
+  void setBaseOrientationEulerZyx(vector_t& state, const vector3_t& eulerZyx) const override {
+    wrappedModel_->setBaseOrientationEulerZyx(state, eulerZyx);
+  }
+  // NOLINTEND(euler-boundary)
+  vector3_t getBaseAngularVelocityLocal(const vector_t& state) const override { return wrappedModel_->getBaseAngularVelocityLocal(state); }
+  void setBaseAngularVelocityLocal(vector_t& state, const vector3_t& angularVelocityLocal) const override {
+    wrappedModel_->setBaseAngularVelocityLocal(state, angularVelocityLocal);
+  }
+  void setBaseAngularVelocityFromWorldYawRate(vector_t& state, scalar_t yawRate) const override {
+    wrappedModel_->setBaseAngularVelocityFromWorldYawRate(state, yawRate);
+  }
+  BaseAngularVelocityJacobian getBaseAngularVelocityLocalJacobian(const vector_t& state) const override {
+    return wrappedModel_->getBaseAngularVelocityLocalJacobian(state);
+  }
+  vector6_t getBaseTwistInWorldFrame(const vector_t& state, const vector_t& jointVelocities) const override {
+    return wrappedModel_->getBaseTwistInWorldFrame(state, jointVelocities);
+  }
+  vector3_t getTargetPlanarCommand(const vector_t& targetState, scalar_t compositeYawInertia) const override {
+    return wrappedModel_->getTargetPlanarCommand(targetState, compositeYawInertia);
+  }
+  absl::StatusOr<vector_t> stateFromTuning(const vector_t& tuningVector) const override {
+    return wrappedModel_->stateFromTuning(tuningVector);
+  }
+  absl::StatusOr<vector_t> tuningFromState(const vector_t& state) const override { return wrappedModel_->tuningFromState(state); }
+  vector_t interpolateStateTrajectory(scalar_t time, const scalar_array_t& times, const vector_array_t& states) const override {
+    return wrappedModel_->interpolateStateTrajectory(time, times, states);
+  }
+  vector_t getNeutralState() const override { return wrappedModel_->getNeutralState(); }
+  matrix_t getBaseRotationTangentJacobian(const vector_t& state) const override {
+    return wrappedModel_->getBaseRotationTangentJacobian(state);
+  }
+  matrix_t getPinocchioTangentJacobian(const vector_t& state) const override { return wrappedModel_->getPinocchioTangentJacobian(state); }
+  void fillGeneralizedCoordinatesFromMeasurement(const vector3_t& positionWorld,
+                                                 const vector4_t& orientation,
+                                                 const vector_t& jointPositions,
+                                                 Eigen::Ref<vector_t> q) const override {
+    wrappedModel_->fillGeneralizedCoordinatesFromMeasurement(positionWorld, orientation, jointPositions, q);
+  }
+  void fillGeneralizedVelocitiesFromMeasurement(const vector4_t& orientation,
+                                                const vector3_t& linearVelocityLocal,
+                                                const vector3_t& angularVelocityLocal,
+                                                const vector_t& jointVelocities,
+                                                Eigen::Ref<vector_t> v) const override {
+    wrappedModel_->fillGeneralizedVelocitiesFromMeasurement(orientation, linearVelocityLocal, angularVelocityLocal, jointVelocities, v);
   }
 
   /******* Contact wrench accessors in the LOCAL contact frame — the core of the decoration *******/
@@ -231,9 +289,11 @@ class BasisInputsModelDecorator : public MpcRobotModelBase<SCALAR_T> {
    * getContactWrenchInWorldFrame(state, input, i) to obtain the world-frame wrench.
    */
   VECTOR6_T<SCALAR_T> getContactWrench(const VECTOR_T<SCALAR_T>& input, size_t contactIndex) const override {
-    assert(input.size() == this->input_dim);
-    const VECTOR_T<SCALAR_T> lambda = input.segment(getContactWrenchStartIndices(contactIndex), numBasisPerFoot_);
-    return B_local_[contactIndex].template cast<SCALAR_T>() * lambda;
+    // Into the fixed-size result, without a vector of the scalings in between: the realtime controllers call it.
+    VECTOR6_T<SCALAR_T> wrench;
+    wrench.noalias() =
+        B_local_[contactIndex].template cast<SCALAR_T>() * input.segment(getContactWrenchStartIndices(contactIndex), numBasisPerFoot_);
+    return wrench;
   }
 
   VECTOR3_T<SCALAR_T> getContactForce(const VECTOR_T<SCALAR_T>& input, size_t contactIndex) const override {
@@ -241,7 +301,7 @@ class BasisInputsModelDecorator : public MpcRobotModelBase<SCALAR_T> {
   }
 
   VECTOR3_T<SCALAR_T> getContactMoment(const VECTOR_T<SCALAR_T>& input, size_t contactIndex) const override {
-    return getContactWrench(input, contactIndex).template tail<kMomentDim>();
+    return getContactWrench(input, contactIndex).template tail<kTorqueDim>();
   }
 
   /**
@@ -260,7 +320,6 @@ class BasisInputsModelDecorator : public MpcRobotModelBase<SCALAR_T> {
    * Use setContactWrenchInWorldFrame(state, input, W_world, i) for a world-frame wrench.
    */
   void setContactWrench(VECTOR_T<SCALAR_T>& input, const VECTOR6_T<SCALAR_T>& wrench, size_t contactIndex) const override {
-    assert(input.size() == this->input_dim);
     if constexpr (std::is_same_v<SCALAR_T, scalar_t>) {
       input.segment(getContactWrenchStartIndices(contactIndex), numBasisPerFoot_) =
           solveNonNegativeBasisScalings(B_local_[contactIndex], B_pinv_local_[contactIndex], wrench);
@@ -278,7 +337,7 @@ class BasisInputsModelDecorator : public MpcRobotModelBase<SCALAR_T> {
 
   void setContactMoment(VECTOR_T<SCALAR_T>& input, const VECTOR3_T<SCALAR_T>& moment, size_t contactIndex) const override {
     VECTOR6_T<SCALAR_T> wrench = VECTOR6_T<SCALAR_T>::Zero();
-    wrench.template tail<kMomentDim>() = moment;
+    wrench.template tail<kTorqueDim>() = moment;
     setContactWrench(input, wrench, contactIndex);
   }
 
@@ -300,10 +359,14 @@ class BasisInputsModelDecorator : public MpcRobotModelBase<SCALAR_T> {
   VECTOR6_T<SCALAR_T> rotateWrenchLocalToWorld(const VECTOR_T<SCALAR_T>& state,
                                                const VECTOR6_T<SCALAR_T>& wrenchLocal,
                                                size_t contactIndex) const {
-    const MATRIX3_T<SCALAR_T> w_R_l = getContactFrameRotationLocalToWorld(state, contactIndex);
+    return rotateWrenchLocalToWorld(getContactFrameRotationLocalToWorld(state, contactIndex), wrenchLocal);
+  }
+
+  /** Rotates a local contact-frame wrench into the world frame with the contact frame's orientation `w_R_l`. */
+  static VECTOR6_T<SCALAR_T> rotateWrenchLocalToWorld(const MATRIX3_T<SCALAR_T>& w_R_l, const VECTOR6_T<SCALAR_T>& wrenchLocal) {
     VECTOR6_T<SCALAR_T> wrenchWorld;
     wrenchWorld.template head<kForceDim>() = w_R_l * wrenchLocal.template head<kForceDim>();
-    wrenchWorld.template tail<kMomentDim>() = w_R_l * wrenchLocal.template tail<kMomentDim>();
+    wrenchWorld.template tail<kTorqueDim>() = w_R_l * wrenchLocal.template tail<kTorqueDim>();
     return wrenchWorld;
   }
 
@@ -314,7 +377,7 @@ class BasisInputsModelDecorator : public MpcRobotModelBase<SCALAR_T> {
     const MATRIX3_T<SCALAR_T> l_R_w = getContactFrameRotationLocalToWorld(state, contactIndex).transpose();
     VECTOR6_T<SCALAR_T> wrenchLocal;
     wrenchLocal.template head<kForceDim>() = l_R_w * wrenchWorld.template head<kForceDim>();
-    wrenchLocal.template tail<kMomentDim>() = l_R_w * wrenchWorld.template tail<kMomentDim>();
+    wrenchLocal.template tail<kTorqueDim>() = l_R_w * wrenchWorld.template tail<kTorqueDim>();
     return wrenchLocal;
   }
 
@@ -322,6 +385,12 @@ class BasisInputsModelDecorator : public MpcRobotModelBase<SCALAR_T> {
                                                    const VECTOR_T<SCALAR_T>& input,
                                                    size_t contactIndex) const override {
     return rotateWrenchLocalToWorld(state, getContactWrench(input, contactIndex), contactIndex);
+  }
+
+  VECTOR6_T<SCALAR_T> getContactWrenchInWorldFrameGivenRotation(const VECTOR_T<SCALAR_T>& input,
+                                                                const MATRIX3_T<SCALAR_T>& contactFrameRotation,
+                                                                size_t contactIndex) const override {
+    return rotateWrenchLocalToWorld(contactFrameRotation, getContactWrench(input, contactIndex));
   }
 
   VECTOR3_T<SCALAR_T> getContactForceInWorldFrame(const VECTOR_T<SCALAR_T>& state,
@@ -333,7 +402,7 @@ class BasisInputsModelDecorator : public MpcRobotModelBase<SCALAR_T> {
   VECTOR3_T<SCALAR_T> getContactMomentInWorldFrame(const VECTOR_T<SCALAR_T>& state,
                                                    const VECTOR_T<SCALAR_T>& input,
                                                    size_t contactIndex) const override {
-    return getContactWrenchInWorldFrame(state, input, contactIndex).template tail<kMomentDim>();
+    return getContactWrenchInWorldFrame(state, input, contactIndex).template tail<kTorqueDim>();
   }
 
   void setContactWrenchInWorldFrame(const VECTOR_T<SCALAR_T>& state,
@@ -362,18 +431,18 @@ class BasisInputsModelDecorator : public MpcRobotModelBase<SCALAR_T> {
         B_pinv_local_(rhs.B_pinv_local_),
         contactFrameIndices_(rhs.contactFrameIndices_) {}
 
-  static size_t computeInputDim(const std::array<ContactWrenchConeBasisMatrix, N_CONTACTS>& basisMatrices,
+  static size_t computeInputDim(const std::array<ContactWrenchConeBasisMatrix, kNumContacts>& basisMatrices,
                                 const ModelSettings& modelSettings) {
-    return basisMatrices[0].numBasis() * N_CONTACTS + modelSettings.mpc_joint_dim;
+    return basisMatrices[0].numBasis() * kNumContacts + modelSettings.mpc_joint_dim;
   }
 
   std::unique_ptr<MpcRobotModelBase<SCALAR_T>> wrappedModel_;
   PinocchioInterfaceTpl<SCALAR_T> pinocchioInterface_;
   const size_t numBasisPerFoot_;
 
-  std::array<matrix_t, N_CONTACTS> B_local_;
-  std::array<matrix_t, N_CONTACTS> B_pinv_local_;
-  std::array<pinocchio::FrameIndex, N_CONTACTS> contactFrameIndices_;
+  std::array<matrix_t, kNumContacts> B_local_;
+  std::array<matrix_t, kNumContacts> B_pinv_local_;
+  std::array<pinocchio::FrameIndex, kNumContacts> contactFrameIndices_{};
 };
 
 }  // namespace ocs2::humanoid

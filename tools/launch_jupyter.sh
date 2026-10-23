@@ -14,7 +14,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${SCRIPT_DIR}"
 
-# Source ROS2 + Bazel environment
+# The Bazel environment, and robotpkg's Pinocchio bindings on PYTHONPATH (setup_env.sh)
 if [ -f "${SCRIPT_DIR}/setup_env.sh" ]; then
     source "${SCRIPT_DIR}/setup_env.sh"
 fi
@@ -22,12 +22,6 @@ fi
 # Auto-start VNC server so 3D viewer is immediately accessible
 if [ -f "${SCRIPT_DIR}/.devcontainer/start_vnc.sh" ]; then
     "${SCRIPT_DIR}/.devcontainer/start_vnc.sh" 2>/dev/null || true
-fi
-
-# Ensure ROS2 shared libraries are in ldconfig cache for Python rclpy imports
-if [ -n "${ROS_DISTRO:-}" ] && [ -d "/opt/ros/${ROS_DISTRO}/lib" ] && [ ! -f /etc/ld.so.conf.d/ros2.conf ]; then
-    echo "/opt/ros/${ROS_DISTRO}/lib" | sudo tee /etc/ld.so.conf.d/ros2.conf >/dev/null 2>&1 || true
-    sudo ldconfig >/dev/null 2>&1 || true
 fi
 
 PORT="${1:-8888}"

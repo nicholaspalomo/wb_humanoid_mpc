@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -27,17 +31,38 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <cmath>
 
-#include "absl/log/check.h"
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
+#include "absl/strings/str_cat.h"
 
 namespace ocs2::humanoid {
 
+namespace {
+// The linear system of the period-two orbit: the pre-impact states of its two steps, stacked.
+constexpr int kPeriodTwoOrbitSteps = 2;
+constexpr int kPeriodTwoSystemDim = kPeriodTwoOrbitSteps * HlipModel::kStateDim;
+}  // namespace
+
+absl::StatusOr<HlipModel> HlipModel::Create(scalar_t sspDuration, scalar_t dspDuration, scalar_t comHeight, scalar_t gravity) {
+  // Negated comparisons, so that NaN is refused too.
+  if (!(sspDuration > 0.0)) {
+    return absl::InvalidArgumentError(absl::StrCat("[HlipModel] the single support duration must be positive, got ", sspDuration, " s"));
+  }
+  if (!(dspDuration >= 0.0)) {
+    return absl::InvalidArgumentError(
+        absl::StrCat("[HlipModel] the double support duration must not be negative, got ", dspDuration, " s"));
+  }
+  if (!(comHeight > 0.0)) {
+    return absl::InvalidArgumentError(absl::StrCat("[HlipModel] the pendulum height must be positive, got ", comHeight, " m"));
+  }
+  if (!(gravity > 0.0)) {
+    return absl::InvalidArgumentError(absl::StrCat("[HlipModel] gravity must be positive, got ", gravity, " m/s^2"));
+  }
+  return HlipModel(sspDuration, dspDuration, comHeight, gravity);
+}
+
 HlipModel::HlipModel(scalar_t sspDuration, scalar_t dspDuration, scalar_t comHeight, scalar_t gravity)
     : sspDuration_(sspDuration), dspDuration_(dspDuration), comHeight_(comHeight), gravity_(gravity) {
-  CHECK_GT(sspDuration_, 0.0) << "[HlipModel] the single support duration must be positive";
-  CHECK_GE(dspDuration_, 0.0) << "[HlipModel] the double support duration must not be negative";
-  CHECK_GT(comHeight_, 0.0) << "[HlipModel] the pendulum height must be positive";
-  CHECK_GT(gravity_, 0.0) << "[HlipModel] gravity must be positive";
-
   omega_ = std::sqrt(gravity_ / comHeight_);
 
   const scalar_t coshTerm = std::cosh(omega_ * sspDuration_);
@@ -82,16 +107,17 @@ HlipModel::State HlipModel::periodOneOrbit(scalar_t stepLength) const {
   return system.colPivHouseholderQr().solve(State(stepToStepB_ * stepLength));
 }
 
-std::pair<HlipModel::State, HlipModel::State> HlipModel::periodTwoOrbit(scalar_t firstStepLength, scalar_t secondStepLength) const {
+HlipModel::PeriodTwoOrbit HlipModel::periodTwoOrbit(scalar_t firstStepLength, scalar_t secondStepLength) const {
   // The orbit alternates the two steps: x1 = A x2 + B u2 and x2 = A x1 + B u1, one 4 x 4 linear system.
-  Eigen::Matrix<scalar_t, 4, 4> system = Eigen::Matrix<scalar_t, 4, 4>::Identity();
-  system.topRightCorner<2, 2>() = -stepToStepA_;
-  system.bottomLeftCorner<2, 2>() = -stepToStepA_;
-  Eigen::Matrix<scalar_t, 4, 1> rhs;
-  rhs.head<2>() = stepToStepB_ * secondStepLength;
-  rhs.tail<2>() = stepToStepB_ * firstStepLength;
-  const Eigen::Matrix<scalar_t, 4, 1> solution = system.colPivHouseholderQr().solve(rhs);
-  return {State(solution.head<2>()), State(solution.tail<2>())};
+  Eigen::Matrix<scalar_t, kPeriodTwoSystemDim, kPeriodTwoSystemDim> system =
+      Eigen::Matrix<scalar_t, kPeriodTwoSystemDim, kPeriodTwoSystemDim>::Identity();
+  system.topRightCorner<kStateDim, kStateDim>() = -stepToStepA_;
+  system.bottomLeftCorner<kStateDim, kStateDim>() = -stepToStepA_;
+  Eigen::Matrix<scalar_t, kPeriodTwoSystemDim, 1> rhs;
+  rhs.head<kStateDim>() = stepToStepB_ * secondStepLength;
+  rhs.tail<kStateDim>() = stepToStepB_ * firstStepLength;
+  const Eigen::Matrix<scalar_t, kPeriodTwoSystemDim, 1> solution = system.colPivHouseholderQr().solve(rhs);
+  return {.beforeFirstStep = State(solution.head<kStateDim>()), .beforeSecondStep = State(solution.tail<kStateDim>())};
 }
 
 scalar_t HlipModel::deadbeatStepLength(const State& state, const State& nominalState, scalar_t nominalStepLength) const {

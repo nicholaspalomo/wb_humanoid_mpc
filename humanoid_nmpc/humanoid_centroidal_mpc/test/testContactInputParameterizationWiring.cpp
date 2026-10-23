@@ -27,16 +27,14 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <pinocchio/fwd.hpp>  // forward declarations must be included first.
+#include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
-#include <gtest/gtest.h>
-
-#include <cstdlib>
 #include <filesystem>
-#include <fstream>
-#include <iterator>
+#include <functional>
+#include <limits>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "absl/status/status.h"
@@ -44,170 +42,137 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "gtest/gtest.h"
 
+#include "humanoid_centroidal_mpc/CentroidalMpcConfig.h"
 #include "humanoid_centroidal_mpc/CentroidalMpcInterface.h"
 #include "humanoid_common_mpc/common/BasisInputsCostTransform.h"
-#include "humanoid_common_mpc/common/ContactInputParameterization.h"
 #include "humanoid_common_mpc/contact/ContactWrenchConeBasisMatrix.h"
+#include "humanoid_mpc_config/task_file.nproto.h"
+#include "support/TypedConfigFiles.h"
 
 /**
  * CentroidalMpcInterface::Create() refuses every contact-input configuration error with an InvalidArgument that names
- * the task-file key to change (findings A79/A90, AC5, and the basis wiring of the generator set and the regularization),
- * and does so before any CppAD model is built. Each case edits one line of the shipped DRC Atlas task file, so every
- * other key is the configuration the robot runs; a refusal reached here is that line's doing.
+ * the field to change (findings A79/A90, AC5, and the basis wiring of the generator set and the regularization), and
+ * does so before any CppAD model is built. Each case edits one field of the shipped DRC Atlas configuration, so every
+ * other value is the configuration the robot runs; a refusal reached here is that field's doing.
  */
 namespace ocs2::humanoid {
 namespace {
 
-std::string runfilePath(absl::string_view relativePath) {
-  std::vector<std::filesystem::path> roots;
-  if (const char* srcDir = std::getenv("TEST_SRCDIR")) {
-    roots.emplace_back(std::filesystem::path(srcDir) / "_main");
-  }
-  roots.emplace_back(std::filesystem::current_path());
-  for (const std::filesystem::path& root : roots) {
-    const std::filesystem::path candidate = root / std::string(relativePath);
-    if (std::filesystem::exists(candidate)) return candidate.string();
-  }
-  return std::string();
-}
-
-std::string readFile(const std::string& path) {
-  std::ifstream in(path);
-  return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-}
-
-/** `content` with `from` replaced by `to`; fails the test unless `from` occurs exactly once. */
-std::string replacedOnce(const std::string& content, const std::string& from, const std::string& to) {
-  const std::string::size_type position = content.find(from);
-  EXPECT_NE(position, std::string::npos) << "'" << from << "' not found";
-  EXPECT_EQ(content.find(from, position + 1), std::string::npos) << "'" << from << "' occurs more than once";
-  if (position == std::string::npos) return content;
-  std::string result = content;
-  result.replace(position, from.size(), to);
-  return result;
-}
-
 class ContactInputParameterizationWiringTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    taskFile_ = runfilePath("robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml");
-    contactPlanningFile_ = runfilePath("robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/contact_planning.yaml");
-    referenceFile_ = runfilePath("robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/command/reference.yaml");
-    urdfFile_ = runfilePath("robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf");
-    ASSERT_FALSE(taskFile_.empty() || contactPlanningFile_.empty() || referenceFile_.empty() || urdfFile_.empty())
-        << "the DRC Atlas files are not in the runfiles";
-    shipped_ = readFile(taskFile_);
+    files_ = atlasFiles();
+    absl::StatusOr<CentroidalMpcConfig> config = loadConfigOf(files_);
+    ASSERT_TRUE(config.ok()) << config.status();
+    shipped_ = *std::move(config);
     // The positive control of every case below: the shipped file selects basis vectors, with the default generator set
     // and regularization written out, so that each edit is the only difference.
-    ASSERT_TRUE(absl::StrContains(shipped_, "\ncontactInputParameterization: basis_vectors\n"));
+    ASSERT_EQ(shipped_.task.contact_input_parameterization, kBasisVectorsContactInputParameterization);
   }
 
-  /** Writes `content` as the task file of a directory of its own, beside a copy of the planner's configuration. */
-  std::string writeVariant(absl::string_view name, const std::string& content) const {
-    const std::filesystem::path directory = std::filesystem::path(testing::TempDir()) / absl::StrCat("wiring_", name);
-    std::filesystem::create_directories(directory);
-    std::filesystem::copy_file(contactPlanningFile_, directory / "contact_planning.yaml",
-                               std::filesystem::copy_options::overwrite_existing);
-    const std::filesystem::path taskFile = directory / "task.yaml";
-    std::ofstream out(taskFile);
-    out << content;
-    return taskFile.string();
-  }
-
-  /** Create()'s status for a variant, which must be an InvalidArgument naming every phrase. */
-  void expectRefusedNaming(absl::string_view name, const std::string& content, const std::vector<std::string>& phrases) const {
+  /** Create()'s status for the shipped configuration with `edit` applied, which must be an InvalidArgument naming every phrase. */
+  void expectRefusedNaming(absl::string_view name,
+                           const std::function<void(mpc_config::TaskFile&)>& edit,
+                           const std::vector<std::string>& phrases) const {
     SCOPED_TRACE(name);
-    const absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> created =
-        CentroidalMpcInterface::Create(writeVariant(name, content), urdfFile_, referenceFile_);
-    ASSERT_FALSE(created.ok()) << "Create() accepted the variant";
-    EXPECT_EQ(created.status().code(), absl::StatusCode::kInvalidArgument) << created.status();
+    CentroidalMpcConfig config = shipped_;
+    edit(config.task);
+    const absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> created = CentroidalMpcInterface::Create(config, files_.urdfFile);
+    expectRefusal(created.status(), phrases);
+  }
+
+  static void expectRefusal(const absl::Status& status, const std::vector<std::string>& phrases) {
+    ASSERT_FALSE(status.ok()) << "Create() accepted the variant";
+    EXPECT_EQ(status.code(), absl::StatusCode::kInvalidArgument) << status;
     for (const std::string& phrase : phrases) {
-      EXPECT_TRUE(absl::StrContains(created.status().message(), phrase)) << created.status() << "\n does not name '" << phrase << "'";
+      EXPECT_TRUE(absl::StrContains(status.message(), phrase)) << status << "\n does not name '" << phrase << "'";
     }
   }
 
-  std::string taskFile_;
-  std::string contactPlanningFile_;
-  std::string referenceFile_;
-  std::string urdfFile_;
-  std::string shipped_;
+  CentroidalRobotFiles files_;
+  CentroidalMpcConfig shipped_;
 };
 
 }  // namespace
 
-TEST_F(ContactInputParameterizationWiringTest, TheRetiredBooleanIsRefusedAtStartUpNamingItsReplacement) {
-  for (const std::string& value : {std::string("true"), std::string("false")}) {
-    expectRefusedNaming(absl::StrCat("retired_", value),
-                        replacedOnce(shipped_, "\ncontactInputParameterization: basis_vectors\n",
-                                     absl::StrCat("\nuseContactBasisVectorInputs: ", value, "\n")),
-                        {std::string(kRetiredContactBasisVectorInputsKey), std::string(kContactInputParameterizationKey)});
-  }
+TEST_F(ContactInputParameterizationWiringTest, TheRetiredBooleanIsRefusedByTheParserNamingItsReplacement) {
+  // A task file still carrying the retired boolean does not parse: the parser names what replaced it, with the position.
+  const std::string directory = absl::StrCat(testing::TempDir(), "/wiring_retired");
+  absl::StatusOr<CentroidalRobotFiles> files = writeConfig(directory, shipped_, files_.urdfFile);
+  ASSERT_TRUE(files.ok()) << files.status();
+  ASSERT_TRUE(writeTextFile(files->taskFile, absl::StrCat(taskFileText(shipped_.task), "useContactBasisVectorInputs: true\n")).ok());
+  const absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> created =
+      CentroidalMpcInterface::Create(files->taskFile, files->urdfFile, files->referenceFile);
+  expectRefusal(created.status(), {"task.textproto:", "is retired", "contact_input_parameterization"});
 }
 
 TEST_F(ContactInputParameterizationWiringTest, AnUnknownParameterizationIsRefusedListingTheValidNames) {
-  expectRefusedNaming("unknown_parameterization",
-                      replacedOnce(shipped_, "\ncontactInputParameterization: basis_vectors\n", "\ncontactInputParameterization: basis\n"),
-                      {std::string(kContactInputParameterizationKey), std::string(kWrenchContactInputParameterization),
+  expectRefusedNaming("unknown_parameterization", [](mpc_config::TaskFile& task) { task.contact_input_parameterization = "basis"; },
+                      {"contact_input_parameterization", std::string(kWrenchContactInputParameterization),
                        std::string(kBasisVectorsContactInputParameterization)});
 }
 
 TEST_F(ContactInputParameterizationWiringTest, TheGeneratorSetIsReadFromTheTaskFile) {
-  // The key reaches the builder: an unknown name is refused listing the registered sets.
-  std::vector<std::string> phrases = {std::string(kBasisGeneratorSetKey), "'exact'"};
+  // The field reaches the builder: an unknown name is refused listing the registered sets.
+  std::vector<std::string> phrases = {"'exact'"};
   for (const std::string& set : basisGeneratorSetNames()) phrases.push_back(set);
-  expectRefusedNaming("unknown_generator_set",
-                      replacedOnce(shipped_, "basisGeneratorSet: conservative_inner_approximation", "basisGeneratorSet: exact"), phrases);
+  expectRefusedNaming("unknown_generator_set", [](mpc_config::TaskFile& task) { task.contacts.basis_generator_set = "exact"; }, phrases);
 }
 
 TEST_F(ContactInputParameterizationWiringTest, TheRegularizationIsReadFromTheTaskFileAndValidated) {
-  std::vector<std::string> phrases = {std::string(kBasisRegularizationKey), "'diagonal'"};
+  std::vector<std::string> phrases = {"'diagonal'"};
   for (const std::string& name : basisRegularizationNames()) phrases.push_back(name);
-  expectRefusedNaming("unknown_regularization",
-                      replacedOnce(shipped_, "basisRegularization: full_diagonal", "basisRegularization: diagonal"), phrases);
-  expectRefusedNaming("negative_regularization",
-                      replacedOnce(shipped_, "basisScalingRegularization: 0.0001", "basisScalingRegularization: -1.0"),
-                      {std::string(kBasisScalingRegularizationKey), "non-negative"});
-  // Zero passes the range check, but leaves the lambda block of M^T R M singular: the QP would have no unique input.
-  expectRefusedNaming("zero_regularization",
-                      replacedOnce(shipped_, "basisScalingRegularization: 0.0001", "basisScalingRegularization: 0.0"),
-                      {std::string(kBasisScalingRegularizationKey), "not positive definite"});
-  expectRefusedNaming("unparsable_regularization",
-                      replacedOnce(shipped_, "basisScalingRegularization: 0.0001", "basisScalingRegularization: small"),
-                      {std::string(kBasisScalingRegularizationKey), "'small'"});
-}
-
-TEST_F(ContactInputParameterizationWiringTest, TheNonNegativityBarrierIsReadByNameBeforeTheProblemIsBuilt) {
-  // The lambda >= 0 barrier's parameters used to be read with loadPtreeValue inside the loop that builds the terms, after
-  // the dynamics had been compiled: a value that is not a number threw out of Create() without naming its key.
   expectRefusedNaming(
-      "unparsable_barrier_mu",
-      replacedOnce(shipped_, "  basisNonNegativityBarrier:\n    mu: 0.01\n", "  basisNonNegativityBarrier:\n    mu: stiff\n"),
-      {"contacts.basisNonNegativityBarrier.mu", "'stiff'"});
-  expectRefusedNaming("unparsable_barrier_delta",
-                      replacedOnce(shipped_, "    mu: 0.01\n    delta: 0.001\n", "    mu: 0.01\n    delta: narrow\n"),
-                      {"contacts.basisNonNegativityBarrier.delta", "'narrow'"});
+      "unknown_regularization", [](mpc_config::TaskFile& task) { task.contacts.basis_regularization = "diagonal"; }, phrases);
+  expectRefusedNaming("negative_regularization", [](mpc_config::TaskFile& task) { task.contacts.basis_scaling_regularization = -1.0; },
+                      {"non-negative"});
+  // Zero passes the range check, but leaves the lambda block of M^T R M singular: the QP would have no unique input.
+  expectRefusedNaming("zero_regularization", [](mpc_config::TaskFile& task) { task.contacts.basis_scaling_regularization = 0.0; },
+                      {"not positive definite"});
+  expectRefusedNaming(
+      "infinite_regularization",
+      [](mpc_config::TaskFile& task) { task.contacts.basis_scaling_regularization = std::numeric_limits<double>::infinity(); },
+      {"contacts.basis_scaling_regularization"});
 }
 
-TEST_F(ContactInputParameterizationWiringTest, TheBasisIsBuiltFromAConeBlockThatNamesEveryKey) {
+TEST_F(ContactInputParameterizationWiringTest, TheNonNegativityBarrierIsConvertedByNameBeforeTheProblemIsBuilt) {
+  expectRefusedNaming(
+      "infinite_barrier_mu",
+      [](mpc_config::TaskFile& task) { task.contacts.basis_non_negativity_barrier.mu = std::numeric_limits<double>::infinity(); },
+      {"contacts.basis_non_negativity_barrier.mu"});
+  expectRefusedNaming(
+      "nan_barrier_delta",
+      [](mpc_config::TaskFile& task) { task.contacts.basis_non_negativity_barrier.delta = std::numeric_limits<double>::quiet_NaN(); },
+      {"contacts.basis_non_negativity_barrier.delta"});
+}
+
+TEST_F(ContactInputParameterizationWiringTest, TheBasisIsBuiltFromAConeBlockThatNamesEveryGroundField) {
   // AC5: the basis used to be built from the library defaults (mu 0.7) when the block or a key was missing.
-  expectRefusedNaming("no_friction_coefficient", replacedOnce(shipped_, "    frictionCoefficient: 0.5\n    torsional", "    torsional"),
-                      {"contacts.contactWrenchConeSoftConstraint.frictionCoefficient", "missing"});
-  expectRefusedNaming("two_facets", replacedOnce(shipped_, "    numBasisVectors: 4", "    numBasisVectors: 2"),
-                      {"contacts.contactWrenchConeSoftConstraint.numBasisVectors"});
+  expectRefusedNaming("no_friction_coefficient",
+                      [](mpc_config::TaskFile& task) { task.contacts.contact_wrench_cone_soft_constraint.friction_coefficient.reset(); },
+                      {"contacts.contact_wrench_cone_soft_constraint.friction_coefficient"});
+  expectRefusedNaming("two_facets",
+                      [](mpc_config::TaskFile& task) { task.contacts.contact_wrench_cone_soft_constraint.num_basis_vectors = 2; },
+                      {"num_basis_vectors"});
 }
 
-TEST_F(ContactInputParameterizationWiringTest, TheContactPlannerDerivesItsGroundFromAConeBlockThatNamesEveryKey) {
-  // AC5, the planner's half: its friction and torsion bounds came from the same block, with the same silent defaults.
-  // The planner has to be the only reader of the block for this to test it: the wrench parameterization keeps the basis
-  // builder out, and friction_force_cone in place of contact_wrench_cone keeps the wrench cone term out - both read the
-  // block through the same loader and would refuse the file on the planner's behalf, later.
-  std::string content =
-      replacedOnce(shipped_, "\ncontactInputParameterization: basis_vectors\n", "\ncontactInputParameterization: wrench\n");
-  content = replacedOnce(content, "\n  - contact_wrench_cone ", "\n  - friction_force_cone ");
-  content = replacedOnce(content, "\ncontactScheduleSource: gait_schedule\n", "\ncontactScheduleSource: contact_planner\n");
-  content = replacedOnce(content, "    torsionalFrictionCoefficient: 0.05\n", "");
-  expectRefusedNaming("planner_without_torsion", content, {"contacts.contactWrenchConeSoftConstraint.torsionalFrictionCoefficient"});
+TEST_F(ContactInputParameterizationWiringTest, TheContactPlannerDerivesItsGroundFromAConeBlockThatNamesEveryGroundField) {
+  // AC5, the planner's half: its friction and torsion bounds come from the same block, with the same refusal. The planner
+  // has to be the only reader of the block for this to test it: the wrench parameterization keeps the basis builder out,
+  // and friction_force_cone in place of contact_wrench_cone keeps the wrench cone term out - both read the block through
+  // the same conversion and would refuse the file on the planner's behalf, later.
+  expectRefusedNaming("planner_without_torsion",
+                      [](mpc_config::TaskFile& task) {
+                        task.contact_input_parameterization = kWrenchContactInputParameterization;
+                        for (std::string& constraint : task.soft_constraints) {
+                          if (constraint == "contact_wrench_cone") constraint = "friction_force_cone";
+                        }
+                        task.contact_schedule_source = "contact_planner";
+                        task.contacts.contact_wrench_cone_soft_constraint.torsional_friction_coefficient.reset();
+                      },
+                      {"contacts.contact_wrench_cone_soft_constraint.torsional_friction_coefficient"});
 }
 
 }  // namespace ocs2::humanoid

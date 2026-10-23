@@ -39,9 +39,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <utility>
 #include <vector>
 
+#include "absl/base/nullability.h"
+
 #include <ocs2_core/Types.h>
 #include <ocs2_core/control/FeedforwardController.h>
-#include <ocs2_core/model_data/Multiplier.h>
 #include <ocs2_mpc/MPC_BASE.h>
 #include <ocs2_oc/oc_data/PerformanceIndex.h>
 #include <ocs2_oc/oc_data/PrimalSolution.h>
@@ -123,7 +124,7 @@ class ScriptedSolver final : public SolverBase {
     return finalTime_;
   }
 
-  void getPrimalSolution(scalar_t finalTime, PrimalSolution* primalSolutionPtr) const override {
+  void getPrimalSolution(scalar_t finalTime, PrimalSolution* absl_nonnull primalSolutionPtr) const override {
     std::lock_guard<std::mutex> lock(mutex_);
     constexpr size_t kNumNodes = 11;
     primalSolutionPtr->clear();
@@ -140,14 +141,6 @@ class ScriptedSolver final : public SolverBase {
   }
 
   const ProblemMetrics& getSolutionMetrics() const override { return problemMetrics_; }
-  ScalarFunctionQuadraticApproximation getValueFunction(scalar_t /*time*/, const vector_t& state) const override {
-    return ScalarFunctionQuadraticApproximation::Zero(static_cast<int>(state.size()));
-  }
-  ScalarFunctionQuadraticApproximation getHamiltonian(scalar_t /*time*/, const vector_t& state, const vector_t& input) override {
-    return ScalarFunctionQuadraticApproximation::Zero(static_cast<int>(state.size()), static_cast<int>(input.size()));
-  }
-  vector_t getStateInputEqualityConstraintLagrangian(scalar_t /*time*/, const vector_t& /*state*/) const override { return vector_t(); }
-  MultiplierCollection getIntermediateDualSolution(scalar_t /*time*/) const override { return MultiplierCollection(); }
 
  private:
   void runImpl(scalar_t initTime, const vector_t& initState, scalar_t finalTime) override {
@@ -163,7 +156,10 @@ class ScriptedSolver final : public SolverBase {
     finalTime_ = finalTime;
     modeSchedule_ = getReferenceManager().getModeSchedule();
   }
-  void runImpl(scalar_t initTime, const vector_t& initState, scalar_t finalTime, const ControllerBase* /*externalControllerPtr*/) override {
+  void runImpl(scalar_t initTime,
+               const vector_t& initState,
+               scalar_t finalTime,
+               const ControllerBase* absl_nullable /*externalControllerPtr*/) override {
     runImpl(initTime, initState, finalTime);
   }
   void runImpl(scalar_t initTime, const vector_t& initState, scalar_t finalTime, const PrimalSolution& /*primalSolution*/) override {
@@ -195,8 +191,8 @@ class ScriptedMpc final : public MPC_BASE {
   ScriptedMpc(mpc::Settings settings, size_t inputDim) : MPC_BASE(std::move(settings)), solver_(inputDim) {}
   ~ScriptedMpc() override = default;
 
-  ScriptedSolver* getSolverPtr() override { return &solver_; }
-  const ScriptedSolver* getSolverPtr() const override { return &solver_; }
+  ScriptedSolver* absl_nonnull getSolverPtr() override { return &solver_; }
+  const ScriptedSolver* absl_nonnull getSolverPtr() const override { return &solver_; }
   ScriptedSolver& solver() { return solver_; }
 
  protected:
