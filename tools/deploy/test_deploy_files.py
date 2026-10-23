@@ -932,6 +932,59 @@ class DeployScriptTest(unittest.TestCase):
         self.assertNotIn("docker save", output)
         self.assertNotIn("systemctl", output)
 
+    def test_a_registry_deployment_pulls_the_image_and_builds_nothing(self) -> None:
+        result = self.deploy(
+            "deploy",
+            "--dry_run",
+            "--robot",
+            "drc_atlas",
+            "--host",
+            "robot.local",
+            "--network",
+            "config/ipc/two_machine.example.textproto",
+            "--image_source",
+            "registry",
+            "--registry",
+            "ghcr.io/owner",
+            "--tag",
+            "main-arm64",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        output = result.stdout
+        image = "ghcr.io/owner/wb-humanoid-robot:main-arm64"
+        self.assertRegex(
+            output, rf"\+ ssh robot\.local .*docker pull .*{re.escape(image)}"
+        )
+        self.assertIn(
+            f"check that {image} on robot.local is of the host's architecture", output
+        )
+        for built in (
+            "docker build",
+            "docker save",
+            "docker push",
+            "in_dev_container.sh",
+        ):
+            self.assertNotIn(built, output)
+        # The deployment's compose file runs the pulled image.
+        self.assertIn(f"deployed to robot.local:wb-humanoid-robot ({image})", output)
+
+    def test_a_registry_deployment_needs_the_registry(self) -> None:
+        for arguments in (
+            ("--image_source", "registry"),
+            ("--image_source", "cache", "--registry", "ghcr.io/owner"),
+        ):
+            with self.subTest(arguments=arguments):
+                result = self.deploy(
+                    "deploy", "--dry_run", "--robot", "drc_atlas", *arguments
+                )
+                self.assertNotEqual(result.returncode, 0)
+                self.assertNotIn("docker pull", result.stdout)
+
+    def test_the_makefile_passes_the_tag_and_the_image_source(self) -> None:
+        makefile = read("Makefile")
+        self.assertIn("$(if $(TAG),--tag $(TAG))", makefile)
+        self.assertIn("$(if $(IMAGE_SOURCE),--image_source $(IMAGE_SOURCE))", makefile)
+
     def test_what_a_deployment_cannot_do_is_refused(self) -> None:
         remote = self.deploy(
             "deploy",
@@ -1834,6 +1887,153 @@ _SERVING_LOCALHOST = (
     "I1019 [WebViewerServer] serving the MuJoCo viewer at http://localhost:6090/"
 )
 _VIEWER_WEB = "I1019 MujocoSimInterface.cpp:915] [MujocoSimInterface] viewer: web"
+
+
+def _arm64_workflow() -> dict:
+    """.github/workflows/robot_arm64.yml, parsed."""
+    return yaml.safe_load(read(".github/workflows/robot_arm64.yml"))
+
+
+def _step(job: dict, name: str) -> dict:
+    """The step of a parsed workflow job with this name."""
+    for step in job["steps"]:
+        if step.get("name") == name:
+            return step
+    raise KeyError(name)
+
+
+def _script_value(name: str) -> str:
+    """The value of `NAME="..."` in deploy_robot.sh."""
+    return search(
+        rf'^{name}="([^"]+)"$', read("tools/deploy/deploy_robot.sh"), re.M
+    ).group(1)
+
+
+class Arm64WorkflowTest(unittest.TestCase):
+    """CI builds the robot side on arm64 the way a deploy does, so that an x86-64 laptop deploys it to an ARM robot."""
+
+    def setUp(self) -> None:
+        self.jobs = _arm64_workflow()["jobs"]
+
+    def test_both_jobs_run_on_the_arm64_runner(self) -> None:
+        self.assertEqual(sorted(self.jobs), ["bundle", "image"])
+        for name, job in self.jobs.items():
+            with self.subTest(job=name):
+                self.assertEqual(job["runs-on"], "ubuntu-24.04-arm")
+        self.assertEqual(self.jobs["image"]["needs"], "bundle")
+        bazelisk = _step(self.jobs["bundle"], "Install Bazel (via Bazelisk)")["run"]
+        self.assertIn("bazelisk-linux-arm64", bazelisk)
+
+    def test_the_bundle_job_builds_pinocchio_from_source(self) -> None:
+        bundle = self.jobs["bundle"]
+        build = _step(bundle, "Build Pinocchio from Source")["run"]
+        self.assertIn("sh docker/build_pinocchio_from_source.sh", build)
+        self.assertIn("PINOCCHIO_STEPS=dependencies", build)
+        self.assertNotIn("install_robotpkg.sh", yaml.safe_dump(bundle))
+        restore = _step(bundle, "Restore Pinocchio")
+        self.assertEqual(restore["with"]["path"], "/opt/openrobots")
+        self.assertIn(
+            "hashFiles('docker/build_pinocchio_from_source.sh')", restore["with"]["key"]
+        )
+
+    def test_the_bundle_is_the_deploys_bundle_in_the_deploys_context(self) -> None:
+        bundle = self.jobs["bundle"]
+        target = _script_value("BUNDLE_TARGET")
+        self.assertIn(
+            f"bazel build {target}", _step(bundle, "Build the Robot Bundle")["run"]
+        )
+        keep = _step(bundle, "Keep the Bundle for the Image")["run"]
+        self.assertIn(
+            f"cp -L {_script_value('BUNDLE_OUTPUT')} bundle/robot_bundle.tar", keep
+        )
+        upload = _step(bundle, "Upload the Bundle")
+        download = _step(self.jobs["image"], "Download the Bundle")
+        self.assertEqual(download["with"]["name"], upload["with"]["name"])
+        self.assertEqual(download["with"]["path"], _script_value("CONTEXT_DIR"))
+
+    def test_the_image_is_built_by_the_deploy_script_and_published_on_push_only(
+        self,
+    ) -> None:
+        image = self.jobs["image"]
+        self.assertEqual(image["permissions"]["packages"], "write")
+        build = _step(image, "Build the Robot Image")["run"]
+        self.assertIn(
+            "tools/deploy/deploy_robot.sh image --skip_bundle --platform linux/arm64",
+            build,
+        )
+        for name in (
+            "Log in to the GitHub Container Registry",
+            "Publish the Robot Image",
+        ):
+            with self.subTest(step=name):
+                self.assertEqual(
+                    _step(image, name)["if"], "github.event_name == 'push'"
+                )
+        publish = _step(image, "Publish the Robot Image")["run"]
+        self.assertIn(f"/{_script_value('RUNTIME_IMAGE')}\"", publish)
+        names = _step(image, "Name the Image")["run"]
+        self.assertIn("commit_tag=sha-${GITHUB_SHA::12}-arm64", names)
+        self.assertIn("branch_tag=${branch//\\//-}-arm64", names)
+
+    def test_the_readme_deploys_the_published_image(self) -> None:
+        section = search(
+            r"### aarch64\n(.*?)\n## ", read("tools/deploy/README.md"), re.S
+        ).group(1)
+        self.assertIn(
+            "IMAGE_SOURCE=registry REGISTRY=ghcr.io/<owner> TAG=main-arm64", section
+        )
+        self.assertIn(".github/workflows/robot_arm64.yml", section)
+
+
+class PinocchioSourceBuildTest(unittest.TestCase):
+    """docker/build_pinocchio_from_source.sh, against a recording apt-get and a git that must not run."""
+
+    def run_script(self, steps: str) -> tuple[subprocess.CompletedProcess, str]:
+        """Runs the script with PINOCCHIO_STEPS=steps; returns its result and the commands it ran, one per line."""
+        with tempfile.TemporaryDirectory() as directory:
+            log = os.path.join(directory, "commands.log")
+            for tool, body in (
+                ("apt-get", 'echo "apt-get $*" >> "$LOG"'),
+                ("git", 'echo "git $*" >> "$LOG"; exit 1'),
+            ):
+                path = os.path.join(directory, tool)
+                with open(path, "w", encoding="utf-8") as stream:
+                    stream.write(f"#!/bin/sh\n{body}\n")
+                os.chmod(path, 0o755)
+            env = dict(
+                os.environ,
+                PATH=f"{directory}:{os.environ['PATH']}",
+                LOG=log,
+                PINOCCHIO_STEPS=steps,
+            )
+            result = subprocess.run(
+                ["sh", runfile("docker/build_pinocchio_from_source.sh")],
+                capture_output=True,
+                text=True,
+                env=env,
+                timeout=60,
+                check=False,  # The tests check the return code.
+            )
+            commands = ""
+            if os.path.exists(log):
+                with open(log, encoding="utf-8") as stream:
+                    commands = stream.read()
+            return result, commands
+
+    def test_dependencies_installs_the_packages_and_builds_nothing(self) -> None:
+        result, commands = self.run_script("dependencies")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("libboost-serialization-dev", commands)
+        self.assertIn("liburdfdom-dev", commands)
+        self.assertEqual(
+            [line for line in commands.splitlines() if line.startswith("git ")], []
+        )
+
+    def test_an_unknown_step_is_refused_before_anything_runs(self) -> None:
+        result, commands = self.run_script("pinocchio")
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("PINOCCHIO_STEPS", result.stderr)
+        self.assertEqual(commands, "")
 
 
 if __name__ == "__main__":

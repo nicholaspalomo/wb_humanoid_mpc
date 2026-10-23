@@ -14,7 +14,9 @@
 # file, a .env with the settings below, and the systemd unit, which --service installs (`install`) and enables at boot
 # (`enable`, which also disables the unit of any other robot on the host: one robot per machine). A deployment that is
 # running already is restarted on the new image and settings. --host localhost deploys to this machine without ssh.
-# --dry_run prints every command instead of running it.
+# --image_source registry deploys an image that is in --registry already instead of building one, such as CI's arm64
+# image (.github/workflows/robot_arm64.yml): the host pulls it, and the deploy fails unless it is of the host's
+# architecture. --dry_run prints every command instead of running it.
 #
 # The Makefile's deploy-robot, launch-<robot>-robot and launch-<robot>-sim targets run it.
 set -euo pipefail
@@ -25,16 +27,19 @@ cd "${repo}"
 # LINT.IfChange(image_names)
 RUNTIME_IMAGE="wb-humanoid-robot"
 SIM_IMAGE="wb-humanoid-robot-sim"
-# LINT.ThenChange(//docker-compose.robot.yaml, //docker-compose.robot.sim.yaml, //tools/deploy/README.md)
+# LINT.ThenChange(//docker-compose.robot.yaml, //docker-compose.robot.sim.yaml, //tools/deploy/README.md, //.github/workflows/robot_arm64.yml:arm64_image_name)
 # The robot configurations, the names of the bundle's launch/<robot>.sh scripts.
 # LINT.IfChange(robot_names)
 ROBOTS="drc_atlas engineai_sa01 unitree_g1 unitree_g1_wb unitree_r1"
 # LINT.ThenChange(//tools/deploy/BUILD.bazel:robot_configurations, //tools/deploy/test_deploy_files.py:robot_names)
 BUNDLE_TARGET="//tools/deploy:robot_bundle"
 BUNDLE_OUTPUT=".bazel/bin/tools/deploy/robot_bundle.tar"
+# LINT.IfChange(context_dir)
 CONTEXT_DIR=".deploy/context"
+# LINT.ThenChange(//.github/workflows/robot_arm64.yml:arm64_image_context)
 UNIT="wb-humanoid-robot@.service"
 SERVICES="none install enable"
+IMAGE_SOURCES="build registry"
 TARGETS="robot-runtime robot-sim"
 # LINT.IfChange(config_seed_policies)
 CONFIG_SEEDS="when_bundle_changes every_start never"
@@ -46,7 +51,7 @@ ROBOT_CONFIG_DIR="robot_config"
 # LINT.ThenChange(//docker-compose.robot.yaml:robot_config_store, //.gitignore)
 
 usage() {
-    sed -n '2,17p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
+    sed -n '2,19p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
     cat >&2 << 'EOF'
 
 Options:
@@ -58,6 +63,8 @@ Options:
   --platform PLATFORM       the image's platform, e.g. linux/arm64 (default: the host's Docker's, asked over ssh, or
                             this machine's for localhost); the bundle must match, and so must the host
   --tag TAG                 the images' tag (default latest)
+  --image_source SOURCE     deploy: build (default) the image here, or registry: pull --registry's image of --tag on
+                            the host, built elsewhere (CI's arm64 images are tagged <branch>-arm64 and sha-<commit>-arm64)
   --registry REGISTRY       push the image there and pull it on the host, instead of docker save | ssh docker load
   --deploy_dir DIR          the deployment directory on the host, relative to its home (default wb-humanoid-robot)
   --service SERVICE         the systemd unit: none (default), install, enable (install, enable at boot, start)
@@ -149,6 +156,7 @@ netem=""
 netem_interface="lo"
 skip_bundle="no"
 dry_run="no"
+image_source="build"
 while [ "$#" -gt 0 ]; do
     case "$1" in
         --robot) robot="$2"; shift 2 ;;
@@ -171,6 +179,7 @@ while [ "$#" -gt 0 ]; do
         --netem_interface) netem_interface="$2"; shift 2 ;;
         --dev_container) export WB_DEV_CONTAINER="$2"; shift 2 ;;
         --skip_bundle) skip_bundle="yes"; shift ;;
+        --image_source) image_source="$2"; shift 2 ;;
         --dry_run) dry_run="yes"; shift ;;
         -h | --help) usage ;;
         *) echo "deploy_robot.sh: unknown option $1" >&2; usage ;;
@@ -179,6 +188,7 @@ done
 [ -n "${host}" ] || host="localhost"
 one_of "${target}" "${TARGETS}" "target"
 one_of "${service}" "${SERVICES}" "service"
+one_of "${image_source}" "${IMAGE_SOURCES}" "image source"
 [ -z "${config_seed}" ] || one_of "${config_seed}" "${CONFIG_SEEDS}" "seed policy"
 # A tty for sudo's password prompt and for Ctrl-C of `up`.
 ssh_flags=()
@@ -254,6 +264,31 @@ ship_image() {
     fi
 }
 
+# Pulls the registry's image on the host, for --image_source registry, and fails unless it runs there: an image of
+# another architecture would only fail when its container starts, with an exec format error, and restart forever.
+pull_image() {
+    local image
+    image="$(image_name "${RUNTIME_IMAGE}")"
+    on_host "docker pull '${image}'"
+    local wanted="${platform#linux/}"
+    if [ "${dry_run}" = "yes" ]; then
+        echo "+ check that ${image} on ${host} is of the host's architecture"
+        return 0
+    fi
+    [ -n "${wanted}" ] || wanted="$(docker version --format '{{.Server.Arch}}')"
+    local pulled
+    local inspect="docker image inspect --format '{{.Architecture}}' '${image}'"
+    if [ "${host}" = "localhost" ]; then
+        pulled="$(bash -c "${inspect}")"
+    else
+        # No -t: a tty would end the answer with a carriage return.
+        pulled="$(ssh "${host}" "${inspect}")"
+    fi
+    [ "${pulled}" = "${wanted}" ] ||
+        fail "${image} is built for ${pulled}, and ${host} runs ${wanted}: deploy the image of its architecture" \
+            "(CI's arm64 images are tagged <branch>-arm64), or build one here without --image_source registry"
+}
+
 # The settings of the deployment, which docker compose reads from the .env next to docker-compose.robot.yaml.
 print_environment() {
     local compose_files="docker-compose.robot.yaml"
@@ -315,8 +350,13 @@ deploy() {
     [ -f "${network}" ] || fail "--network ${network}: no such file"
     target="robot-runtime"
     check_host_architecture
-    build_image
-    ship_image
+    if [ "${image_source}" = "registry" ]; then
+        [ -n "${registry}" ] || fail "--image_source registry needs --registry, the registry that holds the image"
+        pull_image
+    else
+        build_image
+        ship_image
+    fi
 
     staging="$(mktemp -d)"
     trap 'rm -rf "${staging}"' EXIT

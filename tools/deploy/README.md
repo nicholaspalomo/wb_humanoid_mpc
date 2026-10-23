@@ -65,8 +65,22 @@ from (`org.opencontainers.image.revision`).
 
 ### aarch64
 
-The robot computer's architecture is not decided. Everything is in place for an ARM one, but nothing has been built
-for it yet:
+The robot computer's architecture is not decided, so the robot side is built for both. CI builds it for arm64 on
+GitHub's arm64 runner (`.github/workflows/robot_arm64.yml`): the robot bundle and the robot-side C++ tests, natively,
+then the `robot-runtime` image, which a push publishes to the GitHub Container Registry as
+`ghcr.io/<owner>/wb-humanoid-robot`, tagged `<branch>-arm64` (`/` in the branch name becomes `-`) and
+`sha-<commit>-arm64`. An x86-64 laptop deploys it to an ARM robot without building anything for arm64:
+
+```bash
+make deploy-robot ROBOT=drc_atlas HOST=<robot> NETWORK=<file> \
+    IMAGE_SOURCE=registry REGISTRY=ghcr.io/<owner> TAG=main-arm64
+```
+
+The robot pulls the image, and the deploy fails unless it is of the robot's architecture. A package GitHub creates is
+private: make it public once (the package's settings on GitHub), or `docker login ghcr.io` on the robot with a token
+that may read packages.
+
+To build arm64 yourself instead:
 
 - MuJoCo, which both robot binaries link (the `mujoco` backend), comes prebuilt: `lib/mujoco_vendor` downloads the
   release of the architecture it builds for, `linux-x86_64` or `linux-aarch64`, each with its published checksum.
@@ -183,6 +197,8 @@ remote host needs `NETWORK=` (`config/ipc/two_machine.example.textproto`). Every
 | `NETWORK` | `--network` | the shipped localhost network, on localhost only. A path inside the checkout, relative to it or absolute: the launch targets read it in the dev container, which sees only the checkout |
 | `SERVICE` | `--service` | `none` (`install`, `enable`) |
 | `REGISTRY` | `--registry` | none: `docker save` over ssh |
+| `TAG` | `--tag` | `latest` |
+| `IMAGE_SOURCE` | `--image_source` | `build`; `registry` pulls `REGISTRY`'s image of `TAG` on the host instead of building one ("aarch64") |
 | `PLATFORM` | `--platform` | the robot's Docker's architecture (asked over ssh), this machine's for localhost |
 | `BACKEND`, `MEMORY_LIMIT` | `--backend`, `--memory_limit` | the launch file's (`mujoco`), the compose file's (`4g`) |
 | `CPUSET`, `REALTIME_PRIORITY`, `REALTIME_CORES`, `BACKEND_CORES` | `--cpuset`, ... | the compose file's, the launch file's |

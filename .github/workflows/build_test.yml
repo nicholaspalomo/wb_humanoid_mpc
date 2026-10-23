@@ -37,7 +37,7 @@ jobs:
     # LINT.IfChange(container_image)
     # The dev image's base (docker/Dockerfile), so CI builds against the same Ubuntu packages as the dev container.
     container: ubuntu:24.04
-    # LINT.ThenChange(//docker/Dockerfile:ubuntu_release, //tools/ci_local.sh:ubuntu_release)
+    # LINT.ThenChange(//docker/Dockerfile:ubuntu_release, //tools/ci_local.sh:ubuntu_release, //.github/workflows/robot_arm64.yml:arm64_container)
     # LINT.IfChange(noninteractive_apt)
     # A plain Ubuntu image asks tzdata's debconf question (python3-pip pulls tzdata in) and waits for an answer; the dev
     # image sets the same (docker/Dockerfile).
@@ -55,7 +55,7 @@ jobs:
           apt-get update && apt-get install -y --no-install-recommends \
           ca-certificates curl gnupg \
           git sudo build-essential python3-pip python3-venv
-      # LINT.ThenChange(//dependencies.txt:system_dependencies, //docker/Dockerfile:system_dependencies, //tools/ci_local.sh:ci_base_dependencies)
+      # LINT.ThenChange(//dependencies.txt:system_dependencies, //docker/Dockerfile:system_dependencies, //tools/ci_local.sh:ci_base_dependencies, //.github/workflows/robot_arm64.yml:arm64_base_dependencies)
 
       - &checkout
         name: Checkout repository
@@ -76,7 +76,7 @@ jobs:
           echo "PYTHONPATH=/opt/openrobots/lib/python3.12/site-packages" >> "$GITHUB_ENV"
           echo "CMAKE_PREFIX_PATH=/opt/openrobots" >> "$GITHUB_ENV"
           echo "PKG_CONFIG_PATH=/opt/openrobots/lib/pkgconfig" >> "$GITHUB_ENV"
-      # LINT.ThenChange(//docker/Dockerfile:robotpkg_environment, //tools/ci_local.sh:robotpkg_environment)
+      # LINT.ThenChange(//docker/Dockerfile:robotpkg_environment, //tools/ci_local.sh:robotpkg_environment, //.github/workflows/robot_arm64.yml:arm64_robotpkg_environment)
 
       - &install_bazel
         name: Install Bazel (via Bazelisk)
@@ -97,8 +97,7 @@ jobs:
 
       # Bazel's disk cache (action outputs, by content) and repository cache (downloads), not the whole output base: the
       # two are what a later run reuses, and they stay within the repository's 10 GB of Actions cache (the build trims the
-      # disk cache before it saves it). The job's own ~/.bazelrc, which Bazel reads after the workspace's .bazelrc. A
-      # failing test prints its log into the job's log.
+      # disk cache before it saves it). The job's own ~/.bazelrc, which Bazel reads after the workspace's .bazelrc.
       # LINT.IfChange(bazel_cache)
       - &configure_bazel_cache
         name: Configure the Bazel Caches
@@ -106,7 +105,6 @@ jobs:
           {
             echo "build --disk_cache=$HOME/.cache/bazel-disk"
             echo "build --repository_cache=$HOME/.cache/bazel-repository"
-            echo "test --test_output=errors"
           } >> "$HOME/.bazelrc"
 
       # The key names the commit, so that each run saves a cache of its own (a key, once saved, cannot be overwritten)
@@ -123,7 +121,7 @@ jobs:
           key: bazel-${{ hashFiles('.bazelversion', '.bazelrc', 'MODULE.bazel') }}-${{ github.sha }}
           restore-keys: |
             bazel-${{ hashFiles('.bazelversion', '.bazelrc', 'MODULE.bazel') }}-
-      # LINT.ThenChange(:save_bazel_cache)
+      # LINT.ThenChange(:save_bazel_cache, //.github/workflows/robot_arm64.yml:arm64_bazel_cache)
 
       - name: Build All (Bazel Monorepo)
         id: build

@@ -8,7 +8,10 @@
 # so the binaries link the same libraries: libpinocchio_default, libpinocchio_parsers and libcoal. The Python bindings
 # are left out unless PINOCCHIO_PYTHON=ON, which also builds eigenpy and needs the dev image's Python.
 #
-# Usage, as root: sh docker/build_pinocchio_from_source.sh       (PINOCCHIO_PYTHON=ON|OFF, JOBS=<n>)
+# Usage, as root: sh docker/build_pinocchio_from_source.sh       (PINOCCHIO_PYTHON=ON|OFF, JOBS=<n>, PINOCCHIO_STEPS=)
+# PINOCCHIO_STEPS=dependencies installs only the Ubuntu packages the libraries build with and link, for a machine whose
+# /opt/openrobots is restored from a cache of an earlier build (.github/workflows/robot_arm64.yml); the default, all,
+# also builds and installs them.
 # POSIX sh, so that it runs in any container before anything else is set up.
 set -eu
 
@@ -21,6 +24,11 @@ EIGENPY_VERSION="3.13.0"
 PREFIX="/opt/openrobots"
 PINOCCHIO_PYTHON="${PINOCCHIO_PYTHON:-OFF}"
 JOBS="${JOBS:-$(nproc)}"
+PINOCCHIO_STEPS="${PINOCCHIO_STEPS:-all}"
+case "${PINOCCHIO_STEPS}" in
+    all | dependencies) ;;
+    *) echo "build_pinocchio_from_source.sh: PINOCCHIO_STEPS is all or dependencies, not '${PINOCCHIO_STEPS}'" >&2; exit 2 ;;
+esac
 
 apt-get update
 # The libraries Pinocchio and coal link (those robotpkg's packages depend on), and the tools to build them.
@@ -30,6 +38,11 @@ apt-get install -y --no-install-recommends \
     liburdfdom-dev libconsole-bridge-dev liboctomap-dev libassimp-dev libqhull-dev
 if [ "${PINOCCHIO_PYTHON}" = "ON" ]; then
     apt-get install -y --no-install-recommends python3-dev python3-numpy python3-scipy libboost-python-dev
+fi
+
+if [ "${PINOCCHIO_STEPS}" = "dependencies" ]; then
+    echo "build_pinocchio_from_source: the packages of Pinocchio ${PINOCCHIO_VERSION} and coal ${COAL_VERSION} are installed"
+    exit 0
 fi
 
 work="$(mktemp -d)"

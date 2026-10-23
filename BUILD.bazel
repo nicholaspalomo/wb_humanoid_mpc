@@ -17,6 +17,13 @@ exports_files([
     "tools/ci_local.sh",
 ])
 
+# The arm64 build of the robot side and the script that builds its Pinocchio; //tools/deploy:test_deploy_files checks
+# that it builds the bundle and the image as a deploy does.
+exports_files([
+    ".github/workflows/robot_arm64.yml",
+    "docker/build_pinocchio_from_source.sh",
+])
+
 # The environment script every shell, CI build and launch sources; //tools/setup_env:test_setup_env pins it.
 exports_files(["setup_env.sh"])
 

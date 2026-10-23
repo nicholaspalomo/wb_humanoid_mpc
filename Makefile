@@ -464,6 +464,7 @@ shipped_network := config/ipc/network.textproto
 udp_buffers = $(current_path)tools/deploy/udp_buffers.sh --network $(current_path)$(1) --host $(2)
 deploy_flags = --host $(HOST) --deploy_dir $(DEPLOY_DIR) \
 	$(if $(NETWORK),--network $(network_file)) $(if $(REGISTRY),--registry $(REGISTRY)) \
+	$(if $(TAG),--tag $(TAG)) $(if $(IMAGE_SOURCE),--image_source $(IMAGE_SOURCE)) \
 	$(if $(PLATFORM),--platform $(PLATFORM)) $(if $(CPUSET),--cpuset $(CPUSET)) \
 	$(if $(BACKEND),--backend $(BACKEND)) $(if $(MEMORY_LIMIT),--memory_limit $(MEMORY_LIMIT)) \
 	$(if $(REALTIME_PRIORITY),--realtime_priority $(REALTIME_PRIORITY)) \
@@ -555,7 +556,8 @@ $(foreach configuration,$(filter $(addsuffix :%,$(SANDBOX_ROBOTS)),$(ROBOT_CONFI
 ## Deploy the robot side to the robot's computer: make deploy-robot ROBOT=drc_atlas HOST=<ssh host> NETWORK=<file>
 ## [SERVICE=install|enable] [REGISTRY=<registry>] [PLATFORM=linux/arm64] [BACKEND=<backend name>] [MEMORY_LIMIT=4g]
 ## [CPUSET=2-5] [REALTIME_PRIORITY=80] [NETEM="delay 3ms"]. HOST=localhost deploys to this machine without ssh
-## (tools/deploy/README.md). A deployment that runs already is restarted on the new image.
+## (tools/deploy/README.md). A deployment that runs already is restarted on the new image. IMAGE_SOURCE=registry
+## REGISTRY=ghcr.io/<owner> TAG=<branch>-arm64 deploys CI's arm64 image instead of building one here.
 deploy-robot:
 	@$(if $(ROBOT),,$(error deploy-robot needs ROBOT=<robot configuration>: drc_atlas, engineai_sa01, unitree_g1, unitree_g1_wb or unitree_r1))
 	@$(call udp_buffers,$(or $(network_file),$(shipped_network)),$(HOST))
