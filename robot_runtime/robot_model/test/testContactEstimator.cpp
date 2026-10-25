@@ -27,22 +27,27 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <gtest/gtest.h>
-
 #include <filesystem>
 #include <fstream>
+#include <memory>
+#include <string>
+#include <system_error>
+#include <vector>
 
-#include <robot_model/RobotDescription.h>
-#include <robot_model/RobotStateContactEstimator.h>
+#include "absl/status/statusor.h"
+#include "gtest/gtest.h"
 
-using namespace robot::model;
+#include "robot_model/RobotDescription.h"
+#include "robot_model/RobotStateContactEstimator.h"
 
+namespace robot::model {
 namespace {
 
 class RobotStateContactEstimatorTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    tempDir_ = std::filesystem::temp_directory_path() / "robot_model_contact_estimator_test";
+    tempDir_ = std::filesystem::temp_directory_path() /
+               "robot_model_contact_estimator_test";
     std::filesystem::create_directories(tempDir_);
     urdfPath_ = tempDir_ / "robot.urdf";
     std::ofstream urdfFile(urdfPath_);
@@ -76,22 +81,35 @@ class RobotStateContactEstimatorTest : public ::testing::Test {
 };
 
 TEST_F(RobotStateContactEstimatorTest, reportsTheFlagsOfTheRobotState) {
-  RobotDescription description(urdfPath_.string());
-  RobotState state(description, /*contactSize=*/2);
+  const absl::StatusOr<RobotDescription> description =
+      RobotDescription::Create(urdfPath_.string());
+  ASSERT_TRUE(description.ok()) << description.status();
+  RobotState state(*description, /*contactSize=*/2);
   RobotStateContactEstimator estimator;
   EXPECT_EQ(estimator.getName(), "RobotStateContactEstimator");
 
   // A fresh state assumes every contact point is touching.
-  EXPECT_EQ(estimator.estimateContactFlags(state), (std::vector<bool>{true, true}));
+  EXPECT_EQ(estimateContactFlags(estimator, state),
+            (std::vector<bool>{true, true}));
 
   state.setContactFlag(/*index=*/0, /*contactFlag=*/false);
-  EXPECT_EQ(estimator.estimateContactFlags(state), (std::vector<bool>{false, true}));
+  EXPECT_EQ(estimateContactFlags(estimator, state),
+            (std::vector<bool>{false, true}));
   state.setContactFlag(/*index=*/1, /*contactFlag=*/false);
-  EXPECT_EQ(estimator.estimateContactFlags(state), (std::vector<bool>{false, false}));
+  EXPECT_EQ(estimateContactFlags(estimator, state),
+            (std::vector<bool>{false, false}));
 
   // The base-class interface is what controllers hold.
-  std::unique_ptr<ContactEstimator> base = std::make_unique<RobotStateContactEstimator>();
-  EXPECT_EQ(base->estimateContactFlags(state), state.getContactFlags());
+  std::unique_ptr<ContactEstimator> base =
+      std::make_unique<RobotStateContactEstimator>();
+  EXPECT_EQ(estimateContactFlags(*base, state), state.getContactFlags());
+
+  // Into a vector that holds the flags already: resized, not grown, and
+  // rewritten in place.
+  std::vector<bool> flags = {true, true, true, true, true};
+  base->estimateContactFlags(state, flags);
+  EXPECT_EQ(flags, state.getContactFlags());
 }
 
 }  // namespace
+}  // namespace robot::model

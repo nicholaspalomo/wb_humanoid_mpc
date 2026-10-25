@@ -28,17 +28,17 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <pinocchio/fwd.hpp>  // forward declarations must be included first.
-
-#include <gtest/gtest.h>
+#include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
 #include <array>
 #include <cmath>
 #include <vector>
 
-#include <pinocchio/algorithm/center-of-mass.hpp>
-
+#include "absl/base/nullability.h"
 #include "absl/strings/str_cat.h"
+#include "gtest/gtest.h"
+#include "ocs2_centroidal_model/ModelHelperFunctions.h"
+#include "pinocchio/algorithm/center-of-mass.hpp"
 
 #include "humanoid_centroidal_mpc/common/CentroidalMpcRobotModel.h"
 #include "humanoid_centroidal_mpc/dynamics/DynamicsHelperFunctions.h"
@@ -47,205 +47,256 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
 
-#include "ocs2_centroidal_model/ModelHelperFunctions.h"
-
 namespace ocs2::humanoid {
 
 TEST(TestDynamicsHelperFunctions, computeContactCoP) {
-  CentroidalTestingModelInterface testingModelInterface = CentroidalTestingModelInterface();
+  CentroidalTestingModelInterface testingModelInterface =
+      CentroidalTestingModelInterface();
 
-  PinocchioInterface pinocchioInterface = testingModelInterface.getPinocchioInterface();
-  size_t joint_dim = testingModelInterface.getMpcRobotModel().getJointDim();
-  vector_t q = vector_t::Zero(6 + joint_dim);
-  q[2] = 0.86566;
-  q.tail(joint_dim) = vector_t::Random(joint_dim);
+  PinocchioInterface pinocchioInterface =
+      testingModelInterface.getPinocchioInterface();
+  const CentroidalMpcRobotModel<scalar_t>& model =
+      testingModelInterface.getMpcRobotModel();
+  // q = [p_W, xi, q_j] of a level base (the identity quaternion) at standing
+  // height, the joints bent at random.
+  vector_t state = model.getNeutralState();
+  model.setBasePosition(state, vector3_t(0.0, 0.0, 0.86566));
+  model.setJointAngles(
+      state, vector_t::Random(static_cast<Eigen::Index>(model.getJointDim())));
+  const vector_t q = model.getGeneralizedCoordinates(state);
 
-  vector_t input = vector_t::Zero(testingModelInterface.getMpcRobotModel().getInputDim());
-  testingModelInterface.getMpcRobotModel().setContactForce(input, vector3_t(0, 0, 100), /*contactIndex=*/0);
-  testingModelInterface.getMpcRobotModel().setContactForce(input, vector3_t(50, 30, 100), /*contactIndex=*/1);
+  vector_t input =
+      vector_t::Zero(testingModelInterface.getMpcRobotModel().getInputDim());
+  testingModelInterface.getMpcRobotModel().setContactForce(
+      input, vector3_t(0, 0, 100), /*contactIndex=*/0);
+  testingModelInterface.getMpcRobotModel().setContactForce(
+      input, vector3_t(50, 30, 100), /*contactIndex=*/1);
 
-  std::vector<vector3_t> contactPositions =
-      computeContactPositions<scalar_t>(q, pinocchioInterface, testingModelInterface.getMpcRobotModel());
-  std::vector<vector3_t> contactCoPs = computeContactsCoP(input, pinocchioInterface, {1, 1}, testingModelInterface.getMpcRobotModel());
-
-  EXPECT_TRUE(contactPositions[0].isApprox(contactCoPs[0]));
-  EXPECT_TRUE(contactPositions[1].isApprox(contactCoPs[1]));
+  std::vector<vector3_t> contactPositions = computeContactPositions<scalar_t>(
+      q, pinocchioInterface, testingModelInterface.getMpcRobotModel());
+  // A pure force acts at the contact frame origin: the center of pressure is
+  // the contact position.
+  for (size_t contactIndex = 0; contactIndex < kNumContacts; ++contactIndex) {
+    EXPECT_TRUE(contactPositions[contactIndex].isApprox(
+        computeContactCoP<scalar_t>(input, pinocchioInterface, contactIndex,
+                                    testingModelInterface.getMpcRobotModel())))
+        << "contact " << contactIndex;
+  }
 }
 
-TEST(TestDynamicsHelperFunctions, computeContactCoPStateAwareOverloadMatchesInputOnlyForWrenchModel) {
-  CentroidalTestingModelInterface testingModelInterface = CentroidalTestingModelInterface();
-  CentroidalMpcRobotModel<scalar_t>& model = testingModelInterface.getMpcRobotModel();
+TEST(TestDynamicsHelperFunctions,
+     computeContactCoPStateAwareOverloadMatchesInputOnlyForWrenchModel) {
+  CentroidalTestingModelInterface testingModelInterface =
+      CentroidalTestingModelInterface();
+  CentroidalMpcRobotModel<scalar_t>& model =
+      testingModelInterface.getMpcRobotModel();
 
-  PinocchioInterface pinocchioInterface = testingModelInterface.getPinocchioInterface();
-  const size_t joint_dim = model.getJointDim();
-  vector_t q = vector_t::Zero(6 + joint_dim);
-  q[2] = 0.86566;
-  q[3] = M_PI / 2.0;  // yawed base
-  q.tail(joint_dim) = vector_t::Random(joint_dim);
+  PinocchioInterface pinocchioInterface =
+      testingModelInterface.getPinocchioInterface();
+  // A base yawed by 90 degrees at standing height, the joints bent at random.
+  vector_t state = model.getNeutralState();
+  model.setBasePoseEulerZyx(
+      state,
+      (vector6_t() << 0.0, 0.0, 0.86566, M_PI / 2.0, 0.0, 0.0).finished());
+  model.setJointAngles(
+      state, vector_t::Random(static_cast<Eigen::Index>(model.getJointDim())));
+  const vector_t q = model.getGeneralizedCoordinates(state);
   updateFramePlacements<scalar_t>(q, pinocchioInterface);
 
-  vector_t state = vector_t::Zero(model.getStateDim());
-  model.setGeneralizedCoordinates(state, q);
-
-  // Off-center wrenches so that the CoPs are not trivially the contact frame origins.
+  // Off-center wrenches so that the CoPs are not trivially the contact frame
+  // origins.
   vector_t input = vector_t::Zero(model.getInputDim());
-  model.setContactWrench(input, (vector6_t() << 10.0, 5.0, 100.0, 1.0, -2.0, 0.5).finished(), /*contactIndex=*/0);
-  model.setContactWrench(input, (vector6_t() << -20.0, 8.0, 150.0, -3.0, 4.0, -0.2).finished(), /*contactIndex=*/1);
+  model.setContactWrench(
+      input, (vector6_t() << 10.0, 5.0, 100.0, 1.0, -2.0, 0.5).finished(),
+      /*contactIndex=*/0);
+  model.setContactWrench(
+      input, (vector6_t() << -20.0, 8.0, 150.0, -3.0, 4.0, -0.2).finished(),
+      /*contactIndex=*/1);
 
-  // The wrench-space input already stores world-frame wrenches, so the state-aware overload must reduce to the
-  // input-only one for every contact configuration.
-  for (const contact_flag_t& flags : {contact_flag_t{true, true}, contact_flag_t{true, false}, contact_flag_t{false, true}}) {
-    const std::vector<vector3_t> copsInputOnly = computeContactsCoP(input, pinocchioInterface, flags, model);
-    const std::vector<vector3_t> copsStateAware = computeContactsCoP(state, input, pinocchioInterface, flags, model);
-    ASSERT_EQ(copsInputOnly.size(), copsStateAware.size());
-    for (size_t i = 0; i < copsInputOnly.size(); ++i) {
-      EXPECT_TRUE((copsInputOnly[i] - copsStateAware[i]).isZero(1e-12))
-          << "CoP mismatch for contact " << i << ": input-only = " << copsInputOnly[i].transpose()
-          << ", state-aware = " << copsStateAware[i].transpose();
-    }
+  // The wrench-space input already stores world-frame wrenches, so the
+  // state-aware overload must reduce to the input-only one for every contact.
+  for (size_t i = 0; i < kNumContacts; ++i) {
+    EXPECT_TRUE(
+        (computeContactCoP<scalar_t>(input, pinocchioInterface, i, model) -
+         computeContactCoP<scalar_t>(state, input, pinocchioInterface, i,
+                                     model))
+            .isZero(1.0e-12));
   }
-  for (size_t i = 0; i < N_CONTACTS; ++i) {
-    EXPECT_TRUE((computeContactCoP<scalar_t>(input, pinocchioInterface, i, model) -
-                 computeContactCoP<scalar_t>(state, input, pinocchioInterface, i, model))
-                    .isZero(1e-12));
-  }
-}
-
-TEST(TestDynamicsHelperFunctions, gateContactWrenchesByMeasuredContactsDropsTheWrenchOfAFootNotTouching) {
-  const vector6_t left = (vector6_t() << 1, 2, 300, 4, 5, 6).finished();
-  const vector6_t right = (vector6_t() << -1, -2, 400, -4, -5, -6).finished();
-  const std::array<vector6_t, 2> planned{left, right};
-
-  // Both feet measured in contact: the planned wrenches pass through unchanged.
-  const std::array<vector6_t, 2> both = gateContactWrenchesByMeasuredContacts(planned, {true, true});
-  EXPECT_TRUE(both[0].isApprox(left));
-  EXPECT_TRUE(both[1].isApprox(right));
-
-  // A foot that is not touching cannot transmit its planned wrench, whatever the plan expects.
-  const std::array<vector6_t, 2> leftOnly = gateContactWrenchesByMeasuredContacts(planned, {true, false});
-  EXPECT_TRUE(leftOnly[0].isApprox(left));
-  EXPECT_TRUE(leftOnly[1].isZero());
-  const std::array<vector6_t, 2> rightOnly = gateContactWrenchesByMeasuredContacts(planned, {false, true});
-  EXPECT_TRUE(rightOnly[0].isZero());
-  EXPECT_TRUE(rightOnly[1].isApprox(right));
-  const std::array<vector6_t, 2> none = gateContactWrenchesByMeasuredContacts(planned, {false, false});
-  EXPECT_TRUE(none[0].isZero());
-  EXPECT_TRUE(none[1].isZero());
 }
 
 TEST(TestDynamicsHelperFunctions, weightCompensatingInput) {
-  CentroidalTestingModelInterface testingModelInterface = CentroidalTestingModelInterface();
+  CentroidalTestingModelInterface testingModelInterface =
+      CentroidalTestingModelInterface();
 
-  PinocchioInterface pinocchioInterface = testingModelInterface.getPinocchioInterface();
-  CentroidalModelInfo centroidalModelInfo = testingModelInterface.getCentroidalModelInfo();
+  const PinocchioInterface& pinocchioInterface =
+      testingModelInterface.getPinocchioInterface();
+  CentroidalModelInfo centroidalModelInfo =
+      testingModelInterface.getCentroidalModelInfo();
 
   const scalar_t totalGravitationalForce = centroidalModelInfo.robotMass * 9.81;
 
-  vector_t inputDoubleContact = vector_t::Zero(testingModelInterface.getMpcRobotModel().getInputDim());
-  testingModelInterface.getMpcRobotModel().setContactForce(inputDoubleContact, vector3_t(0, 0, totalGravitationalForce / 2),
-                                                           /*contactIndex=*/0);
-  testingModelInterface.getMpcRobotModel().setContactForce(inputDoubleContact, vector3_t(0, 0, totalGravitationalForce / 2),
-                                                           /*contactIndex=*/1);
+  vector_t inputDoubleContact =
+      vector_t::Zero(testingModelInterface.getMpcRobotModel().getInputDim());
+  testingModelInterface.getMpcRobotModel().setContactForce(
+      inputDoubleContact, vector3_t(0, 0, totalGravitationalForce / 2),
+      /*contactIndex=*/0);
+  testingModelInterface.getMpcRobotModel().setContactForce(
+      inputDoubleContact, vector3_t(0, 0, totalGravitationalForce / 2),
+      /*contactIndex=*/1);
 
-  EXPECT_TRUE(
-      inputDoubleContact.isApprox(weightCompensatingInput(centroidalModelInfo, {true, true}, testingModelInterface.getMpcRobotModel())));
-  EXPECT_TRUE(
-      inputDoubleContact.isApprox(weightCompensatingInput(pinocchioInterface, {true, true}, testingModelInterface.getMpcRobotModel())));
+  EXPECT_TRUE(inputDoubleContact.isApprox(
+      weightCompensatingInput(centroidalModelInfo, {true, true},
+                              testingModelInterface.getMpcRobotModel())));
+  EXPECT_TRUE(inputDoubleContact.isApprox(
+      weightCompensatingInput(pinocchioInterface, {true, true},
+                              testingModelInterface.getMpcRobotModel())));
 
-  vector_t inputLeftContact = vector_t::Zero(testingModelInterface.getMpcRobotModel().getInputDim());
-  testingModelInterface.getMpcRobotModel().setContactForce(inputLeftContact, vector3_t(0, 0, totalGravitationalForce), /*contactIndex=*/0);
+  vector_t inputLeftContact =
+      vector_t::Zero(testingModelInterface.getMpcRobotModel().getInputDim());
+  testingModelInterface.getMpcRobotModel().setContactForce(
+      inputLeftContact, vector3_t(0, 0, totalGravitationalForce),
+      /*contactIndex=*/0);
 
-  EXPECT_TRUE(
-      inputLeftContact.isApprox(weightCompensatingInput(centroidalModelInfo, {true, false}, testingModelInterface.getMpcRobotModel())));
-  EXPECT_TRUE(
-      inputLeftContact.isApprox(weightCompensatingInput(pinocchioInterface, {true, false}, testingModelInterface.getMpcRobotModel())));
+  EXPECT_TRUE(inputLeftContact.isApprox(
+      weightCompensatingInput(centroidalModelInfo, {true, false},
+                              testingModelInterface.getMpcRobotModel())));
+  EXPECT_TRUE(inputLeftContact.isApprox(
+      weightCompensatingInput(pinocchioInterface, {true, false},
+                              testingModelInterface.getMpcRobotModel())));
 
-  vector_t inputRightContact = vector_t::Zero(testingModelInterface.getMpcRobotModel().getInputDim());
-  testingModelInterface.getMpcRobotModel().setContactForce(inputRightContact, vector3_t(0, 0, totalGravitationalForce), /*contactIndex=*/1);
-  EXPECT_TRUE(
-      inputRightContact.isApprox(weightCompensatingInput(centroidalModelInfo, {false, true}, testingModelInterface.getMpcRobotModel())));
-  EXPECT_TRUE(
-      inputRightContact.isApprox(weightCompensatingInput(pinocchioInterface, {false, true}, testingModelInterface.getMpcRobotModel())));
+  vector_t inputRightContact =
+      vector_t::Zero(testingModelInterface.getMpcRobotModel().getInputDim());
+  testingModelInterface.getMpcRobotModel().setContactForce(
+      inputRightContact, vector3_t(0, 0, totalGravitationalForce),
+      /*contactIndex=*/1);
+  EXPECT_TRUE(inputRightContact.isApprox(
+      weightCompensatingInput(centroidalModelInfo, {false, true},
+                              testingModelInterface.getMpcRobotModel())));
+  EXPECT_TRUE(inputRightContact.isApprox(
+      weightCompensatingInput(pinocchioInterface, {false, true},
+                              testingModelInterface.getMpcRobotModel())));
 
-  EXPECT_TRUE(
-      ocs2::getNormalizedCentroidalMomentumRate(pinocchioInterface, centroidalModelInfo, inputDoubleContact).isApprox(vector_t::Zero(6)));
+  EXPECT_TRUE(ocs2::getNormalizedCentroidalMomentumRate(
+                  pinocchioInterface, centroidalModelInfo, inputDoubleContact)
+                  .isApprox(vector_t::Zero(6)));
 }
 
-TEST(TestDynamicsHelperFunctions, weightCompensatingInputStateAwareOverloadMatchesInputOnlyForWrenchModel) {
-  CentroidalTestingModelInterface testingModelInterface = CentroidalTestingModelInterface();
-  CentroidalMpcRobotModel<scalar_t>& model = testingModelInterface.getMpcRobotModel();
+TEST(TestDynamicsHelperFunctions,
+     weightCompensatingInputStateAwareOverloadMatchesInputOnlyForWrenchModel) {
+  CentroidalTestingModelInterface testingModelInterface =
+      CentroidalTestingModelInterface();
+  CentroidalMpcRobotModel<scalar_t>& model =
+      testingModelInterface.getMpcRobotModel();
 
-  PinocchioInterface pinocchioInterface = testingModelInterface.getPinocchioInterface();
-  CentroidalModelInfo centroidalModelInfo = testingModelInterface.getCentroidalModelInfo();
+  const PinocchioInterface& pinocchioInterface =
+      testingModelInterface.getPinocchioInterface();
+  CentroidalModelInfo centroidalModelInfo =
+      testingModelInterface.getCentroidalModelInfo();
 
-  // Fixture state: standing height, a yawed and slightly tilted base, and random joint angles. For the wrench-space
-  // model the input stores world-frame wrenches directly, so none of this may influence the weight-compensating input.
-  vector_t state = vector_t::Zero(model.getStateDim());
+  // Fixture state: standing height, a yawed and slightly tilted base, and
+  // random joint angles. For the wrench-space model the input stores
+  // world-frame wrenches directly, so none of this may influence the
+  // weight-compensating input.
+  vector_t state = model.getNeutralState();
   model.setBasePosition(state, vector3_t(0.3, -0.2, 0.86566));
-  model.setBaseOrientationEulerZYX(state, vector3_t(M_PI / 2.0, 0.1, -0.05));
+  model.setBaseOrientationEulerZyx(state, vector3_t(M_PI / 2.0, 0.1, -0.05));
   model.setJointAngles(state, vector_t::Random(model.getJointDim()));
 
   const scalar_t totalGravitationalForce = centroidalModelInfo.robotMass * 9.81;
 
   for (const contact_flag_t& flags :
-       {contact_flag_t{true, true}, contact_flag_t{true, false}, contact_flag_t{false, true}, contact_flag_t{false, false}}) {
-    const vector_t inputOnlyFromPinocchio = weightCompensatingInput(pinocchioInterface, flags, model);
-    const vector_t stateAwareFromPinocchio = weightCompensatingInput(pinocchioInterface, flags, model, state);
-    EXPECT_TRUE((stateAwareFromPinocchio - inputOnlyFromPinocchio).isZero(1e-12))
-        << "PinocchioInterface overloads differ for flags {" << flags[0] << ", " << flags[1] << "}";
+       {contact_flag_t{true, true}, contact_flag_t{true, false},
+        contact_flag_t{false, true}, contact_flag_t{false, false}}) {
+    const vector_t inputOnlyFromPinocchio =
+        weightCompensatingInput(pinocchioInterface, flags, model);
+    const vector_t stateAwareFromPinocchio =
+        weightCompensatingInput(pinocchioInterface, flags, model, state);
+    EXPECT_TRUE(
+        (stateAwareFromPinocchio - inputOnlyFromPinocchio).isZero(1.0e-12))
+        << "PinocchioInterface overloads differ for flags {" << flags[0] << ", "
+        << flags[1] << "}";
 
-    const vector_t inputOnlyFromInfo = weightCompensatingInput(centroidalModelInfo, flags, model);
-    const vector_t stateAwareFromInfo = weightCompensatingInput(centroidalModelInfo, flags, model, state);
-    EXPECT_TRUE((stateAwareFromInfo - inputOnlyFromInfo).isZero(1e-12))
-        << "CentroidalModelInfo overloads differ for flags {" << flags[0] << ", " << flags[1] << "}";
+    const vector_t inputOnlyFromInfo =
+        weightCompensatingInput(centroidalModelInfo, flags, model);
+    const vector_t stateAwareFromInfo =
+        weightCompensatingInput(centroidalModelInfo, flags, model, state);
+    EXPECT_TRUE((stateAwareFromInfo - inputOnlyFromInfo).isZero(1.0e-12))
+        << "CentroidalModelInfo overloads differ for flags {" << flags[0]
+        << ", " << flags[1] << "}";
 
-    // Both families must agree with each other and produce vertical world-frame forces that sum to the robot weight.
-    EXPECT_TRUE((stateAwareFromInfo - stateAwareFromPinocchio).isZero(1e-9));
+    // Both families must agree with each other and produce vertical world-frame
+    // forces that sum to the robot weight.
+    EXPECT_TRUE((stateAwareFromInfo - stateAwareFromPinocchio).isZero(1.0e-9));
     vector3_t totalForce = vector3_t::Zero();
-    for (size_t i = 0; i < N_CONTACTS; ++i) {
-      const vector3_t force = model.getContactForceInWorldFrame(state, stateAwareFromPinocchio, i);
-      EXPECT_TRUE((force - model.getContactForce(stateAwareFromPinocchio, i)).isZero(0.0));
+    for (size_t i = 0; i < kNumContacts; ++i) {
+      const vector3_t force =
+          model.getContactForceInWorldFrame(state, stateAwareFromPinocchio, i);
+      EXPECT_TRUE((force - model.getContactForce(stateAwareFromPinocchio, i))
+                      .isZero(0.0));
       if (!flags[i]) {
-        EXPECT_TRUE(force.isZero(0.0)) << "Swing foot " << i << " must carry no force";
+        EXPECT_TRUE(force.isZero(0.0))
+            << "Swing foot " << i << " must carry no force";
       }
       totalForce += force;
     }
-    const scalar_t expectedTotal = (flags[0] || flags[1]) ? totalGravitationalForce : 0.0;
-    EXPECT_TRUE((totalForce - vector3_t(0.0, 0.0, expectedTotal)).isZero(1e-9))
-        << "Total weight-compensating force should be vertical and equal to the robot weight, got " << totalForce.transpose();
+    const scalar_t expectedTotal =
+        (flags[0] || flags[1]) ? totalGravitationalForce : 0.0;
+    EXPECT_TRUE(
+        (totalForce - vector3_t(0.0, 0.0, expectedTotal)).isZero(1.0e-9))
+        << "Total weight-compensating force should be vertical and equal to "
+           "the robot weight, got "
+        << totalForce.transpose();
   }
 }
 
-TEST(TestDynamicsHelperFunctions, weightCompensatingInputCarriesTheWeightOfTheModelItIsGiven) {
-  // Two robots in one process, alternated: the weight used to be cached in a function-static by whichever model reached
-  // weightCompensatingInput first, and every later call carried that robot's weight.
+TEST(TestDynamicsHelperFunctions,
+     weightCompensatingInputCarriesTheWeightOfTheModelItIsGiven) {
+  // Two robots in one process, alternated: the weight used to be cached in a
+  // function-static by whichever model reached weightCompensatingInput first,
+  // and every later call carried that robot's weight.
   CentroidalTestingModelInterface g1;
-  CentroidalTestingModelInterface atlas(CentroidalTestingModelInterface::Robot::kDrcAtlas);
-  const std::array<CentroidalTestingModelInterface*, 2> robots = {&g1, &atlas};
-  const scalar_t g1Weight = 9.81 * pinocchio::computeTotalMass(g1.getPinocchioInterface().getModel());
-  const scalar_t atlasWeight = 9.81 * pinocchio::computeTotalMass(atlas.getPinocchioInterface().getModel());
-  ASSERT_GT(std::abs(atlasWeight - g1Weight), 100.0) << "positive control: the two robots differ in weight";
+  CentroidalTestingModelInterface atlas(
+      CentroidalTestingModelInterface::Robot::kDrcAtlas);
+  const std::array<CentroidalTestingModelInterface* absl_nonnull, 2> robots = {
+      &g1, &atlas};
+  const scalar_t g1Weight =
+      9.81 * pinocchio::computeTotalMass(g1.getPinocchioInterface().getModel());
+  const scalar_t atlasWeight =
+      9.81 *
+      pinocchio::computeTotalMass(atlas.getPinocchioInterface().getModel());
+  ASSERT_GT(std::abs(atlasWeight - g1Weight), 100.0)
+      << "positive control: the two robots differ in weight";
 
   for (int round = 0; round < 2; ++round) {
-    for (CentroidalTestingModelInterface* robot : robots) {
+    for (CentroidalTestingModelInterface* absl_nonnull robot : robots) {
       CentroidalMpcRobotModel<scalar_t>& model = robot->getMpcRobotModel();
       const CentroidalModelInfo info = robot->getCentroidalModelInfo();
-      const scalar_t weight = 9.81 * pinocchio::computeTotalMass(robot->getPinocchioInterface().getModel());
-      EXPECT_NEAR(info.robotMass * 9.81, weight, 1e-9 * weight);
-      vector_t state = vector_t::Zero(model.getStateDim());
-      model.setBaseOrientationEulerZYX(state, vector3_t(0.3, 0.0, 0.0));
+      const scalar_t weight =
+          9.81 * pinocchio::computeTotalMass(
+                     robot->getPinocchioInterface().getModel());
+      EXPECT_NEAR(info.robotMass * 9.81, weight, 1.0e-9 * weight);
+      vector_t state = model.getNeutralState();
+      model.setBaseOrientationEulerZyx(state, vector3_t(0.3, 0.0, 0.0));
 
-      for (const contact_flag_t& flags : {contact_flag_t{true, true}, contact_flag_t{true, false}, contact_flag_t{false, true}}) {
-        SCOPED_TRACE(absl::StrCat(robot->taskFile, ", round ", round, ", contacts {", flags[0], ", ", flags[1], "}"));
-        const std::array<vector_t, 4> inputs = {weightCompensatingInput(robot->getPinocchioInterface(), flags, model),
-                                                weightCompensatingInput(robot->getPinocchioInterface(), flags, model, state),
-                                                weightCompensatingInput(info, flags, model),
-                                                weightCompensatingInput(info, flags, model, state)};
+      for (const contact_flag_t& flags :
+           {contact_flag_t{true, true}, contact_flag_t{true, false},
+            contact_flag_t{false, true}}) {
+        SCOPED_TRACE(absl::StrCat(robot->taskFile, ", round ", round,
+                                  ", contacts {", flags[0], ", ", flags[1],
+                                  "}"));
+        const std::array<vector_t, 4> inputs = {
+            weightCompensatingInput(robot->getPinocchioInterface(), flags,
+                                    model),
+            weightCompensatingInput(robot->getPinocchioInterface(), flags,
+                                    model, state),
+            weightCompensatingInput(info, flags, model),
+            weightCompensatingInput(info, flags, model, state)};
         for (const vector_t& input : inputs) {
           vector3_t total = vector3_t::Zero();
-          for (size_t i = 0; i < N_CONTACTS; ++i) total += model.getContactForceInWorldFrame(state, input, i);
-          EXPECT_NEAR(total.z(), weight, 1e-9 * weight);
-          EXPECT_NEAR(total.head<2>().norm(), 0.0, 1e-9 * weight);
+          for (size_t i = 0; i < kNumContacts; ++i)
+            total += model.getContactForceInWorldFrame(state, input, i);
+          EXPECT_NEAR(total.z(), weight, 1.0e-9 * weight);
+          EXPECT_NEAR(total.head<2>().norm(), 0.0, 1.0e-9 * weight);
         }
       }
     }

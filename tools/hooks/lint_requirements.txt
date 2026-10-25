@@ -1,0 +1,14 @@
+# The lint tools of tools/hooks/lint_code.py (make lint), at the versions the repository chooses. The dev image installs
+# the hashed lock of this file into /opt/wb-lint (docker/Dockerfile), CI's format job installs it with pip, and Bazel's
+# @lint_deps hub (MODULE.bazel) runs the real tools in //tools/hooks:test_lint_tool_configs. After editing this file,
+# regenerate the lock in the dev container, by itself (it resolves, it does not compile):
+#   bazel run //tools/hooks:lint_requirements.update
+# tools/hooks/test_lint_tool_versions.py checks that every installer uses the same lock.
+cpplint==2.0.2
+pylint==4.1.1
+astroid==4.3.3
+isort==9.0.2
+mypy==2.4.0
+# black itself comes from Ubuntu (dependencies.txt) and CI's pin; the lock carries the same version so that the
+# hermetic isort + black test runs the formatter make format runs.
+black==24.2.0

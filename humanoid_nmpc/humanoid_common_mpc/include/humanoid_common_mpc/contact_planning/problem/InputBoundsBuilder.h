@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -31,9 +35,21 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-/** Collects the input box constraints of one running stage (index, lower, upper), in the order they are added. */
+/**
+ * Collects the input box constraints of one running stage (index, lower,
+ * upper), in the order they are added.
+ *
+ * Not thread-safe: one thread fills a builder.
+ */
 class InputBoundsBuilder {
  public:
+  InputBoundsBuilder() = default;
+  InputBoundsBuilder(const InputBoundsBuilder&) = default;
+  InputBoundsBuilder& operator=(const InputBoundsBuilder&) = default;
+  InputBoundsBuilder(InputBoundsBuilder&&) = default;
+  InputBoundsBuilder& operator=(InputBoundsBuilder&&) = default;
+  ~InputBoundsBuilder() = default;
+
   void add(int inputIndex, scalar_t lower, scalar_t upper) {
     indices_.push_back(inputIndex);
     lower_.push_back(lower);

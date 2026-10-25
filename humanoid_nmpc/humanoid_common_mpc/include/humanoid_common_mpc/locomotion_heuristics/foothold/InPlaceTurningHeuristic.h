@@ -37,25 +37,35 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * `in_place_turning`: H_r(psidot) = a1 psidot + a0 (Bledt, Appendix C, Table C.2).
+ * `in_place_turning`: H_r(psidot) = a1 psidot + a0 (Bledt, Appendix C, Table
+ * C.2).
  *
  * Step along the arc of the turn, affinely in the commanded yaw rate.
  *
- * The rotational counterpart of `translational_stepping`, found the same way and for the same reason: with only the
- * translational term the feet lagged the hips through a fast spin until they reached the end of their workspace,
- * exactly as they lagged the body through a fast walk (section 4.3, figure 4-10). Adding it let the feet LEAD the
- * hips into the turn and raised the achievable yaw rate substantially.
+ * The rotational counterpart of `translational_stepping`, found the same way
+ * and for the same reason: with only the translational term the feet lagged the
+ * hips through a fast spin until they reached the end of their workspace,
+ * exactly as they lagged the body through a fast walk (section 4.3, figure
+ * 4-10). Adding it let the feet LEAD the hips into the turn and raised the
+ * achievable yaw rate substantially.
  *
- * `psidot` is the commanded yaw rate rather than the measured one, because the point is to step where the robot is
- * being asked to go. The forward term is signed per foot: on a turn the outer foot travels further along the heading
- * than the inner one, so one coefficient moves the two feet in opposite directions.
+ * `psidot` is the commanded yaw rate rather than the measured one, because the
+ * point is to step where the robot is being asked to go. The forward term is
+ * signed per foot: on a turn the outer foot travels further along the heading
+ * than the inner one, so one coefficient moves the two feet in opposite
+ * directions.
  *
- * Distinct from `high_speed_turning`, which is zero at zero speed however fast the robot spins; this one is the term
- * that survives a turn on the spot.
+ * Distinct from `high_speed_turning`, which is zero at zero speed however fast
+ * the robot spins; this one is the term that survives a turn on the spot.
  *
- * Direction: a foot to the LEFT of a body turning counter-clockwise travels BACKWARDS (omega x r), so the fore-aft
- * displacements of the two feet are equal and opposite. The implementation carries the sign, so a positive
- * `forwardPerYawRate` means "lead the hips into the turn"; see the comment on offset().
+ * Direction: a foot to the LEFT of a body turning counter-clockwise travels
+ * BACKWARDS (omega x r), so the fore-aft displacements of the two feet are
+ * equal and opposite. The implementation carries the sign, so a positive
+ * `forwardPerYawRate` means "lead the hips into the turn"; see the comment on
+ * offset().
+ *
+ * Like every LocomotionHeuristic, its const methods are safe to call
+ * concurrently; configure() is not, and must not run while they do.
  */
 class InPlaceTurningHeuristic final : public FootholdHeuristic {
  public:
@@ -63,7 +73,9 @@ class InPlaceTurningHeuristic final : public FootholdHeuristic {
   ~InPlaceTurningHeuristic() override = default;
 
   absl::string_view name() const override { return heuristic::kInPlaceTurning; }
-  absl::Status configure(const LocomotionHeuristicConfig& config, const LocomotionHeuristicModelParameters& model) override;
+  absl::Status configure(
+      const LocomotionHeuristicConfig& config,
+      const LocomotionHeuristicModelParameters& model) override;
   std::string describe() const override;
 
   vector2_t offset(const FootholdHeuristicContext& context) const override;

@@ -67,23 +67,10 @@ class SystemDynamicsBaseAD : public SystemDynamicsBase {
 
   vector_t computeJumpMap(scalar_t t, const vector_t& x, const PreComputation& preComputation) final;
 
-  vector_t computeGuardSurfaces(scalar_t t, const vector_t& x) final;
-
   VectorFunctionLinearApproximation linearApproximation(scalar_t t, const vector_t& x, const vector_t& u,
                                                         const PreComputation& preComputation) final;
 
   VectorFunctionLinearApproximation jumpMapLinearApproximation(scalar_t t, const vector_t& x, const PreComputation& preComputation) final;
-
-  VectorFunctionLinearApproximation guardSurfacesLinearApproximation(scalar_t t, const vector_t& x, const vector_t& u) final;
-
-  /** @note: Requires linear approximation to be called before */
-  vector_t flowMapDerivativeTime(scalar_t t, const vector_t& x, const vector_t& u) final;
-
-  /** @note: Requires jump map linear approximation to be called before */
-  vector_t jumpMapDerivativeTime(scalar_t t, const vector_t& x, const vector_t& u) final;
-
-  /** @note: Requires guard surfaces linear approximation to be called before */
-  vector_t guardSurfacesDerivativeTime(scalar_t t, const vector_t& x, const vector_t& u) final;
 
  protected:
   /** Copy constructor */
@@ -95,90 +82,35 @@ class SystemDynamicsBaseAD : public SystemDynamicsBase {
    * @param [in] time: time.
    * @param [in] state: state vector.
    * @param [in] input: input vector.
-   * @param [in] parameters: parameter vector.
    * @return state vector time derivative.
    */
-  virtual ad_vector_t systemFlowMap(ad_scalar_t time, const ad_vector_t& state, const ad_vector_t& input,
-                                    const ad_vector_t& parameters) const = 0;
-
-  /**
-   * Gets the parameters of the system flow map
-   *
-   * @param [in] time: Current time.
-   * @return The parameters to be set in the flow map at the start of the horizon
-   */
-  virtual vector_t getFlowMapParameters(scalar_t time, const PreComputation& /* preComputation */) const { return vector_t(0); }
-
-  /**
-   * Number of parameters for system flow map.
-   *
-   * @return number of parameters
-   */
-  virtual size_t getNumFlowMapParameters() const { return 0; }
+  virtual ad_vector_t systemFlowMap(ad_scalar_t time, const ad_vector_t& state, const ad_vector_t& input) const = 0;
 
   /**
    * Interface method to the state jump map of the hybrid system. This method can be implemented by the derived class.
    *
    * @param [in] time: time.
    * @param [in] state: state vector.
-   * @param [in] parameters: parameter vector.
    * @return jumped state.
    */
-  virtual ad_vector_t systemJumpMap(ad_scalar_t time, const ad_vector_t& state, const ad_vector_t& parameters) const;
-
-  /**
-   * Gets the parameters of the jump map
-   *
-   * @param [in] time: Current time.
-   * @return The parameters to be set in the jump map
-   */
-  virtual vector_t getJumpMapParameters(scalar_t time, const PreComputation& /* preComputation */) const { return vector_t(0); }
-
-  /**
-   * Number of parameters for jump map.
-   *
-   * @return number of parameters
-   */
-  virtual size_t getNumJumpMapParameters() const { return 0; }
-
-  /**
-   * Interface method to the guard surfaces. This method can be implemented by the derived class.
-   *
-   * @param [in] time: time.
-   * @param [in] state: state.
-   * @param [in] input: input vector
-   * @param [in] parameters: parameter vector.
-   * @return A vector of guard surfaces values
-   */
-  virtual ad_vector_t systemGuardSurfaces(ad_scalar_t time, const ad_vector_t& state, const ad_vector_t& parameters) const;
-
-  /**
-   * Gets the parameters of the guard surfaces
-   *
-   * @param [in] time: Current time.
-   * @return The parameters to be set in the guard surfaces
-   */
-  virtual vector_t getGuardSurfacesParameters(scalar_t time) const { return vector_t(0); }
-
-  /**
-   * Number of parameters for guard surfaces.
-   *
-   * @return number of parameters
-   */
-  virtual size_t getNumGuardSurfacesParameters() const { return 0; }
+  virtual ad_vector_t systemJumpMap(ad_scalar_t time, const ad_vector_t& state) const;
 
  private:
+  /**
+   * The functions the libraries tape, systemFlowMap() at x = (time, state, input) and systemJumpMap() at x = (time,
+   * state) of this object. They refer to this object, so a copy hands the copies of the libraries functions of its own
+   * (the copy constructor) and never tapes the object it was copied from, which may be destroyed first.
+   */
+  CppAdInterface::ad_function_t tapedFlowMap() const;
+  CppAdInterface::ad_function_t tapedJumpMap() const;
+
+  size_t stateDim_ = 0;
+  size_t inputDim_ = 0;
   std::unique_ptr<CppAdInterface> flowMapADInterfacePtr_;
   std::unique_ptr<CppAdInterface> jumpMapADInterfacePtr_;
-  std::unique_ptr<CppAdInterface> guardSurfacesADInterfacePtr_;
 
   vector_t tapedTimeStateInput_;
   vector_t tapedTimeState_;
-
-  /** Cached jacobians for time derivative */
-  matrix_t flowJacobian_;
-  matrix_t jumpJacobian_;
-  matrix_t guardJacobian_;
 };
 
 }  // namespace ocs2

@@ -34,15 +34,30 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace robot::mujoco_sim_interface {
 
+namespace {
+constexpr double kCenterOfMassMarkerRadius =
+    0.03;  // [m] the sphere at the center of mass and the disc below it
+constexpr double kShadowLineWidth =
+    0.004;  // [m] the line from the center of mass down to the ground
+}  // namespace
+
 void CenterOfMassVisualization::addSceneGeoms(const VisualizationFrame& frame) {
-  if (frame.sim == nullptr || frame.state == nullptr || frame.scene == nullptr) return;
-  const RobotCentroidalState state = robotCentroidalState(frame.sim->getModel(), frame.state->data);
+  if (frame.model == nullptr || frame.state == nullptr ||
+      frame.scene == nullptr)
+    return;
+  const RobotCentroidalState state =
+      robotCentroidalState(frame.model, frame.state->data);
   if (!state.valid) return;
-  const MarkerColor blue{0.2f, 0.5f, 1.0f, 0.9f};
-  const MarkerColor shadow{0.2f, 0.5f, 1.0f, 0.5f};
-  addSphereGeom(frame.scene, state.com, /*radius=*/0.03, blue);
-  addVerticalLineGeom(frame.scene, state.com, /*groundHeight=*/0.0, /*width=*/0.004, shadow);
-  addGroundDiscGeom(frame.scene, state.com[0], state.com[1], /*radius=*/0.03, shadow);
+  constexpr MarkerColor kMarkerColor{
+      .r = 0.2f, .g = 0.5f, .b = 1.0f, .a = 0.9f};  // blue
+  constexpr MarkerColor kShadowColor{
+      .r = 0.2f, .g = 0.5f, .b = 1.0f, .a = 0.5f};  // translucent blue
+  addSphereGeom(frame.scene, state.com, kCenterOfMassMarkerRadius,
+                kMarkerColor);
+  addVerticalLineGeom(frame.scene, state.com, /*groundHeight=*/0.0,
+                      kShadowLineWidth, kShadowColor);
+  addGroundDiscGeom(frame.scene, state.com[0], state.com[1],
+                    kCenterOfMassMarkerRadius, kShadowColor);
 }
 
 }  // namespace robot::mujoco_sim_interface

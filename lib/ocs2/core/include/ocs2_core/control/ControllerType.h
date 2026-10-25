@@ -33,7 +33,14 @@ namespace ocs2 {
 
 /**
  * Enum class for specifying controller type
+ *
+ * MANIFOLD_LINEAR is the ManifoldLinearController, u = u*(t) + K(t) (x (-) xbar(t)), which a solver with a state
+ * manifold returns: its gains act on the tangent of the state, not on the stored state.
  */
-enum class ControllerType { UNKNOWN, FEEDFORWARD, LINEAR, ONNX, BEHAVIORAL };
+// LINT.IfChange(controller_types)
+enum class ControllerType { UNKNOWN, FEEDFORWARD, LINEAR, MANIFOLD_LINEAR };
+// The values are not a wire format: humanoid_mpc_msgs/controller_type.proto has its own codes (MANIFOLD_LINEAR is
+// CONTROLLER_TYPE_MANIFOLD_LINEAR = 3 there), and humanoid_mpc_ipc's policy conversions map the two.
+// LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_msgs/controller_type.proto:controller_types)
 
 }  // namespace ocs2

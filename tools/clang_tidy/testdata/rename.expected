@@ -1,0 +1,2 @@
+# Reported by the header action and by both .cpp actions, and printed once.
+tools/clang_tidy/testdata/rename/include/rename/Limits.h:5:22: readability-identifier-naming

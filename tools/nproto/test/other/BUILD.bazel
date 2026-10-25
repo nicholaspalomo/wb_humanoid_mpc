@@ -1,0 +1,14 @@
+load("@protobuf//bazel:proto_library.bzl", "proto_library")
+
+# nproto test protos of another proto package in another Bazel package, imported through a prefix of their own
+# ("nproto_test/other/point.proto"): tools/nproto/test/imports.proto uses them.
+
+package(default_visibility = ["//tools/nproto:__subpackages__"])
+
+proto_library(
+    name = "other_protos",
+    srcs = glob(["*.proto"]),
+    import_prefix = "nproto_test/other",
+    strip_import_prefix = "/tools/nproto/test/other",
+    deps = ["//tools/nproto:options_proto"],
+)

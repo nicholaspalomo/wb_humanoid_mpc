@@ -71,7 +71,7 @@ scalar_t SquaredHingePenalty::getSecondDerivative(scalar_t t, scalar_t h) const 
 /******************************************************************************************************/
 /******************************************************************************************************/
 void SquaredHingePenalty::setParameters(const vector_t& parameters) {
-  if (parameters.size() != 2) {
+  if (parameters.size() != kMuDeltaParameterCount) {
     throw std::runtime_error("SquaredHingePenalty::setParameters: Invalid number of parameters.");
   }
   config_.mu = parameters[0];
@@ -82,7 +82,7 @@ void SquaredHingePenalty::setParameters(const vector_t& parameters) {
 /******************************************************************************************************/
 /******************************************************************************************************/
 void SquaredHingePenalty::getParameters(vector_t& parameters) const {
-  parameters.resize(2);
+  parameters.resize(kMuDeltaParameterCount);
   parameters[0] = config_.mu;
   parameters[1] = config_.delta;
 }

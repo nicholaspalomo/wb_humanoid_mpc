@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -31,13 +35,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * Adapts `schedule` to the measured contact state at ctx.time with the listed rules, one call per control cycle: for
- * every foot the swing latch is tracked (a new swing is latched, a stale latch cleared, a foot that landed as scheduled
- * releases its latch), then the rules run in order until one reports an event. Returns what happened to every foot.
+ * Adapts `schedule` to the measured contact state at ctx.time with the listed
+ * rules, one call per control cycle: for every foot the swing latch is tracked
+ * (a new swing is latched, a stale latch cleared, a foot that landed as
+ * scheduled releases its latch), then the rules run in order until one reports
+ * an event. Returns what happened to every foot.
  */
-feet_array_t<ContactEventReport> adaptScheduleWithRules(ModeSchedule& schedule,
-                                                        const ExecutionContext& ctx,
-                                                        const TermCollection<ExecutionRule>& rules,
-                                                        feet_array_t<SwingTimingLatch>& latches);
+feet_array_t<ContactEventReport> adaptScheduleWithRules(
+    ModeSchedule& schedule,
+    const ExecutionContext& ctx,
+    const TermCollection<ExecutionRule>& rules,
+    feet_array_t<SwingTimingLatch>& latches);
 
 }  // namespace ocs2::humanoid

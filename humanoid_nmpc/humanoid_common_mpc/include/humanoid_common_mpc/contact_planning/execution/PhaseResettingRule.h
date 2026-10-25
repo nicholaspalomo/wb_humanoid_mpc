@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -25,15 +29,22 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <string>
+
 #include "humanoid_common_mpc/contact_planning/execution/ExecutionRule.h"
 
 namespace ocs2::humanoid {
 
 /**
- * `phase_resetting`: early touch-down, a swing foot whose measured contact persists for the debounce duration (after
- * the scuffing window) is switched to contact at once, in place; late touch-down, a foot that misses the ground at its
- * scheduled touch-down keeps swinging in small steps, up to a bounded total extension, every later event delayed by
- * the same amount, its height reference descending at the search velocity.
+ * `phase_resetting`: early touch-down, a swing foot whose measured contact
+ * persists for the debounce duration (after the scuffing window) is switched to
+ * contact at once, in place; late touch-down, a foot that misses the ground at
+ * its scheduled touch-down keeps swinging in small steps, up to a bounded total
+ * extension, every later event delayed by the same amount, its height reference
+ * descending at the search velocity.
+ *
+ * Not thread-safe, like every ContactPlanningTerm: the planner that owns it
+ * configures and evaluates it from one thread at a time.
  */
 class PhaseResettingRule final : public ExecutionRule {
  public:
@@ -46,12 +57,16 @@ class PhaseResettingRule final : public ExecutionRule {
                          ModeSchedule& schedule,
                          SwingTimingLatch& latch,
                          ContactEventReport& report) const override;
-  bool adaptContactFoot(
-      const ExecutionContext& ctx, size_t foot, ModeSchedule& schedule, SwingTimingLatch& latch, ContactEventReport& report) const override;
-  std::optional<GroundSearchRequest> groundSearch(const ExecutionContext& ctx,
-                                                  size_t foot,
-                                                  const ModeSchedule& schedule,
-                                                  const SwingTimingLatch& latch) const override;
+  bool adaptContactFoot(const ExecutionContext& ctx,
+                        size_t foot,
+                        ModeSchedule& schedule,
+                        SwingTimingLatch& latch,
+                        ContactEventReport& report) const override;
+  std::optional<GroundSearchRequest> groundSearch(
+      const ExecutionContext& ctx,
+      size_t foot,
+      const ModeSchedule& schedule,
+      const SwingTimingLatch& latch) const override;
 
  private:
   PhaseResettingParameters params_;

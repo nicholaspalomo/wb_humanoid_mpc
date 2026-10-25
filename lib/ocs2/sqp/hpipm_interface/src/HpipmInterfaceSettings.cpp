@@ -1,0 +1,86 @@
+/******************************************************************************
+Copyright (c) 2020, Farbod Farshidian. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+* Redistributions of source code must retain the above copyright notice, this
+  list of conditions and the following disclaimer.
+
+* Redistributions in binary form must reproduce the above copyright notice,
+  this list of conditions and the following disclaimer in the documentation
+  and/or other materials provided with the distribution.
+
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+******************************************************************************/
+
+#include "hpipm_interface/HpipmInterfaceSettings.h"
+
+#include <algorithm>
+#include <string>
+
+namespace ocs2 {
+namespace hpipm_interface {
+
+namespace {
+
+/** Prints one setting as " #### 'name'......value", with " (default)" after a value that is the default. */
+template <typename T>
+void printValue(std::ostream& stream, const T& value, const std::string& name, bool updated) {
+  constexpr long kPrintWidth = 80;
+  // The narrowest the dots and the value get after a name too long for kPrintWidth.
+  constexpr int kMinValueFieldWidth = 15;
+  const std::string nameString = " #### '" + name + "'";
+  stream << nameString;
+
+  const long printWidth = std::max<long>(kPrintWidth, static_cast<long>(nameString.size()) + kMinValueFieldWidth);
+  stream.width(printWidth - static_cast<long>(nameString.size()));
+  const char fill = stream.fill('.');
+
+  if (updated) {
+    stream << value << '\n';
+  } else {
+    stream << value << " (default)\n";
+  }
+
+  stream.fill(fill);
+}
+
+}  // namespace
+
+std::ostream& operator<<(std::ostream& stream, const Settings& settings) {
+  Settings defaultSettings;
+
+  stream << "\n #### HPIPM Settings:";
+  stream << "\n #### =============================================================================\n";
+  printValue(stream, settings.hpipmMode, "mode", settings.hpipmMode != defaultSettings.hpipmMode);
+  printValue(stream, settings.iter_max, "iter_max", settings.iter_max != defaultSettings.iter_max);
+  printValue(stream, settings.alpha_min, "alpha_min", settings.alpha_min != defaultSettings.alpha_min);
+  printValue(stream, settings.mu0, "mu0", settings.mu0 != defaultSettings.mu0);
+  printValue(stream, settings.tol_stat, "tol_stat", settings.tol_stat != defaultSettings.tol_stat);
+  printValue(stream, settings.tol_eq, "tol_eq", settings.tol_eq != defaultSettings.tol_eq);
+  printValue(stream, settings.tol_ineq, "tol_ineq", settings.tol_ineq != defaultSettings.tol_ineq);
+  printValue(stream, settings.tol_comp, "tol_comp", settings.tol_comp != defaultSettings.tol_comp);
+  printValue(stream, settings.reg_prim, "reg_prim", settings.reg_prim != defaultSettings.reg_prim);
+  printValue(stream, settings.warm_start, "warm_start", settings.warm_start != defaultSettings.warm_start);
+  printValue(stream, settings.pred_corr, "pred_corr", settings.pred_corr != defaultSettings.pred_corr);
+  printValue(stream, settings.ric_alg, "ric_alg", settings.ric_alg != defaultSettings.ric_alg);
+  stream << " #### =============================================================================" << std::endl;
+  return stream;
+}
+
+}  // namespace hpipm_interface
+}  // namespace ocs2

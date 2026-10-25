@@ -29,14 +29,26 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <Eigen/Core>
 #include <array>
 #include <cmath>
+
+#include "ocs2_core/Dimensions.h"
+
+#include <Eigen/Core>
 
 // CppAD
 #include <ocs2_core/automatic_differentiation/Types.h>
 
 namespace ocs2 {
+
+/**
+ * ZYX Euler angles (z, y, x): the angles of the rotations about z, then about the new y and then about the new x
+ * (getRotationMatrixFromZyxEulerAngles()), stored in that order.
+ */
+inline constexpr int kEulerAnglesZyxDim = 3;
+inline constexpr int kEulerAnglesZyxZIndex = 0;
+inline constexpr int kEulerAnglesZyxYIndex = 1;
+inline constexpr int kEulerAnglesZyxXIndex = 2;
 
 /**
  * Compute the quaternion distance measure
@@ -48,27 +60,9 @@ namespace ocs2 {
  * quaternions, the measured and desired frames are aligned if this vector is 0.
  */
 template <typename SCALAR_T>
-Eigen::Matrix<SCALAR_T, 3, 1> quaternionDistance(const Eigen::Quaternion<SCALAR_T>& q, const Eigen::Quaternion<SCALAR_T>& qRef) {
+Eigen::Matrix<SCALAR_T, kRotationTangentDim, 1> quaternionDistance(const Eigen::Quaternion<SCALAR_T>& q,
+                                                                   const Eigen::Quaternion<SCALAR_T>& qRef) {
   return q.w() * qRef.vec() - qRef.w() * q.vec() + q.vec().cross(qRef.vec());
-}
-
-/**
- * Compute the quaternion distance measure jacobian
- *
- * @param [in] q: measured end effector quaternion.
- * @param [in] qRef: desired end effector quaternion.
- * @return A 3x4 matrix representing the quaternion distance jacobian.
- * The columns are the partial derivatives of [q.x, q.y, q,z, qw] (default Eigen order)
- */
-template <typename SCALAR_T>
-Eigen::Matrix<SCALAR_T, 3, 4> quaternionDistanceJacobian(const Eigen::Quaternion<SCALAR_T>& q, const Eigen::Quaternion<SCALAR_T>& qRef) {
-  Eigen::Matrix<SCALAR_T, 3, 4> jacobian;
-  // clang-format off
-  jacobian << -qRef.w(), qRef.z(), -qRef.y(), qRef.x(),
-              -qRef.z(), -qRef.w(), qRef.x(), qRef.y(),
-              qRef.y(), -qRef.x(), -qRef.w(), qRef.z();
-  // clang-format on
-  return jacobian;
 }
 
 /**
@@ -78,31 +72,48 @@ Eigen::Matrix<SCALAR_T, 3, 4> quaternionDistanceJacobian(const Eigen::Quaternion
  * @return The corresponding quaternion
  */
 template <typename SCALAR_T>
-Eigen::Quaternion<SCALAR_T> getQuaternionFromEulerAnglesZyx(const Eigen::Matrix<SCALAR_T, 3, 1>& eulerAnglesZyx) {
+Eigen::Quaternion<SCALAR_T> getQuaternionFromEulerAnglesZyx(const Eigen::Matrix<SCALAR_T, kEulerAnglesZyxDim, 1>& eulerAnglesZyx) {
   // clang-format off
-  return Eigen::AngleAxis<SCALAR_T>(eulerAnglesZyx(0), Eigen::Matrix<SCALAR_T, 3, 1>::UnitZ()) *
-         Eigen::AngleAxis<SCALAR_T>(eulerAnglesZyx(1), Eigen::Matrix<SCALAR_T, 3, 1>::UnitY()) *
-         Eigen::AngleAxis<SCALAR_T>(eulerAnglesZyx(2), Eigen::Matrix<SCALAR_T, 3, 1>::UnitX());
+  return Eigen::AngleAxis<SCALAR_T>(eulerAnglesZyx(kEulerAnglesZyxZIndex), Eigen::Matrix<SCALAR_T, kPositionDim, 1>::UnitZ()) *
+         Eigen::AngleAxis<SCALAR_T>(eulerAnglesZyx(kEulerAnglesZyxYIndex), Eigen::Matrix<SCALAR_T, kPositionDim, 1>::UnitY()) *
+         Eigen::AngleAxis<SCALAR_T>(eulerAnglesZyx(kEulerAnglesZyxXIndex), Eigen::Matrix<SCALAR_T, kPositionDim, 1>::UnitX());
   // clang-format on
 }
 
 /**
- * Compute the quaternion corresponding to the rotation from unit vector a to unit vector b. This fkunction is not yet tested for non AD
- * types.
+ * The floor of the squared norm |a x b|^2 + (1 + a.b)^2 = 2 (1 + a.b) that getQuaternionFromUnitVectors() normalizes by:
+ * twice the anti-parallel threshold 1 + a.b < 1e-6 of the humanoid MPC's orientation error with respect to a plane
+ * (kOrientationErrorWrtPlaneAntiParallelThreshold), below which the shortest arc is not differentiable.
+ */
+inline constexpr scalar_t kShortestArcSquaredNormFloor = 2.0e-6;
+
+/**
+ * Compute the quaternion corresponding to the shortest-arc rotation from unit vector a to unit vector b, for double and
+ * for a CppAD tape.
+ *
+ * The quaternion is (1 + a.b, a x b) normalized by its norm sqrt(2 (1 + a.b)), which vanishes where a = -b: there the
+ * shortest arc is not defined, and the division was 0 / 0. The squared norm is clamped from below at
+ * kShortestArcSquaredNormFloor with a conditional expression (CppAD::CondExpLt, which tapes both branches), so that the
+ * value and its derivatives are finite at every input. Within the clamp (1 + a.b < 1e-6, a within about 0.08 degrees of
+ * -b) the result is the unnormalized quaternion divided by the floor's root: continuous at the clamp, no longer of unit
+ * norm, and tending to zero at a = -b.
  *
  * @param [in] a Unit vector of initial orientation
  * @param [in] b Unit vector of final orientation
  * @return The corresponding quaternion
  */
 template <typename SCALAR_T>
-Eigen::Quaternion<SCALAR_T> getQuaternionFromUnitVectors(const Eigen::Matrix<SCALAR_T, 3, 1>& a, const Eigen::Matrix<SCALAR_T, 3, 1>& b) {
+Eigen::Quaternion<SCALAR_T> getQuaternionFromUnitVectors(const Eigen::Matrix<SCALAR_T, kPositionDim, 1>& a,
+                                                         const Eigen::Matrix<SCALAR_T, kPositionDim, 1>& b) {
   // q.vec() = a.cross(b);
-  SCALAR_T x = a[1] * b[2] - a[2] * b[1];
-  SCALAR_T y = a[2] * b[0] - a[0] * b[2];
-  SCALAR_T z = a[0] * b[1] - a[1] * b[0];
+  SCALAR_T x = a[kYAxisIndex] * b[kZAxisIndex] - a[kZAxisIndex] * b[kYAxisIndex];
+  SCALAR_T y = a[kZAxisIndex] * b[kXAxisIndex] - a[kXAxisIndex] * b[kZAxisIndex];
+  SCALAR_T z = a[kXAxisIndex] * b[kYAxisIndex] - a[kYAxisIndex] * b[kXAxisIndex];
   // q.w = sqrt(len(a)^2 * len(b)^2) + a.dot(b);
-  SCALAR_T w = 1 + a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-  const SCALAR_T norm = CppAD::sqrt(x * x + y * y + z * z + w * w);
+  SCALAR_T w = 1 + a[kXAxisIndex] * b[kXAxisIndex] + a[kYAxisIndex] * b[kYAxisIndex] + a[kZAxisIndex] * b[kZAxisIndex];
+  const SCALAR_T squaredNorm = x * x + y * y + z * z + w * w;
+  const SCALAR_T floor(kShortestArcSquaredNormFloor);
+  const SCALAR_T norm = CppAD::sqrt(CppAD::CondExpLt(squaredNorm, floor, floor, squaredNorm));
 
   x /= norm;
   y /= norm;
@@ -119,10 +130,11 @@ Eigen::Quaternion<SCALAR_T> getQuaternionFromUnitVectors(const Eigen::Matrix<SCA
  * @return The corresponding rotation matrix
  */
 template <typename SCALAR_T>
-Eigen::Matrix<SCALAR_T, 3, 3> getRotationMatrixFromZyxEulerAngles(const Eigen::Matrix<SCALAR_T, 3, 1>& eulerAngles) {
-  const SCALAR_T z = eulerAngles(0);
-  const SCALAR_T y = eulerAngles(1);
-  const SCALAR_T x = eulerAngles(2);
+Eigen::Matrix<SCALAR_T, kPositionDim, kPositionDim> getRotationMatrixFromZyxEulerAngles(
+    const Eigen::Matrix<SCALAR_T, kEulerAnglesZyxDim, 1>& eulerAngles) {
+  const SCALAR_T z = eulerAngles(kEulerAnglesZyxZIndex);
+  const SCALAR_T y = eulerAngles(kEulerAnglesZyxYIndex);
+  const SCALAR_T x = eulerAngles(kEulerAnglesZyxXIndex);
 
   const SCALAR_T c1 = cos(z);
   const SCALAR_T c2 = cos(y);
@@ -135,64 +147,12 @@ Eigen::Matrix<SCALAR_T, 3, 3> getRotationMatrixFromZyxEulerAngles(const Eigen::M
   const SCALAR_T s2c3 = s2 * c3;
 
   // clang-format off
-  Eigen::Matrix<SCALAR_T, 3, 3> rotationMatrix;
+  Eigen::Matrix<SCALAR_T, kPositionDim, kPositionDim> rotationMatrix;
   rotationMatrix << c1 * c2,      c1 * s2s3 - s1 * c3,       c1 * s2c3 + s1 * s3,
                     s1 * c2,      s1 * s2s3 + c1 * c3,       s1 * s2c3 - c1 * s3,
                         -s2,                  c2 * s3,                   c2 * c3;
   // clang-format on
   return rotationMatrix;
-}
-
-/**
- * @brief Transform a set of Euler Angles (each in [-pi, pi)) into Euler Angles in the range [-pi,pi),[-pi/2,pi/2),[-pi,pi)
- * @param[in,out] Reference to eulerAngles XYZ or ZYX which will be modified in place
- * @note Code taken from https://github.com/ANYbotics/kindr/blob/master/include/kindr/rotations/EulerAnglesXyz.hpp
- * @note Works for Euler Angles XYZ and ZYX alike
- */
-template <typename SCALAR_T>
-void makeEulerAnglesUnique(Eigen::Matrix<SCALAR_T, 3, 1>& eulerAngles) {
-  SCALAR_T tol(1e-9);  // FIXME(jcarius) magic number
-  SCALAR_T pi(M_PI);
-
-  if (eulerAngles.y() < -pi / 2 - tol) {
-    if (eulerAngles.x() < 0) {
-      eulerAngles.x() = eulerAngles.x() + pi;
-    } else {
-      eulerAngles.x() = eulerAngles.x() - pi;
-    }
-
-    eulerAngles.y() = -(eulerAngles.y() + pi);
-
-    if (eulerAngles.z() < 0) {
-      eulerAngles.z() = eulerAngles.z() + pi;
-    } else {
-      eulerAngles.z() = eulerAngles.z() - pi;
-    }
-  } else if (-pi / 2 - tol <= eulerAngles.y() && eulerAngles.y() <= -pi / 2 + tol) {
-    eulerAngles.x() -= eulerAngles.z();
-    eulerAngles.z() = 0;
-  } else if (-pi / 2 + tol < eulerAngles.y() && eulerAngles.y() < pi / 2 - tol) {
-    // ok
-  } else if (pi / 2 - tol <= eulerAngles.y() && eulerAngles.y() <= pi / 2 + tol) {
-    // todo: pi/2 should not be in range, other formula?
-    eulerAngles.x() += eulerAngles.z();
-    eulerAngles.z() = 0;
-  } else  // pi/2 + tol < eulerAngles.y()
-  {
-    if (eulerAngles.x() < 0) {
-      eulerAngles.x() = eulerAngles.x() + pi;
-    } else {
-      eulerAngles.x() = eulerAngles.x() - pi;
-    }
-
-    eulerAngles.y() = -(eulerAngles.y() - pi);
-
-    if (eulerAngles.z() < 0) {
-      eulerAngles.z() = eulerAngles.z() + pi;
-    } else {
-      eulerAngles.z() = eulerAngles.z() - pi;
-    }
-  }
 }
 
 /**
@@ -202,7 +162,7 @@ void makeEulerAnglesUnique(Eigen::Matrix<SCALAR_T, 3, 1>& eulerAngles) {
  * @return A quaternion representing an equivalent rotation to R.
  */
 template <typename SCALAR_T>
-Eigen::Quaternion<SCALAR_T> matrixToQuaternion(const Eigen::Matrix<SCALAR_T, 3, 3>& R) {
+Eigen::Quaternion<SCALAR_T> matrixToQuaternion(const Eigen::Matrix<SCALAR_T, kPositionDim, kPositionDim>& R) {
   return Eigen::Quaternion<SCALAR_T>(R);
 }
 
@@ -212,148 +172,48 @@ Eigen::Quaternion<SCALAR_T> matrixToQuaternion(const Eigen::Matrix<SCALAR_T, 3, 
  * @param [in] R: Rotation Matrix templated on ad_scalar_t.
  * @return A quaternion representing an equivalent rotation to R.
  */
-inline Eigen::Quaternion<ad_scalar_t> matrixToQuaternion(const Eigen::Matrix<ad_scalar_t, 3, 3>& R) {
+inline Eigen::Quaternion<ad_scalar_t> matrixToQuaternion(const Eigen::Matrix<ad_scalar_t, kPositionDim, kPositionDim>& R) {
+  // The elements R(row, column) of the rotation matrix, named by the axes of their row and column.
+  const ad_scalar_t& rxx = R(kXAxisIndex, kXAxisIndex);
+  const ad_scalar_t& rxy = R(kXAxisIndex, kYAxisIndex);
+  const ad_scalar_t& rxz = R(kXAxisIndex, kZAxisIndex);
+  const ad_scalar_t& ryx = R(kYAxisIndex, kXAxisIndex);
+  const ad_scalar_t& ryy = R(kYAxisIndex, kYAxisIndex);
+  const ad_scalar_t& ryz = R(kYAxisIndex, kZAxisIndex);
+  const ad_scalar_t& rzx = R(kZAxisIndex, kXAxisIndex);
+  const ad_scalar_t& rzy = R(kZAxisIndex, kYAxisIndex);
+  const ad_scalar_t& rzz = R(kZAxisIndex, kZAxisIndex);
+
   ad_scalar_t t1, t2, t;
   ad_scalar_t x1, x2, x;
   ad_scalar_t y1, y2, y;
   ad_scalar_t z1, z2, z;
   ad_scalar_t w1, w2, w;
 
-  t1 = CppAD::CondExpGt(R(0, 0), R(1, 1), 1 + R(0, 0) - R(1, 1) - R(2, 2), 1 - R(0, 0) + R(1, 1) - R(2, 2));
-  t2 = CppAD::CondExpLt(R(0, 0), -R(1, 1), 1 - R(0, 0) - R(1, 1) + R(2, 2), 1 + R(0, 0) + R(1, 1) + R(2, 2));
-  t = CppAD::CondExpLt(R(2, 2), ad_scalar_t(0.0), t1, t2);
+  t1 = CppAD::CondExpGt(rxx, ryy, 1 + rxx - ryy - rzz, 1 - rxx + ryy - rzz);
+  t2 = CppAD::CondExpLt(rxx, -ryy, 1 - rxx - ryy + rzz, 1 + rxx + ryy + rzz);
+  t = CppAD::CondExpLt(rzz, ad_scalar_t(0.0), t1, t2);
 
-  x1 = CppAD::CondExpGt(R(0, 0), R(1, 1), t, R(1, 0) + R(0, 1));
-  x2 = CppAD::CondExpLt(R(0, 0), -R(1, 1), R(0, 2) + R(2, 0), R(2, 1) - R(1, 2));
-  x = CppAD::CondExpLt(R(2, 2), ad_scalar_t(0.0), x1, x2);
+  x1 = CppAD::CondExpGt(rxx, ryy, t, ryx + rxy);
+  x2 = CppAD::CondExpLt(rxx, -ryy, rxz + rzx, rzy - ryz);
+  x = CppAD::CondExpLt(rzz, ad_scalar_t(0.0), x1, x2);
 
-  y1 = CppAD::CondExpGt(R(0, 0), R(1, 1), R(1, 0) + R(0, 1), t);
-  y2 = CppAD::CondExpLt(R(0, 0), -R(1, 1), R(2, 1) + R(1, 2), R(0, 2) - R(2, 0));
-  y = CppAD::CondExpLt(R(2, 2), ad_scalar_t(0.0), y1, y2);
+  y1 = CppAD::CondExpGt(rxx, ryy, ryx + rxy, t);
+  y2 = CppAD::CondExpLt(rxx, -ryy, rzy + ryz, rxz - rzx);
+  y = CppAD::CondExpLt(rzz, ad_scalar_t(0.0), y1, y2);
 
-  z1 = CppAD::CondExpGt(R(0, 0), R(1, 1), R(0, 2) + R(2, 0), R(2, 1) + R(1, 2));
-  z2 = CppAD::CondExpLt(R(0, 0), -R(1, 1), t, R(1, 0) - R(0, 1));
-  z = CppAD::CondExpLt(R(2, 2), ad_scalar_t(0.0), z1, z2);
+  z1 = CppAD::CondExpGt(rxx, ryy, rxz + rzx, rzy + ryz);
+  z2 = CppAD::CondExpLt(rxx, -ryy, t, ryx - rxy);
+  z = CppAD::CondExpLt(rzz, ad_scalar_t(0.0), z1, z2);
 
-  w1 = CppAD::CondExpGt(R(0, 0), R(1, 1), R(2, 1) - R(1, 2), R(0, 2) - R(2, 0));
-  w2 = CppAD::CondExpLt(R(0, 0), -R(1, 1), R(1, 0) - R(0, 1), t);
-  w = CppAD::CondExpLt(R(2, 2), ad_scalar_t(0.0), w1, w2);
+  w1 = CppAD::CondExpGt(rxx, ryy, rzy - ryz, rxz - rzx);
+  w2 = CppAD::CondExpLt(rxx, -ryy, ryx - rxy, t);
+  w = CppAD::CondExpLt(rzz, ad_scalar_t(0.0), w1, w2);
 
-  Eigen::Matrix<ad_scalar_t, 4, 1> q({x, y, z, w});
+  Eigen::Matrix<ad_scalar_t, kQuaternionCoefficients, 1> q({x, y, z, w});
   q *= 0.5 / sqrt(t);
 
-  return Eigen::Quaternion<ad_scalar_t>(q(3), q(0), q(1), q(2));
-}
-
-/**
- * Returns the logarithmic map of the rotation
- *      w = theta * n = log(R);
- *
- * Will find an angle, theta, in the interval [0, pi]
- *
- * To make the computation numerically stable and compatible with autodiff, we have to switch between 3 cases.
- * - For most angles we use the logarithmic map directly
- * - For angles close to 0.0, we use the taylor expansion
- * - For angles close to PI, we use a quaternion based solution.
- *
- * @tparam SCALAR_T : numeric type
- * @param rotationMatrix : 3x3 rotation matrix
- * @return 3x1 rotation vector, theta * n, with theta equal to the rotation angle, and n equal to the rotation axis.
- */
-template <typename SCALAR_T>
-Eigen::Matrix<SCALAR_T, 3, 1> rotationMatrixToRotationVector(const Eigen::Matrix<SCALAR_T, 3, 3>& rotationMatrix) {
-  // Helper function to select a 3d vector compatible with CppAd
-  auto selectSolutionGt = [](SCALAR_T left, SCALAR_T right, const Eigen::Matrix<SCALAR_T, 3, 1>& if_true,
-                             const Eigen::Matrix<SCALAR_T, 3, 1>& if_false) -> Eigen::Matrix<SCALAR_T, 3, 1> {
-    return {CppAD::CondExpGt(left, right, if_true[0], if_false[0]), CppAD::CondExpGt(left, right, if_true[1], if_false[1]),
-            CppAD::CondExpGt(left, right, if_true[2], if_false[2])};
-  };
-  const auto& R = rotationMatrix;
-
-  const SCALAR_T trace = R(0, 0) + R(1, 1) + R(2, 2);
-  const Eigen::Matrix<SCALAR_T, 3, 1> skewVector(R(2, 1) - R(1, 2), R(0, 2) - R(2, 0), R(1, 0) - R(0, 1));
-
-  // Tolerance to select alternative solution near singularity
-  const SCALAR_T eps(1e-8);
-  const SCALAR_T smallAngleThreshold = SCALAR_T(3.0) - eps;   // select taylorExpansionSol if trace > 3 - eps
-  const SCALAR_T largeAngleThreshold = -SCALAR_T(1.0) + eps;  // select quaternionSol if trace < -1.0 + eps
-
-  // Clip trace away from singularities, to be used in branches that might result in NaN.
-  const SCALAR_T safeHighTrace =
-      CppAD::CondExpGt(trace, smallAngleThreshold, smallAngleThreshold, trace);  // this trace is lower than 3 - eps
-  const SCALAR_T safeTrace = CppAD::CondExpGt(safeHighTrace, largeAngleThreshold, safeHighTrace,
-                                              largeAngleThreshold);  // this trace is also higher than -1.0 + eps
-
-  // Rotation close to zero -> use taylor expansion, use when trace > 3.0 - eps
-  const Eigen::Matrix<SCALAR_T, 3, 1> taylorExpansionSol = (SCALAR_T(0.75) - trace / SCALAR_T(12.0)) * skewVector;
-
-  // Normal rotation, use normal logarithmic map
-  const SCALAR_T tmp = SCALAR_T(0.5) * (safeTrace - SCALAR_T(1.0));
-  const SCALAR_T theta = acos(tmp);
-  const Eigen::Matrix<SCALAR_T, 3, 1> normalSol = (SCALAR_T(0.5) * theta / sqrt(SCALAR_T(1.0) - tmp * tmp)) * skewVector;
-
-  // Quaternion solution, when close to pi, use when trace < -1.0 + eps
-  auto q = ocs2::matrixToQuaternion(R);
-
-  // Correct sign to make qw positive
-  q.vec() = selectSolutionGt(q.w(), SCALAR_T(0.0), q.vec(), -q.vec());
-  q.w() = CppAD::CondExpGt(q.w(), SCALAR_T(0.0), q.w(), -q.w());
-
-  // Norm of vector part of the quaternion. Compute from trace to avoid squaring element and losing precision
-  const SCALAR_T qVecNorm = SCALAR_T(0.5) * sqrt(SCALAR_T(3.0) - safeHighTrace);
-
-  Eigen::Matrix<SCALAR_T, 3, 1> quaternionSol = SCALAR_T(4.0) * atan(qVecNorm / (q.w() + SCALAR_T(1.0))) * q.vec() / qVecNorm;
-
-  // Select solution
-  return selectSolutionGt(trace, largeAngleThreshold, selectSolutionGt(trace, smallAngleThreshold, taylorExpansionSol, normalSol),
-                          quaternionSol);
-}
-
-/**
- * Computes a rotation error as a 3D vector in world frame. This 3D vector is the angle * axis representation of the rotation error.
- * This operation is also known as "box-minus": error = lhs [-] rhs
- *
- * Example usage:
- *    rotationErrorInWorld = rotationErrorInWorld(rotationBaseMeasuredToWorld, rotationBaseReferenceToWorld)
- *
- * @tparam SCALAR_T : numerical type
- * @param rotationMatrixLhs : rotation from lhs frame to world
- * @param rotationMatrixRhs : rotation from rhs frame to world
- * @return error = lhs [-] rhs
- */
-template <typename SCALAR_T>
-Eigen::Matrix<SCALAR_T, 3, 1> rotationErrorInWorld(const Eigen::Matrix<SCALAR_T, 3, 3>& rotationMatrixLhs,
-                                                   const Eigen::Matrix<SCALAR_T, 3, 3>& rotationMatrixRhs) {
-  /* Note that this error (W_R_lhs * rhs_R_W) does not follow the usual concatination of rotations.
-   * It follows from simplifying:
-   *    errorInWorld = W_R_lhs * angleAxis(rhs_R_W * W_R_lhs)
-   *                 = angleAxis(W_R_lhs * rhs_R_W * W_R_lhs * lhs_R_W)
-   *                 = angleAxis(W_R_lhs * rhs_R_W)
-   */
-  const Eigen::Matrix<SCALAR_T, 3, 3> rotationErrorInWorld = rotationMatrixLhs * rotationMatrixRhs.transpose();
-  return rotationMatrixToRotationVector(rotationErrorInWorld);
-}
-
-/**
- * The returned rotation error is expressed in the local frame (lhs or rhs).
- * Because the rotation error rotates between the lhs and rhs frame, its representation in both frames is numerically identical.
- *
- * Example usage:
- *    rotationErrorInBase = rotationErrorInLocal(rotationBaseMeasuredToWorld, rotationBaseReferenceToWorld)
- *
- * with the note that rotationErrorInBaseMeasured = rotationErrorInBaseReference
- *
- * See rotationErrorInWorld for further explanation.
- * @tparam SCALAR_T : numerical type
- * @param rotationMatrixLhs : rotation from lhs frame to world
- * @param rotationMatrixRhs : rotation from rhs frame to world
- * @return error = lhs [-] rhs
- */
-template <typename SCALAR_T>
-Eigen::Matrix<SCALAR_T, 3, 1> rotationErrorInLocal(const Eigen::Matrix<SCALAR_T, 3, 3>& rotationMatrixLhs,
-                                                   const Eigen::Matrix<SCALAR_T, 3, 3>& rotationMatrixRhs) {
-  const Eigen::Matrix<SCALAR_T, 3, 3> rotationErrorInLocal = rotationMatrixRhs.transpose() * rotationMatrixLhs;
-  return rotationMatrixToRotationVector(rotationErrorInLocal);
+  return Eigen::Quaternion<ad_scalar_t>(q(kQuaternionWIndex), q(kQuaternionXIndex), q(kQuaternionYIndex), q(kQuaternionZIndex));
 }
 
 /**
@@ -366,36 +226,40 @@ Eigen::Matrix<SCALAR_T, 3, 1> rotationErrorInLocal(const Eigen::Matrix<SCALAR_T,
 scalar_t moduloAngleWithReference(scalar_t x, scalar_t reference);
 
 /**
- * Compute the quaternion distance measure to the closest orientation aligned with a reference plane.
+ * Compute the quaternion distance measure to the closest orientation aligned with a reference plane:
+ * e = -(v x n) / sqrt(2 (1 + v.n)), v = q e_z the end-effector normal and n the plane normal. Finite, with finite
+ * derivatives, where v = -n (getQuaternionFromUnitVectors()).
  *
  * @param [in] q: measured end effector quaternion.
- * @param [in] planeNormal: desired end effector quaternion.Normal of the plane the orientation should be aligned with
+ * @param [in] planeNormal: Unit normal of the plane the orientation should be aligned with.
  *
  */
 template <typename SCALAR_T>
-Eigen::Matrix<SCALAR_T, 3, 1> quaternionDistanceToPlane(const Eigen::Quaternion<SCALAR_T>& q,
-                                                        const Eigen::Matrix<SCALAR_T, 3, 1>& planeNormal) {
-  const Eigen::Matrix<SCALAR_T, 3, 1> z_axis(SCALAR_T(0.0), SCALAR_T(0.0), SCALAR_T(1.0));
+Eigen::Matrix<SCALAR_T, kRotationTangentDim, 1> quaternionDistanceToPlane(const Eigen::Quaternion<SCALAR_T>& q,
+                                                                          const Eigen::Matrix<SCALAR_T, kPositionDim, 1>& planeNormal) {
+  const Eigen::Matrix<SCALAR_T, kPositionDim, 1> z_axis(SCALAR_T(0.0), SCALAR_T(0.0), SCALAR_T(1.0));
 
   // Passive rotation projecting from end effector frame to the closest frame in plane.
   // Computed through the shortest arc rotation  from the end effector z axis to the plane normal (both expressed in world frame).
   const Eigen::Quaternion<SCALAR_T> quaternion_correction = getQuaternionFromUnitVectors<SCALAR_T>(q * z_axis, planeNormal);
 
-  return quaternionDistance<SCALAR_T>(quaternion_correction, ad_quaternion_t::Identity());
+  return quaternionDistance<SCALAR_T>(quaternion_correction, Eigen::Quaternion<SCALAR_T>::Identity());
 }
 
 /**
- * Compute the quaternion distance measure to the closest orientation aligned with a reference plane.
+ * Compute the quaternion distance measure to the closest orientation aligned with a reference plane:
+ * e = -(v x n) / sqrt(2 (1 + v.n)), v = R e_z the end-effector normal and n the plane normal. Finite, with finite
+ * derivatives, where v = -n (getQuaternionFromUnitVectors()).
  *
- * @param [in] R: measured rotation matrix world to end effector.
- * @param [in] planeNormal: desired end effector quaternion.Normal of the plane the orientation should be aligned with
+ * @param [in] R: measured rotation matrix end effector to world.
+ * @param [in] planeNormal: Unit normal of the plane the orientation should be aligned with.
  *
  */
 
 template <typename SCALAR_T>
-Eigen::Matrix<SCALAR_T, 3, 1> rotationMatrixDistanceToPlane(const Eigen::Matrix<SCALAR_T, 3, 3>& R,
-                                                            const Eigen::Matrix<SCALAR_T, 3, 1>& planeNormal) {
-  const Eigen::Matrix<SCALAR_T, 3, 1> z_axis(SCALAR_T(0.0), SCALAR_T(0.0), SCALAR_T(1.0));
+Eigen::Matrix<SCALAR_T, kRotationTangentDim, 1> rotationMatrixDistanceToPlane(const Eigen::Matrix<SCALAR_T, kPositionDim, kPositionDim>& R,
+                                                                              const Eigen::Matrix<SCALAR_T, kPositionDim, 1>& planeNormal) {
+  const Eigen::Matrix<SCALAR_T, kPositionDim, 1> z_axis(SCALAR_T(0.0), SCALAR_T(0.0), SCALAR_T(1.0));
 
   // Passive rotation projecting from end effector frame to the closest frame in plane.
   // Computed through the shortest arc rotation  from the end effector z axis to the plane normal (both expressed in world frame).

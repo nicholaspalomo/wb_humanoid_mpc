@@ -28,81 +28,131 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <ocs2_robotic_tools/common/RotationTransforms.h>
+#pragma once
+
+#include <string>
+
+#include "ocs2_core/Dimensions.h"
+#include "ocs2_robotic_tools/common/RotationTransforms.h"
 
 #include "humanoid_common_mpc/common/Types.h"
 
 namespace ocs2::humanoid {
 
-template <typename SCALAR_T>
-using VECTOR18_T = Eigen::Matrix<SCALAR_T, 18, 1>;
-template <typename SCALAR_T>
-using VECTOR19_T = Eigen::Matrix<SCALAR_T, 19, 1>;
+/**
+ * The layout of the vectors of EndEffectorDynamicsFootCost - its reference
+ * (PlanarEndEffectorDynamicsReference), its errors and its weights
+ * (EndEffectorDynamicsWeights::toVector()): six blocks of three entries, the
+ * foot's position, the ground plane's normal (the weights: the orientation
+ * error to it), and the foot's linear and angular velocities and accelerations.
+ * Each offset is the first entry of its block; the position starts at 0.
+ */
+inline constexpr int kFootReferencePlaneNormalOffset = kPositionDim;
+inline constexpr int kFootReferenceLinearVelocityOffset =
+    kFootReferencePlaneNormalOffset + kPositionDim;
+inline constexpr int kFootReferenceAngularVelocityOffset =
+    kFootReferenceLinearVelocityOffset + kPositionDim;
+inline constexpr int kFootReferenceLinearAccelerationOffset =
+    kFootReferenceAngularVelocityOffset + kRotationTangentDim;
+inline constexpr int kFootReferenceAngularAccelerationOffset =
+    kFootReferenceLinearAccelerationOffset + kPositionDim;
+/** The entries of each of the vectors above. */
+inline constexpr int kFootCostDim =
+    kFootReferenceAngularAccelerationOffset + kRotationTangentDim;
 
+template <typename SCALAR_T>
+using VECTOR18_T = Eigen::Matrix<SCALAR_T, kFootCostDim, 1>;
+
+/** The weights of EndEffectorDynamicsFootCost, one per axis of each foot error,
+ * as the task file names them. */
 struct EndEffectorDynamicsWeights {
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+  // The default weight of every axis of each error.
+  static constexpr scalar_t kDefaultPositionErrorWeight = 30.0;
+  // Per rad^2 of tilt (tiltAngleToPlane()): 30 on the former half-angle
+  // residual.
+  static constexpr scalar_t kDefaultOrientationErrorWeight = 7.5;
+  static constexpr scalar_t kDefaultLinearVelocityErrorWeight = 0.1;
+  static constexpr scalar_t kDefaultAngularVelocityErrorWeight = 0.1;
+  static constexpr scalar_t kDefaultLinearAccelerationErrorWeight = 0.01;
+  static constexpr scalar_t kDefaultAngularAccelerationErrorWeight = 0.01;
+
   // Cost weights [w_x,w_y,w_z]
-  vector3_t contactPositionErrorWeight{30.0, 30.0, 30.0};
-  vector3_t contactOrientationErrorWeight{30.0, 30.0, 30.0};
-  vector3_t contactLinearVelocityErrorWeight{0.1, 0.1, 0.1};
-  vector3_t contactAngularVelocityErrorWeight{0.1, 0.1, 0.1};
-  vector3_t contactLinearAccelerationErrorWeight{0.01, 0.01, 0.01};
-  vector3_t contactAngularAccelerationErrorWeight{0.01, 0.01, 0.01};
+  vector3_t contactPositionErrorWeight{kDefaultPositionErrorWeight,
+                                       kDefaultPositionErrorWeight,
+                                       kDefaultPositionErrorWeight};
+  vector3_t contactOrientationErrorWeight{kDefaultOrientationErrorWeight,
+                                          kDefaultOrientationErrorWeight,
+                                          kDefaultOrientationErrorWeight};
+  vector3_t contactLinearVelocityErrorWeight{kDefaultLinearVelocityErrorWeight,
+                                             kDefaultLinearVelocityErrorWeight,
+                                             kDefaultLinearVelocityErrorWeight};
+  vector3_t contactAngularVelocityErrorWeight{
+      kDefaultAngularVelocityErrorWeight, kDefaultAngularVelocityErrorWeight,
+      kDefaultAngularVelocityErrorWeight};
+  vector3_t contactLinearAccelerationErrorWeight{
+      kDefaultLinearAccelerationErrorWeight,
+      kDefaultLinearAccelerationErrorWeight,
+      kDefaultLinearAccelerationErrorWeight};
+  vector3_t contactAngularAccelerationErrorWeight{
+      kDefaultAngularAccelerationErrorWeight,
+      kDefaultAngularAccelerationErrorWeight,
+      kDefaultAngularAccelerationErrorWeight};
 
-  VECTOR18_T<scalar_t> toVector();
-
-  static EndEffectorDynamicsWeights getWeights(const std::string& taskFile, const std::string prefix, bool verbose);
+  VECTOR18_T<scalar_t> toVector() const;
 };
 
-template <typename SCALAR_T>
-struct EndEffectorDynamicsCostElement {
-  EndEffectorDynamicsCostElement(const VECTOR19_T<SCALAR_T>& vector) : costElementVector(vector) {}
-  EndEffectorDynamicsCostElement() : costElementVector(VECTOR19_T<SCALAR_T>::Zero()) {}
-  VECTOR19_T<SCALAR_T> costElementVector;
-
-  VECTOR19_T<SCALAR_T> getValues() { return costElementVector; };
-
-  VECTOR3_T<SCALAR_T> getPosition() const { return costElementVector.head(3); }
-  QUATERNION_T<SCALAR_T> getOrientation() const { return QUATERNION_T<SCALAR_T>(VECTOR4_T<SCALAR_T>(costElementVector.segment(3, 4))); }
-  VECTOR3_T<SCALAR_T> getLinearVelocity() const { return costElementVector.segment(7, 3); }
-  VECTOR3_T<SCALAR_T> getAngularVelocity() const { return costElementVector.segment(10, 3); }
-  VECTOR3_T<SCALAR_T> getLinearAcceleration() const { return costElementVector.segment(13, 3); }
-  VECTOR3_T<SCALAR_T> getAngularAcceleration() const { return costElementVector.segment(16, 3); }
-
-  void setPosition(const VECTOR3_T<SCALAR_T>& position) { costElementVector.head(3) = position; };
-  void setOrientation(const VECTOR4_T<SCALAR_T>& orientation) { costElementVector.segment(3, 4) = orientation; };
-  void setOrientation(const QUATERNION_T<SCALAR_T>& orientation) { costElementVector.segment(3, 4) = orientation.coeffs(); };
-  void setLinearVelocity(const VECTOR3_T<SCALAR_T>& linearVelocity) { costElementVector.segment(7, 3) = linearVelocity; };
-  void setAngularVelocity(const VECTOR3_T<SCALAR_T>& angularVelocity) { costElementVector.segment(10, 3) = angularVelocity; };
-  void setLinearAcceleration(const VECTOR3_T<SCALAR_T>& linearAcceleration) { costElementVector.segment(13, 3) = linearAcceleration; };
-  void setAngularAcceleration(const VECTOR3_T<SCALAR_T>& angularAcceleration) { costElementVector.segment(16, 3) = angularAcceleration; };
-};
-
-template <typename SCALAR_T>
-VECTOR18_T<SCALAR_T> computeTaskSpaceErrors(const EndEffectorDynamicsCostElement<SCALAR_T>& current,
-                                            const EndEffectorDynamicsCostElement<SCALAR_T>& reference);
-
+/**
+ * The reference of EndEffectorDynamicsFootCost packed in its 18 parameters: the
+ * foot position, the normal of the ground plane, and the linear and angular
+ * velocities and accelerations, three entries each.
+ */
 template <typename SCALAR_T>
 struct PlanarEndEffectorDynamicsReference {
-  PlanarEndEffectorDynamicsReference(const VECTOR18_T<SCALAR_T>& vector) : costElementVector(vector) {}
-  PlanarEndEffectorDynamicsReference() : costElementVector(VECTOR18_T<SCALAR_T>::Zero()) {}
+  explicit PlanarEndEffectorDynamicsReference(
+      const VECTOR18_T<SCALAR_T>& vector)
+      : costElementVector(vector) {}
+  PlanarEndEffectorDynamicsReference()
+      : costElementVector(VECTOR18_T<SCALAR_T>::Zero()) {}
   VECTOR18_T<SCALAR_T> costElementVector;
 
-  VECTOR18_T<SCALAR_T> getValues() { return costElementVector; };
+  VECTOR18_T<SCALAR_T> getValues() { return costElementVector; }
 
-  VECTOR3_T<SCALAR_T> getPosition() const { return costElementVector.head(3); }
-  VECTOR3_T<SCALAR_T> getPlaneNormal() const { return costElementVector.segment(3, 3); }
-  VECTOR3_T<SCALAR_T> getLinearVelocity() const { return costElementVector.segment(6, 3); }
-  VECTOR3_T<SCALAR_T> getAngularVelocity() const { return costElementVector.segment(9, 3); }
-  VECTOR3_T<SCALAR_T> getLinearAcceleration() const { return costElementVector.segment(12, 3); }
-  VECTOR3_T<SCALAR_T> getAngularAcceleration() const { return costElementVector.segment(15, 3); }
+  VECTOR3_T<SCALAR_T> getPosition() const {
+    return costElementVector.head(kPositionDim);
+  }
+  VECTOR3_T<SCALAR_T> getPlaneNormal() const {
+    return costElementVector.segment(kFootReferencePlaneNormalOffset,
+                                     kPositionDim);
+  }
+  VECTOR3_T<SCALAR_T> getLinearVelocity() const {
+    return costElementVector.segment(kFootReferenceLinearVelocityOffset,
+                                     kPositionDim);
+  }
+  VECTOR3_T<SCALAR_T> getAngularVelocity() const {
+    return costElementVector.segment(kFootReferenceAngularVelocityOffset,
+                                     kRotationTangentDim);
+  }
+  VECTOR3_T<SCALAR_T> getLinearAcceleration() const {
+    return costElementVector.segment(kFootReferenceLinearAccelerationOffset,
+                                     kPositionDim);
+  }
+  VECTOR3_T<SCALAR_T> getAngularAcceleration() const {
+    return costElementVector.segment(kFootReferenceAngularAccelerationOffset,
+                                     kRotationTangentDim);
+  }
 
-  void setPosition(const VECTOR3_T<SCALAR_T>& position) { costElementVector.head(3) = position; };
-  void setPlaneNormal(const VECTOR3_T<SCALAR_T>& planeNormal) { costElementVector.segment(3, 3) = planeNormal; };
-  void setLinearVelocity(const VECTOR3_T<SCALAR_T>& linearVelocity) { costElementVector.segment(6, 3) = linearVelocity; };
-  void setAngularVelocity(const VECTOR3_T<SCALAR_T>& angularVelocity) { costElementVector.segment(9, 3) = angularVelocity; };
-  void setLinearAcceleration(const VECTOR3_T<SCALAR_T>& linearAcceleration) { costElementVector.segment(12, 3) = linearAcceleration; };
-  void setAngularAcceleration(const VECTOR3_T<SCALAR_T>& angularAcceleration) { costElementVector.segment(15, 3) = angularAcceleration; };
+  void setPosition(const VECTOR3_T<SCALAR_T>& position) {
+    costElementVector.head(kPositionDim) = position;
+  }
+  void setLinearVelocity(const VECTOR3_T<SCALAR_T>& linearVelocity) {
+    costElementVector.segment(kFootReferenceLinearVelocityOffset,
+                              kPositionDim) = linearVelocity;
+  }
+  void setAngularVelocity(const VECTOR3_T<SCALAR_T>& angularVelocity) {
+    costElementVector.segment(kFootReferenceAngularVelocityOffset,
+                              kRotationTangentDim) = angularVelocity;
+  }
 };
 
 }  // namespace ocs2::humanoid

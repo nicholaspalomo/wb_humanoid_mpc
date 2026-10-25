@@ -30,73 +30,112 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_wb_mpc/constraint/JointMimicDynamicsConstraint.h"
 
+#include <cmath>
+#include <memory>
+#include <string>
+#include <utility>
+
+#include "absl/memory/memory.h"
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
+#include "absl/strings/str_cat.h"
+
+#include "humanoid_common_mpc/common/StatusMacros.h"
+
 namespace ocs2::humanoid {
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-JointMimicDynamicsConstraint::Config::Config(const WBAccelMpcRobotModel<scalar_t>& mpcRobotModel,
-                                             std::string parentJointNameParam,
-                                             std::string childJointNameParam,
-                                             scalar_t multiplierParam,
-                                             scalar_t positionGainParam,
-                                             scalar_t velocityGainParam)
-    : parentJointName(parentJointNameParam),
-      childJointName(childJointNameParam),
-      parentJointIndex(mpcRobotModel.getJointIndex(parentJointNameParam)),
-      childJointIndex(mpcRobotModel.getJointIndex(childJointNameParam)),
-      multiplier(multiplierParam),
-      positionGain(positionGainParam),
-      velocityGain(velocityGainParam) {
-  assert(positionGain > 0.0);
-  assert(positionGain > velocityGainParam);
-  assert(velocityGainParam > 0.0);
+absl::StatusOr<std::unique_ptr<JointMimicDynamicsConstraint>>
+JointMimicDynamicsConstraint::Create(
+    const WBAccelMpcRobotModel<scalar_t>& mpcRobotModel,
+    const std::string& parentJointName,
+    const std::string& childJointName,
+    scalar_t multiplier,
+    scalar_t positionGain,
+    scalar_t velocityGain) {
+  // The joint error obeys e'' + Kd e' + Kp e = 0, which is asymptotically
+  // stable exactly when both coefficients are positive (Routh-Hurwitz for a
+  // second-order polynomial); their ratio only sets the damping. Negated, so
+  // that NaN is refused too.
+  if (!(positionGain > 0.0) || !(velocityGain > 0.0) ||
+      !std::isfinite(positionGain) || !std::isfinite(velocityGain)) {
+    return absl::InvalidArgumentError(absl::StrCat(
+        "[JointMimicDynamicsConstraint] the gains of the mimic joint ",
+        childJointName, " must be finite and positive, got positionGain ",
+        positionGain, " and velocityGain ", velocityGain));
+  }
+  Config config;
+  config.parentJointName = parentJointName;
+  config.childJointName = childJointName;
+  ASSIGN_OR_RETURN(config.parentJointIndex,
+                   mpcRobotModel.findJointIndex(parentJointName));
+  ASSIGN_OR_RETURN(config.childJointIndex,
+                   mpcRobotModel.findJointIndex(childJointName));
+  config.multiplier = multiplier;
+  config.positionGain = positionGain;
+  config.velocityGain = velocityGain;
+  // The constructor is private, so std::make_unique cannot reach it.
+  return absl::WrapUnique(
+      new JointMimicDynamicsConstraint(mpcRobotModel, std::move(config)));
 }
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-JointMimicDynamicsConstraint::JointMimicDynamicsConstraint(const WBAccelMpcRobotModel<scalar_t>& wbAccelMpcRobotModel, Config config)
-    : StateInputConstraint(ConstraintOrder::Linear), wbAccelMpcRobotModelPtr_(&wbAccelMpcRobotModel), config_(config) {}
+JointMimicDynamicsConstraint::JointMimicDynamicsConstraint(
+    const WBAccelMpcRobotModel<scalar_t>& mpcRobotModel, Config config)
+    : StateInputConstraint(ConstraintOrder::Linear),
+      wbAccelMpcRobotModelPtr_(&mpcRobotModel),
+      config_(std::move(config)) {}
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-JointMimicDynamicsConstraint::JointMimicDynamicsConstraint(const JointMimicDynamicsConstraint& rhs)
-    : StateInputConstraint(rhs),
-      wbAccelMpcRobotModelPtr_(rhs.wbAccelMpcRobotModelPtr_),
-      config_(rhs.config_),
-      // isActive_ is copied deliberately: the SQP solver clones the whole problem once per worker thread,
-      // and a copy constructor that dropped this flag silently reverted a deactivated term to active.
-      isActive_(rhs.isActive_) {}
+// isActive_ is copied deliberately: the SQP solver clones the whole problem
+// once per worker thread, and a copy constructor that dropped this flag
+// silently reverted a deactivated term to active.
+JointMimicDynamicsConstraint::JointMimicDynamicsConstraint(
+    const JointMimicDynamicsConstraint& rhs) = default;
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-bool JointMimicDynamicsConstraint::isActive(scalar_t time) const {
+bool JointMimicDynamicsConstraint::isActive(scalar_t /*time*/) const {
   return isActive_;
 }
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-vector_t JointMimicDynamicsConstraint::getValue(scalar_t time,
-                                                const vector_t& state,
-                                                const vector_t& input,
-                                                const PreComputation& preComp) const {
+vector_t JointMimicDynamicsConstraint::getValue(
+    scalar_t /*time*/,
+    const vector_t& state,
+    const vector_t& input,
+    const PreComputation& /*preComp*/) const {
   vector_t jointAngles = wbAccelMpcRobotModelPtr_->getJointAngles(state);
-  vector_t jointVelocities = wbAccelMpcRobotModelPtr_->getJointVelocities(state, input);
-  vector_t jointAccelerations = wbAccelMpcRobotModelPtr_->getJointAccelerations(input);
-  scalar_t posError = config_.multiplier * jointAngles[config_.parentJointIndex] - jointAngles[config_.childJointIndex];
-  scalar_t velError = config_.multiplier * jointVelocities[config_.parentJointIndex] - jointVelocities[config_.childJointIndex];
-  scalar_t accError = config_.multiplier * jointAccelerations[config_.parentJointIndex] - jointAccelerations[config_.childJointIndex];
+  vector_t jointVelocities =
+      wbAccelMpcRobotModelPtr_->getJointVelocities(state, input);
+  vector_t jointAccelerations =
+      wbAccelMpcRobotModelPtr_->getJointAccelerations(input);
+  scalar_t posError =
+      config_.multiplier * jointAngles[config_.parentJointIndex] -
+      jointAngles[config_.childJointIndex];
+  scalar_t velError =
+      config_.multiplier * jointVelocities[config_.parentJointIndex] -
+      jointVelocities[config_.childJointIndex];
+  scalar_t accError =
+      config_.multiplier * jointAccelerations[config_.parentJointIndex] -
+      jointAccelerations[config_.childJointIndex];
 
   vector_t value(1);
-  value << (config_.positionGain * posError + config_.velocityGain * velError + accError);
+  value << (config_.positionGain * posError + config_.velocityGain * velError +
+            accError);
 
   return value;
 }
@@ -104,27 +143,40 @@ vector_t JointMimicDynamicsConstraint::getValue(scalar_t time,
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-VectorFunctionLinearApproximation JointMimicDynamicsConstraint::getLinearApproximation(scalar_t time,
-                                                                                       const vector_t& state,
-                                                                                       const vector_t& input,
-                                                                                       const PreComputation& preComp) const {
+VectorFunctionLinearApproximation
+JointMimicDynamicsConstraint::getLinearApproximation(
+    scalar_t time,
+    const vector_t& state,
+    const vector_t& input,
+    const PreComputation& preComp) const {
   VectorFunctionLinearApproximation linearApproximation =
-      VectorFunctionLinearApproximation::Zero(getNumConstraints(time), state.size(), input.size());
+      VectorFunctionLinearApproximation::Zero(getNumConstraints(time),
+                                              state.size(), input.size());
 
   linearApproximation.f = getValue(time, state, input, preComp);
 
-  linearApproximation.dfdx(/*row=*/0, wbAccelMpcRobotModelPtr_->getJointStartindex() + config_.parentJointIndex) =
+  linearApproximation.dfdx(/*row=*/0,
+                           wbAccelMpcRobotModelPtr_->getJointStartindex() +
+                               config_.parentJointIndex) =
       config_.positionGain * config_.multiplier;
-  linearApproximation.dfdx(/*row=*/0, wbAccelMpcRobotModelPtr_->getJointStartindex() + config_.childJointIndex) = -config_.positionGain;
+  linearApproximation.dfdx(/*row=*/0,
+                           wbAccelMpcRobotModelPtr_->getJointStartindex() +
+                               config_.childJointIndex) = -config_.positionGain;
 
-  linearApproximation.dfdx(/*row=*/0, wbAccelMpcRobotModelPtr_->getJointVelocitiesStartindex() + config_.parentJointIndex) =
+  linearApproximation.dfdx(
+      /*row=*/0, wbAccelMpcRobotModelPtr_->getJointVelocitiesStartindex() +
+                     config_.parentJointIndex) =
       config_.velocityGain * config_.multiplier;
-  linearApproximation.dfdx(/*row=*/0, wbAccelMpcRobotModelPtr_->getJointVelocitiesStartindex() + config_.childJointIndex) =
-      -config_.velocityGain;
+  linearApproximation.dfdx(
+      /*row=*/0, wbAccelMpcRobotModelPtr_->getJointVelocitiesStartindex() +
+                     config_.childJointIndex) = -config_.velocityGain;
 
-  linearApproximation.dfdu(/*row=*/0, wbAccelMpcRobotModelPtr_->getJointAccelerationsStartindex() + config_.parentJointIndex) =
-      config_.multiplier;
-  linearApproximation.dfdu(/*row=*/0, wbAccelMpcRobotModelPtr_->getJointAccelerationsStartindex() + config_.childJointIndex) = -1;
+  linearApproximation.dfdu(
+      /*row=*/0, wbAccelMpcRobotModelPtr_->getJointAccelerationsStartindex() +
+                     config_.parentJointIndex) = config_.multiplier;
+  linearApproximation.dfdu(
+      /*row=*/0, wbAccelMpcRobotModelPtr_->getJointAccelerationsStartindex() +
+                     config_.childJointIndex) = -1;
 
   return linearApproximation;
 }

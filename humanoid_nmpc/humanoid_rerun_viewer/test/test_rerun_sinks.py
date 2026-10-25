@@ -1,0 +1,206 @@
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+"""The registry of Rerun sinks: names, the save sink, and the native viewer of the wheel.
+
+serve_web is tested in test_serve_web_sink.py, a process of its own. The connect sink without a viewer is tested on the
+binary (test_end_to_end): rerun-sdk then waits without end when the process exits, which the binary avoids and a test
+process could not.
+"""
+
+import os
+import shutil
+import tempfile
+import typing
+from typing import Any
+import unittest
+from unittest import mock
+
+import rerun as rr
+
+from humanoid_rerun_viewer import blueprint
+from humanoid_rerun_viewer import bridge
+from humanoid_rerun_viewer import rerun_sinks
+import rrd_contents
+
+
+class _RecordingStub:
+    """Counts the disconnect() calls a sink makes on a recording it was given."""
+
+    def __init__(self) -> None:
+        self.disconnects = 0
+
+    def disconnect(self) -> None:
+        self.disconnects += 1
+
+
+class SinkRegistryTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory)
+        self.recording = bridge.new_recording("test_rerun_sinks")
+        self.addCleanup(self.recording.disconnect)
+        self.layout = blueprint.build_blueprint()
+
+    def test_the_names(self) -> None:
+        self.assertEqual(
+            rerun_sinks.sink_names(), ("spawn", "connect", "serve_web", "save")
+        )
+        self.assertIn(rerun_sinks.DEFAULT_SINK, rerun_sinks.sink_names())
+
+    def test_an_unknown_name_lists_the_valid_ones(self) -> None:
+        with self.assertRaises(ValueError) as context:
+            rerun_sinks.attach_sink(
+                "no_such_sink",
+                self.recording,
+                self.layout,
+                rerun_sinks.SinkOptions(),
+            )
+        for name in rerun_sinks.sink_names():
+            self.assertIn(name, str(context.exception))
+
+    def test_save_writes_the_recording_and_the_blueprint(self) -> None:
+        path = os.path.join(self.directory, "nested", "out.rrd")
+        description = rerun_sinks.attach_sink(
+            "save",
+            self.recording,
+            self.layout,
+            rerun_sinks.SinkOptions(rrd_path=path),
+        )
+        self.assertIn(path, description)
+        self.recording.log("world/x", rr.Points3D([[0.0, 0.0, 0.0]]))
+        self.recording.flush()
+        self.recording.disconnect()
+        contents = rrd_contents.RrdContents(path)
+        self.assertIn("world/x", contents.entities)
+        self.assertIn(blueprint.SCENE_VIEW_NAME, contents.view_names())
+
+    def test_a_later_run_is_saved_to_a_numbered_file_next_to_the_first(
+        self,
+    ) -> None:
+        path = os.path.join(self.directory, "walk.rrd")
+        sink = rerun_sinks.make_sink(
+            "save", self.layout, rerun_sinks.SinkOptions(rrd_path=path)
+        )
+        first = self.recording
+        sink.attach(first)
+        first.log("world/first", rr.Points3D([[0.0, 0.0, 0.0]]))
+        second = bridge.new_recording("test_rerun_sinks")
+        self.addCleanup(second.disconnect)
+        self.assertIn(
+            os.path.join(self.directory, "walk.run2.rrd"), sink.attach(second)
+        )
+        second.log("world/second", rr.Points3D([[0.0, 0.0, 0.0]]))
+        sink.disconnect_all()
+        # The first run's file was closed when the second began: the sink keeps only the second's recording.
+        self.assertEqual(sink.recordings, (second,))
+        self.assertEqual(sink.runs, 2)
+        first_contents = rrd_contents.RrdContents(path)
+        second_contents = rrd_contents.RrdContents(
+            rerun_sinks.run_path(path, 2)
+        )
+        self.assertIn("world/first", first_contents.entities)
+        self.assertNotIn("world/second", first_contents.entities)
+        self.assertIn("world/second", second_contents.entities)
+        self.assertIn(blueprint.SCENE_VIEW_NAME, second_contents.view_names())
+
+    def test_serve_web_disconnects_the_recordings_of_old_runs(self) -> None:
+        # The first recording owns the gRPC server and stays; of the later ones, the newest MAX_ATTACHED_RUNS stay.
+        sink = rerun_sinks.make_sink(
+            "serve_web", self.layout, rerun_sinks.SinkOptions()
+        )
+        stubs = [
+            _RecordingStub() for _ in range(rerun_sinks.MAX_ATTACHED_RUNS + 4)
+        ]
+        sink_class = type(sink)
+        with (
+            mock.patch.object(
+                sink_class, "_attach_first", return_value="first"
+            ),
+            mock.patch.object(sink_class, "_attach_next", return_value="next"),
+        ):
+            for stub in stubs:
+                sink.attach(typing.cast(Any, stub))
+        kept = [stubs[0], *stubs[-rerun_sinks.MAX_ATTACHED_RUNS :]]
+        self.assertEqual(list(sink.recordings), kept)
+        self.assertEqual(sink.runs, len(stubs))
+        for stub in stubs:
+            self.assertEqual(stub.disconnects, 0 if stub in kept else 1)
+
+    def test_the_run_paths(self) -> None:
+        self.assertEqual(
+            rerun_sinks.run_path("/tmp/walk.rrd", 1), "/tmp/walk.rrd"
+        )
+        self.assertEqual(
+            rerun_sinks.run_path("/tmp/walk.rrd", 3), "/tmp/walk.run3.rrd"
+        )
+        self.assertEqual(rerun_sinks.run_path("walk", 2), "walk.run2")
+
+    def test_the_viewers_the_sinks_stream_to(self) -> None:
+        options = rerun_sinks.SinkOptions(
+            url="rerun+http://192.168.1.20:9000/proxy", grpc_port=9100
+        )
+        expected = {
+            "spawn": (("127.0.0.1", 9100), True),
+            "connect": (("192.168.1.20", 9000), False),
+            "serve_web": (None, False),
+            "save": (None, False),
+        }
+        for name, (endpoint, owns_viewer) in expected.items():
+            with self.subTest(sink=name):
+                sink = rerun_sinks.make_sink(name, self.layout, options)
+                self.assertEqual(sink.viewer_endpoint, endpoint)
+                self.assertEqual(sink.owns_viewer, owns_viewer)
+
+    def test_the_endpoint_of_a_url(self) -> None:
+        self.assertEqual(
+            rerun_sinks.url_endpoint(rerun_sinks.DEFAULT_CONNECT_URL),
+            ("127.0.0.1", rerun_sinks.DEFAULT_GRPC_PORT),
+        )
+        for url in (
+            "rerun+http://viewer/proxy",
+            "not a url",
+            "rerun+http://:x/proxy",
+        ):
+            with self.subTest(url=url):
+                self.assertIsNone(rerun_sinks.url_endpoint(url))
+
+    def test_save_needs_a_path(self) -> None:
+        with self.assertRaises(ValueError):
+            rerun_sinks.attach_sink(
+                "save", self.recording, self.layout, rerun_sinks.SinkOptions()
+            )
+
+    def test_the_wheel_ships_the_native_viewer(self) -> None:
+        executable = rerun_sinks.viewer_executable()
+        self.assertIsNotNone(executable)
+        assert executable is not None
+        self.assertTrue(os.access(executable, os.X_OK))
+
+
+if __name__ == "__main__":
+    unittest.main()

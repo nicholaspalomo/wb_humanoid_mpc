@@ -31,6 +31,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <utility>
 
+#include "absl/base/nullability.h"
+
 #include <ocs2_core/cost/StateInputCost.h>
 
 namespace ocs2 {
@@ -47,7 +49,7 @@ class QuadraticStateInputCost : public StateInputCost {
    */
   QuadraticStateInputCost(matrix_t Q, matrix_t R, matrix_t P = matrix_t());
   ~QuadraticStateInputCost() override = default;
-  QuadraticStateInputCost* clone() const override;
+  QuadraticStateInputCost* absl_nonnull clone() const override;
 
   /** Get cost term value */
   scalar_t getValue(scalar_t time, const vector_t& state, const vector_t& input, const TargetTrajectories& targetTrajectories,

@@ -1,0 +1,55 @@
+edition = "2023";
+
+package humanoid_mpc_config;
+
+import "humanoid_mpc_config/config_options.proto";
+import "nproto/options.proto";
+import "nproto/retired_field_options.proto";
+
+// The settings of the forward rollouts (the task file's rollout block): the fields of ocs2::rollout::Settings, with that
+// struct's defaults, converted by toRolloutSettings() (humanoid_common_mpc/config/solver/SolverSettingsFromConfig.h).
+// The integrator is selected by the name OCS2 gives it; the booleans are parameters of OCS2's rollout, mirrored from
+// its settings, not selections between implementations.
+// Next ID: 12
+message RolloutSettingsConfig {
+  option (nproto.generate_struct) = "ocs2::humanoid::mpc_config::RolloutSettingsConfig";
+  option (nproto.retired_field) = {
+    name: "root_finding_algorithm"
+    replacement: "it tuned OCS2's state-triggered rollout, which the fork no longer has (both MPCs roll out time-triggered); delete the line"
+  };
+  option (nproto.retired_field) = {
+    name: "root_finder_type"
+    replacement: "it tuned OCS2's state-triggered rollout, which the fork no longer has (both MPCs roll out time-triggered); delete the line"
+  };
+  option (nproto.retired_field) = {
+    name: "max_single_event_iterations"
+    replacement: "it tuned OCS2's state-triggered rollout, which the fork no longer has (both MPCs roll out time-triggered); delete the line"
+  };
+  option (nproto.retired_field) = {
+    name: "use_trajectory_spreading_controller"
+    replacement: "it tuned OCS2's state-triggered rollout, which the fork no longer has (both MPCs roll out time-triggered); delete the line"
+  };
+
+  reserved 12 to max;
+  // 8 was root_finding_algorithm, OCS2's int code of the root finder; 9, 10 and 11 were max_single_event_iterations,
+  // use_trajectory_spreading_controller and root_finder_type. All four tuned the state-triggered rollout.
+  reserved 8 to 11;
+
+  // The absolute and the relative error tolerance of the adaptive ODE solvers, both positive.
+  double abs_tol_ode = 1 [default = 1e-9, (humanoid_mpc_config.tuning) = { log_scale: true }];
+  double rel_tol_ode = 2 [default = 1e-6, (humanoid_mpc_config.tuning) = { log_scale: true }];
+  // The most integration steps per second of the ODE solvers, at least 0.
+  int32 max_num_steps_per_second = 3 [default = 10000];
+  // [s] The time step of the fixed-step integrators, positive.
+  double time_step = 4 [default = 0.01, (humanoid_mpc_config.tuning) = { unit: "s" }];
+  // LINT.IfChange(integrator_names)
+  // The integration scheme: "EULER", "ODE45", "ODE45_OCS2", "MODIFIED_MIDPOINT" or "RK4" (OCS2's IntegratorType, by
+  // name).
+  string integrator_type = 5 [default = "ODE45", (humanoid_mpc_config.tuning) = { registry: "rollout_integrator" }];
+  // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/config/solver/SolverSettingsFromConfig.cpp:rollout_integrators)
+
+  // Whether a rollout checks that it stays numerically stable.
+  bool check_numerical_stability = 6 [default = false];
+  // Whether the controller is run again after the integration, to reconstruct the input trajectory.
+  bool reconstruct_input_trajectory = 7 [default = true];
+}

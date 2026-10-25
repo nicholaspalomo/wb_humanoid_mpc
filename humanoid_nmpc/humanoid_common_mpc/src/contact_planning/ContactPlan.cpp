@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -27,62 +31,87 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cmath>
+#include <string>
+#include <vector>
 
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
+#include "ocs2_core/PhysicalConstants.h"
+
 #include "humanoid_common_mpc/contact_planning/ContactScheduleAdaptation.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 
 namespace ocs2::humanoid {
 
 namespace {
-// [s] a continuous-time phase shorter than this is not a phase of the mode schedule (it has no duration to execute).
-constexpr scalar_t kMinModeDuration = 1e-6;
-// [s] how close to an event a time must be to count as at or after it.
-constexpr scalar_t kEventTimeTolerance = 1e-9;
+// [s] a continuous-time phase shorter than this is not a phase of the mode
+// schedule (it has no duration to execute).
+constexpr scalar_t kMinModeDuration = 1.0e-6;
+// [s] how far after the last event of a merged schedule its closing STANCE
+// begins at the earliest.
+constexpr scalar_t kClosingStanceDelay = 1.0e-3;
 }  // namespace
 
 std::string ContactPlan::describe() const {
-  std::string out = absl::StrFormat("plan t=%.3f%s J=%.3f relaxations=%d solve=%.3fms%s%s%s", startTime, valid ? " valid" : " INVALID",
-                                    objective, numBranchAndBoundNodes, solveTime * 1e3, optimal ? " optimal" : "",
-                                    nodeLimitHit ? " NODE-LIMIT" : "", timeLimitHit ? " TIME-LIMIT" : "");
-  // A step the reach clip had to cut is no longer the deadbeat step, so it is worth seeing in the log.
-  if (numClippedSteps > 0) absl::StrAppend(&out, " CLIPPED-STEPS=", numClippedSteps);
+  std::string out = absl::StrFormat(
+      "plan t=%.3f%s J=%.3f relaxations=%d solve=%.3fms%s%s%s", startTime,
+      valid ? " valid" : " INVALID", objective, numBranchAndBoundNodes,
+      solveTime * kMillisecondsPerSecond, optimal ? " optimal" : "",
+      nodeLimitHit ? " NODE-LIMIT" : "", timeLimitHit ? " TIME-LIMIT" : "");
+  // A step the reach clip had to cut is no longer the deadbeat step, so it is
+  // worth seeing in the log.
+  if (numClippedSteps > 0)
+    absl::StrAppend(&out, " CLIPPED-STEPS=", numClippedSteps);
   if (!comVelocity.empty()) {
-    absl::StrAppendFormat(&out, " v0=[%.3f %.3f] vN=[%.3f %.3f]", comVelocity.front().x(), comVelocity.front().y(), comVelocity.back().x(),
-                          comVelocity.back().y());
+    absl::StrAppendFormat(&out, " v0=[%.3f %.3f] vN=[%.3f %.3f]",
+                          comVelocity.front().x(), comVelocity.front().y(),
+                          comVelocity.back().x(), comVelocity.back().y());
   }
   const int N = numIntervals();
-  for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+  for (size_t foot = 0; foot < kNumContacts; ++foot) {
     absl::StrAppend(&out, " | ", foot == 0 ? "L" : "R", ":");
     int k = 0;
     while (k < N) {
       const bool inContact = contacts[static_cast<size_t>(k)][foot];
       int end = k;
-      while (end < N && contacts[static_cast<size_t>(end)][foot] == inContact) ++end;
-      absl::StrAppendFormat(&out, " %s%.3f", inContact ? "C" : "S", dt * static_cast<scalar_t>(end - k));
-      // The step of a swing: the foothold at its touch-down node measured against the last node the foot was still
-      // STANDING on, which is node k - 1, and not against the lift-off node k itself.
+      while (end < N && contacts[static_cast<size_t>(end)][foot] == inContact)
+        ++end;
+      absl::StrAppendFormat(&out, " %s%.3f", inContact ? "C" : "S",
+                            dt * static_cast<scalar_t>(end - k));
+      // The step of a swing: the foothold at its touch-down node measured
+      // against the last node the foot was still STANDING on, which is node k -
+      // 1, and not against the lift-off node k itself.
       //
-      // This used to read footholds[k], and that printed a fabricated (0.000,0.000) for every stepping swing of an
-      // H-LIP plan - the default planner in both shipped robots - because the two planners do not agree about what
-      // the lift-off node holds. Under `lip_miqp` the foothold state has not jumped yet at node k: FootholdIntegrator
-      // integrates p_{k+1} = p_k + dp_k and FootMotionInSwingOnlyConstraint pins dp to zero on contact intervals, so
-      // node k still carries the stance the foot is about to leave and the old expression was right there. Under
-      // `hlip` HlipContactPlanner computes the landing spot of a swing BEFORE stamping plan.footholds over every node
-      // of that single-support phase, so node k already carries the LANDING position - and so does node `end`, since
-      // the double support that follows leaves the feet where the swing put them. The difference was then identically
-      // zero and the log said nothing at all about the step, which defeats the purpose of the line: numClippedSteps
-      // tells the operator that the reach clip had to cut a step, and this is where they look to see which one and by
-      // how much. It is the same lift-off off-by-one that footholdBeforeTime() exists to keep callers out of.
+      // This used to read footholds[k], and that printed a fabricated
+      // (0.000,0.000) for every stepping swing of an H-LIP plan - the default
+      // planner in both shipped robots - because the two planners do not agree
+      // about what the lift-off node holds. Under `lip_miqp` the foothold state
+      // has not jumped yet at node k: FootholdIntegrator integrates p_{k+1} =
+      // p_k + dp_k and FootMotionInSwingOnlyConstraint pins dp to zero on
+      // contact intervals, so node k still carries the stance the foot is about
+      // to leave and the old expression was right there. Under `hlip`
+      // HlipContactPlanner computes the landing spot of a swing BEFORE stamping
+      // plan.footholds over every node of that single-support phase, so node k
+      // already carries the LANDING position - and so does node `end`, since
+      // the double support that follows leaves the feet where the swing put
+      // them. The difference was then identically zero and the log said nothing
+      // at all about the step, which defeats the purpose of the line:
+      // numClippedSteps tells the operator that the reach clip had to cut a
+      // step, and this is where they look to see which one and by how much. It
+      // is the same lift-off off-by-one that footholdBeforeTime() exists to
+      // keep callers out of.
       //
-      // Node k - 1 is a contact node for this foot under BOTH conventions - under `lip_miqp` footholds[k-1] equals
-      // footholds[k] because the foot was in contact through interval k - 1 - so the one expression serves both
-      // planners and the existing expectation on a hand-built mixed-integer plan is unchanged. A plan that already
-      // begins mid-swing has no pre-lift-off node to measure against; that swing prints its duration and no
-      // displacement, because printing a zero there would be exactly the silent lie this is fixing.
+      // Node k - 1 is a contact node for this foot under BOTH conventions -
+      // under `lip_miqp` footholds[k-1] equals footholds[k] because the foot
+      // was in contact through interval k - 1 - so the one expression serves
+      // both planners and the existing expectation on a hand-built
+      // mixed-integer plan is unchanged. A plan that already begins mid-swing
+      // has no pre-lift-off node to measure against; that swing prints its
+      // duration and no displacement, because printing a zero there would be
+      // exactly the silent lie this is fixing.
       if (!inContact && k > 0 && static_cast<size_t>(end) < footholds.size()) {
-        const vector2_t step = footholds[static_cast<size_t>(end)][foot] - footholds[static_cast<size_t>(k - 1)][foot];
+        const vector2_t step = footholds[static_cast<size_t>(end)][foot] -
+                               footholds[static_cast<size_t>(k - 1)][foot];
         absl::StrAppendFormat(&out, "(%.3f,%.3f)", step.x(), step.y());
       }
       k = end;
@@ -93,15 +122,19 @@ std::string ContactPlan::describe() const {
 
 int ContactPlan::intervalIndex(scalar_t time) const {
   if (contacts.empty()) return 0;
-  const int k = static_cast<int>(std::floor((time - startTime) / dt + 1e-9));
+  const int k = static_cast<int>(std::floor(
+      (time - startTime) / dt + ContactPlanningConfig::kNodeRoundingTolerance));
   return std::clamp(k, 0, numIntervals() - 1);
 }
 
 contact_flag_t ContactPlan::contactsAtTime(scalar_t time) const {
   if (hasContinuousPhases()) {
-    // The last phase that has begun by `time`; an event at `time` itself has passed, as in intervalIndex().
+    // The last phase that has begun by `time`; an event at `time` itself has
+    // passed, as in intervalIndex().
     size_t phase = 0;
-    while (phase + 1 < phaseStartTimes.size() && phaseStartTimes[phase + 1] <= time + kEventTimeTolerance) ++phase;
+    while (phase + 1 < phaseStartTimes.size() &&
+           phaseStartTimes[phase + 1] <= time + kEventTimeTolerance)
+      ++phase;
     return phaseContacts[phase];
   }
   if (contacts.empty()) return makeFeetArray(true);
@@ -116,9 +149,13 @@ void ContactPlan::shiftInTime(scalar_t shift) {
 
 namespace {
 template <typename VALUE_T>
-std::optional<VALUE_T> interpolateNodes(const std::vector<VALUE_T>& values, scalar_t startTime, scalar_t dt, scalar_t time) {
+std::optional<VALUE_T> interpolateNodes(const std::vector<VALUE_T>& values,
+                                        scalar_t startTime,
+                                        scalar_t dt,
+                                        scalar_t time) {
   if (values.empty()) return std::nullopt;
-  const scalar_t s = std::clamp((time - startTime) / dt, 0.0, static_cast<scalar_t>(values.size() - 1));
+  const scalar_t s = std::clamp((time - startTime) / dt, 0.0,
+                                static_cast<scalar_t>(values.size() - 1));
   const int k = static_cast<int>(std::floor(s));
   const int k1 = std::min(k + 1, static_cast<int>(values.size()) - 1);
   const scalar_t a = s - static_cast<scalar_t>(k);
@@ -136,39 +173,63 @@ std::optional<scalar_t> ContactPlan::headingRateAtTime(scalar_t time) const {
   return interpolateNodes(headingRate, startTime, dt, time);
 }
 
-std::optional<scalar_t> ContactPlan::footYawAtTime(size_t contactIndex, scalar_t time) const {
+std::optional<scalar_t> ContactPlan::footYawAtTime(size_t contactIndex,
+                                                   scalar_t time) const {
   if (!hasHeading() || footYaws.empty()) return std::nullopt;
   const int node = static_cast<int>(std::lround((time - startTime) / dt));
-  const int clamped = std::clamp(node, 0, static_cast<int>(footYaws.size()) - 1);
+  const int clamped =
+      std::clamp(node, 0, static_cast<int>(footYaws.size()) - 1);
   return footYaws[clamped][contactIndex];
 }
 
-std::optional<scalar_t> ContactPlan::footYawBeforeTime(size_t contactIndex, scalar_t time) const {
+std::optional<scalar_t> ContactPlan::footYawBeforeTime(size_t contactIndex,
+                                                       scalar_t time) const {
   if (!hasHeading() || footYaws.empty()) return std::nullopt;
   const int node = static_cast<int>(std::lround((time - startTime) / dt)) - 1;
-  const int clamped = std::clamp(node, 0, static_cast<int>(footYaws.size()) - 1);
+  const int clamped =
+      std::clamp(node, 0, static_cast<int>(footYaws.size()) - 1);
   return footYaws[clamped][contactIndex];
 }
 
+namespace {
+// The plan's own reduced model at `time`, clamped to the plan; empty when the
+// plan records no pendulum or its per-interval data is inconsistent
+// (lipReferenceState's checks).
+std::optional<LipState> planReducedModelState(const ContactPlan& plan,
+                                              scalar_t time) {
+  if (!(plan.omega > 0.0)) return std::nullopt;
+  return lipReferenceState(plan, plan.omega,
+                           std::clamp(time, plan.startTime, plan.endTime()));
+}
+}  // namespace
+
 std::optional<vector2_t> ContactPlan::comPositionAtTime(scalar_t time) const {
+  const std::optional<LipState> state = planReducedModelState(*this, time);
+  if (state.has_value()) return state->com;
   return interpolateNodes(comPosition, startTime, dt, valid ? time : startTime);
 }
 
 std::optional<vector2_t> ContactPlan::comVelocityAtTime(scalar_t time) const {
+  const std::optional<LipState> state = planReducedModelState(*this, time);
+  if (state.has_value()) return state->comVelocity;
   return interpolateNodes(comVelocity, startTime, dt, valid ? time : startTime);
 }
 
-std::optional<vector2_t> ContactPlan::footholdAtTime(size_t contactIndex, scalar_t time) const {
+std::optional<vector2_t> ContactPlan::footholdAtTime(size_t contactIndex,
+                                                     scalar_t time) const {
   if (!valid || footholds.empty()) return std::nullopt;
   const int node = static_cast<int>(std::lround((time - startTime) / dt));
-  const int clamped = std::clamp(node, 0, static_cast<int>(footholds.size()) - 1);
+  const int clamped =
+      std::clamp(node, 0, static_cast<int>(footholds.size()) - 1);
   return footholds[clamped][contactIndex];
 }
 
-std::optional<vector2_t> ContactPlan::footholdBeforeTime(size_t contactIndex, scalar_t time) const {
+std::optional<vector2_t> ContactPlan::footholdBeforeTime(size_t contactIndex,
+                                                         scalar_t time) const {
   if (!valid || footholds.empty()) return std::nullopt;
   const int node = static_cast<int>(std::lround((time - startTime) / dt)) - 1;
-  const int clamped = std::clamp(node, 0, static_cast<int>(footholds.size()) - 1);
+  const int clamped =
+      std::clamp(node, 0, static_cast<int>(footholds.size()) - 1);
   return footholds[clamped][contactIndex];
 }
 
@@ -176,13 +237,17 @@ ModeSchedule ContactPlan::toModeSchedule() const {
   std::vector<scalar_t> eventTimes;
   std::vector<size_t> modeSequence;
   if (hasContinuousPhases()) {
-    // The phases that last, each with its own start time; one that does not (two feet switching at the same instant)
-    // only leaves its neighbors to be merged when they are the same mode.
+    // The phases that last, each with its own start time; one that does not
+    // (two feet switching at the same instant) only leaves its neighbors to be
+    // merged when they are the same mode.
     for (size_t phase = 0; phase < phaseContacts.size(); ++phase) {
       const scalar_t phaseEnd =
-          phase + 1 < phaseStartTimes.size() ? phaseStartTimes[phase + 1] : std::max(endTime(), phaseStartTimes[phase]);
+          phase + 1 < phaseStartTimes.size()
+              ? phaseStartTimes[phase + 1]
+              : std::max(endTime(), phaseStartTimes[phase]);
       const bool isLast = phase + 1 == phaseContacts.size();
-      if (!isLast && phaseEnd - phaseStartTimes[phase] < kMinModeDuration) continue;
+      if (!isLast && phaseEnd - phaseStartTimes[phase] < kMinModeDuration)
+        continue;
       const size_t mode = stanceLeg2ModeNumber(phaseContacts[phase]);
       if (modeSequence.empty()) {
         modeSequence.push_back(mode);
@@ -191,14 +256,17 @@ ModeSchedule ContactPlan::toModeSchedule() const {
         modeSequence.push_back(mode);
       }
     }
-    if (modeSequence.back() != ModeNumber::STANCE) {
-      eventTimes.push_back(std::max(endTime(), eventTimes.empty() ? startTime : eventTimes.back() + kMinModeDuration));
-      modeSequence.push_back(ModeNumber::STANCE);
+    if (modeSequence.back() != ModeNumber::kStance) {
+      eventTimes.push_back(
+          std::max(endTime(), eventTimes.empty()
+                                  ? startTime
+                                  : eventTimes.back() + kMinModeDuration));
+      modeSequence.push_back(ModeNumber::kStance);
     }
     return ModeSchedule(eventTimes, modeSequence);
   }
   if (contacts.empty()) {
-    modeSequence.push_back(ModeNumber::STANCE);
+    modeSequence.push_back(ModeNumber::kStance);
     return ModeSchedule(eventTimes, modeSequence);
   }
   modeSequence.push_back(stanceLeg2ModeNumber(contacts.front()));
@@ -209,22 +277,27 @@ ModeSchedule ContactPlan::toModeSchedule() const {
       modeSequence.push_back(mode);
     }
   }
-  if (modeSequence.back() != ModeNumber::STANCE) {
+  if (modeSequence.back() != ModeNumber::kStance) {
     eventTimes.push_back(endTime());
-    modeSequence.push_back(ModeNumber::STANCE);
+    modeSequence.push_back(ModeNumber::kStance);
   }
   return ModeSchedule(eventTimes, modeSequence);
 }
 
-ModeSchedule mergeModeSchedules(
-    const ModeSchedule& applied, const ModeSchedule& plan, scalar_t commitTime, scalar_t lowerBoundTime, scalar_t upperBoundTime) {
+ModeSchedule mergeModeSchedules(const ModeSchedule& applied,
+                                const ModeSchedule& plan,
+                                scalar_t commitTime,
+                                scalar_t lowerBoundTime,
+                                scalar_t upperBoundTime) {
   std::vector<scalar_t> eventTimes;
   std::vector<size_t> modeSequence;
 
-  // Part 1: the applied schedule up to commitTime. The leading mode uses the same convention as the loop below (an event
-  // at lowerBoundTime itself has passed); ocs2's modeAtTime treats it as not yet passed, which dropped the phase that
-  // started exactly there.
-  modeSequence.push_back(applied.modeSequence[modeIndexAtTime(applied, lowerBoundTime)]);
+  // Part 1: the applied schedule up to commitTime. The leading mode uses the
+  // same convention as the loop below (an event at lowerBoundTime itself has
+  // passed); ocs2's modeAtTime treats it as not yet passed, which dropped the
+  // phase that started exactly there.
+  modeSequence.push_back(
+      applied.modeSequence[modeIndexAtTime(applied, lowerBoundTime)]);
   for (size_t i = 0; i < applied.eventTimes.size(); ++i) {
     const scalar_t t = applied.eventTimes[i];
     if (t <= lowerBoundTime) continue;
@@ -237,7 +310,8 @@ ModeSchedule mergeModeSchedules(
   }
 
   // Part 2: the plan from commitTime on.
-  const size_t planModeAtCommit = plan.modeAtTime(commitTime + 1e-9);
+  const size_t planModeAtCommit =
+      plan.modeAtTime(commitTime + kEventTimeTolerance);
   if (planModeAtCommit != modeSequence.back()) {
     eventTimes.push_back(commitTime);
     modeSequence.push_back(planModeAtCommit);
@@ -252,23 +326,31 @@ ModeSchedule mergeModeSchedules(
     }
   }
 
-  // The swing planner needs every swing phase to be preceded and followed by a contact phase of the same foot. A leading
-  // STANCE placed before the first event guarantees a lift-off, a trailing STANCE guarantees a touch-down.
-  if (modeSequence.front() != ModeNumber::STANCE) {
-    const scalar_t firstTime = eventTimes.empty() ? lowerBoundTime : std::min(lowerBoundTime, eventTimes.front());
+  // The swing planner needs every swing phase to be preceded and followed by a
+  // contact phase of the same foot. A leading STANCE placed before the first
+  // event guarantees a lift-off, a trailing STANCE guarantees a touch-down.
+  if (modeSequence.front() != ModeNumber::kStance) {
+    const scalar_t firstTime =
+        eventTimes.empty() ? lowerBoundTime
+                           : std::min(lowerBoundTime, eventTimes.front());
     eventTimes.insert(eventTimes.begin(), firstTime - 1.0);
-    modeSequence.insert(modeSequence.begin(), ModeNumber::STANCE);
+    modeSequence.insert(modeSequence.begin(), ModeNumber::kStance);
   }
-  if (modeSequence.back() != ModeNumber::STANCE) {
-    const scalar_t lastTime = eventTimes.empty() ? upperBoundTime : std::max(upperBoundTime, eventTimes.back() + 1e-3);
+  if (modeSequence.back() != ModeNumber::kStance) {
+    const scalar_t lastTime =
+        eventTimes.empty()
+            ? upperBoundTime
+            : std::max(upperBoundTime, eventTimes.back() + kClosingStanceDelay);
     eventTimes.push_back(lastTime);
-    modeSequence.push_back(ModeNumber::STANCE);
+    modeSequence.push_back(ModeNumber::kStance);
   }
-  // The swing trajectory planner rejects a schedule without events (it needs a preceding and a following phase for every
-  // subsystem), so an all-stance schedule is expressed as two stance phases, like the initial schedule of the reference file.
+  // The swing trajectory planner rejects a schedule without events (it needs a
+  // preceding and a following phase for every subsystem), so an all-stance
+  // schedule is expressed as two stance phases, like the initial schedule of
+  // the reference file.
   if (eventTimes.empty()) {
     eventTimes.push_back(upperBoundTime);
-    modeSequence.push_back(ModeNumber::STANCE);
+    modeSequence.push_back(ModeNumber::kStance);
   }
   return ModeSchedule(eventTimes, modeSequence);
 }

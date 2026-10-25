@@ -1,0 +1,21 @@
+edition = "2023";
+
+// The options of the configuration schemas (README.md, "GUI metadata"): an options-only file, the one kind of .proto
+// file that defines no message of its own (tools/hooks/proto_file_layout.py).
+package humanoid_mpc_config;
+
+import "google/protobuf/descriptor.proto";
+import "humanoid_mpc_config/tuning_group_options.proto";
+import "humanoid_mpc_config/tuning_options.proto";
+
+// LINT.IfChange(config_options)
+extend google.protobuf.FieldOptions {
+  // `double weight = 3 [(humanoid_mpc_config.tuning) = { unit: "m" reload: RELOAD_HOT }];`
+  TuningOptions tuning = 52101;
+}
+
+extend google.protobuf.MessageOptions {
+  // `option (humanoid_mpc_config.group) = { tab: "Command limits" order: 1 };`
+  TuningGroupOptions group = 52102;
+}
+// LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_config/README.md:config_options)

@@ -1,8 +1,13 @@
 load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
+load("//bazel:copts.bzl", "FIRST_PARTY_COPTS")
 load("//bazel:robot_files.bzl", "ROBOT_FILE_EXCLUDES")
 # unitree_r1_centroidal_mpc - Unitree R1 robot centroidal MPC configuration and tests
 
 package(default_visibility = ["//visibility:public"])
+
+# The launch files (robot.textproto, mpc.textproto, dummy_sim.textproto; tools/launch), for the tests that check them
+# and the robot bundle that exports robot.textproto (tools/deploy).
+exports_files(glob(["launch/*.textproto"]))
 
 # Configuration and launch files
 filegroup(
@@ -13,40 +18,33 @@ filegroup(
     ], exclude = ROBOT_FILE_EXCLUDES, allow_empty = True),
 )
 
-# Test executable for Pinocchio model
+# Playground for the Pinocchio model: prints its dimensions, joints and frames. Reads the URDF and the task file
+# from its runfiles: `bazel run //robot_models/unitree_r1/unitree_r1_centroidal_mpc:test_pinocchio_model`.
 cc_binary(
     name = "test_pinocchio_model",
     srcs = ["test/testPinocchioModel.cpp"],
-    copts = [
-        "-std=c++20",
-        "-Wall",
-        "-Wextra",
-        "-Wpedantic",
-        "-Werror=return-type",
-        "-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS",
-        "-DBOOST_MPL_LIMIT_LIST_SIZE=50",
-        "-DBOOST_VARIANT_LIMIT_TYPES=50",
-        "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
-    ],
+    copts = FIRST_PARTY_COPTS,
     data = [
         ":unitree_r1_centroidal_mpc",
         "//robot_models/unitree_r1/unitree_r1_description",
     ],
     deps = [
         "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
         "//humanoid_nmpc/humanoid_centroidal_mpc",
-        "//humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_dummy_sim_node",
         "//lib/ocs2:ocs2_pinocchio_interface",
         "//lib/ocs2:ocs2_centroidal_model",
         "//lib/ocs2:ocs2_core",
+        "//robot_runtime/robot_core:resource_paths",
+        "@abseil-cpp//absl/base:nullability",
         "@eigen",
-        "@boost",
         "@pinocchio",
         "@urdf",
-        "@ros2_rclcpp",
-        "@ros2_ament_index_cpp",
         "@abseil-cpp//absl/log:log",
         "@abseil-cpp//absl/log:globals",
         "@abseil-cpp//absl/log:initialize",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings:str_format",
+        "@abseil-cpp//absl/strings:string_view",
     ],
 )

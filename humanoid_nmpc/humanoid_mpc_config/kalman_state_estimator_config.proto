@@ -1,0 +1,42 @@
+edition = "2023";
+
+package humanoid_mpc_config;
+
+import "humanoid_mpc_config/config_options.proto";
+import "nproto/options.proto";
+
+// The noise model of the `kalman` state estimator of the robot process (the task file's kalman_state_estimator block;
+// humanoid_state_estimation/humanoid_state_estimator, KalmanBaseEstimator::Config): a linear Kalman filter of the base
+// position and velocity and of one position per contact point, driven by the IMU's acceleration and corrected by the
+// leg kinematics of the contact points in stance. Every standard deviation must be positive; a random walk's variance
+// grows by its square per second. Read when the robot process starts (state_estimator: "kalman").
+// Next ID: 10
+message KalmanStateEstimatorConfig {
+  option (nproto.generate_struct) = "ocs2::humanoid::mpc_config::KalmanStateEstimatorConfig";
+
+  reserved 10 to max;
+
+  // LINT.IfChange(kalman_state_estimator_defaults)
+  // [m/s^2] Standard deviation of the accelerometer's noise on one sample.
+  double imu_acceleration_noise = 1 [default = 0.5, (humanoid_mpc_config.tuning) = { unit: "m/s^2" }];
+  // [m/s/sqrt(s)] Random walk of the base velocity beyond the accelerometer's noise (its bias, the lever arm of an IMU
+  // off the base's origin).
+  double base_velocity_random_walk = 2 [default = 0.1, (humanoid_mpc_config.tuning) = { unit: "m/s/sqrt(s)" }];
+  // [m/sqrt(s)] Random walk of the base position.
+  double base_position_random_walk = 3 [default = 0.001, (humanoid_mpc_config.tuning) = { unit: "m/sqrt(s)" }];
+  // [m/sqrt(s)] Random walk of a contact point in stance: how far a standing foot may slip.
+  double stance_contact_random_walk = 4 [default = 0.01, (humanoid_mpc_config.tuning) = { unit: "m/sqrt(s)" }];
+  // [m/sqrt(s)] Random walk of a contact point in swing, large: the estimate forgets where a lifted foot was, and the
+  // leg kinematics place it anew at touch-down.
+  double swing_contact_random_walk = 5 [default = 10.0, (humanoid_mpc_config.tuning) = { unit: "m/sqrt(s)" }];
+  // [m] Standard deviation of a stance contact point's position relative to the base, from the leg kinematics.
+  double kinematic_position_noise = 6 [default = 0.005, (humanoid_mpc_config.tuning) = { unit: "m" }];
+  // [m/s] Standard deviation of the base velocity a stance contact point gives through the leg kinematics.
+  double kinematic_velocity_noise = 7 [default = 0.05, (humanoid_mpc_config.tuning) = { unit: "m/s" }];
+  // [m] Standard deviation of a stance contact point's height above the world frame, against contact_height.
+  double contact_height_noise = 8 [default = 0.01, (humanoid_mpc_config.tuning) = { unit: "m" }];
+  // [m] The height of a contact frame in the world while its foot stands on flat ground at z = 0: what makes the base
+  // height observable. 0 for contact frames at the soles.
+  double contact_height = 9 [default = 0.0, (humanoid_mpc_config.tuning) = { unit: "m" }];
+  // LINT.ThenChange(//humanoid_state_estimation/humanoid_state_estimator/include/humanoid_state_estimator/KalmanBaseEstimator.h:kalman_state_estimator_defaults)
+}

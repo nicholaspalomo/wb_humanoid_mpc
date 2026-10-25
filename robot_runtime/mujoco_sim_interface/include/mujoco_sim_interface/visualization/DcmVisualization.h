@@ -29,19 +29,28 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <string>
+
 #include "mujoco_sim_interface/visualization/MujocoVisualization.h"
 
 namespace robot::mujoco_sim_interface {
 
 /**
- * Divergent component of motion (capture point) of the measured centroidal state: a green disc on the ground plane at
- * com_xy + v_xy / omega, omega = sqrt(g / z_com), with a thin line from the CoM's shadow to it. The robot is balanced
- * when the ZMP can be placed on it; its distance from the support polygon is the disturbance the next step must absorb.
+ * Divergent component of motion (capture point) of the measured centroidal
+ * state: a green disc on the ground plane at com_xy + v_xy / omega, omega =
+ * sqrt(g / z_com), with a thin line from the CoM's shadow to it. The robot is
+ * balanced when the ZMP can be placed on it; its distance from the support
+ * polygon is the disturbance the next step must absorb.
+ *
+ * Not thread-safe: the viewer drives it from one thread.
  */
 class DcmVisualization final : public MujocoVisualization {
  public:
   std::string name() const override { return "dcm"; }
-  std::string description() const override { return "divergent component of motion (capture point) of the measured CoM, on the ground"; }
+  std::string description() const override {
+    return "divergent component of motion (capture point) of the measured CoM, "
+           "on the ground";
+  }
   char hotkey() const override { return 'd'; }
   void addSceneGeoms(const VisualizationFrame& frame) override;
 };

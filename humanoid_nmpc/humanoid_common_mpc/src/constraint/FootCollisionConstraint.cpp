@@ -28,18 +28,18 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <pinocchio/fwd.hpp>
+#include "pinocchio/fwd.hpp"
 
 #include "humanoid_common_mpc/constraint/FootCollisionConstraint.h"
 
-#include <pinocchio/algorithm/frames.hpp>
-#include <pinocchio/algorithm/kinematics.hpp>
-#include <pinocchio/multibody/data.hpp>
-#include <pinocchio/multibody/model.hpp>
+#include <array>
+#include <cstddef>
+#include <string>
 
-#include <ocs2_core/misc/LoadData.h>
-#include <boost/property_tree/info_parser.hpp>
-#include <boost/property_tree/ptree.hpp>
+#include "pinocchio/algorithm/frames.hpp"
+#include "pinocchio/algorithm/kinematics.hpp"
+#include "pinocchio/multibody/data.hpp"
+#include "pinocchio/multibody/model.hpp"
 
 namespace ocs2::humanoid {
 
@@ -47,18 +47,20 @@ namespace ocs2::humanoid {
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-FootCollisionConstraint::FootCollisionConstraint(const SwitchedModelReferenceManager& referenceManager,
-                                                 const PinocchioInterface& pinocchioInterface,
-                                                 const MpcRobotModelBase<ad_scalar_t>& mpcRobotModel,
-                                                 const Config& config,
-                                                 std::string costName,
-                                                 const ModelSettings& modelSettings)
+FootCollisionConstraint::FootCollisionConstraint(
+    const SwitchedModelReferenceManager& referenceManager,
+    const PinocchioInterface& pinocchioInterface,
+    const MpcRobotModelBase<ad_scalar_t>& mpcRobotModel,
+    const Config& config,
+    const std::string& costName,
+    const ModelSettings& modelSettings)
     : StateConstraintCppAd(ConstraintOrder::Linear),
       referenceManagerPtr_(&referenceManager),
       pinocchioInterfaceCppAd_(pinocchioInterface.toCppAd()),
       mpcRobotModelPtr_(&mpcRobotModel),
-      cfg_(std::move(config)) {
-  initialize(mpcRobotModelPtr_->getStateDim(), /*parameterDim=*/2, costName, modelSettings.modelFolderCppAd,
+      cfg_(config) {
+  initialize(mpcRobotModelPtr_->getStateDim(), kNumParameters, costName,
+             modelSettings.modelFolderCppAd,
              modelSettings.recompileLibrariesCppAd, modelSettings.verboseCppAd);
 }
 
@@ -66,16 +68,11 @@ FootCollisionConstraint::FootCollisionConstraint(const SwitchedModelReferenceMan
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-FootCollisionConstraint::FootCollisionConstraint(const FootCollisionConstraint& other)
-    : StateConstraintCppAd(other),
-      referenceManagerPtr_(other.referenceManagerPtr_),
-      pinocchioInterfaceCppAd_(other.pinocchioInterfaceCppAd_),
-      mpcRobotModelPtr_(other.mpcRobotModelPtr_),
-      cfg_(other.cfg_),
-      numConstraints_(other.numConstraints_),
-      // isActive_ is copied deliberately: the SQP solver clones the whole problem once per worker thread,
-      // and a copy constructor that dropped this flag silently reverted a deactivated term to active.
-      isActive_(other.isActive_) {}
+// isActive_ is copied deliberately: the SQP solver clones the whole problem
+// once per worker thread, and a copy constructor that dropped this flag
+// silently reverted a deactivated term to active.
+FootCollisionConstraint::FootCollisionConstraint(
+    const FootCollisionConstraint& other) = default;
 
 /******************************************************************************************************/
 /******************************************************************************************************/
@@ -83,7 +80,8 @@ FootCollisionConstraint::FootCollisionConstraint(const FootCollisionConstraint& 
 bool FootCollisionConstraint::isActive(scalar_t time) const {
   if (!isActive_) return false;
 
-  // Inactivate the constraint if both feet are in contact. Prevents it from fighting against the stance foot constraints.
+  // Inactivate the constraint if both feet are in contact. Prevents it from
+  // fighting against the stance foot constraints.
   contact_flag_t contactFlags = referenceManagerPtr_->getContactFlags(time);
   return !(contactFlags[0] && contactFlags[1]);
 }
@@ -92,79 +90,42 @@ bool FootCollisionConstraint::isActive(scalar_t time) const {
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-ad_vector_t FootCollisionConstraint::constraintFunction(ad_scalar_t time, const ad_vector_t& state, const ad_vector_t& parameters) const {
-  const pinocchio::ReferenceFrame rf = pinocchio::ReferenceFrame::LOCAL_WORLD_ALIGNED;
-
-  const PinocchioInterfaceCppAd::Model& model = pinocchioInterfaceCppAd_.getModel();
+ad_vector_t FootCollisionConstraint::constraintFunction(
+    ad_scalar_t /*time*/,
+    const ad_vector_t& state,
+    const ad_vector_t& parameters) const {
+  const PinocchioInterfaceCppAd::Model& model =
+      pinocchioInterfaceCppAd_.getModel();
   PinocchioInterfaceCppAd::Data data = pinocchioInterfaceCppAd_.getData();
 
   const ad_vector_t q = mpcRobotModelPtr_->getGeneralizedCoordinates(state);
   pinocchio::forwardKinematics(model, data, q);
 
-  // Ankle collision points
-  ad_vector3_t pos_ankle_l = pinocchio::updateFramePlacement(model, data, model.getFrameId(cfg_.leftAnkleFrame)).translation();
-  ad_vector3_t pos_ankle_r = pinocchio::updateFramePlacement(model, data, model.getFrameId(cfg_.rightAnkleFrame)).translation();
+  const std::array<std::string, kNumFootCollisionPoints> frames =
+      footCollisionPointFrames(cfg_);
+  std::array<ad_vector3_t, kNumFootCollisionPoints> positions;
+  for (size_t point = 0; point < kNumFootCollisionPoints; ++point) {
+    positions[point] = pinocchio::updateFramePlacement(
+                           model, data, model.getFrameId(frames[point]))
+                           .translation();
+  }
 
-  // Foot collision points
-  ad_vector3_t pos_f_l = pinocchio::updateFramePlacement(model, data, model.getFrameId(cfg_.leftFootCenterFrame)).translation();
-  ad_vector3_t pos_f_r = pinocchio::updateFramePlacement(model, data, model.getFrameId(cfg_.rightFootCenterFrame)).translation();
-  ad_vector3_t pos_f_l_p1 = pinocchio::updateFramePlacement(model, data, model.getFrameId(cfg_.leftFootFrame1)).translation();
-  ad_vector3_t pos_f_r_p1 = pinocchio::updateFramePlacement(model, data, model.getFrameId(cfg_.rightFootFrame1)).translation();
-  ad_vector3_t pos_f_l_p2 = pinocchio::updateFramePlacement(model, data, model.getFrameId(cfg_.leftFootFrame2)).translation();
-  ad_vector3_t pos_f_r_p2 = pinocchio::updateFramePlacement(model, data, model.getFrameId(cfg_.rightFootFrame2)).translation();
-
-  // Knee collision points
-  ad_vector3_t pos_k_l = pinocchio::updateFramePlacement(model, data, model.getFrameId(cfg_.leftKneeFrame)).translation();
-  ad_vector3_t pos_k_r = pinocchio::updateFramePlacement(model, data, model.getFrameId(cfg_.rightKneeFrame)).translation();
-
-  // Calcualte the square of the min distance (2*radius)^2
-  // parameters[0] is the collision sphere radius
-  ad_scalar_t minDistFoot = 2.0 * parameters[0];
-  ad_scalar_t minDistKnee = 2.0 * parameters[1];
+  // The minimum distance between two collision spheres, 2 * radius: each row is
+  // a distance minus it, not a squared distance. parameters[0] is the radius of
+  // the foot spheres, parameters[1] that of the knee spheres.
+  const ad_scalar_t minDistFoot = 2.0 * parameters[0];
+  const ad_scalar_t minDistKnee = 2.0 * parameters[1];
 
   ad_vector_t constraintValues(numConstraints_);
-  constraintValues[0] = ((pos_f_l_p1 - pos_f_r_p1).norm() - minDistFoot);
-  constraintValues[1] = ((pos_f_l_p1 - pos_f_r_p2).norm() - minDistFoot);
-  constraintValues[2] = ((pos_f_l_p2 - pos_f_r_p1).norm() - minDistFoot);
-  constraintValues[3] = ((pos_f_l_p2 - pos_f_r_p2).norm() - minDistFoot);
-
-  constraintValues[4] = ((pos_f_l - pos_f_r_p1).norm() - minDistFoot);
-  constraintValues[5] = ((pos_f_l - pos_f_r_p2).norm() - minDistFoot);
-  constraintValues[6] = ((pos_f_r - pos_f_l_p1).norm() - minDistFoot);
-  constraintValues[7] = ((pos_f_r - pos_f_l_p2).norm() - minDistFoot);
-  constraintValues[8] = ((pos_f_l - pos_f_r).norm() - minDistFoot);
-
-  constraintValues[9] = ((pos_k_l - pos_k_r).norm() - minDistKnee);
-
-  constraintValues[10] = ((pos_f_l - pos_ankle_r).norm() - minDistFoot);
-  constraintValues[11] = ((pos_f_l_p1 - pos_ankle_r).norm() - minDistFoot);
-  constraintValues[12] = ((pos_f_l_p2 - pos_ankle_r).norm() - minDistFoot);
-  constraintValues[13] = ((pos_f_r - pos_ankle_l).norm() - minDistFoot);
-  constraintValues[14] = ((pos_f_r_p1 - pos_ankle_l).norm() - minDistFoot);
-  constraintValues[15] = ((pos_f_r_p2 - pos_ankle_l).norm() - minDistFoot);
-
+  for (size_t row = 0; row < kNumFootCollisionPairs; ++row) {
+    const FootCollisionPair& pair = kFootCollisionPairs[row];
+    const ad_vector3_t difference = positions[static_cast<size_t>(pair.first)] -
+                                    positions[static_cast<size_t>(pair.second)];
+    constraintValues[static_cast<Eigen::Index>(row)] =
+        difference.norm() -
+        (pair.radius == FootCollisionRadius::kKnee ? minDistKnee : minDistFoot);
+  }
   return constraintValues;
-}
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
-FootCollisionConstraint::Config FootCollisionConstraint::loadFootCollisionConstraintConfig(const std::string taskFile, bool verbose) {
-  boost::property_tree::ptree pt;
-  loadData::readPropertyTree(taskFile, pt);
-  const std::string prefix = "collision_constraint.";
-
-  Config collisionConfig;
-
-  loadData::loadPtreeValue(pt, collisionConfig.leftAnkleFrame, prefix + "foot.leftAnkleFrame", verbose);
-  loadData::loadPtreeValue(pt, collisionConfig.rightAnkleFrame, prefix + "foot.rightAnkleFrame", verbose);
-  loadData::loadPtreeValue(pt, collisionConfig.footCollisionSphereRadius, prefix + "foot.footCollisionSphereRadius", verbose);
-  loadData::loadPtreeValue(pt, collisionConfig.leftKneeFrame, prefix + "knee.leftKneeFrame", verbose);
-  loadData::loadPtreeValue(pt, collisionConfig.rightKneeFrame, prefix + "knee.rightKneeFrame", verbose);
-  loadData::loadPtreeValue(pt, collisionConfig.kneeCollisionSphereRadius, prefix + "knee.kneeCollisionSphereRadius", verbose);
-
-  return collisionConfig;
 }
 
 }  // namespace ocs2::humanoid

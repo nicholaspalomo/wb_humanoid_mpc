@@ -45,7 +45,8 @@
 
   <worldbody>
     <body name="pelvis" pos="0 0 0.793">
-      <inertial pos="0 0 -0.07605" quat="1 0 -0.000399148 0" mass="3.813" diaginertia="0.010549 0.0093089 0.0079184"/>
+      <!-- Mass, CoM and inertia of the URDF's pelvis with its fixed pelvis_contour_link and IMU merged in, as Pinocchio merges them. -->
+      <inertial pos="0 0 -0.0760301" mass="3.814" fullinertia="0.0105549 0.00931478 0.0079185 0 2.1e-06 0"/>
       <joint name="floating_base_joint" type="free" limited="false" actuatorfrclimited="false"/>
       <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="0.2 0.2 0.2 1" mesh="pelvis"/>
       <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="0.7 0.7 0.7 1" mesh="pelvis_contour_link"/>
@@ -138,7 +139,8 @@
           <joint name="waist_roll_joint" pos="0 0 0" axis="1 0 0" range="-0.52 0.52" actuatorfrcrange="-50 50"/>
           <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="0.7 0.7 0.7 1" mesh="waist_roll_link"/>
           <body name="torso_link" pos="0 0 0.019">
-            <inertial pos="0.00331658 0.000261533 0.179856" quat="0.999831 0.000376204 0.0179895 -0.00377704" mass="9.598" diaginertia="0.12407 0.111951 0.0325382"/>
+            <!-- Mass, CoM and inertia of the URDF's torso_link with its fixed head, logo, waist support, IMU and sensor links merged in, as Pinocchio merges them. -->
+            <inertial pos="0.00331672 0.000261479 0.179808" mass="9.6" fullinertia="0.12406 0.112061 0.0326569 -8.877e-05 -0.00329001 7.36516e-05"/>
             <joint name="waist_pitch_joint" pos="0 0 0" axis="0 1 0" range="-0.52 0.52" actuatorfrcrange="-50 50"/>
             <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="0.7 0.7 0.7 1" mesh="torso_link"/>
             <geom type="mesh" rgba="0.7 0.7 0.7 1" mesh="torso_link"/>
@@ -272,6 +274,15 @@
     <motor name="right_wrist_pitch_joint" joint="right_wrist_pitch_joint"/>
     <motor name="right_wrist_yaw_joint" joint="right_wrist_yaw_joint"/>
   </actuator>
+
+  <!-- Virtual gantry. A real weld the constraint solver satisfies inside mj_step, so the base is supported
+       WHILE the dynamics are integrated. MujocoSimInterface drives eq_active from the lock state and writes
+       the suspension height into the relpose translation, so the values here are only a starting point.
+       Without this the simulator falls back to overwriting qpos/qvel around mj_step, which leaves the robot in
+       free fall during the step and makes gravity compensation drive the limbs into their joint stops. -->
+  <equality>
+    <weld name="gantry" body1="world" body2="pelvis" relpose="0 0 0.793 1 0 0 0" active="false"/>
+  </equality>
 
   <sensor>
     <gyro name="imu-torso-angular-velocity" site="imu_in_torso" noise="5e-4" cutoff="34.9"/>

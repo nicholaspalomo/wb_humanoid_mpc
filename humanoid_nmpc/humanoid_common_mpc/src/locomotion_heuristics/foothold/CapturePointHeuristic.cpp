@@ -30,51 +30,78 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/locomotion_heuristics/foothold/CapturePointHeuristic.h"
 
 #include <cmath>
+#include <string>
 
+#include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 
 #include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicModelParameters.h"
 
 namespace ocs2::humanoid {
 
-absl::Status CapturePointHeuristic::configure(const LocomotionHeuristicConfig& config, const LocomotionHeuristicModelParameters& model) {
+absl::Status CapturePointHeuristic::configure(
+    const LocomotionHeuristicConfig& config,
+    const LocomotionHeuristicModelParameters& model) {
   parameters_ = config.capturePoint;
   nominalComHeight_ = model.nominalComHeight;
+  if (!(model.gravity > 0.0)) {
+    return absl::InvalidArgumentError(
+        absl::StrCat("capture_point: the model's gravity ", model.gravity,
+                     " m/s^2 is not positive."));
+  }
+  gravity_ = model.gravity;
   return absl::OkStatus();
 }
 
-vector2_t CapturePointHeuristic::offset(const FootholdHeuristicContext& context) const {
-  // H_r(pdot, Phi) = gain sqrt(p_z / g) (pdot - pdot_d), Bledt Table C.1. sqrt(p_z/g) is 1/omega, the time constant
-  // of a linear inverted pendulum of height p_z, so the offset is "how far the center of mass will have carried past
-  // the foot by the time the pendulum has done its work" - the capture point of Pratt et al. applied to the velocity
-  // ERROR rather than to the velocity, which is what makes it silent while the robot is tracking its command.
+vector2_t CapturePointHeuristic::offset(
+    const FootholdHeuristicContext& context) const {
+  // H_r(pdot, Phi) = gain sqrt(p_z / g) (pdot - pdot_d), Bledt Table C.1.
+  // sqrt(p_z/g) is 1/omega, the time constant of a linear inverted pendulum of
+  // height p_z, so the offset is "how far the center of mass will have carried
+  // past the foot by the time the pendulum has done its work" - the capture
+  // point of Pratt et al. applied to the velocity ERROR rather than to the
+  // velocity, which is what makes it silent while the robot is tracking its
+  // command.
   //
-  // The height is preferred from the measurement and falls back to the nominal: a robot recovering from a push is
-  // exactly when the measurement is worth having, and exactly when it can also be nonsense, so a non-positive
+  // The height is preferred from the measurement and falls back to the nominal:
+  // a robot recovering from a push is exactly when the measurement is worth
+  // having, and exactly when it can also be nonsense, so a non-positive
   // measurement is replaced rather than trusted.
-  scalar_t comHeight = parameters_.comHeightOverride > 0.0 ? parameters_.comHeightOverride : context.comHeight;
+  scalar_t comHeight = parameters_.comHeightOverride > 0.0
+                           ? parameters_.comHeightOverride
+                           : context.comHeight;
   if (!(comHeight > 0.0)) comHeight = nominalComHeight_;
   if (!(comHeight > 0.0)) return vector2_t::Zero();
 
-  const scalar_t timeConstant = std::sqrt(comHeight / parameters_.gravity);
-  const vector2_t velocityError = context.measuredVelocity - context.commandedVelocity;
+  const scalar_t timeConstant = std::sqrt(comHeight / gravity_);
+  // The error at ONE instant, the last solve: the measurement against the
+  // command of that same instant. The command at the touch-down is the wrong
+  // comparison - on a turning command it has rotated by psidot * (t_td - t_0)
+  // since, and a robot tracking the turn perfectly would be read as an error of
+  // |v| times that angle and stepped outwards.
+  const vector2_t velocityError =
+      context.measuredVelocity - context.commandedVelocityAtMeasurement;
   vector2_t result = parameters_.gain * timeConstant * velocityError;
-  // Clamped in MAGNITUDE rather than per axis, so that the direction of the step into the error is preserved. A
-  // per-axis clamp would rotate the offset towards the diagonal exactly when it is largest, which is when the robot
+  // Clamped in MAGNITUDE rather than per axis, so that the direction of the
+  // step into the error is preserved. A per-axis clamp would rotate the offset
+  // towards the diagonal exactly when it is largest, which is when the robot
   // most needs the foot to go where the push came from.
   const scalar_t magnitude = result.norm();
-  if (parameters_.maximumOffset > 0.0 && magnitude > parameters_.maximumOffset) {
+  if (parameters_.maximumOffset > 0.0 &&
+      magnitude > parameters_.maximumOffset) {
     result *= parameters_.maximumOffset / magnitude;
   }
   return result;
 }
 
 std::string CapturePointHeuristic::describe() const {
-  return absl::StrCat("capture_point: dr = ", parameters_.gain, " * sqrt(z/", parameters_.gravity,
-                      ") * (v_measured - v_commanded) [m], z = ",
-                      parameters_.comHeightOverride > 0.0 ? absl::StrCat(parameters_.comHeightOverride, " m (fixed)")
-                                                          : absl::StrCat("measured, nominally ", nominalComHeight_, " m"),
-                      ", clamped to ", parameters_.maximumOffset, " m");
+  return absl::StrCat(
+      "capture_point: dr = ", parameters_.gain, " * sqrt(z/", gravity_,
+      ") * (v_measured - v_commanded) [m], z = ",
+      parameters_.comHeightOverride > 0.0
+          ? absl::StrCat(parameters_.comHeightOverride, " m (fixed)")
+          : absl::StrCat("measured, nominally ", nominalComHeight_, " m"),
+      ", clamped to ", parameters_.maximumOffset, " m");
 }
 
 }  // namespace ocs2::humanoid

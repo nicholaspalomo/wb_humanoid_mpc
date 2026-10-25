@@ -1,6 +1,6 @@
 #!/bin/bash
 # ==============================================================================
-# Git Pre-Commit Hook — Automatic formatting & IFTTT cross-file directive linting
+# Git Pre-Commit Hook — IFTTT directives, the linter's automatic fixes and formatting, then the linter on the staged files
 # ==============================================================================
 set -e
 
@@ -9,8 +9,24 @@ cd "$REPO_ROOT"
 
 echo "🔍 Pre-Commit Hook: Running IFTTT cross-file directive linter..."
 if [ -f "tools/hooks/check_ifttt.py" ]; then
-    python3 tools/hooks/check_ifttt.py
+    python3 -m tools.hooks.check_ifttt
 fi
+
+# The staged files that also have unstaged changes (a partial `git add -p`), with their working-tree contents before
+# the fixes and `make format`: such a file is never re-staged, because that would commit the hunks left out of the commit.
+PARTIAL_HASHES="$(mktemp)"
+trap 'rm -f "$PARTIAL_HASHES"' EXIT
+for file in $(git diff --name-only); do
+    if [ -f "$file" ] && ! git diff --cached --quiet -- "$file"; then
+        printf '%s %s\n' "$(git hash-object "$file")" "$file" >>"$PARTIAL_HASHES"
+    fi
+done
+
+# The linter's automatic fixes (make fix's first step) on the working-tree copies of the staged files, including the
+# ones make format leaves out because they can change behavior (american-spelling renames identifiers). They are
+# staged below with the formatting; what they cannot fix, the linter at the end reports for the user to fix by hand.
+echo "🔧 Pre-Commit Hook: Applying the linter's automatic fixes (lint_code --fix-only --git-staged)..."
+python3 -m tools.hooks.lint_code --fix-only --git-staged
 
 echo "🔍 Pre-Commit Hook: Running code formatter (make format)..."
 if command -v make >/dev/null 2>&1; then
@@ -18,33 +34,50 @@ if command -v make >/dev/null 2>&1; then
 elif command -v docker >/dev/null 2>&1 && docker ps | grep -q devcontainer-app; then
     docker exec devcontainer-app-1 bash -c "cd /wb_humanoid_mpc_ws/workspace/wb_humanoid_mpc && make format"
 else
-    echo "⚠️ Warning: 'make' not found. Skipping auto-formatting."
-    exit 0
+    echo "⚠️ Warning: 'make' not found. Skipping auto-formatting; the fixes are still staged and the linter still runs."
 fi
 
-# Automatically stage any formatting changes to files that were staged for commit
+# Stage the fixes and formatting changes of the files staged for commit. A partially staged file keeps its index as the
+# user staged it; when a fix or the formatter changed it, the commit stops, since only the user can tell which hunks
+# belong to it.
 STAGED_FILES=$(git diff --cached --name-only)
+PARTIAL_CHANGED=""
 
 if [ -n "$STAGED_FILES" ]; then
     FORMATTED_COUNT=0
     for file in $STAGED_FILES; do
-        if [ -f "$file" ] && [ -n "$(git status --porcelain "$file")" ]; then
+        [ -f "$file" ] || continue
+        before="$(awk -v path="$file" '$2 == path { print $1 }' "$PARTIAL_HASHES")"
+        if [ -n "$before" ]; then
+            if [ "$(git hash-object "$file")" != "$before" ]; then
+                PARTIAL_CHANGED="$PARTIAL_CHANGED $file"
+            fi
+            continue
+        fi
+        if [ -n "$(git status --porcelain "$file")" ]; then
             git add "$file"
             FORMATTED_COUNT=$((FORMATTED_COUNT + 1))
         fi
     done
     if [ "$FORMATTED_COUNT" -gt 0 ]; then
-        echo "✨ Auto-formatted and staged $FORMATTED_COUNT file(s) before commit."
+        echo "✨ Auto-fixed, formatted and staged $FORMATTED_COUNT file(s) before commit."
     fi
 fi
+if [ -n "$PARTIAL_CHANGED" ]; then
+    echo "❌ Commit blocked: the automatic fixes or make format changed these partially staged files:$PARTIAL_CHANGED."
+    echo "   Their unstaged hunks are not staged for you. Review the changes, stage what belongs to the commit"
+    echo "   (git add -p), and commit again."
+    exit 1
+fi
 
-# Literal arguments must say what they are: `f(file, /*contactIndex=*/0)`, not `f(file, 0)` (Google C++ style). Checked
-# on the STAGED version of the C++ files this commit touches, after formatting has been staged above, so the commit is
-# judged as it will be recorded and a file it does not change can never block it.
-echo "🔍 Pre-Commit Hook: Checking argument comments on literal arguments in the staged C++ files..."
-if ! python3 tools/hooks/argument_comments.py --git-staged; then
-    echo "❌ Commit blocked: give each literal argument above an argument comment, /*parameter_name=*/, with the name"
-    echo "   from the callee's declaration (or // NOLINT(argument-comment) where it is self-evident), then stage and commit."
+# The linter on the files this commit touches, after formatting has been staged above: the token checks of
+# tools/hooks/checks.py (argument comments, Boost, spelling, the .proto layout, NOLINT markers, ...) read the STAGED
+# version, so the commit is judged as it will be recorded and a file it does not change can never block it; cpplint,
+# pylint and mypy read the staged paths' working-tree files. Each failing check prints what to do about it.
+echo "🔍 Pre-Commit Hook: Running the linter on the staged files (python3 -m tools.hooks.lint_code --git-staged)..."
+if ! python3 -m tools.hooks.lint_code --git-staged; then
+    echo "❌ Commit blocked: the findings above have no automatic fix. Fix them by hand (each check says how,"
+    echo "   and a justified exception is NOLINT(<check>): <reason> on its line), then stage and commit."
     exit 1
 fi
 

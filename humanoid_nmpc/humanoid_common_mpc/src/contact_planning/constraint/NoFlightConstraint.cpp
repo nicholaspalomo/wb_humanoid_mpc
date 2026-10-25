@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -26,17 +30,30 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/constraint/NoFlightConstraint.h"
 
 #include <cmath>
+#include <string>
+
+#include "humanoid_common_mpc/common/BipedFeet.h"
 
 namespace ocs2::humanoid {
 
-static_assert(N_CONTACTS == 2, "the no-flight row is written for a biped");
+namespace {
+// The upper bound of the contact flags' sum c_L + c_R: every foot in contact.
+constexpr scalar_t kMaxContactFlagSum = static_cast<scalar_t>(kBipedFootCount);
+}  // namespace
+
+static_assert(kNumContacts == kBipedFootCount,
+              "the no-flight row is written for a biped");
 
 std::string NoFlightConstraint::describe() const {
   return "1 <= c_L + c_R <= 2 on the running nodes";
 }
 
-void NoFlightConstraint::addRows(const ContactPlanningContext& /*ctx*/, int /*node*/, RowBuilder& rows) const {
-  rows.addHard({}, {{idx_.contact[0], 1.0}, {idx_.contact[1], 1.0}}, /*lower=*/1.0, /*upper=*/2.0);
+void NoFlightConstraint::addRows(const ContactPlanningContext& /*ctx*/,
+                                 int /*node*/,
+                                 RowBuilder& rows) const {
+  rows.addHard(/*xCoefficients=*/{},
+               {{idx_.contact[0], 1.0}, {idx_.contact[1], 1.0}}, /*lower=*/1.0,
+               /*upper=*/kMaxContactFlagSum);
 }
 
 }  // namespace ocs2::humanoid

@@ -30,24 +30,65 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_wb_mpc/constraint/ZeroAccelerationConstraintCppAd.h"
 
+#include <memory>
+#include <utility>
+
+#include "absl/memory/memory.h"
+#include "absl/status/statusor.h"
+#include "ocs2_core/Dimensions.h"
+#include "ocs2_core/misc/Numerics.h"
+
+#include "humanoid_common_mpc/common/StatusMacros.h"
+
 namespace ocs2::humanoid {
+
+namespace {
+
+// The rows of the stance constraint g = [p; e]
+// (stanceFootAccelerationConstraintConfig()), kNumConstraints of them: the
+// position p, whose z row holds the foot's height, then the orientation error
+// e.
+constexpr Eigen::Index kHeightRow = kZAxisIndex;
+constexpr int kOrientationErrorRowStart = kPositionDim;
+
+}  // namespace
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-ZeroAccelerationConstraintCppAd::ZeroAccelerationConstraintCppAd(const SwitchedModelReferenceManager& referenceManager,
-                                                                 const EndEffectorDynamics<scalar_t>& endEffectorDynamics,
-                                                                 size_t contactPointIndex,
-                                                                 EndEffectorDynamicsAccelerationsConstraint::Config config)
+absl::StatusOr<std::unique_ptr<ZeroAccelerationConstraintCppAd>>
+ZeroAccelerationConstraintCppAd::Create(
+    const SwitchedModelReferenceManager& referenceManager,
+    const EndEffectorDynamics<scalar_t>& endEffectorDynamics,
+    size_t contactPointIndex,
+    EndEffectorDynamicsAccelerationsConstraint::Config config) {
+  ASSIGN_OR_RETURN(
+      std::unique_ptr<EndEffectorDynamicsAccelerationsConstraint>
+          eeAccelConstraint,
+      EndEffectorDynamicsAccelerationsConstraint::Create(
+          endEffectorDynamics, kNumConstraints, std::move(config)));
+  return absl::WrapUnique(new ZeroAccelerationConstraintCppAd(
+      referenceManager, std::move(eeAccelConstraint), contactPointIndex));
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+ZeroAccelerationConstraintCppAd::ZeroAccelerationConstraintCppAd(
+    const SwitchedModelReferenceManager& referenceManager,
+    std::unique_ptr<EndEffectorDynamicsAccelerationsConstraint>
+        eeAccelConstraint,
+    size_t contactPointIndex)
     : StateInputConstraint(ConstraintOrder::Linear),
       referenceManagerPtr_(&referenceManager),
-      eeAccelConstraintPtr_(new EndEffectorDynamicsAccelerationsConstraint(endEffectorDynamics, /*numConstraints=*/6, std::move(config))),
+      eeAccelConstraintPtr_(std::move(eeAccelConstraint)),
       contactPointIndex_(contactPointIndex) {}
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-ZeroAccelerationConstraintCppAd::ZeroAccelerationConstraintCppAd(const ZeroAccelerationConstraintCppAd& rhs)
+ZeroAccelerationConstraintCppAd::ZeroAccelerationConstraintCppAd(
+    const ZeroAccelerationConstraintCppAd& rhs)
     : StateInputConstraint(rhs),
       referenceManagerPtr_(rhs.referenceManagerPtr_),
       eeAccelConstraintPtr_(rhs.eeAccelConstraintPtr_->clone()),
@@ -63,21 +104,86 @@ bool ZeroAccelerationConstraintCppAd::isActive(scalar_t time) const {
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-vector_t ZeroAccelerationConstraintCppAd::getValue(scalar_t time,
-                                                   const vector_t& state,
-                                                   const vector_t& input,
-                                                   const PreComputation& preComp) const {
-  return eeAccelConstraintPtr_->getValue(time, state, input, preComp);
+scalar_t ZeroAccelerationConstraintCppAd::groundTerm(scalar_t time) const {
+  const matrix_t& positionGains = eeAccelConstraintPtr_->getConfig().Ax;
+  if (positionGains.rows() <= kHeightRow || positionGains.cols() <= kHeightRow)
+    return 0.0;
+  return positionGains(kHeightRow, kHeightRow) *
+         referenceManagerPtr_->getSwingTrajectoryPlanner()
+             ->getZpositionConstraint(contactPointIndex_, time);
 }
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-VectorFunctionLinearApproximation ZeroAccelerationConstraintCppAd::getLinearApproximation(scalar_t time,
-                                                                                          const vector_t& state,
-                                                                                          const vector_t& input,
-                                                                                          const PreComputation& preComp) const {
-  return eeAccelConstraintPtr_->getLinearApproximation(time, state, input, preComp);
+vector_t ZeroAccelerationConstraintCppAd::getValue(
+    scalar_t time,
+    const vector_t& state,
+    const vector_t& input,
+    const PreComputation& preComp) const {
+  vector_t value = eeAccelConstraintPtr_->getValue(time, state, input, preComp);
+  value(kHeightRow) -= groundTerm(time);
+  return value;
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+VectorFunctionLinearApproximation
+ZeroAccelerationConstraintCppAd::getLinearApproximation(
+    scalar_t time,
+    const vector_t& state,
+    const vector_t& input,
+    const PreComputation& preComp) const {
+  VectorFunctionLinearApproximation linearization =
+      eeAccelConstraintPtr_->getLinearApproximation(time, state, input,
+                                                    preComp);
+  linearization.f(kHeightRow) -= groundTerm(time);
+  return linearization;
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+EndEffectorDynamicsAccelerationsConstraint::Config
+stanceFootAccelerationConstraintConfig(
+    const ModelSettings::FootConstraintConfig& gains) {
+  EndEffectorDynamicsAccelerationsConstraint::Config config;
+  config.b.setZero(ZeroAccelerationConstraintCppAd::kNumConstraints);
+  config.Ax.setZero(ZeroAccelerationConstraintCppAd::kNumConstraints,
+                    ZeroAccelerationConstraintCppAd::kNumConstraints);
+  config.Av.setIdentity(ZeroAccelerationConstraintCppAd::kNumConstraints,
+                        ZeroAccelerationConstraintCppAd::kNumConstraints);
+  config.Aa.setIdentity(ZeroAccelerationConstraintCppAd::kNumConstraints,
+                        ZeroAccelerationConstraintCppAd::kNumConstraints);
+  if (!numerics::almost_eq(gains.positionErrorGain_z, /*y=*/0.0)) {
+    config.Ax(kHeightRow, kHeightRow) = gains.positionErrorGain_z;
+  }
+  if (!numerics::almost_eq(gains.orientationErrorGain, /*y=*/0.0)) {
+    config.Ax.block(kOrientationErrorRowStart, kOrientationErrorRowStart,
+                    kRotationTangentDim, kRotationTangentDim) =
+        Eigen::MatrixXd::Identity(kRotationTangentDim, kRotationTangentDim) *
+        gains.orientationErrorGain;
+  }
+  config.Av.block(0, 0, kHorizontalPositionDim, kHorizontalPositionDim) =
+      Eigen::MatrixXd::Identity(kHorizontalPositionDim,
+                                kHorizontalPositionDim) *
+      gains.linearVelocityErrorGain_xy;
+  config.Av(kHeightRow, kHeightRow) = gains.linearVelocityErrorGain_z;
+  config.Av.block(kOrientationErrorRowStart, kOrientationErrorRowStart,
+                  kRotationTangentDim, kRotationTangentDim) =
+      Eigen::MatrixXd::Identity(kRotationTangentDim, kRotationTangentDim) *
+      gains.angularVelocityErrorGain;
+  config.Aa.block(0, 0, kHorizontalPositionDim, kHorizontalPositionDim) =
+      Eigen::MatrixXd::Identity(kHorizontalPositionDim,
+                                kHorizontalPositionDim) *
+      gains.linearAccelerationErrorGain_xy;
+  config.Aa(kHeightRow, kHeightRow) = gains.linearAccelerationErrorGain_z;
+  config.Aa.block(kOrientationErrorRowStart, kOrientationErrorRowStart,
+                  kRotationTangentDim, kRotationTangentDim) =
+      Eigen::MatrixXd::Identity(kRotationTangentDim, kRotationTangentDim) *
+      gains.angularAccelerationErrorGain;
+  return config;
 }
 
 }  // namespace ocs2::humanoid

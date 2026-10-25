@@ -1,0 +1,75 @@
+# proto-file: humanoid_nmpc/humanoid_mpc_config/reference_file.proto
+# proto-message: humanoid_mpc_config.ReferenceFile
+target_displacement_velocity: 0.5
+target_rotation_velocity: 0.5
+
+max_displacement_velocity_x: 1.2
+# Sideways travel is bounded by geometry, not by the leg: with an alternating gait each foot must move v_y * T_stride
+# per stride, so the foot separation swings through exactly that excursion, and contact_planning.textproto's width bounds
+# confine it to max_step_width - min_step_width = 0.45 - 0.15 = 0.30 m. The gait tracks a sidestep exactly only up to
+# 2 * (nominal step width - min_step_width) / T_stride = 2 * (0.25 - 0.15) / T_stride before the narrow step hits the
+# self-collision bound: 0.33 m/s under the shipped planner.type hlip, whose stride is 2 * (hlip.ssp_duration +
+# hlip.dsp_duration) = 0.6 s (ContactPlanningConfig::warnings() checks the same bound against
+# hlip.blend.max_commanded_velocity_y), and 0.40 m/s under lip_miqp at its 0.5 s stride floor, 2 * min_swing_duration.
+# Above that the planner under-tracks rather than violating the bound, and nothing feeds the shortfall back to the
+# whole-body MPC, whose CoM reference keeps following the raw command - the body then walks out from over the feet.
+# 0.25 m/s stays inside both. It was set when min_swing_duration was 0.4 s: that 0.8 s stride floor tracked exactly only
+# up to 0.25 m/s and delivered at most 0.30 / 0.8 = 0.375 m/s, and the 0.8 m/s the stick allowed before - more than
+# twice that - is what produced the sideways falls.
+# The forward axis needs no such cap: its budget is 2 * max_step_length / T_stride, far above the 1.2 stick.
+# LINT.IfChange(lateral_velocity_limit)
+max_displacement_velocity_y: 0.25
+# LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/contact_planning.textproto:atlas_hlip_step_bounds)
+max_delta_pelvis_height: 0.4
+max_rotation_velocity: 1.0
+# Acceleration limits of the velocity reference the MPC target and the contact planner follow (0 = off, an unramped
+# reference). A stick jump becomes a ramp, so the planner lengthens the steps progressively instead of answering a step
+# change in the command with short quick steps.
+max_linear_acceleration: 1.0  # [m/s^2] 0 to 1.6 m/s in 1.6 s, about two strides
+max_angular_acceleration: 2.0  # [rad/s^2]
+# First-order low-pass filter on the operator's velocity command, run on the solver time ahead of the acceleration
+# ramps: break frequency f_c [Hz], time constant 1 / (2 pi f_c). 0 switches it off and the command passes through
+# unchanged, which is what every robot has effectively run so far: the "5 Hz" filter this key replaces never updated
+# its state and scaled the command by t / (t + 0.032 s), t the wall-clock time since start-up - within 3% of the
+# identity after a second. A filter lags every command, a stop included, by about its time constant: try e.g. 2.0
+# (80 ms) in simulation before a robot. Reloaded with the limits above while the controller runs.
+velocity_command_filter_break_frequency: 0.0  # [Hz] command low-pass filter, 0 = off
+target_joint_state_interpolation_time_constant: 2.0
+
+default_base_height: 0.8952
+default_joint_state { joint: "back_bkz" value: 0.0 }
+default_joint_state { joint: "back_bky" value: 0.0 }
+default_joint_state { joint: "back_bkx" value: 0.0 }
+default_joint_state { joint: "l_arm_shz" value: 0.3 }
+default_joint_state { joint: "l_arm_shx" value: -1.2 }
+default_joint_state { joint: "l_arm_ely" value: 2.2 }
+default_joint_state { joint: "l_arm_elx" value: 0.55 }
+default_joint_state { joint: "neck_ry" value: 0.0 }
+default_joint_state { joint: "r_arm_shz" value: -0.3 }
+default_joint_state { joint: "r_arm_shx" value: 1.2 }
+default_joint_state { joint: "r_arm_ely" value: 2.2 }
+default_joint_state { joint: "r_arm_elx" value: -0.55 }
+default_joint_state { joint: "l_leg_hpz" value: 0.0 }
+default_joint_state { joint: "l_leg_hpx" value: 0.0 }
+default_joint_state { joint: "l_leg_hpy" value: -0.42 }
+default_joint_state { joint: "l_leg_kny" value: 0.84 }
+default_joint_state { joint: "l_leg_aky" value: -0.42 }
+default_joint_state { joint: "l_leg_akx" value: 0.0 }
+default_joint_state { joint: "r_leg_hpz" value: 0.0 }
+default_joint_state { joint: "r_leg_hpx" value: 0.0 }
+default_joint_state { joint: "r_leg_hpy" value: -0.42 }
+default_joint_state { joint: "r_leg_kny" value: 0.84 }
+default_joint_state { joint: "r_leg_aky" value: -0.42 }
+default_joint_state { joint: "r_leg_akx" value: 0.0 }
+
+initial_mode_schedule {
+  mode_sequence: "STANCE"
+  mode_sequence: "STANCE"
+  event_times: 0.5
+}
+
+default_mode_sequence_template {
+  mode_sequence: "STANCE"
+  switching_times: 0.0
+  switching_times: 0.5
+}

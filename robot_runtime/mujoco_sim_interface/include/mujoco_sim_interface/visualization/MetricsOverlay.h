@@ -29,16 +29,30 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <string>
+
+#include "mujoco_sim_interface/MujocoUtils.h"
 #include "mujoco_sim_interface/visualization/MujocoVisualization.h"
 
 namespace robot::mujoco_sim_interface {
 
-/** Text in the top-left corner: render and simulation FPS, real and simulated time, real-time factor and drift. */
+/** Text in the top-left corner: render and simulation FPS, real and simulated
+ * time, real-time factor and drift. Not thread-safe: the viewer drives it from
+ * one thread. */
 class MetricsOverlay final : public MujocoVisualization {
  public:
   std::string name() const override { return "metrics"; }
-  std::string description() const override { return "render/sim FPS, real-time factor and drift (top-left text)"; }
+  std::string description() const override {
+    return "render/sim FPS, real-time factor and drift (top-left text)";
+  }
   void renderOverlay(const VisualizationFrame& frame) override;
+
+  /** The text drawn: the two rates as integers, then both clocks [s], the
+   * real-time factor and the drift [ms]. */
+  static std::string text(const Metrics& metrics,
+                          double renderFps,
+                          double elapsedRealTime,
+                          double simTime);
 };
 
 }  // namespace robot::mujoco_sim_interface

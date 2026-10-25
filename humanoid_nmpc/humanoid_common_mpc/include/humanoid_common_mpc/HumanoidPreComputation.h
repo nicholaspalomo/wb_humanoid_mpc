@@ -32,70 +32,92 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <memory>
 #include <string>
+#include <vector>
 
-#include <ocs2_core/PreComputation.h>
-#include <ocs2_pinocchio_interface/PinocchioInterface.h>
-
-#include "humanoid_common_mpc/constraint/EndEffectorKinematicsLinearVelConstraint.h"
-
-#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
+#include "absl/base/nullability.h"
+#include "ocs2_core/PreComputation.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
+#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
+#include "humanoid_common_mpc/constraint/EndEffectorKinematicsLinearVelConstraint.h"
 #include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
 
 namespace ocs2::humanoid {
 
-/** Callback for caching and reference update */
+/**
+ * Callback for caching and reference update
+ *
+ * Not thread-safe: request() updates its Pinocchio data and the cached
+ * references; each solver worker thread owns its own clone().
+ */
 class HumanoidPreComputation : public PreComputation {
  public:
   HumanoidPreComputation(PinocchioInterface pinocchioInterface,
                          const SwingTrajectoryPlanner& swingTrajectoryPlanner,
                          const MpcRobotModelBase<scalar_t>& mpcRobotModel);
-  virtual ~HumanoidPreComputation() override = default;
+  ~HumanoidPreComputation() override = default;
+  HumanoidPreComputation& operator=(const HumanoidPreComputation&) = delete;
+  HumanoidPreComputation(HumanoidPreComputation&&) = delete;
+  HumanoidPreComputation& operator=(HumanoidPreComputation&&) = delete;
 
-  virtual HumanoidPreComputation* clone() const override;
+  HumanoidPreComputation* absl_nonnull clone() const override;
 
-  virtual void request(RequestSet request, scalar_t t, const vector_t& x, const vector_t& u) override;
-  const matrix3_t& getRWorldToContacts(size_t contactIndex) const { return R_world_to_contacts_[contactIndex]; }
+  void request(RequestSet request,
+               scalar_t t,
+               const vector_t& x,
+               const vector_t& u) override;
 
-  const std::vector<EndEffectorKinematicsLinearVelConstraint::Config>& getEeNormalVelocityConstraintConfigs() const {
+  const std::vector<EndEffectorKinematicsLinearVelConstraint::Config>&
+  getEeNormalVelocityConstraintConfigs() const {
     return eeNormalVelConConfigs_;
   }
-  scalar_t getFootReferenceHeight(size_t contactIndex) const { return footHeightReferences_[contactIndex]; }
+  scalar_t getFootReferenceHeight(size_t contactIndex) const {
+    return footHeightReferences_[contactIndex];
+  }
 
   /**
    * Retunes the proportional gain on the swing foot's height error, live.
    *
-   * The normal-velocity term's residual is `v_z - zdot_ref + k (z - z_ref)`, so this `k` sets how hard the swing foot
-   * is pulled back onto its height profile - and because it enters the residual linearly it enters the curvature
-   * SQUARED. It is the strongest single knob on swing-foot tracking, and under the contact-implicit formulation it is
-   * the only one that reaches the term at all, `zero_velocity` not being built.
+   * The normal-velocity term's residual is `v_z - zdot_ref + k (z - z_ref)`, so
+   * this `k` sets how hard the swing foot is pulled back onto its height
+   * profile - and because it enters the residual linearly it enters the
+   * curvature SQUARED. It is the strongest single knob on swing-foot tracking,
+   * and under the contact-implicit formulation it is the only one that reaches
+   * the term at all, `zero_velocity` not being built.
    *
-   * It lives here rather than being read from ModelSettings on every request because ModelSettings is shared by every
-   * worker thread's copy of the problem, whereas each thread owns its own PreComputation. Writing it here is how the
-   * parameter updater retunes the gain without a data race, and without it the task-file key silently did nothing
-   * until the next launch.
+   * It lives here rather than being read from ModelSettings on every request
+   * because ModelSettings is shared by every worker thread's copy of the
+   * problem, whereas each thread owns its own PreComputation. Writing it here
+   * is how the parameter updater retunes the gain without a data race, and
+   * without it the task-file key silently did nothing until the next launch.
    */
-  void setNormalVelocityPositionErrorGain(scalar_t gain) { positionErrorGainZ_ = gain; }
-  scalar_t getNormalVelocityPositionErrorGain() const { return positionErrorGainZ_; }
+  void setNormalVelocityPositionErrorGain(scalar_t gain) {
+    positionErrorGainZ_ = gain;
+  }
+  scalar_t getNormalVelocityPositionErrorGain() const {
+    return positionErrorGainZ_;
+  }
 
   PinocchioInterface& getPinocchioInterface() { return pinocchioInterface_; }
-  const PinocchioInterface& getPinocchioInterface() const { return pinocchioInterface_; }
+  const PinocchioInterface& getPinocchioInterface() const {
+    return pinocchioInterface_;
+  }
 
  protected:
   HumanoidPreComputation(const HumanoidPreComputation& rhs);
 
-  void updatePinocchioModelKinematics(const vector_t& generalizedCoordinates);
+  void updatePinocchioModelKinematics(const vector_t& q);
 
   PinocchioInterface pinocchioInterface_;
-  const SwingTrajectoryPlanner* swingTrajectoryPlannerPtr_;
-  const MpcRobotModelBase<scalar_t>* mpcRobotModelPtr_;
+  const SwingTrajectoryPlanner* absl_nonnull swingTrajectoryPlannerPtr_;
+  const MpcRobotModelBase<scalar_t>* absl_nonnull mpcRobotModelPtr_;
 
-  std::vector<matrix3_t> R_world_to_contacts_;
-
-  std::vector<EndEffectorKinematicsLinearVelConstraint::Config> eeNormalVelConConfigs_;
+  std::vector<EndEffectorKinematicsLinearVelConstraint::Config>
+      eeNormalVelConConfigs_;
   std::vector<scalar_t> footHeightReferences_;
-  /** Seeded from ModelSettings at construction; see setNormalVelocityPositionErrorGain. */
+  /** Seeded from ModelSettings at construction; see
+   * setNormalVelocityPositionErrorGain. */
   scalar_t positionErrorGainZ_;
 };
 

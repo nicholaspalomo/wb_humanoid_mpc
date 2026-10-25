@@ -1,0 +1,27 @@
+edition = "2023";
+
+package humanoid_mpc_config;
+
+import "humanoid_mpc_config/config_options.proto";
+import "nproto/options.proto";
+
+// A mode schedule: the modes in order and the times it switches from one to the next. The reference file's
+// initial_mode_schedule, which the gait schedule starts from; GaitFromConfig
+// (humanoid_common_mpc/config/reference/GaitFromConfig.h) turns it into a ModeSchedule:
+//
+//   initial_mode_schedule {
+//     mode_sequence: "STANCE"
+//     mode_sequence: "STANCE"
+//     event_times: 0.5
+//   }
+// Next ID: 3
+message ModeScheduleConfig {
+  option (nproto.generate_struct) = "ocs2::humanoid::mpc_config::ModeScheduleConfig";
+
+  reserved 3 to max;
+
+  // The modes in order, at least one, named as in a gait (ModeSequenceTemplateConfig.mode_sequence).
+  repeated string mode_sequence = 1;
+  // [s] The times the schedule switches from a mode to the next: one fewer than there are modes, each finite.
+  repeated double event_times = 2 [(humanoid_mpc_config.tuning) = { unit: "s" }];
+}

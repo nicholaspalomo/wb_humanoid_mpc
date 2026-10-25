@@ -1,0 +1,37 @@
+syntax = "proto3";
+
+package humanoid_mpc_msgs;
+
+import "humanoid_mpc_msgs/vector3.proto";
+import "nproto/options.proto";
+
+// Topic operator/dodgeball_throw: a ball the GUI's Dodgeball tab throws at the simulated robot
+// (remote_control/tk_app/dodgeball.py). It carries both what the operator set and what the tab derived from it; the
+// simulator acts on the spawn offset, the launch velocity, the flight time and the mass, which a throw must carry, and
+// the rest is there for whoever watches the topic. The golden payload is
+// humanoid_common_mpc_app/robot/test/data/dodgeball_throw.textproto.
+// Next ID: 11
+message DodgeballThrow {
+  option (nproto.generate_struct) = "ocs2::humanoid::msgs::DodgeballThrow";
+
+  reserved 11 to max;
+
+  // What the operator set: where the ball starts [deg] (its azimuth about the vertical in the robot's yaw frame and its
+  // elevation out of the horizontal plane), its distance from the base [m] and its speed [m/s].
+  double azimuth_deg = 1;
+  double elevation_deg = 2;
+  double distance = 3;
+  double speed = 4;
+  // [kg] The ball's mass; required, and positive.
+  optional double mass = 5;
+  // [m] Where the ball starts, from the base, in the base's yaw frame; required.
+  optional Vector3 spawn_offset = 6;
+  // [m/s] The ball's launch velocity, in the base's yaw frame; required.
+  optional Vector3 launch_velocity = 7;
+  // [s] Until the ball reaches the base; required, and not negative.
+  optional double flight_time = 8;
+  // Documentation only: the launch speed [m/s], which exceeds `speed` when that was too slow to reach the base, and
+  // the momentum the ball arrives with [kg m/s].
+  double launch_speed = 9;
+  double impact_momentum = 10;
+}

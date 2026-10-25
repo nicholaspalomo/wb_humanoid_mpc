@@ -32,7 +32,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ocs2_core/Types.h>
 #include <ocs2_core/model_data/Metrics.h>
 #include <ocs2_core/model_data/ModelData.h>
-#include <ocs2_core/model_data/Multiplier.h>
 
 #include <ocs2_oc/oc_problem/OptimalControlProblem.h>
 
@@ -45,11 +44,10 @@ namespace ocs2 {
  * @param [in] time: The current time.
  * @param [in] state: The current state.
  * @param [in] input: The current input.
- * @param [in] multipliers: The current multipliers associated to the equality and inequality Lagrangians.
  * @param [out] modelData: The output data model.
  */
 void approximateIntermediateLQ(OptimalControlProblem& problem, const scalar_t time, const vector_t& state, const vector_t& input,
-                               const MultiplierCollection& multipliers, ModelData& modelData);
+                               ModelData& modelData);
 
 /**
  * Calculates an LQ approximate of the constrained optimal control problem at a given time, state, and input.
@@ -58,41 +56,12 @@ void approximateIntermediateLQ(OptimalControlProblem& problem, const scalar_t ti
  * @param [in] time: The current time.
  * @param [in] state: The current state.
  * @param [in] input: The current input.
- * @param [in] multipliers: The current multipliers associated to the equality and inequality Lagrangians.
  * @return The output data model.
  */
 inline ModelData approximateIntermediateLQ(OptimalControlProblem& problem, const scalar_t time, const vector_t& state,
-                                           const vector_t& input, const MultiplierCollection& multipliers) {
+                                           const vector_t& input) {
   ModelData md;
-  approximateIntermediateLQ(problem, time, state, input, multipliers, md);
-  return md;
-}
-
-/**
- * Calculates an LQ approximate of the constrained optimal control problem at a jump event time.
- *
- * @param [in] problem: The optimal control problem
- * @param [in] time: The current time.
- * @param [in] state: The current state.
- * @param [in] multipliers: The current multipliers associated to the equality and inequality Lagrangians.
- * @param [out] modelData: The output data model.
- */
-void approximatePreJumpLQ(OptimalControlProblem& problem, const scalar_t& time, const vector_t& state,
-                          const MultiplierCollection& multipliers, ModelData& modelData);
-
-/**
- * Calculates an LQ approximate of the constrained optimal control problem at a jump event time.
- *
- * @param [in] problem: The optimal control problem
- * @param [in] time: The current time.
- * @param [in] state: The current state.
- * @param [in] multipliers: The current multipliers associated to the equality and inequality Lagrangians.
- * @return The output data model.
- */
-inline ModelData approximatePreJumpLQ(OptimalControlProblem& problem, const scalar_t& time, const vector_t& state,
-                                      const MultiplierCollection& multipliers) {
-  ModelData md;
-  approximatePreJumpLQ(problem, time, state, multipliers, md);
+  approximateIntermediateLQ(problem, time, state, input, md);
   return md;
 }
 
@@ -102,11 +71,9 @@ inline ModelData approximatePreJumpLQ(OptimalControlProblem& problem, const scal
  * @param [in] problem: The optimal control problem
  * @param [in] time: The current time.
  * @param [in] state: The current state.
- * @param [in] multipliers: The current multipliers associated to the equality and inequality Lagrangians.
  * @param [out] modelData: The output data model.
  */
-void approximateFinalLQ(OptimalControlProblem& problem, const scalar_t& time, const vector_t& state,
-                        const MultiplierCollection& multipliers, ModelData& modelData);
+void approximateFinalLQ(OptimalControlProblem& problem, const scalar_t& time, const vector_t& state, ModelData& modelData);
 
 /**
  * Calculates an LQ approximate of the constrained optimal control problem at final time.
@@ -114,13 +81,11 @@ void approximateFinalLQ(OptimalControlProblem& problem, const scalar_t& time, co
  * @param [in] problem: The optimal control problem
  * @param [in] time: The current time.
  * @param [in] state: The current state.
- * @param [in] multipliers: The current multipliers associated to the equality and inequality Lagrangians.
  * @return The output data model.
  */
-inline ModelData approximateFinalLQ(OptimalControlProblem& problem, const scalar_t& time, const vector_t& state,
-                                    const MultiplierCollection& multipliers) {
+inline ModelData approximateFinalLQ(OptimalControlProblem& problem, const scalar_t& time, const vector_t& state) {
   ModelData md;
-  approximateFinalLQ(problem, time, state, multipliers, md);
+  approximateFinalLQ(problem, time, state, md);
   return md;
 }
 
@@ -177,23 +142,6 @@ Metrics computeIntermediateMetrics(OptimalControlProblem& problem, const scalar_
                                    vector_t&& dynamicsViolation = vector_t());
 
 /**
- * Compute the intermediate-time Metrics (i.e. cost, softConstraints, and constraints).
- *
- * @note It is assumed that the precomputation request is already made.
- * problem.preComputationPtr->request(Request::Cost + Request::Constraint + Request::SoftConstraint, t, x, u)
- *
- * @param [in] problem: The optimal control probelm
- * @param [in] time: The current time.
- * @param [in] state: The current state.
- * @param [in] input: The current input.
- * @param [in] multipliers: The current multipliers associated to the equality and inequality Lagrangians.
- * @param [in] dynamicsViolation: The violation of dynamics. It depends on the transcription method.
- * @return The output Metrics.
- */
-Metrics computeIntermediateMetrics(OptimalControlProblem& problem, const scalar_t time, const vector_t& state, const vector_t& input,
-                                   const MultiplierCollection& multipliers, vector_t&& dynamicsViolation = vector_t());
-
-/**
  * Compute the event-time Metrics based on pre-jump state value (i.e. cost, softConstraints, and constraints).
  *
  * @note It is assumed that the precomputation request is already made.
@@ -209,22 +157,6 @@ Metrics computePreJumpMetrics(OptimalControlProblem& problem, const scalar_t tim
                               vector_t&& dynamicsViolation = vector_t());
 
 /**
- * Compute the event-time Metrics based on pre-jump state value (i.e. cost, softConstraints, and constraints).
- *
- * @note It is assumed that the precomputation request is already made.
- * problem.preComputationPtr->requestPreJump(Request::Cost + Request::Constraint + Request::SoftConstraint, t, x)
- *
- * @param [in] problem: The optimal control probelm
- * @param [in] time: The current time.
- * @param [in] state: The current state.
- * @param [in] multipliers: The current multipliers associated to the equality and inequality Lagrangians.
- * @param [in] dynamicsViolation: The violation of dynamics. It depends on the transcription method.
- * @return The output Metrics.
- */
-Metrics computePreJumpMetrics(OptimalControlProblem& problem, const scalar_t time, const vector_t& state,
-                              const MultiplierCollection& multipliers, vector_t&& dynamicsViolation = vector_t());
-
-/**
  * Compute the final-time Metrics (i.e. cost, softConstraints, and constraints).
  *
  * @note It is assumed that the precomputation request is already made.
@@ -236,20 +168,5 @@ Metrics computePreJumpMetrics(OptimalControlProblem& problem, const scalar_t tim
  * @return The output Metrics.
  */
 Metrics computeFinalMetrics(OptimalControlProblem& problem, const scalar_t time, const vector_t& state);
-
-/**
- * Compute the final-time Metrics (i.e. cost, softConstraints, and constraints).
- *
- * @note It is assumed that the precomputation request is already made.
- * problem.preComputationPtr->requestFinal(Request::Cost + Request::Constraint + Request::SoftConstraint, t, x)
- *
- * @param [in] problem: The optimal control probelm
- * @param [in] time: The current time.
- * @param [in] state: The current state.
- * @param [in] multipliers: The current multipliers associated to the equality and inequality Lagrangians.
- * @return The output Metrics.
- */
-Metrics computeFinalMetrics(OptimalControlProblem& problem, const scalar_t time, const vector_t& state,
-                            const MultiplierCollection& multipliers);
 
 }  // namespace ocs2

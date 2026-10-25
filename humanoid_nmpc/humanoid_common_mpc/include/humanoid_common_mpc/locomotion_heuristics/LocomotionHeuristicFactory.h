@@ -42,18 +42,28 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * Turns a canonical heuristic name into an instance of the class that implements it.
+ * Turns a canonical heuristic name into an instance of the class that
+ * implements it.
  *
- * The single place a new heuristic is added: one line here, one name in knownHeuristicNames(), one parameter struct in
- * LocomotionHeuristicConfig, and one block in each robot's task.yaml. The four are tied together by the
- * heuristic_factory / known_heuristic_names IFTTT directives so that adding the name without the line, or the line
- * without the block, is caught by the linter rather than at run time.
+ * The single place a new heuristic is added: one line here, one name in
+ * knownHeuristicNames(), one parameter struct in LocomotionHeuristicConfig, and
+ * one block in each robot's task.textproto. The four are tied together by the
+ * heuristic_factory / known_heuristic_names IFTTT directives so that adding the
+ * name without the line, or the line without the block, is caught by the linter
+ * rather than at run time.
+ *
+ * Stateless: its static functions are safe to call concurrently.
  */
 class LocomotionHeuristicFactory {
  public:
-  static absl::StatusOr<std::unique_ptr<BasePoseHeuristic>> makeBasePoseHeuristic(absl::string_view name);
-  static absl::StatusOr<std::unique_ptr<FootholdHeuristic>> makeFootholdHeuristic(absl::string_view name);
-  static absl::StatusOr<std::unique_ptr<WrenchHeuristic>> makeWrenchHeuristic(absl::string_view name);
+  LocomotionHeuristicFactory() = delete;
+
+  static absl::StatusOr<std::unique_ptr<BasePoseHeuristic>>
+  makeBasePoseHeuristic(absl::string_view name);
+  static absl::StatusOr<std::unique_ptr<FootholdHeuristic>>
+  makeFootholdHeuristic(absl::string_view name);
+  static absl::StatusOr<std::unique_ptr<WrenchHeuristic>> makeWrenchHeuristic(
+      absl::string_view name);
 };
 
 }  // namespace ocs2::humanoid

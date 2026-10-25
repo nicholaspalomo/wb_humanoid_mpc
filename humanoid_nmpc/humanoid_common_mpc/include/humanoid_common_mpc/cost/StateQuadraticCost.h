@@ -29,31 +29,65 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <ocs2_core/cost/QuadraticStateInputCost.h>
+#include <memory>
+
+#include "absl/base/nullability.h"
+#include "absl/status/statusor.h"
+#include "ocs2_core/PreComputation.h"
+#include "ocs2_core/reference/TargetTrajectories.h"
+
+#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
+#include "humanoid_common_mpc/cost/TuningQuadraticStateInputCost.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 
 namespace ocs2::humanoid {
 
 /**
- * @brief Quadratic state tracking cost: 0.5 * (x - x_nom)^T * Q * (x - x_nom)
+ * The quadratic state tracking cost (state_quadratic_cost), 1/2 r' Q r of the
+ * tuning-layout residual against the reference manager's getDesiredState(): a
+ * TuningQuadraticStateInputCost whose input weights are zero, so that the input
+ * cost stays input_quadratic_cost's.
+ *
+ * The reference manager and the robot model must outlive it. Like every OCS2
+ * term it is cloned for each solver thread; its const functions are safe to
+ * call concurrently, the weight setters are not.
  */
-class StateQuadraticCost final : public QuadraticStateInputCost {
+class StateQuadraticCost final : public TuningQuadraticStateInputCost {
  public:
-  StateQuadraticCost(matrix_t Q, size_t inputDim, const SwitchedModelReferenceManager& referenceManager);
+  /**
+   * The cost of `stateWeights` (Q, the tuning layout's: getStateTangentDim()
+   * square) on `mpcRobotModel`, retained with `referenceManager`, and zero
+   * input weights. InvalidArgument when Q is refused (setStateWeights()).
+   */
+  static absl::StatusOr<std::unique_ptr<StateQuadraticCost>> Create(
+      matrix_t stateWeights,
+      const SwitchedModelReferenceManager* absl_nonnull referenceManager,
+      const MpcRobotModelBase<scalar_t>* absl_nonnull mpcRobotModel);
 
   ~StateQuadraticCost() override = default;
-  StateQuadraticCost* clone() const override { return new StateQuadraticCost(*this); }
+  StateQuadraticCost& operator=(const StateQuadraticCost&) = delete;
+  StateQuadraticCost(StateQuadraticCost&&) = delete;
+  StateQuadraticCost& operator=(StateQuadraticCost&&) = delete;
+  StateQuadraticCost* absl_nonnull clone() const override {
+    return new StateQuadraticCost(*this);
+  }
 
  private:
-  StateQuadraticCost(const StateQuadraticCost& rhs);
+  StateQuadraticCost(
+      const SwitchedModelReferenceManager* absl_nonnull referenceManager,
+      const MpcRobotModelBase<scalar_t>* absl_nonnull mpcRobotModel);
+  StateQuadraticCost(const StateQuadraticCost& other) = default;
 
-  std::pair<vector_t, vector_t> getStateInputDeviation(scalar_t time,
-                                                       const vector_t& state,
-                                                       const vector_t& input,
-                                                       const TargetTrajectories& targetTrajectories) const override;
+  /** The reference manager's desired state, and `input` itself as the input
+   * reference: the input weighs nothing. */
+  StateInputReference getReference(
+      scalar_t time,
+      const vector_t& state,
+      const vector_t& input,
+      const TargetTrajectories& targetTrajectories,
+      const PreComputation& preComputation) const override;
 
-  const size_t inputDim_;
-  const SwitchedModelReferenceManager* referenceManagerPtr_;
+  const SwitchedModelReferenceManager* absl_nonnull referenceManagerPtr_;
 };
 
 }  // namespace ocs2::humanoid

@@ -29,6 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <ocs2_core/constraint/StateInputConstraintCollection.h>
 
+#include "absl/base/nullability.h"
+
 namespace ocs2 {
 
 /******************************************************************************************************/
@@ -40,7 +42,7 @@ StateInputConstraintCollection::StateInputConstraintCollection(const StateInputC
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-StateInputConstraintCollection* StateInputConstraintCollection::clone() const {
+StateInputConstraintCollection* absl_nonnull StateInputConstraintCollection::clone() const {
   return new StateInputConstraintCollection(*this);
 }
 

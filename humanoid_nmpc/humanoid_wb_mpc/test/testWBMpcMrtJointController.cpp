@@ -27,9 +27,7 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <pinocchio/fwd.hpp>  // forward declarations must be included first.
-
-#include <gtest/gtest.h>
+#include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
 #include <algorithm>
 #include <atomic>
@@ -37,38 +35,55 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
-#include <pinocchio/algorithm/center-of-mass.hpp>
-#include <pinocchio/algorithm/rnea.hpp>
-
-#include <ocs2_core/misc/LoadData.h>
-#include <ocs2_mpc/MPC_Settings.h>
-#include <ocs2_mpc_test/ScriptedMpc.h>
-#include <ocs2_robotic_tools/common/RotationTransforms.h>
-#include <robot_model/RobotDescription.h>
-#include <robot_model/RobotJointAction.h>
-#include <robot_model/RobotState.h>
-
+#include "Eigen/Core"
+#include "Eigen/Geometry"
+#include "absl/base/nullability.h"
 #include "absl/log/log.h"
+#include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/match.h"
 #include "absl/strings/string_view.h"
+#include "gtest/gtest.h"
+#include "ocs2_mpc/MPC_Settings.h"
+#include "ocs2_mpc_test/ScriptedMpc.h"
+#include "pinocchio/algorithm/center-of-mass.hpp"
+#include "pinocchio/algorithm/rnea.hpp"
 
+#include "humanoid_common_mpc/config/ConfigFiles.h"
+#include "humanoid_common_mpc/config/solver/SolverSettingsFromConfig.h"
+#include "humanoid_common_mpc/config/weights/StateInputLayout.h"
+#include "humanoid_common_mpc/config/weights/StateInputWeightsFromConfig.h"
+#include "humanoid_common_mpc/mrt/ControllerEvent.h"
+#include "humanoid_common_mpc/mrt/ControllerEventSink.h"
+#include "humanoid_common_mpc/mrt/InProcessMpcLink.h"
+#include "humanoid_common_mpc/mrt/SafetyDecay.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
 #include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
+#include "humanoid_mpc_config/task_file.nproto.h"
 #include "humanoid_wb_mpc/common/WBAccelMpcRobotModel.h"
 #include "humanoid_wb_mpc/dynamics/DynamicsHelperFunctions.h"
 #include "humanoid_wb_mpc/mrt/WBMpcMrtJointController.h"
+#include "robot_model/ContactEstimator.h"
+#include "robot_model/RobotDescription.h"
+#include "robot_model/RobotJointAction.h"
+#include "robot_model/RobotState.h"
 
 /*
- * The whole-body MRT joint controller's modes and reset contract, on the G1 whole-body model, around a scripted solver.
- * It had neither: the sim never handed it the FSM mode, so JOINT_PD, GRAVITY_COMP and SAFETY left the MPC driving a
- * robot caught on the gantry; a failed solve kept the previous solution and was retried at the solve rate for ever; and
- * its solver thread looped on `while (true)`, so the controller could not be destroyed at all.
+ * The whole-body MRT joint controller's modes and reset contract, on the G1
+ * whole-body model, around a scripted solver. It had neither: the sim never
+ * handed it the FSM mode, so JOINT_PD, GRAVITY_COMP and SAFETY left the MPC
+ * driving a robot caught on the gantry; a failed solve kept the previous
+ * solution and was retried at the solve rate for ever; and its solver thread
+ * looped on `while (true)`, so the controller could not be destroyed at all.
  */
 
 namespace ocs2::humanoid {
@@ -76,9 +91,23 @@ namespace {
 
 constexpr scalar_t kControlPeriod = 0.01;  // [s]
 
+/** The action of joint `index`, which every joint of the description holds: a
+ * test failure and a zero action if not. */
+const robot::model::JointAction& actionOf(
+    const robot::model::RobotJointAction& action, size_t index) {
+  const std::optional<robot::model::JointAction>& entry = action.at(index);
+  if (!entry.has_value()) {
+    ADD_FAILURE() << "no action for joint " << index;
+    static const robot::model::JointAction kNoAction;
+    return kNoAction;
+  }
+  return *entry;
+}
+
 std::string runfilePath(absl::string_view relativePath) {
   std::vector<std::filesystem::path> roots;
-  if (const char* srcDir = std::getenv("TEST_SRCDIR")) roots.emplace_back(std::filesystem::path(srcDir) / "_main");
+  if (const char* absl_nullable srcDir = std::getenv("TEST_SRCDIR"))
+    roots.emplace_back(std::filesystem::path(srcDir) / "_main");
   roots.emplace_back(std::filesystem::current_path());
   for (const std::filesystem::path& root : roots) {
     const std::filesystem::path candidate = root / std::string(relativePath);
@@ -87,52 +116,117 @@ std::string runfilePath(absl::string_view relativePath) {
   return std::string();
 }
 
-/** The G1 whole-body controller around a scripted solver, and the robot it controls. */
+/** The G1 whole-body controller around a scripted solver, and the robot it
+ * controls. */
 class WholeBodyHarness {
  public:
-  WholeBodyHarness()
-      : taskFile_(runfilePath("robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.yaml")),
-        urdfFile_(runfilePath("robot_models/unitree_g1/g1_description/urdf/g1_29dof.urdf")),
-        modelSettings_(taskFile_, urdfFile_, "wb_mpc_", /*verbose=*/false),
-        pinocchioInterface_(createCustomPinocchioInterface(taskFile_, urdfFile_, modelSettings_)),
+  /**
+   * With InProcessMpcLink::Execution::kCaller the controller's link starts no
+   * solver thread: the test runs its iterations (link().runSolverIteration()),
+   * as the lockstep closed loop of humanoid_mpc_validation does.
+   */
+  explicit WholeBodyHarness(InProcessMpcLink::Execution execution =
+                                InProcessMpcLink::Execution::kSolverThread)
+      : task_(loadTaskFile(runfilePath("robot_models/unitree_g1/g1_wb_mpc/"
+                                       "config/mpc/task.textproto"))
+                  .value()),
+        urdfFile_(runfilePath(
+            "robot_models/unitree_g1/g1_description/urdf/g1_29dof.urdf")),
+        modelSettings_(ModelSettings::Create(
+                           task_, urdfFile_, "wb_mpc_", /*verbose=*/false)
+                           .value()),
+        pinocchioInterface_(
+            loadCustomPinocchioInterface(task_, urdfFile_, modelSettings_)
+                .value()),
         model_(modelSettings_),
-        mpc_(mpc::loadSettings(taskFile_, "mpc", /*verbose=*/false), model_.getInputDim()),
-        description_(urdfFile_),
+        mpc_(*toMpcSettings(task_.mpc), model_.getInputDim()),
+        description_(robot::model::RobotDescription::Create(urdfFile_).value()),
         robotState_(description_),
-        action_(description_) {
-    initialState_ = vector_t::Zero(model_.getStateDim());
-    loadData::loadEigenMatrix(taskFile_, "initialState", initialState_);
-    mpcJointIndices_ = description_.getJointIndices(modelSettings_.mpcModelJointNames);
+        action_(description_),
+        initialState_(
+            model_
+                .stateFromTuning(
+                    stateValuesFromConfig(
+                        task_.initial_state,
+                        stateInputLayout(modelSettings_,
+                                         StateInputLayout::Mpc::kWholeBody),
+                        "initial_state")
+                        .value())
+                .value()) {
+    mpcJointIndices_ =
+        description_.getJointIndices(modelSettings_.mpcModelJointNames);
     setState(initialState_);
-    controller_ =
-        std::make_unique<WBMpcMrtJointController>(description_, modelSettings_, mpc_, pinocchioInterface_, /*mpcDesiredFrequency=*/1000.0);
+    absl::StatusOr<std::unique_ptr<WBMpcMrtJointController>> created =
+        absl::UnknownError("not created");
+    if (execution == InProcessMpcLink::Execution::kCaller) {
+      InProcessMpcLink::Config config;
+      config.execution = execution;
+      created = WBMpcMrtJointController::Create(
+          description_, modelSettings_,
+          InProcessMpcLink::factory(mpc_, std::move(config), &link_),
+          pinocchioInterface_,
+          runfilePath("robot_models/unitree_g1/g1_wb_mpc/config/controller/"
+                      "joint_pd_gains.textproto"));
+    } else {
+      created = WBMpcMrtJointController::Create(
+          description_, modelSettings_, mpc_,
+          /*solverObservationObserver=*/nullptr, pinocchioInterface_,
+          /*mpcDesiredFrequency=*/1000.0,
+          runfilePath("robot_models/unitree_g1/g1_wb_mpc/config/controller/"
+                      "joint_pd_gains.textproto"));
+    }
+    EXPECT_TRUE(created.ok()) << created.status();
+    if (created.ok()) controller_ = *std::move(created);
   }
 
-  ~WholeBodyHarness() { controller_.reset(); }
+  WholeBodyHarness(const WholeBodyHarness&) = delete;
+  WholeBodyHarness& operator=(const WholeBodyHarness&) = delete;
+  // The controller first: it was declared last, and its link reads the scripted
+  // MPC.
+  ~WholeBodyHarness() = default;
 
   WBMpcMrtJointController& controller() { return *controller_; }
-  std::unique_ptr<WBMpcMrtJointController>& controllerPtr() { return controller_; }
+  /** The controller's link, for a harness built with
+   * InProcessMpcLink::Execution::kCaller. */
+  InProcessMpcLink& link() { return *link_; }
+  std::unique_ptr<WBMpcMrtJointController>& controllerPtr() {
+    return controller_;
+  }
   mpc_test::ScriptedMpc& mpc() { return mpc_; }
   const WBAccelMpcRobotModel<scalar_t>& model() const { return model_; }
-  /// The dynamics helpers take a non-const model; the controller does not share this one.
+  /// The dynamics helpers take a non-const model; the controller does not share
+  /// this one.
   WBAccelMpcRobotModel<scalar_t>& mutableModel() { return model_; }
   const vector_t& initialState() const { return initialState_; }
-  const std::vector<size_t>& mpcJointIndices() const { return mpcJointIndices_; }
-  const robot::model::RobotDescription& description() const { return description_; }
-  const PinocchioInterface& pinocchioInterface() const { return pinocchioInterface_; }
+  const std::vector<size_t>& mpcJointIndices() const {
+    return mpcJointIndices_;
+  }
+  const robot::model::RobotDescription& description() const {
+    return description_;
+  }
+  const ModelSettings& modelSettings() const { return modelSettings_; }
+  const PinocchioInterface& pinocchioInterface() const {
+    return pinocchioInterface_;
+  }
+  /** The robot state every cycle() hands the controller, for a test to measure
+   * another robot than setState()'s. */
+  robot::model::RobotState& robotState() { return robotState_; }
   scalar_t time() const { return time_; }
 
   void setState(const vector_t& state) {
     robotState_.setConfigurationToZero();
     robotState_.setRootPositionInWorldFrame(model_.getBasePosition(state));
-    robotState_.setRootRotationLocalToWorldFrame(getQuaternionFromEulerAnglesZyx(vector3_t(model_.getBaseOrientationEulerZYX(state))));
+    robotState_.setRootRotationLocalToWorldFrame(
+        quaternion_t(model_.getBaseOrientation(state)));
     const vector_t joints = model_.getJointAngles(state);
-    for (size_t i = 0; i < mpcJointIndices_.size(); ++i) robotState_.setJointPosition(mpcJointIndices_[i], joints[i]);
+    for (size_t i = 0; i < mpcJointIndices_.size(); ++i)
+      robotState_.setJointPosition(mpcJointIndices_[i], joints[i]);
     robotState_.setContactFlag(/*index=*/0, /*contactFlag=*/true);
     robotState_.setContactFlag(/*index=*/1, /*contactFlag=*/true);
   }
 
-  /** The contact state the controller measures (its default estimator reads the robot state's flags). */
+  /** The contact state the controller measures (its default estimator reads the
+   * robot state's flags). */
   void setContactFlags(bool left, bool right) {
     robotState_.setContactFlag(/*index=*/0, /*contactFlag=*/left);
     robotState_.setContactFlag(/*index=*/1, /*contactFlag=*/right);
@@ -141,12 +235,22 @@ class WholeBodyHarness {
   void start() {
     robotState_.setTime(time_);
     controller_->startMpcThread(robotState_);
-    const std::chrono::steady_clock::time_point deadline = std::chrono::steady_clock::now() + std::chrono::seconds(20);
-    while (!controller_->ready() && std::chrono::steady_clock::now() < deadline) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    const std::chrono::steady_clock::time_point deadline =
+        std::chrono::steady_clock::now() + std::chrono::seconds(20);
+    while (!controller_->ready() && std::chrono::steady_clock::now() < deadline)
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
     ASSERT_TRUE(controller_->ready()) << "the solver thread produced no policy";
   }
 
-  const robot::model::RobotJointAction& cycle(std::chrono::microseconds pause = std::chrono::microseconds(500)) {
+  /** startMpcThread() at the current time on a caller's link: it serves the
+   * start-up reset and starts no thread. */
+  void startWithoutThread() {
+    robotState_.setTime(time_);
+    controller_->startMpcThread(robotState_);
+  }
+
+  const robot::model::RobotJointAction& cycle(
+      std::chrono::microseconds pause = std::chrono::microseconds(500)) {
     robotState_.setTime(time_);
     controller_->computeJointControlAction(time_, robotState_, action_);
     time_ += kControlPeriod;
@@ -154,7 +258,17 @@ class WholeBodyHarness {
     return action_;
   }
 
-  bool cycleUntil(const std::function<bool()>& done, int maxCycles, std::chrono::microseconds pause = std::chrono::microseconds(500)) {
+  /** cycle() at observation time `time`, which the cycles after it count on
+   * from; a time before the last one rewinds the clock. */
+  const robot::model::RobotJointAction& cycleAt(scalar_t time) {
+    time_ = time;
+    return cycle(std::chrono::microseconds(0));
+  }
+
+  bool cycleUntil(
+      const std::function<bool()>& done,
+      int maxCycles,
+      std::chrono::microseconds pause = std::chrono::microseconds(500)) {
     for (int k = 0; k < maxCycles; ++k) {
       if (done()) return true;
       cycle(pause);
@@ -162,19 +276,23 @@ class WholeBodyHarness {
     return done();
   }
 
-  scalar_t maxDifference(const robot::model::RobotJointAction& a, const robot::model::RobotJointAction& b) const {
+  scalar_t maxDifference(const robot::model::RobotJointAction& a,
+                         const robot::model::RobotJointAction& b) const {
     scalar_t difference = 0.0;
     for (size_t index : mpcJointIndices_) {
-      const robot::model::JointAction& x = a.at(index).value();
-      const robot::model::JointAction& y = b.at(index).value();
-      difference = std::max({difference, std::abs(x.q_des - y.q_des), std::abs(x.qd_des - y.qd_des), std::abs(x.kp - y.kp),
-                             std::abs(x.kd - y.kd), std::abs(x.feed_forward_effort - y.feed_forward_effort)});
+      const robot::model::JointAction& x = actionOf(a, index);
+      const robot::model::JointAction& y = actionOf(b, index);
+      difference =
+          std::max({difference, std::abs(x.q_des - y.q_des),
+                    std::abs(x.qd_des - y.qd_des), std::abs(x.kp - y.kp),
+                    std::abs(x.kd - y.kd),
+                    std::abs(x.feed_forward_effort - y.feed_forward_effort)});
     }
     return difference;
   }
 
  private:
-  std::string taskFile_;
+  mpc_config::TaskFile task_;
   std::string urdfFile_;
   ModelSettings modelSettings_;
   PinocchioInterface pinocchioInterface_;
@@ -186,18 +304,23 @@ class WholeBodyHarness {
   vector_t initialState_;
   std::vector<size_t> mpcJointIndices_;
   scalar_t time_ = 1.0;
+  InProcessMpcLink* absl_nullable link_ =
+      nullptr;  // the controller's, with InProcessMpcLink::Execution::kCaller
   std::unique_ptr<WBMpcMrtJointController> controller_;
 };
 
 /** A plan whose joints are `offset` [rad] away from the observed ones. */
-mpc_test::ScriptedSolver::PlanFunction jointOffsetPlan(const WBAccelMpcRobotModel<scalar_t>& model, scalar_t offset) {
+mpc_test::ScriptedSolver::PlanFunction jointOffsetPlan(
+    const WBAccelMpcRobotModel<scalar_t>& model, scalar_t offset) {
   const size_t jointStart = model.getJointStartindex();
   const size_t jointDim = model.getJointDim();
-  return [jointStart, jointDim, offset](scalar_t /*time*/, scalar_t /*initTime*/, const vector_t& initState) {
-    vector_t planned = initState;
-    planned.segment(jointStart, jointDim).array() += offset;
-    return planned;
-  };
+  return
+      [jointStart, jointDim, offset](scalar_t /*time*/, scalar_t /*initTime*/,
+                                     const vector_t& initState) {
+        vector_t planned = initState;
+        planned.segment(jointStart, jointDim).array() += offset;
+        return planned;
+      };
 }
 
 TEST(WBMpcMrtJointController, TheControllerCanBeDestroyedWhileItsSolverRuns) {
@@ -208,119 +331,295 @@ TEST(WBMpcMrtJointController, TheControllerCanBeDestroyedWhileItsSolverRuns) {
     harness.controllerPtr().reset();
     destroyed.store(true);
   });
-  const std::chrono::steady_clock::time_point deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
-  while (!destroyed.load() && std::chrono::steady_clock::now() < deadline) std::this_thread::sleep_for(std::chrono::milliseconds(5));
+  const std::chrono::steady_clock::time_point deadline =
+      std::chrono::steady_clock::now() + std::chrono::seconds(5);
+  while (!destroyed.load() && std::chrono::steady_clock::now() < deadline)
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
   if (!destroyed.load()) {
-    // The destructor is stuck joining the solver thread; the process could not end, so it is ended here.
-    LOG(ERROR) << "WBMpcMrtJointController was not destroyed within 5 s: its solver thread ignores the request to stop.";
+    // The destructor is stuck joining the solver thread; the process could not
+    // end, so it is ended here.
+    LOG(ERROR) << "WBMpcMrtJointController was not destroyed within 5 s: its "
+                  "solver thread ignores the request to stop.";
     std::_Exit(EXIT_FAILURE);
   }
   destroyer.join();
 }
 
-TEST(WBMpcMrtJointController, JointPdHoldsTheNominalPostureWithGravityCompensation) {
+TEST(WBMpcMrtJointController,
+     JointPdHoldsTheNominalPostureWithGravityCompensation) {
   WholeBodyHarness harness;
   const robot::model::RobotDescription& description = harness.description();
   std::vector<scalar_t> nominal(description.getNumJoints(), 0.0);
-  for (size_t joint = 0; joint < nominal.size(); ++joint) nominal[joint] = 0.1 * static_cast<scalar_t>(joint % 3) - 0.1;
+  for (size_t joint = 0; joint < nominal.size(); ++joint)
+    nominal[joint] = 0.1 * static_cast<scalar_t>(joint % 3) - 0.1;
   harness.controller().setNominalJointPositions(nominal);
 
-  // Positive control: WB_MPC, before any policy, does not command the nominal posture.
+  // Positive control: WB_MPC, before any policy, does not command the nominal
+  // posture.
   const robot::model::RobotJointAction beforeAnyPolicy = harness.cycle();
   bool differsFromNominal = false;
-  for (size_t index : harness.mpcJointIndices())
-    differsFromNominal = differsFromNominal || beforeAnyPolicy.at(index)->q_des != nominal[index];
+  for (size_t index : harness.mpcJointIndices()) {
+    differsFromNominal =
+        differsFromNominal ||
+        actionOf(beforeAnyPolicy, index).q_des != nominal[index];
+  }
   ASSERT_TRUE(differsFromNominal);
 
   harness.controller().setControlMode("JOINT_PD");
   const robot::model::RobotJointAction& action = harness.cycle();
 
-  // The gravity torques of the MPC joints at the robot's configuration, the base held.
+  // The gravity torques of the MPC joints at the robot's configuration, the
+  // base held.
   PinocchioInterface pinocchioInterface = harness.pinocchioInterface();
-  const vector_t q = harness.model().getGeneralizedCoordinates(harness.initialState());
-  pinocchio::nonLinearEffects(pinocchioInterface.getModel(), pinocchioInterface.getData(), q,
+  const vector_t q =
+      harness.model().getGeneralizedCoordinates(harness.initialState());
+  pinocchio::nonLinearEffects(pinocchioInterface.getModel(),
+                              pinocchioInterface.getData(), q,
                               vector_t::Zero(pinocchioInterface.getModel().nv));
-  const vector_t gravity = pinocchioInterface.getData().nle.tail(harness.model().getJointDim());
+  const vector_t gravity =
+      pinocchioInterface.getData().nle.tail(harness.model().getJointDim());
 
   for (size_t i = 0; i < harness.mpcJointIndices().size(); ++i) {
     const size_t index = harness.mpcJointIndices()[i];
-    EXPECT_DOUBLE_EQ(action.at(index)->q_des, nominal[index]) << "joint " << index;
-    EXPECT_DOUBLE_EQ(action.at(index)->qd_des, 0.0);
-    EXPECT_GT(action.at(index)->kp, 0.0);
-    EXPECT_NEAR(action.at(index)->feed_forward_effort, gravity[i], 1e-9) << "joint " << index;
+    EXPECT_DOUBLE_EQ(actionOf(action, index).q_des, nominal[index])
+        << "joint " << index;
+    EXPECT_DOUBLE_EQ(actionOf(action, index).qd_des, 0.0);
+    EXPECT_GT(actionOf(action, index).kp, 0.0);
+    EXPECT_NEAR(actionOf(action, index).feed_forward_effort, gravity[i], 1.0e-9)
+        << "joint " << index;
   }
 
   // ZERO_TORQUE commands nothing at all.
   harness.controller().setControlMode("ZERO_TORQUE");
   const robot::model::RobotJointAction& limp = harness.cycle();
   for (size_t index : harness.mpcJointIndices()) {
-    EXPECT_EQ(limp.at(index)->kp, 0.0);
-    EXPECT_EQ(limp.at(index)->kd, 0.0);
-    EXPECT_EQ(limp.at(index)->feed_forward_effort, 0.0);
+    EXPECT_EQ(actionOf(limp, index).kp, 0.0);
+    EXPECT_EQ(actionOf(limp, index).kd, 0.0);
+    EXPECT_EQ(actionOf(limp, index).feed_forward_effort, 0.0);
   }
 }
 
-TEST(WBMpcMrtJointController, BeforeAnyPolicyTheFeedforwardCarriesTheWeightOnTheMeasuredFeetWithTheBaseHeld) {
-  // Before the first policy the controller holds the current posture, and its feedforward carries the robot's weight on
-  // the feet measured in contact with the base held still: computeBaseHeldJointTorques. The floating-base inverse
-  // dynamics (computeJointTorques) would instead let the base accelerate under whatever part of the weight the measured
-  // feet do not carry about the center of mass - here all of it on one foot.
+TEST(WBMpcMrtJointController,
+     TheObservationAndTheGravityCompensationAreOfTheMeasuredRobot) {
+  // A turned, tilted and moving robot: the observation the MPC is handed holds
+  // what the robot measured, read back through the robot model's
+  // layout-agnostic accessors (the base velocities are measured in the base
+  // frame), and GRAVITY_COMP compensates gravity at the configuration the
+  // observation holds.
+  WholeBodyHarness harness;
+  const WBAccelMpcRobotModel<scalar_t>& model = harness.model();
+  const vector3_t position(0.3, -0.2, 0.75);
+  const quaternion_t orientation(Eigen::AngleAxisd(2.5, vector3_t::UnitZ()) *
+                                 Eigen::AngleAxisd(0.2, vector3_t::UnitY()) *
+                                 Eigen::AngleAxisd(-0.1, vector3_t::UnitX()));
+  const vector3_t linearVelocityLocal(0.4, -0.1, 0.05);
+  const vector3_t angularVelocityLocal(0.3, -0.2, 0.6);
+  robot::model::RobotState& robotState = harness.robotState();
+  robotState.setRootPositionInWorldFrame(position);
+  robotState.setRootRotationLocalToWorldFrame(orientation);
+  robotState.setRootLinearVelocityInLocalFrame(linearVelocityLocal);
+  robotState.setRootAngularVelocityInLocalFrame(angularVelocityLocal);
+  const std::vector<size_t>& jointIndices = harness.mpcJointIndices();
+  vector_t jointPositions(static_cast<Eigen::Index>(jointIndices.size()));
+  vector_t jointVelocities(static_cast<Eigen::Index>(jointIndices.size()));
+  for (size_t i = 0; i < jointIndices.size(); ++i) {
+    const Eigen::Index row = static_cast<Eigen::Index>(i);
+    jointPositions(row) = 0.05 * static_cast<scalar_t>(i % 4) - 0.1;
+    jointVelocities(row) = 0.2 - 0.03 * static_cast<scalar_t>(i % 5);
+    robotState.setJointPosition(jointIndices[i], jointPositions(row));
+    robotState.setJointVelocity(jointIndices[i], jointVelocities(row));
+  }
+
+  harness.controller().setControlMode("GRAVITY_COMP");
+  const robot::model::RobotJointAction& action = harness.cycle();
+
+  const vector_t& state = harness.controller().getCurrentObservation().state;
+  ASSERT_EQ(static_cast<size_t>(state.size()), model.getStateDim());
+  EXPECT_TRUE(model.getBasePosition(state) == position);
+  EXPECT_LT(quaternion_t(model.getBaseOrientation(state))
+                .angularDistance(orientation),
+            1.0e-12);
+  EXPECT_LT((model.getBaseComLinearVelocity(state) -
+             orientation * linearVelocityLocal)
+                .norm(),
+            1.0e-12)
+      << "in the world frame";
+  EXPECT_LT(
+      (model.getBaseAngularVelocityLocal(state) - angularVelocityLocal).norm(),
+      1.0e-12)
+      << "in the base frame";
+  EXPECT_TRUE(model.getJointAngles(state) == jointPositions);
+  EXPECT_TRUE(
+      model.getJointVelocities(state, vector_t::Zero(model.getInputDim())) ==
+      jointVelocities);
+
+  // The gravity torques of the MPC joints at the observed configuration, the
+  // base held.
+  PinocchioInterface pinocchioInterface = harness.pinocchioInterface();
+  pinocchio::nonLinearEffects(pinocchioInterface.getModel(),
+                              pinocchioInterface.getData(),
+                              model.getGeneralizedCoordinates(state),
+                              vector_t::Zero(pinocchioInterface.getModel().nv));
+  const vector_t gravity =
+      pinocchioInterface.getData().nle.tail(model.getJointDim());
+  for (size_t i = 0; i < jointIndices.size(); ++i) {
+    EXPECT_NEAR(actionOf(action, jointIndices[i]).feed_forward_effort,
+                gravity[static_cast<Eigen::Index>(i)], 1.0e-9)
+        << "joint " << i;
+  }
+}
+
+TEST(
+    WBMpcMrtJointController,
+    BeforeAnyPolicyTheFeedforwardCarriesTheWeightOnTheMeasuredFeetWithTheBaseHeld) {
+  // Before the first policy the controller holds the current posture, and its
+  // feedforward carries the robot's weight on the feet measured in contact with
+  // the base held still: computeBaseHeldJointTorques. The floating-base inverse
+  // dynamics (computeJointTorques) would instead let the base accelerate under
+  // whatever part of the weight the measured feet do not carry about the center
+  // of mass - here all of it on one foot.
   WholeBodyHarness harness;
   harness.setContactFlags(/*left=*/true, /*right=*/false);
   const robot::model::RobotJointAction& action = harness.cycle();
-  ASSERT_FALSE(harness.controller().getPlannedContactFlags(harness.time()).has_value()) << "a policy is already in use";
+  ASSERT_FALSE(
+      harness.controller().getPlannedContactFlags(harness.time()).has_value())
+      << "a policy is already in use";
 
   PinocchioInterface pinocchioInterface = harness.pinocchioInterface();
   WBAccelMpcRobotModel<scalar_t>& model = harness.mutableModel();
-  const vector_t input = weightCompensatingInput(pinocchioInterface, contact_flag_t{true, false}, model);
-  const vector_t baseHeld = computeBaseHeldJointTorques<scalar_t>(harness.initialState(), input, pinocchioInterface, model);
-  const vector_t floatingBase = computeJointTorques<scalar_t>(harness.initialState(), input, pinocchioInterface, model);
-  // Positive control: the two differ, so the comparison below can tell which one the controller used.
+  const vector_t input = weightCompensatingInput(
+      pinocchioInterface, contact_flag_t{true, false}, model);
+  const vector_t baseHeld = computeBaseHeldJointTorques<scalar_t>(
+      harness.initialState(), input, pinocchioInterface, model);
+  const vector_t floatingBase = computeJointTorques<scalar_t>(
+      harness.initialState(), input, pinocchioInterface, model);
+  // Positive control: the two differ, so the comparison below can tell which
+  // one the controller used.
   ASSERT_GT((baseHeld - floatingBase).cwiseAbs().maxCoeff(), 1.0);
 
-  ASSERT_EQ(static_cast<size_t>(baseHeld.size()), harness.mpcJointIndices().size());
+  ASSERT_EQ(static_cast<size_t>(baseHeld.size()),
+            harness.mpcJointIndices().size());
   for (size_t i = 0; i < harness.mpcJointIndices().size(); ++i) {
     const size_t index = harness.mpcJointIndices()[i];
-    EXPECT_NEAR(action.at(index)->feed_forward_effort, baseHeld[i], 1e-6) << "joint " << index;
+    EXPECT_NEAR(actionOf(action, index).feed_forward_effort, baseHeld[i],
+                1.0e-6)
+        << "joint " << index;
   }
 }
 
-TEST(WBMpcMrtJointController, EnteringWbMpcResetsTheMpcAndHoldsJointPdUntilAPolicySolvedAfterIt) {
+TEST(WBMpcMrtJointController,
+     EnteringWbMpcResetsTheMpcAndHoldsJointPdUntilAPolicySolvedAfterIt) {
   WholeBodyHarness harness;
   std::vector<scalar_t> nominal(harness.description().getNumJoints(), 0.0);
   harness.controller().setNominalJointPositions(nominal);
   harness.controller().setControlMode("JOINT_PD");
   harness.start();
-  harness.mpc().solver().setPlan(jointOffsetPlan(harness.model(), /*offset=*/0.1));
+  harness.mpc().solver().setPlan(
+      jointOffsetPlan(harness.model(), /*offset=*/0.1));
   for (int k = 0; k < 20; ++k) harness.cycle();
   const robot::model::RobotJointAction jointPd = harness.cycle();
-  const uint64_t resetsBefore = harness.controller().getResetSupervisor().numResetsServed();
+  const uint64_t resetsBefore =
+      harness.controller().getResetSupervisor().numResetsServed();
 
   harness.controller().setControlMode("WB_MPC");
   const robot::model::RobotJointAction& atEntry = harness.cycle();
-  EXPECT_TRUE(harness.controller().isHolding() || harness.controller().getPlannedContactFlags(harness.time()).has_value());
+  EXPECT_TRUE(
+      harness.controller().isHolding() ||
+      harness.controller().getPlannedContactFlags(harness.time()).has_value());
   if (harness.controller().isHolding()) {
-    EXPECT_LT(harness.maxDifference(atEntry, jointPd), 1e-9) << "the policy solved before the entry reached the robot";
+    EXPECT_LT(harness.maxDifference(atEntry, jointPd), 1.0e-9)
+        << "the policy solved before the entry reached the robot";
   }
-  ASSERT_TRUE(harness.cycleUntil([&harness]() { return harness.controller().getPlannedContactFlags(harness.time()).has_value(); },
-                                 /*maxCycles=*/2000));
-  EXPECT_GE(harness.controller().getResetSupervisor().numResetsServed(), resetsBefore + 1) << "entering WB_MPC did not reset the MPC";
+  ASSERT_TRUE(harness.cycleUntil(
+      [&harness]() {
+        return harness.controller()
+            .getPlannedContactFlags(harness.time())
+            .has_value();
+      },
+      /*maxCycles=*/2000));
+  EXPECT_GE(harness.controller().getResetSupervisor().numResetsServed(),
+            resetsBefore + 1)
+      << "entering WB_MPC did not reset the MPC";
   const robot::model::RobotJointAction& running = harness.cycle();
-  const vector_t joints = harness.model().getJointAngles(harness.initialState());
+  const vector_t joints =
+      harness.model().getJointAngles(harness.initialState());
   for (size_t i = 0; i < harness.mpcJointIndices().size(); ++i) {
-    EXPECT_NEAR(running.at(harness.mpcJointIndices()[i])->q_des, joints[i] + 0.1, 1e-9)
-        << "the policy solved after the entry is executed, joint " << harness.mpcJointIndices()[i];
+    EXPECT_NEAR(actionOf(running, harness.mpcJointIndices()[i]).q_des,
+                joints[i] + 0.1, 1.0e-9)
+        << "the policy solved after the entry is executed, joint "
+        << harness.mpcJointIndices()[i];
   }
 
-  // The target the MPC was reset to: two knots, and an input that carries the robot's weight on its two feet.
+  // The target the MPC was reset to: two knots, and an input that carries the
+  // robot's weight on its two feet.
   harness.controllerPtr().reset();
-  const TargetTrajectories& target = harness.mpc().getSolverPtr()->getReferenceManager().getTargetTrajectories();
+  const TargetTrajectories& target = harness.mpc()
+                                         .getSolverPtr()
+                                         ->getReferenceManager()
+                                         .getTargetTrajectories();
   ASSERT_EQ(target.timeTrajectory.size(), 2u);
   EXPECT_GT(target.timeTrajectory[1], target.timeTrajectory[0]);
   scalar_t verticalForce = 0.0;
-  for (size_t foot = 0; foot < N_CONTACTS; ++foot) verticalForce += harness.model().getContactForce(target.inputTrajectory[0], foot)(2);
+  for (size_t foot = 0; foot < kNumContacts; ++foot)
+    verticalForce +=
+        harness.model().getContactForce(target.inputTrajectory[0], foot)(2);
   PinocchioInterface pinocchioInterface = harness.pinocchioInterface();
-  EXPECT_NEAR(verticalForce, pinocchio::computeTotalMass(pinocchioInterface.getModel()) * 9.81, 1e-6);
+  EXPECT_NEAR(verticalForce,
+              pinocchio::computeTotalMass(pinocchioInterface.getModel()) * 9.81,
+              1.0e-6);
+}
+
+TEST(WBMpcMrtJointController,
+     WithoutASolverThreadTheCallersIterationsServeResetsAndFailuresOnItsClock) {
+  // The lockstep closed loop of humanoid_mpc_validation runs the controller on
+  // a link without a solver thread: nothing is solved, reset or held off but
+  // what the caller's iterations do.
+  WholeBodyHarness harness(InProcessMpcLink::Execution::kCaller);
+  std::vector<scalar_t> nominal(harness.description().getNumJoints(), 0.0);
+  harness.controller().setNominalJointPositions(nominal);
+  harness.controller().setControlMode("JOINT_PD");
+  harness.startWithoutThread();
+  EXPECT_FALSE(harness.controller().ready())
+      << "the start-up reset solves nothing";
+  InProcessMpcLink::SolverIterationResult iteration =
+      harness.link().runSolverIteration();
+  ASSERT_TRUE(iteration.status.ok()) << iteration.status;
+  EXPECT_EQ(iteration.retryDelay.count(), 0.0);
+  EXPECT_TRUE(harness.controller().ready());
+  EXPECT_EQ(harness.controller().getResetSupervisor().numResetsServed(), 0u)
+      << "the start-up reset is not a requested one";
+
+  // The entry into WB_MPC holds until an iteration serves its reset and solves.
+  harness.cycle(std::chrono::microseconds(0));
+  harness.controller().setControlMode("WB_MPC");
+  for (int k = 0; k < 50; ++k) harness.cycle(std::chrono::microseconds(0));
+  EXPECT_TRUE(harness.controller().isHolding());
+  EXPECT_EQ(harness.controller().getResetSupervisor().numResetsServed(), 0u);
+  ASSERT_TRUE(harness.link().runSolverIteration().status.ok());
+  EXPECT_EQ(harness.controller().getResetSupervisor().numResetsServed(), 1u);
+  harness.cycle(std::chrono::microseconds(0));
+  EXPECT_FALSE(harness.controller().isHolding())
+      << "the policy solved after the entry is in use";
+
+  // Persistent failures back off; the caller waits the delay out on its own
+  // clock.
+  harness.mpc().solver().failEverySolve(/*fail=*/true);
+  const size_t maxFailures = harness.controller()
+                                 .getResetSupervisor()
+                                 .getConfig()
+                                 .maxConsecutiveFailures;
+  for (size_t failure = 1; failure <= maxFailures; ++failure) {
+    iteration = harness.link().runSolverIteration();
+    EXPECT_FALSE(iteration.status.ok());
+    if (failure < maxFailures) {
+      EXPECT_EQ(iteration.retryDelay.count(), 0.0) << "failure " << failure;
+    }
+  }
+  EXPECT_GT(iteration.retryDelay.count(), 0.0);
+  EXPECT_FALSE(harness.controller().isMpcHealthy());
+  harness.mpc().solver().failEverySolve(/*fail=*/false);
+  EXPECT_TRUE(harness.link().runSolverIteration().status.ok());
+  EXPECT_TRUE(harness.controller().isMpcHealthy());
 }
 
 TEST(WBMpcMrtJointController, RepeatedFailuresBackOffAndHoldJointPd) {
@@ -329,28 +628,390 @@ TEST(WBMpcMrtJointController, RepeatedFailuresBackOffAndHoldJointPd) {
   harness.controller().setNominalJointPositions(nominal);
   harness.controller().setControlMode("JOINT_PD");
   harness.start();
-  harness.mpc().solver().setPlan(jointOffsetPlan(harness.model(), /*offset=*/0.1));
+  harness.mpc().solver().setPlan(
+      jointOffsetPlan(harness.model(), /*offset=*/0.1));
   const robot::model::RobotJointAction jointPd = harness.cycle();
   harness.controller().setControlMode("WB_MPC");
-  ASSERT_TRUE(harness.cycleUntil([&harness]() { return harness.controller().getPlannedContactFlags(harness.time()).has_value(); },
-                                 /*maxCycles=*/2000));
+  ASSERT_TRUE(harness.cycleUntil(
+      [&harness]() {
+        return harness.controller()
+            .getPlannedContactFlags(harness.time())
+            .has_value();
+      },
+      /*maxCycles=*/2000));
 
-  const uint64_t resetsBefore = harness.controller().getResetSupervisor().numResetsServed();
-  harness.mpc().solver().failEverySolve(true);
+  const uint64_t resetsBefore =
+      harness.controller().getResetSupervisor().numResetsServed();
+  harness.mpc().solver().failEverySolve(/*fail=*/true);
   robot::model::RobotJointAction held = harness.cycle();
-  const std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
-  while (std::chrono::steady_clock::now() - start < std::chrono::milliseconds(1500)) held = harness.cycle(std::chrono::milliseconds(5));
+  const std::chrono::steady_clock::time_point start =
+      std::chrono::steady_clock::now();
+  while (std::chrono::steady_clock::now() - start <
+         std::chrono::milliseconds(1500))
+    held = harness.cycle(std::chrono::milliseconds(5));
   EXPECT_FALSE(harness.controller().isMpcHealthy());
-  EXPECT_LE(harness.controller().getResetSupervisor().numResetsServed() - resetsBefore, 15u)
+  EXPECT_LE(harness.controller().getResetSupervisor().numResetsServed() -
+                resetsBefore,
+            15u)
       << harness.mpc().solver().numFailedSolves() << " failed solves in 1.5 s";
-  EXPECT_LT(harness.maxDifference(held, jointPd), 1e-9) << "an unhealthy MPC must hold the robot with the JOINT_PD action";
+  EXPECT_LT(harness.maxDifference(held, jointPd), 1.0e-9)
+      << "an unhealthy MPC must hold the robot with the JOINT_PD action";
 
-  harness.mpc().solver().failEverySolve(false);
+  harness.mpc().solver().failEverySolve(/*fail=*/false);
   EXPECT_TRUE(harness.cycleUntil(
       [&harness]() {
-        return harness.controller().isMpcHealthy() && harness.controller().getPlannedContactFlags(harness.time()).has_value();
+        return harness.controller().isMpcHealthy() &&
+               harness.controller()
+                   .getPlannedContactFlags(harness.time())
+                   .has_value();
       },
       /*maxCycles=*/1000, std::chrono::milliseconds(5)));
+}
+
+// Create() refuses a link factory that makes no link, which the constructor
+// used to throw.
+TEST(WBMpcMrtJointController, CreateRefusesALinkFactoryThatMakesNoLink) {
+  const WholeBodyHarness harness(InProcessMpcLink::Execution::kCaller);
+  const MpcLinkFactory noLink =
+      [](const MpcLink::ResetTargetFunction& /*resetTarget*/)
+      -> std::unique_ptr<MpcLink> { return nullptr; };
+  const absl::StatusOr<std::unique_ptr<WBMpcMrtJointController>> created =
+      WBMpcMrtJointController::Create(
+          harness.description(), harness.modelSettings(), noLink,
+          harness.pinocchioInterface(),
+          runfilePath("robot_models/unitree_g1/g1_wb_mpc/config/controller/"
+                      "joint_pd_gains.textproto"));
+  EXPECT_EQ(created.status().code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_TRUE(absl::StrContains(created.status().message(), "made no link"))
+      << created.status();
+}
+
+// Create() refuses a robot description that lacks a joint of the MPC model,
+// naming the joint: the control cycle indexes the joints without a check, so
+// the constructor's check would otherwise end the process on a mismatched URDF.
+TEST(WBMpcMrtJointController,
+     CreateRefusesAModelJointTheRobotDescriptionDoesNotHave) {
+  const WholeBodyHarness harness(InProcessMpcLink::Execution::kCaller);
+  const std::filesystem::path urdf =
+      std::filesystem::path(::testing::TempDir()) / "two_joint_robot.urdf";
+  std::ofstream(urdf) << R"(<?xml version="1.0"?>
+<robot name="two_joints">
+  <link name="base"/>
+  <link name="arm"/>
+  <link name="hand"/>
+  <joint name="shoulder" type="revolute">
+    <parent link="base"/><child link="arm"/><axis xyz="0 1 0"/><limit lower="-1" upper="1" effort="10" velocity="1"/>
+  </joint>
+  <joint name="wrist" type="revolute">
+    <parent link="arm"/><child link="hand"/><axis xyz="0 1 0"/><limit lower="-1" upper="1" effort="10" velocity="1"/>
+  </joint>
+</robot>
+)";
+  const absl::StatusOr<robot::model::RobotDescription> description =
+      robot::model::RobotDescription::Create(urdf.string());
+  ASSERT_TRUE(description.ok()) << description.status();
+  const MpcLinkFactory noLink =
+      [](const MpcLink::ResetTargetFunction& /*resetTarget*/)
+      -> std::unique_ptr<MpcLink> { return nullptr; };
+  const absl::StatusOr<std::unique_ptr<WBMpcMrtJointController>> created =
+      WBMpcMrtJointController::Create(
+          *description, harness.modelSettings(), noLink,
+          harness.pinocchioInterface(),
+          runfilePath("robot_models/unitree_g1/g1_wb_mpc/config/controller/"
+                      "joint_pd_gains.textproto"));
+  EXPECT_EQ(created.status().code(), absl::StatusCode::kNotFound)
+      << "the joints are refused before the link is made";
+  EXPECT_TRUE(
+      absl::StrContains(created.status().message(),
+                        harness.modelSettings().mpcModelJointNames.front()))
+      << created.status();
+}
+
+/** A contact estimator that breaks its contract: one flag, whatever the number
+ * of contact points. */
+class SingleFlagContactEstimator final
+    : public ::robot::model::ContactEstimator {
+ public:
+  void estimateContactFlags(const ::robot::model::RobotState& /*robotState*/,
+                            std::vector<bool>& flags) override {
+    flags.assign(1, true);
+  }
+  absl::string_view getName() const override {
+    return "SingleFlagContactEstimator";
+  }
+};
+
+/** A sink that keeps the events of one code, as the robot process's realtime
+ * event log would hand them on. */
+class CodeRecordingSink final : public ControllerEventSink {
+ public:
+  explicit CodeRecordingSink(ControllerEventCode code) : code_(code) {}
+  bool post(const ControllerEvent& event) override {
+    if (event.code == code_) events.push_back(event);
+    return true;
+  }
+  std::vector<ControllerEvent> events;
+
+ private:
+  const ControllerEventCode code_;
+};
+
+// Nothing on the control thread throws or logs: a contact estimate without one
+// flag per contact point, which used to throw out of the control cycle, is
+// refused, keeps the measured contact state of the cycle before, and is
+// reported once through the event sink.
+TEST(
+    WBMpcMrtJointController,
+    AContactEstimateOfTheWrongSizeIsRefusedReportedOnceAndKeepsTheMeasuredContactState) {
+  // Declared first, so that it outlives the controller, which may report until
+  // it is destroyed.
+  CodeRecordingSink sink(ControllerEventCode::kContactEstimateRefused);
+  WholeBodyHarness harness(InProcessMpcLink::Execution::kCaller);
+  harness.controller().setEventSink(&sink);
+  harness.startWithoutThread();
+  harness.controller().setControlMode("JOINT_PD");
+  harness.setContactFlags(/*left=*/true, /*right=*/false);
+  harness.cycle(std::chrono::microseconds(0));
+  EXPECT_EQ(harness.controller().getMeasuredContactFlags(),
+            (contact_flag_t{true, false}));
+  EXPECT_EQ(harness.controller().getNumRefusedContactEstimates(), 0U)
+      << "positive control: one flag per contact point is taken";
+
+  harness.controller().setContactEstimator(
+      std::make_shared<SingleFlagContactEstimator>());
+  harness.cycle(std::chrono::microseconds(0));
+  harness.cycle(std::chrono::microseconds(0));
+  EXPECT_EQ(harness.controller().getMeasuredContactFlags(),
+            (contact_flag_t{true, false}))
+      << "a refused estimate changed the contact state";
+  EXPECT_EQ(harness.controller().getNumRefusedContactEstimates(), 2U);
+  ASSERT_EQ(sink.events.size(), 1U)
+      << "the refusal is reported once, not on every cycle";
+  EXPECT_EQ(sink.events[0].values[0], 1.0);
+  EXPECT_EQ(controllerEventText(sink.events[0]), "SingleFlagContactEstimator");
+  EXPECT_STREQ(sink.events[0].controller, "WBMpcMrtJointController");
+  harness.controller().setEventSink(nullptr);
+}
+
+TEST(WBMpcMrtJointController,
+     AnInvalidContactWrenchGateIsRefusedAndTheGateInUseKept) {
+  // Declared first, so that it outlives the controller, which may report until
+  // it is destroyed.
+  CodeRecordingSink sink(ControllerEventCode::kContactWrenchGateRefused);
+  WholeBodyHarness harness(InProcessMpcLink::Execution::kCaller);
+  harness.controller().setEventSink(&sink);
+  harness.controller().setContactWrenchGateConfig(
+      {.debounceTime = 0.02, .rampTime = 0.05});
+  harness.controller().setContactWrenchGateConfig(
+      {.debounceTime = 0.0, .rampTime = -1.0});
+  EXPECT_EQ(harness.controller().getContactWrenchGate().getConfig().rampTime,
+            0.05);
+  ASSERT_EQ(sink.events.size(), 1U);
+  EXPECT_EQ(sink.events[0].values[1], -1.0);
+  harness.controller().setEventSink(nullptr);
+}
+
+/** The measured posture of the MPC joints, indexed as the robot description's
+ * joints (0 for the others). */
+std::vector<scalar_t> mpcJointPositions(WholeBodyHarness& harness) {
+  std::vector<scalar_t> positions(harness.description().getNumJoints(), 0.0);
+  for (size_t index : harness.mpcJointIndices())
+    positions[index] = harness.robotState().getJointPosition(index);
+  return positions;
+}
+
+/** Moves every MPC joint of the measured robot by `offset` [rad]. */
+void moveMpcJoints(WholeBodyHarness& harness, scalar_t offset) {
+  for (size_t index : harness.mpcJointIndices()) {
+    harness.robotState().setJointPosition(
+        index, harness.robotState().getJointPosition(index) + offset);
+  }
+}
+
+// A clock that runs back past the SAFETY entry (the sim or the runtime clock
+// restarting at 0) keeps the time the decay has run for and the posture
+// captured at entry (docs/mpc_reset/README.md). The start time, shifted by the
+// rewind, used to fall below zero, which was also the "not yet captured"
+// sentinel: the controller captured the posture of the moment as the one to
+// hold, posted kSafetyEntered again and commanded the full JOINT_PD gains.
+TEST(WBMpcMrtJointController,
+     SafetyKeepsItsDecayAndItsPostureAcrossAClockRewindPastItsEntry) {
+  // Declared first, so that it outlives the controller, which may report until
+  // it is destroyed.
+  CodeRecordingSink entered(ControllerEventCode::kSafetyEntered);
+  WholeBodyHarness harness(InProcessMpcLink::Execution::kCaller);
+  harness.controller().setEventSink(&entered);
+  const scalar_t timeConstant = 0.5;
+  harness.controller().setSafetyDecayTimeConstant(timeConstant);
+  harness.startWithoutThread();
+  harness.controller().setControlMode("JOINT_PD");
+  const robot::model::RobotJointAction reference =
+      harness.cycle(std::chrono::microseconds(0));
+
+  // Decay part of the way from an entry at t = 10.
+  const scalar_t entryTime = 10.0;
+  const scalar_t decayed = 0.5 * timeConstant;
+  moveMpcJoints(harness, /*offset=*/0.3);
+  const std::vector<scalar_t> postureAtEntry = mpcJointPositions(harness);
+  harness.controller().setControlMode("SAFETY");
+  harness.cycleAt(entryTime);
+  harness.cycleAt(entryTime + decayed);
+
+  // The robot has moved on, and the clock restarts at 0: before the time SAFETY
+  // was entered at.
+  moveMpcJoints(harness, /*offset=*/0.2);
+  const robot::model::RobotJointAction afterRewind =
+      harness.cycleAt(/*time=*/0.0);
+
+  const scalar_t alpha = safety_decay::factor(decayed, timeConstant);
+  ASSERT_GT(alpha, 0.0);
+  ASSERT_LT(alpha, 1.0);
+  for (size_t index : harness.mpcJointIndices()) {
+    EXPECT_NEAR(actionOf(afterRewind, index).kp,
+                alpha * actionOf(reference, index).kp, 1.0e-9)
+        << "joint " << index;
+    EXPECT_NEAR(actionOf(afterRewind, index).kd,
+                alpha * actionOf(reference, index).kd, 1.0e-9)
+        << "joint " << index;
+    EXPECT_NEAR(actionOf(afterRewind, index).q_des, postureAtEntry[index],
+                1.0e-9)
+        << "joint " << index << ": not the posture at entry";
+  }
+  EXPECT_EQ(entered.events.size(), 1U)
+      << "the rewind entered SAFETY a second time";
+
+  // The decay goes on from where it was on the new clock, and completes.
+  const robot::model::RobotJointAction& completed =
+      harness.cycleAt(4.0 * timeConstant);
+  for (size_t index : harness.mpcJointIndices()) {
+    EXPECT_DOUBLE_EQ(actionOf(completed, index).kp, 0.0) << "joint " << index;
+    EXPECT_DOUBLE_EQ(actionOf(completed, index).kd, 0.0) << "joint " << index;
+  }
+  harness.controller().setEventSink(nullptr);
+}
+
+// A SAFETY decay that has reached zero torque stays there when the clock runs
+// back past its entry. It used to start over at the full JOINT_PD gains.
+TEST(WBMpcMrtJointController,
+     ACompletedSafetyDecayStaysAtZeroTorqueAcrossAClockRewind) {
+  // Declared first, so that it outlives the controller, which may report until
+  // it is destroyed.
+  CodeRecordingSink entered(ControllerEventCode::kSafetyEntered);
+  WholeBodyHarness harness(InProcessMpcLink::Execution::kCaller);
+  harness.controller().setEventSink(&entered);
+  const scalar_t timeConstant = 0.5;
+  harness.controller().setSafetyDecayTimeConstant(timeConstant);
+  harness.startWithoutThread();
+
+  harness.controller().setControlMode("SAFETY");
+  const scalar_t entryTime = 10.0;
+  harness.cycleAt(entryTime);
+  const robot::model::RobotJointAction completed =
+      harness.cycleAt(entryTime + 4.0 * timeConstant);
+  for (size_t index : harness.mpcJointIndices())
+    ASSERT_DOUBLE_EQ(actionOf(completed, index).kp, 0.0) << "positive control";
+
+  const robot::model::RobotJointAction& afterRewind =
+      harness.cycleAt(/*time=*/0.0);
+  for (size_t index : harness.mpcJointIndices()) {
+    EXPECT_DOUBLE_EQ(actionOf(afterRewind, index).kp, 0.0) << "joint " << index;
+    EXPECT_DOUBLE_EQ(actionOf(afterRewind, index).kd, 0.0) << "joint " << index;
+    EXPECT_DOUBLE_EQ(actionOf(afterRewind, index).feed_forward_effort, 0.0)
+        << "joint " << index;
+  }
+  EXPECT_EQ(entered.events.size(), 1U)
+      << "the rewind entered SAFETY a second time";
+  harness.controller().setEventSink(nullptr);
+}
+
+// The SAFETY decay is latched: alpha never rises within a stay in the mode. A
+// time constant made longer mid-decay, or after it has completed, and a clock
+// that steps back by less than the rewind tolerance (which no rewind handling
+// sees) used to raise the factor again - after completion from zero torque back
+// to a stiff hold.
+TEST(WBMpcMrtJointController,
+     TheSafetyDecayNeverRisesWhenTheTimeConstantGrowsOrTheClockStepsBack) {
+  WholeBodyHarness harness(InProcessMpcLink::Execution::kCaller);
+  const scalar_t timeConstant = 0.5;
+  harness.controller().setSafetyDecayTimeConstant(timeConstant);
+  harness.startWithoutThread();
+  harness.controller().setControlMode("JOINT_PD");
+  const robot::model::RobotJointAction reference =
+      harness.cycle(std::chrono::microseconds(0));
+  const size_t joint = harness.mpcJointIndices().front();
+  const scalar_t fullKp = actionOf(reference, joint).kp;
+  ASSERT_GT(fullKp, 0.0);
+
+  harness.controller().setControlMode("SAFETY");
+  const scalar_t entryTime = 10.0;
+  harness.cycleAt(entryTime);
+  const scalar_t midway =
+      actionOf(harness.cycleAt(entryTime + timeConstant), joint).kp;
+  ASSERT_NEAR(midway, fullKp * safety_decay::factor(timeConstant, timeConstant),
+              1.0e-9);
+  // Ten times the time constant: the bare factor at the same elapsed time is
+  // back near one.
+  harness.controller().setSafetyDecayTimeConstant(10.0 * timeConstant);
+  ASSERT_GT(safety_decay::factor(timeConstant + 1.0e-3, 10.0 * timeConstant),
+            0.8);
+  EXPECT_LE(
+      actionOf(harness.cycleAt(entryTime + timeConstant + 1.0e-3), joint).kp,
+      midway)
+      << "a longer time constant raised the gains";
+  // A step back within the rewind tolerance: not a rewind, and no rise either.
+  const scalar_t justBefore =
+      actionOf(harness.cycleAt(entryTime + timeConstant + 2.0e-3), joint).kp;
+  EXPECT_LE(
+      actionOf(harness.cycleAt(entryTime + timeConstant + 2.0e-3 - 5.0e-7),
+               joint)
+          .kp,
+      justBefore);
+
+  // Completed, then a far longer time constant: zero torque stays zero torque.
+  harness.controller().setSafetyDecayTimeConstant(timeConstant);
+  ASSERT_DOUBLE_EQ(
+      actionOf(harness.cycleAt(entryTime + 10.0 * timeConstant), joint).kp,
+      0.0);
+  harness.controller().setSafetyDecayTimeConstant(100.0 * timeConstant);
+  const robot::model::RobotJointAction& later =
+      harness.cycleAt(entryTime + 10.0 * timeConstant + 0.01);
+  for (size_t index : harness.mpcJointIndices()) {
+    EXPECT_DOUBLE_EQ(actionOf(later, index).kp, 0.0) << "joint " << index;
+    EXPECT_DOUBLE_EQ(actionOf(later, index).kd, 0.0) << "joint " << index;
+  }
+}
+
+// Leaving SAFETY for WB_MPC holds the JOINT_PD action until a post-reset policy
+// is in use, as leaving ZERO_TORQUE does (docs/mpc_reset/README.md): SAFETY's
+// own hold decays to zero torque and cannot carry the robot through the reset.
+TEST(WBMpcMrtJointController, EntryFromSafetyHoldsTheJointPdAction) {
+  WholeBodyHarness harness(InProcessMpcLink::Execution::kCaller);
+  const scalar_t timeConstant = 0.5;
+  harness.controller().setSafetyDecayTimeConstant(timeConstant);
+  harness.startWithoutThread();
+  harness.controller().setControlMode("JOINT_PD");
+  const robot::model::RobotJointAction jointPd =
+      harness.cycle(std::chrono::microseconds(0));
+
+  harness.controller().setControlMode("SAFETY");
+  harness.cycle(std::chrono::microseconds(0));
+  const robot::model::RobotJointAction safety =
+      harness.cycleAt(harness.time() + 5.0 * timeConstant);
+
+  harness.controller().setControlMode(
+      "WB_MPC");  // requests a reset; the test runs no solver iteration, so no
+                  // policy arrives
+  const robot::model::RobotJointAction& held =
+      harness.cycle(std::chrono::microseconds(0));
+  EXPECT_TRUE(harness.controller().isHolding());
+  EXPECT_LT(harness.maxDifference(held, jointPd), 1.0e-9)
+      << "the JOINT_PD action is not the one held";
+  for (size_t index : harness.mpcJointIndices()) {
+    EXPECT_GT(actionOf(jointPd, index).kp, 0.0) << "joint " << index;
+    EXPECT_DOUBLE_EQ(actionOf(safety, index).kp, 0.0)
+        << "positive control: SAFETY had decayed to zero torque, joint "
+        << index;
+  }
 }
 
 }  // namespace

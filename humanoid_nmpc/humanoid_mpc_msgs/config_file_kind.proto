@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+package humanoid_mpc_msgs;
+
+import "nproto/options.proto";
+
+// The configuration files of a robot that the tuning GUI's Save delivers to the robot process (ConfigFileSave on
+// operator/config_save): each by its path below the robot's config/ directory and the humanoid_mpc_config message it
+// holds. The contact planner's file is the MPC's and has no kind: the robot process never stores a save of it.
+enum ConfigFileKind {
+  option (nproto.generate_enum) = "ocs2::humanoid::msgs::ConfigFileKind";
+
+  // LINT.IfChange(config_file_kinds)
+  CONFIG_FILE_KIND_UNSPECIFIED = 0;
+  // config/mpc/task.textproto, humanoid_mpc_config.TaskFile.
+  CONFIG_FILE_KIND_TASK = 1;
+  // config/command/reference.textproto, humanoid_mpc_config.ReferenceFile.
+  CONFIG_FILE_KIND_REFERENCE = 2;
+  // config/controller/joint_pd_gains.textproto, humanoid_mpc_config.JointPdGainsFile.
+  CONFIG_FILE_KIND_JOINT_PD_GAINS = 3;
+  // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_app/robot/include/humanoid_common_mpc_app/robot/StoredConfigFileKinds.h:stored_config_file_kinds, //humanoid_nmpc/humanoid_common_mpc_app/robot/src/RobotConfigDirectory.cpp:config_store_layout, //humanoid_nmpc/remote_control/remote_control/robot_config_save.py:file_kinds)
+}

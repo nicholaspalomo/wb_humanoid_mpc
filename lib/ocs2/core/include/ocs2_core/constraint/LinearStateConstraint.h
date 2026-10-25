@@ -29,6 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include "absl/base/nullability.h"
+
 #include <ocs2_core/constraint/StateConstraint.h>
 
 namespace ocs2 {
@@ -48,7 +50,7 @@ class LinearStateConstraint : public StateConstraint {
 
   ~LinearStateConstraint() override = default;
 
-  LinearStateConstraint* clone() const override;
+  LinearStateConstraint* absl_nonnull clone() const override;
 
   size_t getNumConstraints(scalar_t time) const final;
 

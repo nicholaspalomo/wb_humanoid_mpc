@@ -17,15 +17,49 @@ exports_files([
     "tools/ci_local.sh",
 ])
 
+# The arm64 build of the robot side and the script that builds its Pinocchio; //tools/deploy:test_deploy_files checks
+# that it builds the bundle and the image as a deploy does.
+exports_files([
+    ".github/workflows/robot_arm64.yml",
+    "docker/build_pinocchio_from_source.sh",
+])
+
 # The environment script every shell, CI build and launch sources; //tools/setup_env:test_setup_env pins it.
 exports_files(["setup_env.sh"])
 
-# The dev image and the system packages CI and the image install; //tools/hooks:test_include_style checks that neither
-# brings a system Abseil, and //tools/hooks:test_ci_formatter_versions that CI's format check uses the image's formatters.
+# The Makefile: //tools/clang_tidy:test_lint_tidy_targets runs its clang-tidy targets with stand-ins for Bazel,
+# //tools/deploy:test_deploy_files checks its launch and deployment targets, and //tools/hooks:test_lint_entry_points and
+# //tools/hooks:test_lint_enforcement check how it runs the hooks.
+exports_files(["Makefile"])
+
+# The viewer hotkey table, which //robot_runtime/mujoco_sim_interface:test_viewer_hotkey_docs checks against the shipped
+# task files (with .devcontainer/README.md, exported below).
+exports_files(["README.md"])
+
+# The issue templates, which //tools/dev_container:test_dev_container keeps free of ROS.
+exports_files([
+    ".github/ISSUE_TEMPLATE/bug_report.md",
+    ".github/ISSUE_TEMPLATE/feature_request.md",
+])
+
+# The dev image and the system packages CI and the image install; //tools/hooks:test_include_style checks that none of
+# them brings a system Abseil, Protocol Buffers, Cyclone DDS or googletest, and //tools/hooks:test_ci_formatter_versions
+# that CI's format check uses the image's formatters.
 exports_files([
     ".github/workflows/format_test.yml",
     "dependencies.txt",
     "docker/Dockerfile",
+    "docker/install_robotpkg.sh",
+])
+
+# The rest of the dev container: //tools/dev_container:test_dev_container checks that it, the image and CI carry no ROS,
+# install the same Pinocchio, use one VNC display and publish the ports of the bus and of Rerun.
+exports_files([
+    ".devcontainer/openbox_layout.py",
+    ".devcontainer/post_create.sh",
+    ".devcontainer/start_vnc.sh",
+    "docker-compose.bridge.yaml",
+    "docker-compose.gpu.yaml",
 ])
 
 # The Bazelisk wrapper that serializes the builds of every container on this machine, and the container shell setup that
@@ -33,4 +67,46 @@ exports_files([
 exports_files([
     ".devcontainer/shell_init.sh",
     "tools/bazel",
+])
+
+# The C++ style the generated code of //tools/nproto must keep; //tools/nproto/test:test_generated_code checks it.
+exports_files([".clang-format"])
+
+# The repository's license, whose text every file's license block repeats; //tools/hooks:test_license_header checks
+# tools/hooks/license_header.py against it.
+exports_files(["LICENCE.txt"])  # NOLINT(american-spelling): the license file's name.
+
+# The enforced clang-tidy checks, which the aspect of //tools/clang_tidy reads (and fixes are formatted with
+# .clang-format), and the script that installs clang-tidy; //tools/clang_tidy and //tools/hooks:test_lint_tool_versions
+# test them.
+exports_files([
+    ".clang-tidy",
+    "docker/install_llvm_tools.sh",
+])
+
+# The lint tools' configurations, which //tools/hooks:test_lint_tool_configs runs the real tools with, and the module
+# file whose @lint_deps hub //tools/hooks:test_lint_tool_versions checks.
+exports_files([
+    ".isort.cfg",
+    ".pylintrc",
+    "CPPLINT.cfg",
+    "MODULE.bazel",
+    "mypy.ini",
+])
+
+# The agent rules, whose style sections //tools/hooks:test_agents_style_sections checks against the registry and the
+# configurations.
+exports_files(["AGENTS.md"])
+
+# The Python import roots of the editor's language server, which //tools/ide:test_ide_setup checks against the BUILD
+# files' `imports`.
+exports_files(["pyrightconfig.json"])
+
+# The robot deployment: the robot's compose files and the dev container README that lists the launch targets;
+# //tools/deploy:test_deploy_files checks them.
+exports_files([
+    ".devcontainer/README.md",
+    "docker-compose.robot.netem.yaml",
+    "docker-compose.robot.sim.yaml",
+    "docker-compose.robot.yaml",
 ])

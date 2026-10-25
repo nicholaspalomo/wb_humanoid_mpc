@@ -40,29 +40,38 @@ struct LocomotionHeuristicConfig;
 struct LocomotionHeuristicModelParameters;
 
 /**
- * One regularization heuristic of Gerardo Bledt's Regularized Predictive Control, "Regularized Predictive Control
- * Framework for Robust Dynamic Legged Locomotion", MIT 2020, Appendix C.
+ * One regularization heuristic of Gerardo Bledt's Regularized Predictive
+ * Control, "Regularized Predictive Control Framework for Robust Dynamic Legged
+ * Locomotion", MIT 2020, Appendix C.
  *
- * RPC does not add a cost term. It SHAPES THE REFERENCE that a quadratic cost already regularizes against, so that the
- * optimizer starts from, and is biased towards, a solution a legged robot is known to want - while remaining free to
- * depart from it where the dynamics pay better (dissertation section 3.1). This class is that idea: a pure function
- * from the robot's situation to an OFFSET of one reference channel, summed with the offsets of every other listed
+ * RPC does not add a cost term. It SHAPES THE REFERENCE that a quadratic cost
+ * already regularizes against, so that the optimizer starts from, and is biased
+ * towards, a solution a legged robot is known to want - while remaining free to
+ * depart from it where the dynamics pay better (dissertation section 3.1). This
+ * class is that idea: a pure function from the robot's situation to an OFFSET
+ * of one reference channel, summed with the offsets of every other listed
  * heuristic and added to the reference the controller would have used anyway.
  *
- * Three consequences of "offset" that are load-bearing and are relied on throughout the layer:
- *  - an empty list is EXACTLY the previous behavior, bit for bit, because the sum of no offsets is zero and nothing
- *    is recomputed;
- *  - the order of the names in the task file is documentary, because addition is commutative (unlike the contact
- *    planner's `costs` list, whose order is the floating-point accumulation order);
- *  - a heuristic can be tuned to nothing by zeroing its coefficients, so a name may be listed while its block is
- *    still at zero and the layer is still a no-op. That is deliberate: it lets the list be turned on first and the
+ * Three consequences of "offset" that are load-bearing and are relied on
+ * throughout the layer:
+ *  - an empty list is EXACTLY the previous behavior, bit for bit, because the
+ * sum of no offsets is zero and nothing is recomputed;
+ *  - the order of the names in the task file is documentary, because addition
+ * is commutative (unlike the contact planner's `costs` list, whose order is the
+ * floating-point accumulation order);
+ *  - a heuristic can be tuned to nothing by zeroing its coefficients, so a name
+ * may be listed while its block is still at zero and the layer is still a
+ * no-op. That is deliberate: it lets the list be turned on first and the
  *    numbers found second.
  *
- * Every implementation is IMMUTABLE after configure() and holds no mutable state, because the base-pose and wrench
- * evaluations run once per shooting node per SQP iteration on every worker thread of the solver. Nothing here may
- * perform forward kinematics for the same reason: everything that needs the model is derived once into
- * LocomotionHeuristicModelParameters, and everything that needs a measurement is latched once per solve by
- * SwitchedModelReferenceManager::captureMeasuredState() and handed over in the per-call context.
+ * Every implementation is IMMUTABLE after configure() and holds no mutable
+ * state, because the base-pose and wrench evaluations run once per shooting
+ * node per SQP iteration on every worker thread of the solver. Nothing here may
+ * perform forward kinematics for the same reason: everything that needs the
+ * model is derived once into LocomotionHeuristicModelParameters, and everything
+ * that needs a measurement is latched once per solve by
+ * SwitchedModelReferenceManager::captureMeasuredState() and handed over in the
+ * per-call context.
  */
 class LocomotionHeuristic {
  public:
@@ -71,22 +80,29 @@ class LocomotionHeuristic {
   LocomotionHeuristic(const LocomotionHeuristic&) = delete;
   LocomotionHeuristic& operator=(const LocomotionHeuristic&) = delete;
 
-  /** The canonical registry name of this heuristic, i.e. what the task file lists. */
+  /** The canonical registry name of this heuristic, i.e. what the task file
+   * lists. */
   virtual absl::string_view name() const = 0;
 
   /**
-   * Reads this heuristic's own parameter block out of `config` and the constants it needs out of `model`.
+   * Reads this heuristic's own parameter block out of `config` and the
+   * constants it needs out of `model`.
    *
-   * This is also the hot-reload entry point: the parameter updater re-reads the task file and calls it again on the
-   * live layer, so an implementation must overwrite every member it owns rather than accumulating into them.
+   * This is also the hot-reload entry point: the parameter updater re-reads the
+   * task file and calls it again on the live layer, so an implementation must
+   * overwrite every member it owns rather than accumulating into them.
    */
-  virtual absl::Status configure(const LocomotionHeuristicConfig& config, const LocomotionHeuristicModelParameters& model) = 0;
+  virtual absl::Status configure(
+      const LocomotionHeuristicConfig& config,
+      const LocomotionHeuristicModelParameters& model) = 0;
 
   /**
-   * One line naming the formula and the coefficients it is currently carrying, for the start-up banner.
+   * One line naming the formula and the coefficients it is currently carrying,
+   * for the start-up banner.
    *
-   * It exists because a heuristic whose coefficients are all zero is indistinguishable at run time from one that is
-   * not listed at all, and the operator has to be able to tell those apart without reading the task file.
+   * It exists because a heuristic whose coefficients are all zero is
+   * indistinguishable at run time from one that is not listed at all, and the
+   * operator has to be able to tell those apart without reading the task file.
    */
   virtual std::string describe() const = 0;
 

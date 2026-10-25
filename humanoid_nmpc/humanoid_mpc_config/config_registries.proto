@@ -1,0 +1,32 @@
+edition = "2023";
+
+package humanoid_mpc_config;
+
+import "nproto/options.proto";
+
+// The names each registry of the stack accepts, keyed by the registry names that the schemas'
+// (humanoid_mpc_config.tuning) options give their string fields (`registry: "contact_estimator"`): the choices the
+// tuning GUI offers for such a field. config_registries.textproto holds them, written from the linked registries by
+// `bazel run //tools/config_registries:print_config_registries`; //tools/config_registries:config_registries_test fails
+// when the file and the registries differ (tools/config_registries/README.md).
+// Next ID: 2
+message ConfigRegistries {
+  option (nproto.generate_struct) = "ocs2::humanoid::mpc_config::ConfigRegistries";
+
+  reserved 2 to max;
+
+  // One registry and the names it accepts.
+  // Next ID: 3
+  message Registry {
+    reserved 3 to max;
+
+    // As a TuningOptions.registry names it.
+    string name = 1 [default = ""];
+    // In each name's canonical spelling, in the registry's order. A registry may accept other spellings too (the
+    // MPC's cost and constraint lists ignore case and underscores); a file names its entries as they are written here.
+    repeated string names = 2;
+  }
+
+  // Sorted by name, each registry once.
+  repeated Registry registries = 1;
+}

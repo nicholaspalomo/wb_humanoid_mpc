@@ -31,21 +31,21 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 // Pinocchio forward declarations must be included first
-#include <pinocchio/fwd.hpp>
+#include "pinocchio/fwd.hpp"
 
-#include <pinocchio/algorithm/center-of-mass.hpp>
-#include <pinocchio/algorithm/centroidal.hpp>
-#include <pinocchio/multibody/model.hpp>
-#include <pinocchio/parsers/urdf.hpp>
-
-#include <ocs2_core/misc/LoadData.h>
-#include <ocs2_pinocchio_interface/urdf.h>
+#include <string>
 
 #include "absl/status/statusor.h"
+#include "ocs2_pinocchio_interface/urdf.h"
+#include "pinocchio/algorithm/center-of-mass.hpp"
+#include "pinocchio/algorithm/centroidal.hpp"
+#include "pinocchio/multibody/model.hpp"
+#include "pinocchio/parsers/urdf.hpp"
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/contact/ContactPolygon.h"
 #include "humanoid_common_mpc/contact/ContactRectangle.h"
+#include "humanoid_mpc_config/task_file.nproto.h"
 
 namespace ocs2::humanoid {
 
@@ -55,39 +55,51 @@ namespace ocs2::humanoid {
 /// \param[in] urdfFilePath: The absolute path to the URDF file for the robot.
 ///
 
-PinocchioInterface createDefaultPinocchioInterface(const std::string& urdfFilePath);
+PinocchioInterface createDefaultPinocchioInterface(
+    const std::string& urdfFilePath);
 
 ///
-/// \brief Creates the MPC's Pinocchio model from the URDF: every joint not in ModelSettings::mpcModelJointNames is set to
-/// FIXED, and a frame is added at the center and at every corner of each contact polygon of the task file.
+/// \brief Creates the MPC's Pinocchio model from the URDF: every joint not in
+/// ModelSettings::mpcModelJointNames is set to FIXED, and a frame is added at
+/// the center and at every corner of each contact polygon of the task file.
 ///
-/// The model's actuated joints are then checked against mpcModelJointNames, in order (checkPinocchioJointNaming), in
-/// every build: the MPC indexes its state, joint limits and weights by that order.
+/// The model's actuated joints are then checked against mpcModelJointNames, in
+/// order (checkPinocchioJointNaming), in every build: the MPC indexes its
+/// state, joint limits and weights by that order.
 ///
-/// \param[in] taskFilePath: The task file, whose contact configuration places the contact frames.
-/// \param[in] urdfFilePath: The URDF of the robot. It must be the one `modelSettings` was built from.
-/// \param[in] modelSettings: The model settings; mpcModelJointNames names the actuated joints.
-/// \return InvalidArgument when the URDF does not parse, or when the model's joints are not mpcModelJointNames in
-///         order - naming the first joint that differs.
+/// \param[in] taskFile: The typed task file, whose `contacts` block places the
+/// contact frames
+///            (contactRectangleFromConfig()).
+/// \param[in] urdfFilePath: The URDF of the robot. It must be the one
+/// `modelSettings` was built from. \param[in] modelSettings: The model
+/// settings; mpcModelJointNames names the actuated joints. \return
+/// InvalidArgument when the URDF does not parse, when a contact's geometry does
+/// not convert, or when the model's
+///         joints are not mpcModelJointNames in order - naming the first joint
+///         that differs.
 ///
+absl::StatusOr<PinocchioInterface> loadCustomPinocchioInterface(
+    const mpc_config::TaskFile& taskFile,
+    const std::string& urdfFilePath,
+    const ModelSettings& modelSettings,
+    bool scaleTotalMass = false,
+    scalar_t totalMass = 1.0,
+    bool verbose = false);
 
-absl::StatusOr<PinocchioInterface> loadCustomPinocchioInterface(const std::string& taskFilePath,
-                                                                const std::string& urdfFilePath,
-                                                                const ModelSettings& modelSettings,
-                                                                bool scaleTotalMass = false,
-                                                                scalar_t totalMass = 1.0,
-                                                                bool verbose = false);
-
 ///
-/// \brief loadCustomPinocchioInterface() for the callers that cannot return a Status yet: throws std::invalid_argument
-/// with its message instead. Prefer loadCustomPinocchioInterface().
+/// \brief The model above for the task file at `taskFilePath` (loadTaskFile()):
+/// the path form of a root of the MPC's configuration.
 ///
-
-PinocchioInterface createCustomPinocchioInterface(const std::string& taskFilePath,
-                                                  const std::string& urdfFilePath,
-                                                  const ModelSettings& modelSettings,
-                                                  bool scaleTotalMass = false,
-                                                  scalar_t totalMass = 1.0,
-                                                  bool verbose = false);
+/// \return loadTaskFile()'s error for a file that cannot be read or does not
+/// parse, and the errors of the typed form,
+///         prefixed with the file.
+///
+absl::StatusOr<PinocchioInterface> loadCustomPinocchioInterface(
+    const std::string& taskFilePath,
+    const std::string& urdfFilePath,
+    const ModelSettings& modelSettings,
+    bool scaleTotalMass = false,
+    scalar_t totalMass = 1.0,
+    bool verbose = false);
 
 }  // namespace ocs2::humanoid

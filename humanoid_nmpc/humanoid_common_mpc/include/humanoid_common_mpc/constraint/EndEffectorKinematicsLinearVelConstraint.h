@@ -32,19 +32,24 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <memory>
 
-#include <ocs2_core/constraint/StateInputConstraint.h>
-
-#include <ocs2_robotic_tools/end_effector/EndEffectorKinematics.h>
+#include "absl/base/nullability.h"
+#include "ocs2_core/constraint/StateInputConstraint.h"
+#include "ocs2_robotic_tools/end_effector/EndEffectorKinematics.h"
 
 namespace ocs2::humanoid {
 
 /**
- * Defines a linear constraint on an end-effector position (xee) and linear velocity (vee).
- * g(xee, vee) = Ax * xee + Av * vee + b
+ * Defines a linear constraint on an end-effector position (xee) and linear
+ * velocity (vee). g(xee, vee) = Ax * xee + Av * vee + b
  * - For defining constraint of type g(xee), set Av to matrix_t(0, 0)
  * - For defining constraint of type g(vee), set Ax to matrix_t(0, 0)
+ *
+ * Not thread-safe: its end-effector kinematics evaluate on the Pinocchio data
+ * of one worker's PreComputation, so the solver gives each worker thread its
+ * own clone().
  */
-class EndEffectorKinematicsLinearVelConstraint final : public StateInputConstraint {
+class EndEffectorKinematicsLinearVelConstraint final
+    : public StateInputConstraint {
  public:
   /**
    * Coefficients of the linear constraints of the form:
@@ -58,34 +63,54 @@ class EndEffectorKinematicsLinearVelConstraint final : public StateInputConstrai
 
   /**
    * Constructor
-   * @param [in] endEffectorKinematics: The kinematic interface to the target end-effector.
+   * @param [in] endEffectorKinematics: The kinematic interface to the target
+   * end-effector.
    * @param [in] numConstraints: The number of constraints {1, 2, 3}
-   * @param [in] config: The constraint coefficients, g(xee, vee) = Ax * xee + Av * vee + b
+   * @param [in] config: The constraint coefficients, g(xee, vee) = Ax * xee +
+   * Av * vee + b
    */
-  EndEffectorKinematicsLinearVelConstraint(const EndEffectorKinematics<scalar_t>& endEffectorKinematics,
-                                           size_t numConstraints,
-                                           Config config = Config());
+  EndEffectorKinematicsLinearVelConstraint(
+      const EndEffectorKinematics<scalar_t>& endEffectorKinematics,
+      size_t numConstraints,
+      Config config = Config());
 
   ~EndEffectorKinematicsLinearVelConstraint() override = default;
-  EndEffectorKinematicsLinearVelConstraint* clone() const override { return new EndEffectorKinematicsLinearVelConstraint(*this); }
+  EndEffectorKinematicsLinearVelConstraint& operator=(
+      const EndEffectorKinematicsLinearVelConstraint&) = delete;
+  EndEffectorKinematicsLinearVelConstraint(
+      EndEffectorKinematicsLinearVelConstraint&&) = delete;
+  EndEffectorKinematicsLinearVelConstraint& operator=(
+      EndEffectorKinematicsLinearVelConstraint&&) = delete;
+  EndEffectorKinematicsLinearVelConstraint* absl_nonnull clone()
+      const override {
+    return new EndEffectorKinematicsLinearVelConstraint(*this);
+  }
 
-  /** Sets a new constraint coefficients. */
+  /**
+   * Sets new constraint coefficients, unchecked (the pre-computation sets them
+   * on every evaluation): `config.b` has getNumConstraints() rows, and each of
+   * Ax and Av is empty or getNumConstraints() x 3, not both empty.
+   */
   void configure(Config&& config);
   /** Sets a new constraint coefficients. */
   void configure(const Config& config) { this->configure(Config(config)); }
 
-  /** Gets the underlying end-effector kinematics interface. */
-  EndEffectorKinematics<scalar_t>& getEndEffectorKinematics() { return *endEffectorKinematicsPtr_; }
-
-  size_t getNumConstraints(scalar_t time) const override { return numConstraints_; }
-  vector_t getValue(scalar_t time, const vector_t& state, const vector_t& input, const PreComputation& preComp) const override;
-  VectorFunctionLinearApproximation getLinearApproximation(scalar_t time,
-                                                           const vector_t& state,
-                                                           const vector_t& input,
-                                                           const PreComputation& preComp) const override;
+  size_t getNumConstraints(scalar_t /*time*/) const override {
+    return numConstraints_;
+  }
+  vector_t getValue(scalar_t time,
+                    const vector_t& state,
+                    const vector_t& input,
+                    const PreComputation& preComp) const override;
+  VectorFunctionLinearApproximation getLinearApproximation(
+      scalar_t time,
+      const vector_t& state,
+      const vector_t& input,
+      const PreComputation& preComp) const override;
 
  private:
-  EndEffectorKinematicsLinearVelConstraint(const EndEffectorKinematicsLinearVelConstraint& rhs);
+  EndEffectorKinematicsLinearVelConstraint(
+      const EndEffectorKinematicsLinearVelConstraint& rhs);
 
   std::unique_ptr<EndEffectorKinematics<scalar_t>> endEffectorKinematicsPtr_;
   const size_t numConstraints_;

@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -27,8 +31,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <optional>
 
-#include <ocs2_core/reference/ModeSchedule.h>
-#include <ocs2_core/reference/TargetTrajectories.h>
+#include "ocs2_core/reference/ModeSchedule.h"
+#include "ocs2_core/reference/TargetTrajectories.h"
 
 #include "humanoid_common_mpc/contact_planning/ContactScheduleAdaptation.h"
 #include "humanoid_common_mpc/contact_planning/execution/ExecutionContext.h"
@@ -37,21 +41,29 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * A heuristic applied between plans by the reference manager. The schedule hooks are called per foot, in the order of
- * the `execution` list, until a rule reports an event for that foot (the rules then do not stack on one foot in one
- * cycle); the foothold and target hooks run once per cycle.
+ * A heuristic applied between plans by the reference manager. The schedule
+ * hooks are called per foot, in the order of the `execution` list, until a rule
+ * reports an event for that foot (the rules then do not stack on one foot in
+ * one cycle); the foothold and target hooks run once per cycle.
+ *
+ * Not thread-safe, like every ContactPlanningTerm: the planner that owns it
+ * configures and evaluates it from one thread at a time.
  */
 class ExecutionRule : public ContactPlanningTerm {
  public:
-  /** True when the rule compares the measured center of mass with the NMPC's predicted trajectory. */
+  /** True when the rule compares the measured center of mass with the NMPC's
+   * predicted trajectory. */
   virtual bool needsPredictedTrajectory() const { return false; }
-  /** True when the rule reads the measured center of mass or base position of the cycle (implied by the above). */
+  /** True when the rule reads the measured center of mass or base position of
+   * the cycle (implied by the above). */
   virtual bool needsComState() const { return needsPredictedTrajectory(); }
-  /** Once per cycle, before the schedule is adapted (the cadence rule computes its shifts here). */
+  /** Once per cycle, before the schedule is adapted (the cadence rule computes
+   * its shifts here). */
   virtual void beginCycle(ExecutionContext& /*ctx*/) const {}
   /**
-   * The foot is scheduled to swing at ctx.time, between `liftOff` and `touchDown`; the latch identifies the swing.
-   * Returns true when the rule changed the schedule and reported it.
+   * The foot is scheduled to swing at ctx.time, between `liftOff` and
+   * `touchDown`; the latch identifies the swing. Returns true when the rule
+   * changed the schedule and reported it.
    */
   virtual bool adaptSwingingFoot(const ExecutionContext& /*ctx*/,
                                  size_t /*foot*/,
@@ -63,8 +75,10 @@ class ExecutionRule : public ContactPlanningTerm {
     return false;
   }
   /**
-   * The foot is scheduled to be in contact at ctx.time but is not measured in contact, and the latch holds the swing
-   * that just ended. Returns true when the rule extended the swing and reported it; otherwise the latch is cleared.
+   * The foot is scheduled to be in contact at ctx.time but is not measured in
+   * contact, and the latch holds the swing that just ended. Returns true when
+   * the rule extended the swing and reported it; otherwise the latch is
+   * cleared.
    */
   virtual bool adaptContactFoot(const ExecutionContext& /*ctx*/,
                                 size_t /*foot*/,
@@ -73,28 +87,38 @@ class ExecutionRule : public ContactPlanningTerm {
                                 ContactEventReport& /*report*/) const {
     return false;
   }
-  /** A ground search for the swing height reference of a foot (late touch-down), when the rule has one. */
-  virtual std::optional<GroundSearchRequest> groundSearch(const ExecutionContext& /*ctx*/,
-                                                          size_t /*foot*/,
-                                                          const ModeSchedule& /*schedule*/,
-                                                          const SwingTimingLatch& /*latch*/) const {
+  /** A ground search for the swing height reference of a foot (late
+   * touch-down), when the rule has one. */
+  virtual std::optional<GroundSearchRequest> groundSearch(
+      const ExecutionContext& /*ctx*/,
+      size_t /*foot*/,
+      const ModeSchedule& /*schedule*/,
+      const SwingTimingLatch& /*latch*/) const {
     return std::nullopt;
   }
-  /** Per-foot landing target offsets (xy) of the swings in flight; zero for feet the rule does not move. */
-  virtual feet_array_t<vector2_t> correctFootholds(const ExecutionContext& /*ctx*/, const ModeSchedule& /*schedule*/) const {
+  /** Per-foot landing target offsets (xy) of the swings in flight; zero for
+   * feet the rule does not move. */
+  virtual feet_array_t<vector2_t> correctFootholds(
+      const ExecutionContext& /*ctx*/, const ModeSchedule& /*schedule*/) const {
     return makeFeetArray(vector2_t(vector2_t::Zero()));
   }
   /** Rewrites the MPC's target trajectory (the planned heading override). */
-  virtual void overrideTarget(const ExecutionContext& /*ctx*/, TargetTrajectories& /*targetTrajectories*/) const {}
+  virtual void overrideTarget(
+      const ExecutionContext& /*ctx*/,
+      TargetTrajectories& /*targetTrajectories*/) const {}
 
   /**
-   * Whether this rule actually rewrites the target trajectory, i.e. whether it overrides overrideTarget() above.
+   * Whether this rule actually rewrites the target trajectory, i.e. whether it
+   * overrides overrideTarget() above.
    *
-   * ContactPlanningReferenceManager resamples the operator's target onto the plan's node grid before calling the
-   * rules, because a rule that rewrites a state at a node needs a knot at that node. That resample is only worth
-   * paying for when some rule really does rewrite something: the gate used to be "any rule is listed at all", so a
-   * configuration listing only SCHEDULE rules - phase_resetting, energy_cadence_modulation, dcm_step_adjustment, none
-   * of which touch the target - paid for the resample, and for its truncation, in exchange for nothing.
+   * ContactPlanningReferenceManager resamples the operator's target onto the
+   * plan's node grid before calling the rules, because a rule that rewrites a
+   * state at a node needs a knot at that node. That resample is only worth
+   * paying for when some rule really does rewrite something: the gate used to
+   * be "any rule is listed at all", so a configuration listing only SCHEDULE
+   * rules - phase_resetting, energy_cadence_modulation, dcm_step_adjustment,
+   * none of which touch the target - paid for the resample, and for its
+   * truncation, in exchange for nothing.
    */
   virtual bool rewritesTarget() const { return false; }
 };

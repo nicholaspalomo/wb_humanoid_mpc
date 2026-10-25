@@ -30,6 +30,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/locomotion_heuristics/foothold/HighSpeedTurningHeuristic.h"
 
 #include <cmath>
+#include <string>
 
 #include "absl/strings/str_cat.h"
 
@@ -43,41 +44,55 @@ namespace {
 vector2_t toWorld(const vector2_t& inBaseFrame, scalar_t yaw) {
   const scalar_t cosYaw = std::cos(yaw);
   const scalar_t sinYaw = std::sin(yaw);
-  return vector2_t(cosYaw * inBaseFrame.x() - sinYaw * inBaseFrame.y(), sinYaw * inBaseFrame.x() + cosYaw * inBaseFrame.y());
+  return vector2_t(cosYaw * inBaseFrame.x() - sinYaw * inBaseFrame.y(),
+                   sinYaw * inBaseFrame.x() + cosYaw * inBaseFrame.y());
 }
 
 }  // namespace
 
-absl::Status HighSpeedTurningHeuristic::configure(const LocomotionHeuristicConfig& config,
-                                                  const LocomotionHeuristicModelParameters& /*model*/) {
+absl::Status HighSpeedTurningHeuristic::configure(
+    const LocomotionHeuristicConfig& config,
+    const LocomotionHeuristicModelParameters& /*model*/) {
   parameters_ = config.highSpeedTurning;
   return absl::OkStatus();
 }
 
-vector2_t HighSpeedTurningHeuristic::offset(const FootholdHeuristicContext& context) const {
+vector2_t HighSpeedTurningHeuristic::offset(
+    const FootholdHeuristicContext& context) const {
   // H_r(pdot x omega) = a1 (pdot x omega) + a0, Bledt Table C.2.
   //
-  // The full cross product of a 3D velocity and a 3D angular rate has three components, but Bledt's own reduction
-  // (equation 4.27) drops the vertical velocity and the roll and pitch rates as negligible during regular
+  // The full cross product of a 3D velocity and a 3D angular rate has three
+  // components, but Bledt's own reduction (equation 4.27) drops the vertical
+  // velocity and the roll and pitch rates as negligible during regular
   // locomotion, which leaves omega = psidot e_z and a horizontal velocity. Then
   //
-  //     v x omega = (v_x, v_y, 0) x (0, 0, psidot) = (v_y psidot, -v_x psidot, 0).
+  //     v x omega = (v_x, v_y, 0) x (0, 0, psidot) = (v_y psidot, -v_x psidot,
+  //     0).
   //
-  // Evaluated in the BASE frame, so that "forward" and "lateral" below mean the robot's own, and the whole offset is
-  // rotated into the world afterwards. This is the term that vanishes at zero speed however fast the robot spins,
+  // Evaluated in the BASE frame, so that "forward" and "lateral" below mean the
+  // robot's own, and the whole offset is rotated into the world afterwards.
+  // This is the term that vanishes at zero speed however fast the robot spins,
   // which is what distinguishes it from in_place_turning.
-  const vector2_t commandedInBaseFrame = toWorld(context.commandedVelocity, -context.baseYaw);
-  const scalar_t crossForward = commandedInBaseFrame.y() * context.commandedYawRate;
-  const scalar_t crossLateral = -commandedInBaseFrame.x() * context.commandedYawRate;
-  const vector2_t offsetInBaseFrame(parameters_.forwardPerCrossTerm * crossForward + parameters_.forwardOffset,
-                                    parameters_.lateralPerCrossTerm * crossLateral + context.side * parameters_.lateralOffset);
+  const vector2_t commandedInBaseFrame =
+      toWorld(context.commandedVelocity, -context.baseYaw);
+  const scalar_t crossForward =
+      commandedInBaseFrame.y() * context.commandedYawRate;
+  const scalar_t crossLateral =
+      -commandedInBaseFrame.x() * context.commandedYawRate;
+  const vector2_t offsetInBaseFrame(
+      parameters_.forwardPerCrossTerm * crossForward +
+          parameters_.forwardOffset,
+      parameters_.lateralPerCrossTerm * crossLateral +
+          context.side * parameters_.lateralOffset);
   return toWorld(offsetInBaseFrame, context.baseYaw);
 }
 
 std::string HighSpeedTurningHeuristic::describe() const {
-  return absl::StrCat("high_speed_turning: d_forward = ", parameters_.forwardPerCrossTerm, " * (v_y * psidot) + ",
-                      parameters_.forwardOffset, " [m], d_lateral = ", parameters_.lateralPerCrossTerm, " * (-v_x * psidot) + side * ",
-                      parameters_.lateralOffset, " [m]");
+  return absl::StrCat(
+      "high_speed_turning: d_forward = ", parameters_.forwardPerCrossTerm,
+      " * (v_y * psidot) + ", parameters_.forwardOffset,
+      " [m], d_lateral = ", parameters_.lateralPerCrossTerm,
+      " * (-v_x * psidot) + side * ", parameters_.lateralOffset, " [m]");
 }
 
 }  // namespace ocs2::humanoid

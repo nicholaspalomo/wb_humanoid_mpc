@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -25,23 +29,34 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/contact_planning/logic/NoFlightRule.h"
 
+#include <string>
+
+#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/contact_planning/logic/ContactLogicHelpers.h"
 
 namespace ocs2::humanoid {
 
-static_assert(N_CONTACTS == 2, "the no-flight rule is written for a biped");
+static_assert(kNumContacts == kBipedFootCount,
+              "the no-flight rule is written for a biped");
 
 std::string NoFlightRule::describe() const {
   return "c_L + c_R >= 1 at every node";
 }
 
-bool NoFlightRule::propagate(const ContactLogicState& s, MiqpAssignment& a, bool& changed) const {
+bool NoFlightRule::propagate(const ContactLogicState& s,
+                             MiqpAssignment& a,
+                             bool& changed) const {
   for (int k = 0; k < s.numNodes; ++k) {
     const int cL = ContactLogicState::contactBinaryIndex(k, /*foot=*/0);
     const int cR = ContactLogicState::contactBinaryIndex(k, /*foot=*/1);
-    if (a[static_cast<size_t>(cL)] == 0 && a[static_cast<size_t>(cR)] == 0) return false;
-    if (a[static_cast<size_t>(cL)] == 0 && !fixBinary(a, cR, /*value=*/1, changed)) return false;
-    if (a[static_cast<size_t>(cR)] == 0 && !fixBinary(a, cL, /*value=*/1, changed)) return false;
+    if (a[static_cast<size_t>(cL)] == 0 && a[static_cast<size_t>(cR)] == 0)
+      return false;
+    if (a[static_cast<size_t>(cL)] == 0 &&
+        !fixBinary(a, cR, /*value=*/1, changed))
+      return false;
+    if (a[static_cast<size_t>(cR)] == 0 &&
+        !fixBinary(a, cL, /*value=*/1, changed))
+      return false;
   }
   return true;
 }

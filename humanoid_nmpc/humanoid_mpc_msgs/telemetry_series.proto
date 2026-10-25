@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+package humanoid_mpc_msgs;
+
+import "humanoid_mpc_msgs/scalar_group.proto";
+import "nproto/options.proto";
+
+// Topic viz/telemetry: the plots, one message per robot/state sample.
+// Next ID: 3
+message TelemetrySeries {
+  option (nproto.generate_struct) = "ocs2::humanoid::msgs::TelemetrySeries";
+
+  reserved 3 to max;
+
+  // Robot clock [s].
+  double time = 1;
+  repeated ScalarGroup groups = 2;
+}

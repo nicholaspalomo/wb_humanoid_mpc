@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -25,7 +29,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <ocs2_core/Types.h>
+#include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
@@ -35,45 +39,76 @@ namespace ocs2::humanoid {
 /**
  * The standing / walking blend of arXiv:2502.15630, equations (15) - (17).
  *
- * The paper blends a static standing reference with the H-LIP walking reference so that the robot can come to a
- * complete stop instead of marching in place: with an activity
+ * The paper blends a static standing reference with the H-LIP walking reference
+ * so that the robot can come to a complete stop instead of marching in place:
+ * with an activity
  *
- *   phi = ||[c_d; v_b]||^2_P,   alpha(phi) = tanh(rho_1 (phi - rho_2)) / 2 + 1/2,
+ *   phi = ||[c_d; v_b]||^2_P,   alpha(phi) = tanh(rho_1 (phi - rho_2)) / 2 +
+ * 1/2,
  *
- * P normalizes each command and each measured velocity by the largest value it is expected to take, so phi reaches
- * one when a single component is at its threshold. alpha is the weight of the walking reference.
+ * P normalizes each command and each measured velocity by the largest value it
+ * is expected to take, so phi reaches one when a single component is at its
+ * threshold. alpha is the weight of the walking reference.
  *
- * Here the same alpha decides whether the planner emits a stepping gait at all, and scales the commanded velocity it
- * plans the footholds for. That keeps the whole standing-to-walking transition in one smooth scalar law with two
- * constants, in place of a stepping trigger with a dead band and a hysteresis of its own.
+ * Here the same alpha decides whether the planner emits a stepping gait at all,
+ * and scales the commanded velocity it plans the footholds for. That keeps the
+ * whole standing-to-walking transition in one smooth scalar law with two
+ * constants, in place of a stepping trigger with a dead band and a hysteresis
+ * of its own.
  *
- * With the shipped rho_1 = 40 and rho_2 = 0.02 the half point sits at sqrt(0.02), 14 % of a component's range (0.099
- * m/s of Atlas's 0.7 m/s forward command); alpha is about 0.83 at a fifth of the range and passes 0.99 only near 28 %.
+ * With the shipped rho_1 = 40 and rho_2 = 0.02 the half point sits at
+ * sqrt(0.02), 14 % of a component's range (0.099 m/s of Atlas's 0.7 m/s forward
+ * command); alpha is about 0.83 at a fifth of the range and passes 0.99 only
+ * near 28 %.
+ *
+ * A copyable value type with const methods only, so concurrent calls on one
+ * blend are safe.
  */
 class HlipStandingBlend {
  public:
-  explicit HlipStandingBlend(const HlipBlendParameters& parameters) : parameters_(parameters) {}
+  // The weight alpha at phi = threshold, the half point: at or above it the
+  // planner walks, below it it stands.
+  static constexpr scalar_t kHalfPointWeight = 0.5;
+
+  explicit HlipStandingBlend(const HlipBlendParameters& parameters)
+      : parameters_(parameters) {}
+  HlipStandingBlend(const HlipStandingBlend&) = default;
+  HlipStandingBlend& operator=(const HlipStandingBlend&) = default;
+  HlipStandingBlend(HlipStandingBlend&&) = default;
+  HlipStandingBlend& operator=(HlipStandingBlend&&) = default;
+  ~HlipStandingBlend() = default;
 
   /**
-   * phi: the squared norm of the commands and the measured CENTER-OF-MASS velocity under the threshold metric P.
+   * phi: the squared norm of the commands and the measured CENTER-OF-MASS
+   * velocity under the threshold metric P.
    *
-   * The paper writes v_b for the base velocity, and the thresholds used to be named for it, but what the planner
-   * actually measures is the center-of-mass velocity (ContactPlannerInput::comVelocity, filled from
-   * ContactPlanningReferenceManager::computeComState). The names follow the quantity rather than the paper.
+   * The paper writes v_b for the base velocity, and the thresholds used to be
+   * named for it, but what the planner actually measures is the center-of-mass
+   * velocity (ContactPlannerInput::comVelocity, filled from
+   * ContactPlanningReferenceManager::computeComState). The names follow the
+   * quantity rather than the paper.
    *
-   * This class takes whatever velocity it is given. HlipContactPlanner passes HlipContactPlanner::blendVelocity(): the
-   * measured velocity with its lateral component taken relative to the sway of stepping in place, because the raw
-   * lateral sway of the zero-command gait alone sits far above the shipped half point and would never let a robot
-   * that has walked stand again.
+   * This class takes whatever velocity it is given. HlipContactPlanner passes
+   * HlipContactPlanner::blendVelocity(): the measured velocity with its lateral
+   * component taken relative to the sway of stepping in place, because the raw
+   * lateral sway of the zero-command gait alone sits far above the shipped half
+   * point and would never let a robot that has walked stand again.
    */
-  scalar_t activity(const vector2_t& velocityCommand, scalar_t yawRateCommand, const vector2_t& comVelocity) const;
+  scalar_t activity(const vector2_t& velocityCommand,
+                    scalar_t yawRateCommand,
+                    const vector2_t& comVelocity) const;
 
   /** alpha in (0, 1): 0 stands still, 1 walks the full H-LIP gait. */
-  scalar_t weight(const vector2_t& velocityCommand, scalar_t yawRateCommand, const vector2_t& comVelocity) const;
+  scalar_t weight(const vector2_t& velocityCommand,
+                  scalar_t yawRateCommand,
+                  const vector2_t& comVelocity) const;
 
   /** Whether the blend asks for a stepping gait rather than a standing one. */
-  bool isWalking(const vector2_t& velocityCommand, scalar_t yawRateCommand, const vector2_t& comVelocity) const {
-    return weight(velocityCommand, yawRateCommand, comVelocity) >= 0.5;
+  bool isWalking(const vector2_t& velocityCommand,
+                 scalar_t yawRateCommand,
+                 const vector2_t& comVelocity) const {
+    return weight(velocityCommand, yawRateCommand, comVelocity) >=
+           kHalfPointWeight;
   }
 
   const HlipBlendParameters& getParameters() const { return parameters_; }

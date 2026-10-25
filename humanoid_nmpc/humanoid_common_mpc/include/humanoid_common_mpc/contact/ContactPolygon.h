@@ -30,16 +30,25 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <string>
+#include <vector>
+
 #include "humanoid_common_mpc/contact/ContactCenterPoint.h"
 
 namespace ocs2::humanoid {
 
-/// \brief the maximum extension of the polygon with respect to the specified frame
-
+/// \brief the maximum extension of the polygon with respect to the specified
+/// frame
 struct PolygonBounds {
-  PolygonBounds(
-      const scalar_t& x_min, const scalar_t& x_max, const scalar_t& y_min, const scalar_t& y_max, const scalar_t& scaleFactor = 1.0)
-      : x_min(x_min * scaleFactor), x_max(x_max * scaleFactor), y_min(y_min * scaleFactor), y_max(y_max * scaleFactor) {}
+  PolygonBounds(scalar_t x_min,
+                scalar_t x_max,
+                scalar_t y_min,
+                scalar_t y_max,
+                scalar_t scaleFactor = 1.0)
+      : x_min(x_min * scaleFactor),
+        x_max(x_max * scaleFactor),
+        y_min(y_min * scaleFactor),
+        y_max(y_max * scaleFactor) {}
 
   scalar_t x_min;
   scalar_t x_max;
@@ -48,30 +57,50 @@ struct PolygonBounds {
 };
 
 ///
-/// \brief A planar contact polygon defined by the convex hull spanned up by a set of corner points expressed in the
-/// frame name specified
+/// \brief A planar contact polygon defined by the convex hull spanned up by a
+/// set of corner points expressed in the frame name specified
 ///
 /// \param[in] polygonPoints A vector of 3D points on the xy plane (z = 0)
 /// \param[in] frameName name of pinocchio frame the polygon is specified in
 /// \param[in] scaleFactor A factor to shrink or extent the polygon
 ///
-
+/// An immutable value once constructed, so concurrent reads are safe.
 class ContactPolygon {
  public:
+  /** The polygon of `polygonPoints` scaled by `scaleFactor`, with the bounds of
+   * the scaled points. */
   ContactPolygon(const std::vector<vector3_t>& polygonPoints,
                  const ContactCenterPoint& contactCenterPoint,
-                 const scalar_t& scaleFactor = 1.0);
+                 scalar_t scaleFactor = 1.0);
 
-  size_t getNumberOfContactPoints() const { return polygonPoints_.size(); };
-  vector3_t getContactPointTranslation(int index) const { return vector3_t(polygonPoints_[index][0], polygonPoints_[index][1], 0.0); };
+  // Copyable, but not assignable: the contact center point is const. A move
+  // copies the const contact center point, and only an allocation failure could
+  // make that copy throw.
+  ContactPolygon(const ContactPolygon&) = default;
+  ContactPolygon& operator=(const ContactPolygon&) = delete;
+  ContactPolygon(ContactPolygon&&) noexcept = default;
+  ContactPolygon& operator=(ContactPolygon&&) = delete;
+  ~ContactPolygon() = default;
+
+  size_t getNumberOfContactPoints() const { return polygonPoints_.size(); }
+  vector3_t getContactPointTranslation(int index) const {
+    return vector3_t(polygonPoints_[index][0], polygonPoints_[index][1], 0.0);
+  }
   matrix3_t getContactPointTranslationCrossProductMatrix(int index) const;
-  const std::string& getParentJointName() const { return contactCenterPoint_.parentJointName; };
-  const std::string& getPolygonPointFrameName(int i) const { return polygonPointFrameNames_[i]; };
-  const ContactCenterPoint& getContactCenterPoint() const { return contactCenterPoint_; };
-  const PolygonBounds& getBounds() const { return polygonLimits_; };
+  const std::string& getParentJointName() const {
+    return contactCenterPoint_.parentJointName;
+  }
+  const std::string& getPolygonPointFrameName(int i) const {
+    return polygonPointFrameNames_[i];
+  }
+  const ContactCenterPoint& getContactCenterPoint() const {
+    return contactCenterPoint_;
+  }
+  const PolygonBounds& getBounds() const { return polygonLimits_; }
 
  protected:
-  // constructor can be used by child class. Child class has to ensure that the polygonLimits are correct
+  // constructor can be used by child class. Child class has to ensure that the
+  // polygonLimits are correct
   ContactPolygon(const std::vector<vector3_t>& polygonPoints,
                  const PolygonBounds& polygonBounds,
                  const ContactCenterPoint& contactCenterPoint);

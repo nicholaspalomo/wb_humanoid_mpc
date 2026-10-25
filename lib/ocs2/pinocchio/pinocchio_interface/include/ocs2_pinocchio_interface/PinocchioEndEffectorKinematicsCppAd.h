@@ -30,8 +30,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include <functional>
+#include <memory>
 #include <string>
 #include <vector>
+
+#include "absl/base/nullability.h"
 
 #include <ocs2_pinocchio_interface/PinocchioInterface.h>
 #include <ocs2_pinocchio_interface/PinocchioStateInputMapping.h>
@@ -43,11 +46,15 @@ namespace ocs2 {
 
 /**
  * This class provides the CppAD implementation the end-effector Kinematics based on pinocchio. No pre-computation
- * is required. The class has two constructors. The constructor with an additional argument, "updateCallback", is meant
- * for cases where PinocchioStateInputMapping requires some extra update calls on PinocchioInterface, such as the
- * centroidal model mapping (refer to CentroidalModelPinocchioMapping).
+ * is required. Its "updateCallback" makes the extra update calls on PinocchioInterface that a PinocchioStateInputMapping
+ * may require before the kinematics are evaluated, such as those of the centroidal model mapping (refer to
+ * CentroidalModelPinocchioMapping).
  *
- * See also PinocchioEndEffectorKinematics, which uses analytical computation and caching.
+ * The taped functions hold copies of what they read - the end-effector frames, the dimensions, the callback, and a
+ * Pinocchio interface on AD scalars with a clone of the mapping set to it, which the functions of one object and of all
+ * its copies share - so that a copy, and a taping after construction (CppAdInterface::getTapeOperationCount()), never
+ * reads the constructor's arguments or the object it was copied from. The callback must therefore not refer to anything
+ * that dies before the object and its copies.
  */
 class PinocchioEndEffectorKinematicsCppAd final : public EndEffectorKinematics<scalar_t> {
  public:
@@ -56,28 +63,6 @@ class PinocchioEndEffectorKinematicsCppAd final : public EndEffectorKinematics<s
   using EndEffectorKinematics<scalar_t>::quaternion_t;
   using update_pinocchio_interface_callback =
       std::function<void(const ad_vector_t& state, PinocchioInterfaceTpl<ad_scalar_t>& pinocchioInterface)>;
-
-  /** Constructor
-   * @param [in] pinocchioInterface pinocchio interface.
-   * @param [in] mapping mapping from OCS2 to pinocchio state.
-   * @param [in] endEffectorIds array of end effector names.
-   * @param [in] stateDim : size of state vector
-   * @param [in] inputDim : size of input vector
-   * @param [in] modelName : name of the generate model library
-   * @param [in] modelFolder : folder to save the model library files to
-   * @param [in] recompileLibraries : If true, the model library will be newly compiled. If false, an existing library will be loaded if
-   *                                  available.
-   * @param [in] verbose : print information.
-   */
-  PinocchioEndEffectorKinematicsCppAd(const PinocchioInterface& pinocchioInterface,
-                                      const PinocchioStateInputMapping<ad_scalar_t>& mapping,
-                                      std::vector<std::string> endEffectorIds,
-                                      size_t stateDim,
-                                      size_t inputDim,
-                                      const std::string& modelName,
-                                      const std::string& modelFolder = "/tmp/ocs2",
-                                      bool recompileLibraries = true,
-                                      bool verbose = false);
 
   /** Constructor
    * @param [in] pinocchioInterface pinocchio interface.
@@ -105,7 +90,7 @@ class PinocchioEndEffectorKinematicsCppAd final : public EndEffectorKinematics<s
                                       bool verbose = false);
 
   ~PinocchioEndEffectorKinematicsCppAd() override = default;
-  PinocchioEndEffectorKinematicsCppAd* clone() const override;
+  PinocchioEndEffectorKinematicsCppAd* absl_nonnull clone() const override;
   PinocchioEndEffectorKinematicsCppAd& operator=(const PinocchioEndEffectorKinematicsCppAd&) = delete;
 
   const std::vector<std::string>& getIds() const override;
@@ -114,9 +99,8 @@ class PinocchioEndEffectorKinematicsCppAd final : public EndEffectorKinematics<s
   std::vector<vector3_t> getVelocity(const vector_t& state, const vector_t& input) const override;
 
   // This function contains no linear approximation due to the non-minimal quaternion representation of SO(3)
-  // Use getOrientationErrorLinearApproximation or getOrientationErrorWrtPlaneLinearApproximation is a linear approximation is needed.
+  // Use getOrientationErrorWrtPlaneLinearApproximation if a linear approximation is needed.
   std::vector<quaternion_t> getOrientation(const vector_t& state) const override;
-  std::vector<vector3_t> getOrientationError(const vector_t& state, const std::vector<quaternion_t>& referenceOrientations) const override;
   std::vector<vector3_t> getOrientationErrorWrtPlane(const vector_t& state, const std::vector<vector3_t>& planeNormals) const override;
   std::vector<vector3_t> getAngularVelocity(const vector_t& state, const vector_t& input) const override;
   std::vector<vector6_t> getTwist(const vector_t& state, const vector_t& input) const override;
@@ -124,42 +108,11 @@ class PinocchioEndEffectorKinematicsCppAd final : public EndEffectorKinematics<s
   std::vector<VectorFunctionLinearApproximation> getPositionLinearApproximation(const vector_t& state) const override;
   std::vector<VectorFunctionLinearApproximation> getVelocityLinearApproximation(const vector_t& state,
                                                                                 const vector_t& input) const override;
-  std::vector<VectorFunctionLinearApproximation> getOrientationErrorLinearApproximation(
-      const vector_t& state, const std::vector<quaternion_t>& referenceOrientations) const override;
   std::vector<VectorFunctionLinearApproximation> getOrientationErrorWrtPlaneLinearApproximation(
       const vector_t& state, const std::vector<vector3_t>& planeNormals) const override;
   std::vector<VectorFunctionLinearApproximation> getAngularVelocityLinearApproximation(const vector_t& state,
                                                                                        const vector_t& input) const override;
   std::vector<VectorFunctionLinearApproximation> getTwistLinearApproximation(const vector_t& state, const vector_t& input) const override;
-
-  // Expose auto differentiation functions publicly to allow for inclusion in gauss-newton costs
-  ad_vector_t getPositionCppAd(PinocchioInterfaceCppAd& pinocchioInterfaceCppAd,
-                               const PinocchioStateInputMapping<ad_scalar_t>& mapping,
-                               const ad_vector_t& state);
-  ad_vector_t getVelocityCppAd(PinocchioInterfaceCppAd& pinocchioInterfaceCppAd,
-                               const PinocchioStateInputMapping<ad_scalar_t>& mapping,
-                               const ad_vector_t& state,
-                               const ad_vector_t& input);
-
-  ad_vector_t getOrientationCppAd(PinocchioInterfaceCppAd& pinocchioInterfaceCppAd,
-                                  const PinocchioStateInputMapping<ad_scalar_t>& mapping,
-                                  const ad_vector_t& state);
-  ad_vector_t getOrientationErrorCppAd(PinocchioInterfaceCppAd& pinocchioInterfaceCppAd,
-                                       const PinocchioStateInputMapping<ad_scalar_t>& mapping,
-                                       const ad_vector_t& state,
-                                       const ad_vector_t& params);
-  ad_vector_t getOrientationErrorWrtPlaneCppAd(PinocchioInterfaceCppAd& pinocchioInterfaceCppAd,
-                                               const PinocchioStateInputMapping<ad_scalar_t>& mapping,
-                                               const ad_vector_t& state,
-                                               const ad_vector_t& params);
-  ad_vector_t getAngularVelocityCppAd(PinocchioInterfaceCppAd& pinocchioInterfaceCppAd,
-                                      const PinocchioStateInputMapping<ad_scalar_t>& mapping,
-                                      const ad_vector_t& state,
-                                      const ad_vector_t& input);
-  ad_vector_t getTwistCppAd(PinocchioInterfaceCppAd& pinocchioInterfaceCppAd,
-                            const PinocchioStateInputMapping<ad_scalar_t>& mapping,
-                            const ad_vector_t& state,
-                            const ad_vector_t& input);
 
  private:
   PinocchioEndEffectorKinematicsCppAd(const PinocchioEndEffectorKinematicsCppAd& rhs);
@@ -167,13 +120,11 @@ class PinocchioEndEffectorKinematicsCppAd final : public EndEffectorKinematics<s
   std::unique_ptr<CppAdInterface> positionCppAdInterfacePtr_;
   std::unique_ptr<CppAdInterface> velocityCppAdInterfacePtr_;
   std::unique_ptr<CppAdInterface> orientationCppAdInterfacePtr_;
-  std::unique_ptr<CppAdInterface> orientationErrorCppAdInterfacePtr_;
   std::unique_ptr<CppAdInterface> orientationErrorWrtPlaneCppAdInterfacePtr_;
   std::unique_ptr<CppAdInterface> angularVelocityCppAdInterfacePtr_;
   std::unique_ptr<CppAdInterface> twistCppAdInterfacePtr_;
 
   const std::vector<std::string> endEffectorIds_;
-  std::vector<size_t> endEffectorFrameIds_;
 };
 
 }  // namespace ocs2

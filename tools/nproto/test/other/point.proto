@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+// A package of its own, imported as nproto_test/other/... (import_prefix), for tools/nproto/test/imports.proto.
+package nproto_test.other;
+
+import "nproto/options.proto";
+
+// Next ID: 4
+message Point {
+  option (nproto.generate_struct) = "nproto::test::other::Point";
+
+  reserved 4 to max;
+
+  enum Frame {
+    FRAME_WORLD = 0;
+    FRAME_BODY = 1;
+  }
+
+  double x = 1;
+  double y = 2;
+  Frame frame = 3;
+}

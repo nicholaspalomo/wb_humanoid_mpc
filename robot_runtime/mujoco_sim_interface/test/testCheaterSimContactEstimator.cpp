@@ -27,29 +27,39 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <gtest/gtest.h>
+#include "gtest/gtest.h"
 
 #include "mujoco_sim_interface/CheaterSimContactEstimator.h"
 
 using robot::mujoco_sim_interface::CheaterSimContactEstimator;
 
 TEST(CheaterSimContactEstimator, flagsFollowTheGroundTruthMask) {
-  EXPECT_EQ(CheaterSimContactEstimator::flagsFromMasks(0b01u, 0u, 2, 2), (std::vector<bool>{true, false}));
-  EXPECT_EQ(CheaterSimContactEstimator::flagsFromMasks(0b10u, 0u, 2, 2), (std::vector<bool>{false, true}));
-  EXPECT_EQ(CheaterSimContactEstimator::flagsFromMasks(0b11u, 0u, 2, 2), (std::vector<bool>{true, true}));
-  EXPECT_EQ(CheaterSimContactEstimator::flagsFromMasks(0b00u, 0u, 2, 2), (std::vector<bool>{false, false}));
+  EXPECT_EQ(CheaterSimContactEstimator::flagsFromMasks(0b01u, 0u, 2, 2),
+            (std::vector<bool>{true, false}));
+  EXPECT_EQ(CheaterSimContactEstimator::flagsFromMasks(0b10u, 0u, 2, 2),
+            (std::vector<bool>{false, true}));
+  EXPECT_EQ(CheaterSimContactEstimator::flagsFromMasks(0b11u, 0u, 2, 2),
+            (std::vector<bool>{true, true}));
+  EXPECT_EQ(CheaterSimContactEstimator::flagsFromMasks(0b00u, 0u, 2, 2),
+            (std::vector<bool>{false, false}));
 }
 
 TEST(CheaterSimContactEstimator, unresolvedContactPointsAreReportedAsTouching) {
-  // Contact point 1 has no MuJoCo body: it keeps its planned wrenches, like the RobotState flags of the simulator.
-  EXPECT_EQ(CheaterSimContactEstimator::flagsFromMasks(0b00u, 0b10u, 2, 2), (std::vector<bool>{false, true}));
+  // Contact point 1 has no MuJoCo body: it keeps its planned wrenches, like the
+  // RobotState flags of the simulator.
+  EXPECT_EQ(CheaterSimContactEstimator::flagsFromMasks(0b00u, 0b10u, 2, 2),
+            (std::vector<bool>{false, true}));
 }
 
-TEST(CheaterSimContactEstimator, contactPointsBeyondTheDetectedOnesAreReportedAsTouching) {
-  EXPECT_EQ(CheaterSimContactEstimator::flagsFromMasks(0b0u, 0u, 1, 2), (std::vector<bool>{false, true}));
+TEST(CheaterSimContactEstimator,
+     contactPointsBeyondTheDetectedOnesAreReportedAsTouching) {
+  EXPECT_EQ(CheaterSimContactEstimator::flagsFromMasks(0b0u, 0u, 1, 2),
+            (std::vector<bool>{false, true}));
 }
 
-TEST(CheaterSimContactEstimator, withoutContactDetectionEveryContactPointIsTouching) {
-  EXPECT_EQ(CheaterSimContactEstimator::flagsFromMasks(0u, 0u, 0, 2), (std::vector<bool>{true, true}));
+TEST(CheaterSimContactEstimator,
+     withoutContactDetectionEveryContactPointIsTouching) {
+  EXPECT_EQ(CheaterSimContactEstimator::flagsFromMasks(0u, 0u, 0, 2),
+            (std::vector<bool>{true, true}));
   EXPECT_TRUE(CheaterSimContactEstimator::flagsFromMasks(0u, 0u, 0, 0).empty());
 }

@@ -30,7 +30,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <ocs2_core/constraint/StateInputConstraint.h>
+#include "absl/base/nullability.h"
+#include "ocs2_core/constraint/StateInputConstraint.h"
+
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 
@@ -39,12 +41,17 @@ namespace ocs2::humanoid {
 /**
  * Forces the contact block of the input to zero while a foot is not in contact.
  *
- * The constrained block is whatever the model parameterizes the contact with: the six wrench components for a
- * wrench-space model, or the basis-vector scalings lambda for BasisInputsModelDecorator. Constraining lambda directly
- * rather than the wrench B * lambda matters: B has only six independent rows, so constraining the wrench would leave
- * the null space of B (numBasisPerFoot - 6 directions) completely free during swing, held down by nothing but the
- * small input regularization. Since the wrench is zero exactly when lambda is zero, constraining the block itself is
- * equivalent, full rank and better conditioned for the equality-constraint projection.
+ * The constrained block is whatever the model parameterizes the contact with:
+ * the six wrench components for a wrench-space model, or the basis-vector
+ * scalings lambda for BasisInputsModelDecorator. Constraining lambda directly
+ * rather than the wrench B * lambda matters: B has only six independent rows,
+ * so constraining the wrench would leave the null space of B (numBasisPerFoot -
+ * 6 directions) completely free during swing, held down by nothing but the
+ * small input regularization. Since the wrench is zero exactly when lambda is
+ * zero, constraining the block itself is equivalent, full rank and better
+ * conditioned for the equality-constraint projection.
+ *
+ * Not thread-safe; the solver gives each worker thread its own clone().
  */
 class ZeroWrenchConstraint final : public StateInputConstraint {
  public:
@@ -58,25 +65,37 @@ class ZeroWrenchConstraint final : public StateInputConstraint {
                        const MpcRobotModelBase<scalar_t>& mpcRobotModel);
 
   ~ZeroWrenchConstraint() override = default;
-  ZeroWrenchConstraint* clone() const override { return new ZeroWrenchConstraint(*this); }
+  ZeroWrenchConstraint& operator=(const ZeroWrenchConstraint&) = delete;
+  ZeroWrenchConstraint(ZeroWrenchConstraint&&) = delete;
+  ZeroWrenchConstraint& operator=(ZeroWrenchConstraint&&) = delete;
+  ZeroWrenchConstraint* absl_nonnull clone() const override {
+    return new ZeroWrenchConstraint(*this);
+  }
 
   bool isActive(scalar_t time) const override;
   void setActive(bool isActive) override { isActive_ = isActive; }
   bool getActive() const override { return isActive_; }
-  size_t getNumConstraints(scalar_t time) const override { return numConstraints_; }
-  vector_t getValue(scalar_t time, const vector_t& state, const vector_t& input, const PreComputation& preComp) const override;
-  VectorFunctionLinearApproximation getLinearApproximation(scalar_t time,
-                                                           const vector_t& state,
-                                                           const vector_t& input,
-                                                           const PreComputation& preComp) const override;
+  size_t getNumConstraints(scalar_t /*time*/) const override {
+    return numConstraints_;
+  }
+  vector_t getValue(scalar_t time,
+                    const vector_t& state,
+                    const vector_t& input,
+                    const PreComputation& preComp) const override;
+  VectorFunctionLinearApproximation getLinearApproximation(
+      scalar_t time,
+      const vector_t& state,
+      const vector_t& input,
+      const PreComputation& preComp) const override;
 
  private:
   ZeroWrenchConstraint(const ZeroWrenchConstraint& rhs);
-  const MpcRobotModelBase<scalar_t>* mpcRobotModelPtr_;
-  const SwitchedModelReferenceManager* referenceManagerPtr_;
+  const MpcRobotModelBase<scalar_t>* absl_nonnull mpcRobotModelPtr_;
+  const SwitchedModelReferenceManager* absl_nonnull referenceManagerPtr_;
   const size_t contactPointIndex_;
   size_t contactBlockStart_;  ///< first input index of this contact's block
-  size_t numConstraints_;     ///< size of that block: 6 wrench components, or numBasisPerFoot scalings
+  size_t numConstraints_;     ///< size of that block: 6 wrench components, or
+                              ///< numBasisPerFoot scalings
   bool isActive_ = true;
 };
 

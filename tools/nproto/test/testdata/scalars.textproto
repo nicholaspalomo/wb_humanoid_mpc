@@ -1,0 +1,20 @@
+# proto-file: tools/nproto/test/scalars.proto
+# proto-message: nproto_test.Scalars
+#
+# A configuration file as the repository writes them, for tools/nproto/test/testTextproto.cpp.
+
+double_value: 1.5
+float_value: -0.25
+int32_value: -7
+int64_value: 9000000000
+uint32_value: 7
+uint64_value: 18000000000
+sint32_value: -3
+sint64_value: -4
+fixed32_value: 5
+fixed64_value: 6
+sfixed32_value: -8
+sfixed64_value: -9
+bool_value: true
+string_value: "a configuration value"
+bytes_value: "\001\002"

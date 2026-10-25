@@ -1,0 +1,30 @@
+edition = "2023";
+
+package humanoid_mpc_config;
+
+import "humanoid_mpc_config/contact_planning_file.proto";
+import "humanoid_mpc_config/task_file.proto";
+import "nproto/options.proto";
+
+// The tuning GUI's live MPC parameters on operator/mpc_parameters (README.md, "Live updates"): the whole task file and, for a robot
+// that has one, the whole contact-planning file, parsed strictly by the GUI before it publishes. The payload is the
+// file: a block it does not carry means its defaults, as at start-up. Here and not in humanoid_mpc_msgs, whose protos
+// import only their own package.
+// Next ID: 5
+message MpcParameterUpdate {
+  option (nproto.generate_struct) = "ocs2::humanoid::mpc_config::MpcParameterUpdate";
+
+  reserved 5 to max;
+
+  TaskFile task = 1;
+  // Absent for a robot without a contact planner.
+  ContactPlanningFile contact_planning = 2 [(nproto.optional_message) = true];
+  // The fingerprint of this message's schema in the sender's build (nproto::SchemaFingerprint(), the Python
+  // nproto_schema.schema_fingerprint()): a receiver refuses an update whose fingerprint is not its own, which is a sender
+  // built from another version of the schemas (README.md, "Version skew").
+  string schema_fingerprint = 3 [default = ""];
+  // The task file's path from its last robot_models/ component on (configFileIdentity(), the GUI's config_path_of()),
+  // e.g. "robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.textproto": a receiver refuses an update of another
+  // configuration, such as a centroidal G1 GUI's update reaching the whole-body G1 MPC, whose robot_name is the same.
+  string config_path = 4 [default = ""];
+}

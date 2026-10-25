@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+package humanoid_mpc_msgs;
+
+import "nproto/options.proto";
+
+// Topic operator/fsm_command. `command` is a control mode name (humanoid_common_mpc/mrt/ControlMode.h: ZERO_TORQUE,
+// JOINT_PD, GRAVITY_COMP, SAFETY, WB_MPC, and the aliases MPC_ACTIVE, ENABLE_TORQUES, DISABLE_TORQUES) or a gantry
+// command (LOCK_GANTRY, UNLOCK_GANTRY). Unknown commands are dropped by the robot.
+// Next ID: 3
+message FsmCommand {
+  option (nproto.generate_struct) = "ocs2::humanoid::msgs::FsmCommand";
+
+  reserved 3 to max;
+
+  string command = 1;
+  // Increases with every command the sender issues, so a receiver can tell a repeated message from a new command.
+  uint64 sequence = 2;
+}

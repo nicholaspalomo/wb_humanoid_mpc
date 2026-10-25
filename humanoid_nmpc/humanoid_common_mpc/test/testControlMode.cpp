@@ -27,25 +27,27 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <gtest/gtest.h>
-
 #include <array>
 
 #include "absl/strings/string_view.h"
+#include "gtest/gtest.h"
 
 #include "humanoid_common_mpc/mrt/ControlMode.h"
 
 /*
- * The control mode names the MRT joint controllers and the sim fall recovery share. Each of them used to spell the names
- * and the two families out on its own.
+ * The control mode names the MRT joint controllers and the sim fall recovery
+ * share. Each of them used to spell the names and the two families out on its
+ * own.
  */
 
 namespace ocs2::humanoid {
 namespace {
 
-constexpr std::array<absl::string_view, 4> kPassiveModes{control_mode::kZeroTorque, control_mode::kJointPd, control_mode::kGravityComp,
-                                                         control_mode::kSafety};
-constexpr std::array<absl::string_view, 2> kMpcModes{control_mode::kWbMpc, control_mode::kMpcActive};
+constexpr std::array<absl::string_view, 4> kPassiveModes{
+    control_mode::kZeroTorque, control_mode::kJointPd,
+    control_mode::kGravityComp, control_mode::kSafety};
+constexpr std::array<absl::string_view, 2> kMpcModes{control_mode::kWbMpc,
+                                                     control_mode::kMpcActive};
 
 TEST(ControlMode, EveryModeIsInExactlyOneFamily) {
   for (absl::string_view mode : kPassiveModes) {
@@ -59,16 +61,19 @@ TEST(ControlMode, EveryModeIsInExactlyOneFamily) {
 }
 
 TEST(ControlMode, ANameTheFsmDoesNotPublishIsInNeitherFamily) {
-  // FSM commands that are not modes, a name in the wrong case, and nothing at all.
+  // FSM commands that are not modes, a name in the wrong case, and nothing at
+  // all.
   for (absl::string_view name :
-       {absl::string_view("ENABLE_TORQUES"), absl::string_view("LOCK_GANTRY"), absl::string_view("wb_mpc"), absl::string_view("")}) {
+       {absl::string_view("ENABLE_TORQUES"), absl::string_view("LOCK_GANTRY"),
+        absl::string_view("wb_mpc"), absl::string_view("")}) {
     EXPECT_FALSE(control_mode::isPassive(name)) << name;
     EXPECT_FALSE(control_mode::isMpc(name)) << name;
   }
 }
 
 TEST(ControlMode, TheNamesAreTheOnesTheFsmPublishes) {
-  // The strings on /humanoid/fsm_command and /humanoid/fsm_state (humanoid_finite_state_machine.py ControlMode).
+  // The strings on operator/fsm_command and robot/fsm_state
+  // (humanoid_finite_state_machine.py ControlMode).
   EXPECT_EQ(control_mode::kZeroTorque, "ZERO_TORQUE");
   EXPECT_EQ(control_mode::kJointPd, "JOINT_PD");
   EXPECT_EQ(control_mode::kGravityComp, "GRAVITY_COMP");

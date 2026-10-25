@@ -35,16 +35,19 @@ namespace ocs2::humanoid {
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-ZeroWrenchConstraint::ZeroWrenchConstraint(const SwitchedModelReferenceManager& referenceManager,
-                                           size_t contactPointIndex,
-                                           const MpcRobotModelBase<scalar_t>& mpcRobotModel)
+ZeroWrenchConstraint::ZeroWrenchConstraint(
+    const SwitchedModelReferenceManager& referenceManager,
+    size_t contactPointIndex,
+    const MpcRobotModelBase<scalar_t>& mpcRobotModel)
     : StateInputConstraint(ConstraintOrder::Linear),
+      mpcRobotModelPtr_(&mpcRobotModel),
       referenceManagerPtr_(&referenceManager),
-      contactPointIndex_(contactPointIndex),
-      mpcRobotModelPtr_(&mpcRobotModel) {
-  // The contact block holds six wrench components for a wrench-space model and numBasisPerFoot scalings for a
-  // basis-vector model; the model reports its own size rather than it being inferred from the input layout.
-  contactBlockStart_ = mpcRobotModel.getContactWrenchStartIndices(contactPointIndex);
+      contactPointIndex_(contactPointIndex) {
+  // The contact block holds six wrench components for a wrench-space model and
+  // numBasisPerFoot scalings for a basis-vector model; the model reports its
+  // own size rather than it being inferred from the input layout.
+  contactBlockStart_ =
+      mpcRobotModel.getContactWrenchStartIndices(contactPointIndex);
   numConstraints_ = mpcRobotModel.getContactInputDim(contactPointIndex);
 }
 
@@ -52,16 +55,11 @@ ZeroWrenchConstraint::ZeroWrenchConstraint(const SwitchedModelReferenceManager& 
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-ZeroWrenchConstraint::ZeroWrenchConstraint(const ZeroWrenchConstraint& rhs)
-    : StateInputConstraint(rhs),
-      referenceManagerPtr_(rhs.referenceManagerPtr_),
-      contactPointIndex_(rhs.contactPointIndex_),
-      // The model is borrowed, exactly as in the primary constructor. Cloning here would leak, since the member is a
-      // raw non-owning pointer; the model outlives every constraint and its accessors are const and thread safe.
-      mpcRobotModelPtr_(rhs.mpcRobotModelPtr_),
-      contactBlockStart_(rhs.contactBlockStart_),
-      numConstraints_(rhs.numConstraints_),
-      isActive_(rhs.isActive_) {}
+// The copy borrows the model, exactly as the primary constructor does. Cloning
+// it would leak, since the member is a raw non-owning pointer; the model
+// outlives every constraint and its accessors are const and thread safe.
+ZeroWrenchConstraint::ZeroWrenchConstraint(const ZeroWrenchConstraint& rhs) =
+    default;
 
 /******************************************************************************************************/
 /******************************************************************************************************/
@@ -74,22 +72,30 @@ bool ZeroWrenchConstraint::isActive(scalar_t time) const {
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-vector_t ZeroWrenchConstraint::getValue(scalar_t time, const vector_t& state, const vector_t& input, const PreComputation& preComp) const {
-  // The contact block itself, not the wrench reconstructed from it: see the class documentation.
+vector_t ZeroWrenchConstraint::getValue(
+    scalar_t /*time*/,
+    const vector_t& /*state*/,
+    const vector_t& input,
+    const PreComputation& /*preComp*/) const {
+  // The contact block itself, not the wrench reconstructed from it: see the
+  // class documentation.
   return input.segment(contactBlockStart_, numConstraints_);
 }
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-VectorFunctionLinearApproximation ZeroWrenchConstraint::getLinearApproximation(scalar_t time,
-                                                                               const vector_t& state,
-                                                                               const vector_t& input,
-                                                                               const PreComputation& preComp) const {
+VectorFunctionLinearApproximation ZeroWrenchConstraint::getLinearApproximation(
+    scalar_t time,
+    const vector_t& state,
+    const vector_t& input,
+    const PreComputation& preComp) const {
   VectorFunctionLinearApproximation approx;
   approx.f = getValue(time, state, input, preComp);
-  approx.dfdx = matrix_t::Zero(numConstraints_, mpcRobotModelPtr_->getStateDim());
-  approx.dfdu = matrix_t::Zero(numConstraints_, mpcRobotModelPtr_->getInputDim());
+  approx.dfdx =
+      matrix_t::Zero(numConstraints_, mpcRobotModelPtr_->getStateDim());
+  approx.dfdu =
+      matrix_t::Zero(numConstraints_, mpcRobotModelPtr_->getInputDim());
   approx.dfdu.middleCols(contactBlockStart_, numConstraints_).setIdentity();
   return approx;
 }

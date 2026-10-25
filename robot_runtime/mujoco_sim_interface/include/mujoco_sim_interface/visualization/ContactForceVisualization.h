@@ -29,15 +29,26 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <string>
+
 #include "mujoco_sim_interface/visualization/MujocoVisualization.h"
 
 namespace robot::mujoco_sim_interface {
 
-/** Red arrows at the contact points for the contact forces the physics applies to the robot. */
+/**
+ * Red arrows at the contact points for the contact forces the physics applies
+ * to the robot (the subtree of the first body on a free joint, or every body
+ * but the world for a fixed base): the force on the robot's side of each
+ * contact, whichever geom of the pair is the robot's. Contacts the robot is not
+ * part of (a ball on the floor) and self-contacts draw nothing. Not
+ * thread-safe; the renderer calls it on its own thread.
+ */
 class ContactForceVisualization final : public MujocoVisualization {
  public:
   std::string name() const override { return "contact_forces"; }
-  std::string description() const override { return "arrows of the physical contact forces on the robot"; }
+  std::string description() const override {
+    return "arrows of the physical contact forces on the robot";
+  }
   void addSceneGeoms(const VisualizationFrame& frame) override;
 };
 

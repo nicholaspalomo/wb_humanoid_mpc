@@ -29,19 +29,27 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <string>
+
 #include "mujoco_sim_interface/visualization/MujocoVisualization.h"
 
 namespace robot::mujoco_sim_interface {
 
 /**
- * Zero moment point of the physical ground reaction: a red disc on the ground plane where the horizontal moment of the
- * contact forces on the robot vanishes (the center of pressure while every contact is on the ground). Hidden while the
- * robot carries less than a few newtons, e.g. on the gantry.
+ * Zero moment point of the physical ground reaction: a red disc on the ground
+ * plane where the horizontal moment of the contact forces on the robot vanishes
+ * (the center of pressure while every contact is on the ground). Hidden while
+ * the robot carries less than a few newtons, e.g. on the gantry.
+ *
+ * Not thread-safe: the viewer drives it from one thread.
  */
 class ZmpVisualization final : public MujocoVisualization {
  public:
   std::string name() const override { return "zmp"; }
-  std::string description() const override { return "zero moment point of the physical ground reaction (disc on the ground)"; }
+  std::string description() const override {
+    return "zero moment point of the physical ground reaction (disc on the "
+           "ground)";
+  }
   char hotkey() const override { return 'z'; }
   void addSceneGeoms(const VisualizationFrame& frame) override;
 };

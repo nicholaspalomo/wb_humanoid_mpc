@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -37,22 +41,37 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * A block of the reduced model: the variables it adds to the layout, their dynamics x_{k+1} = A x_k + B u_k + b, the
- * per-node input bounds, the initial state, and how its part of the solution is decoded into the plan.
+ * A block of the reduced model: the variables it adds to the layout, their
+ * dynamics x_{k+1} = A x_k + B u_k + b, the per-node input bounds, the initial
+ * state, and how its part of the solution is decoded into the plan.
+ *
+ * Not thread-safe, like every ContactPlanningTerm: the planner that owns it
+ * configures and evaluates it from one thread at a time.
  */
 class LipModelBlock : public ContactPlanningTerm {
  public:
-  /** Declares the block's states and inputs, in order (the layout is the concatenation over the blocks). */
+  /** Declares the block's states and inputs, in order (the layout is the
+   * concatenation over the blocks). */
   virtual void declareVariables(LayoutBuilder& layout) const = 0;
-  /** Writes the block's rows of A, B (and b) of a running node. The stage arrives zero-initialized. */
-  virtual void addDynamics(const ContactPlanningContext& ctx, int node, OcpQpStage& stage) const = 0;
+  /** Writes the block's rows of A, B (and b) of a running node. The stage
+   * arrives zero-initialized. */
+  virtual void addDynamics(const ContactPlanningContext& ctx,
+                           int node,
+                           OcpQpStage& stage) const = 0;
   /** Adds the block's input box constraints of a running node, in order. */
-  virtual void addInputBounds(const ContactPlanningContext& /*ctx*/, int /*node*/, InputBoundsBuilder& /*bounds*/) const {}
+  virtual void addInputBounds(const ContactPlanningContext& /*ctx*/,
+                              int /*node*/,
+                              InputBoundsBuilder& /*bounds*/) const {}
   /** Writes the block's entries of x0 from the input. */
-  virtual void setInitialState(const ContactPlanningContext& ctx, vector_t& x0) const = 0;
-  /** Fills the block's fields of the plan from the incumbent (trajectories sized N + 1 / N by the caller). */
-  virtual void decode(const ContactPlanningContext& ctx, const MiqpResult& result, ContactPlan& plan) const = 0;
-  /** Layout indices of the block's inputs that are binaries {0, 1}, in branching order. Empty for most blocks. */
+  virtual void setInitialState(const ContactPlanningContext& ctx,
+                               vector_t& x0) const = 0;
+  /** Fills the block's fields of the plan from the incumbent (trajectories
+   * sized N + 1 / N by the caller). */
+  virtual void decode(const ContactPlanningContext& ctx,
+                      const MiqpResult& result,
+                      ContactPlan& plan) const = 0;
+  /** Layout indices of the block's inputs that are binaries {0, 1}, in
+   * branching order. Empty for most blocks. */
   virtual std::vector<int> binaryInputs() const { return {}; }
 };
 

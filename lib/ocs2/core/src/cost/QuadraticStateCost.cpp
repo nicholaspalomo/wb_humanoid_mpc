@@ -29,6 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <ocs2_core/cost/QuadraticStateCost.h>
 
+#include "absl/base/nullability.h"
+
 namespace ocs2 {
 
 /******************************************************************************************************/
@@ -39,7 +41,7 @@ QuadraticStateCost::QuadraticStateCost(matrix_t Q) : Q_(std::move(Q)) {}
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-QuadraticStateCost* QuadraticStateCost::clone() const {
+QuadraticStateCost* absl_nonnull QuadraticStateCost::clone() const {
   return new QuadraticStateCost(*this);
 }
 

@@ -30,42 +30,49 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <humanoid_mpc_msgs/msg/walking_velocity_command.hpp>
 #include "humanoid_common_mpc/common/Types.h"
 
 namespace ocs2::humanoid {
 
+/**
+ * The operator's walking command: base velocities and the pelvis height. A
+ * plain value, free of any transport; the conversion from the bus message lives
+ * in humanoid_common_mpc_app/node (WalkingVelocityCommandConversions.h).
+ */
 struct WalkingVelocityCommand {
  public:
+  /** The entries of the command's vector form, toVector(): [v_x, v_y, pelvis
+   * height, yaw rate]. */
+  static constexpr int kLinearVelocityXIndex = 0;
+  static constexpr int kLinearVelocityYIndex = 1;
+  static constexpr int kDesiredPelvisHeightIndex = 2;
+  static constexpr int kAngularVelocityZIndex = 3;
+
+  /** [m] The pelvis height above the ground of a command that sets none. */
+  static constexpr scalar_t kDefaultDesiredPelvisHeight = 0.8;
+
   WalkingVelocityCommand() = default;
-  WalkingVelocityCommand(scalar_t v_x, scalar_t v_y, scalar_t desired_pelvis_h, scalar_t v_yaw)
-      : linear_velocity_x(v_x), linear_velocity_y(v_y), desired_pelvis_height(desired_pelvis_h), angular_velocity_z(v_yaw) {}
-  WalkingVelocityCommand(const vector4_t& velCommand)
-      : linear_velocity_x(velCommand(0)),
-        linear_velocity_y(velCommand(1)),
-        desired_pelvis_height(velCommand(2)),
-        angular_velocity_z(velCommand(3)) {}
+  WalkingVelocityCommand(scalar_t v_x,
+                         scalar_t v_y,
+                         scalar_t desired_pelvis_h,
+                         scalar_t v_yaw)
+      : linear_velocity_x(v_x),
+        linear_velocity_y(v_y),
+        desired_pelvis_height(desired_pelvis_h),
+        angular_velocity_z(v_yaw) {}
+  explicit WalkingVelocityCommand(const vector4_t& velCommand)
+      : linear_velocity_x(velCommand(kLinearVelocityXIndex)),
+        linear_velocity_y(velCommand(kLinearVelocityYIndex)),
+        desired_pelvis_height(velCommand(kDesiredPelvisHeightIndex)),
+        angular_velocity_z(velCommand(kAngularVelocityZIndex)) {}
   scalar_t linear_velocity_x = 0.0;
   scalar_t linear_velocity_y = 0.0;
-  scalar_t desired_pelvis_height = 0.8;  // Above ground
+  scalar_t desired_pelvis_height = kDefaultDesiredPelvisHeight;  // Above ground
   scalar_t angular_velocity_z = 0.0;
 
-  void setToDefaultCommand() {
-    linear_velocity_x = 0.0;
-    linear_velocity_y = 0.0;
-    desired_pelvis_height = 0.8;  // Above ground
-    angular_velocity_z = 0.0;
+  vector4_t toVector() const {
+    return vector4_t(linear_velocity_x, linear_velocity_y,
+                     desired_pelvis_height, angular_velocity_z);
   }
-
-  vector4_t toVector() { return vector4_t(linear_velocity_x, linear_velocity_y, desired_pelvis_height, angular_velocity_z); };
 };
-
-inline WalkingVelocityCommand getWalkingVelocityCommandFromMsg(const humanoid_mpc_msgs::msg::WalkingVelocityCommand& msg) {
-  WalkingVelocityCommand cmd;
-  cmd.linear_velocity_x = std::clamp(msg.linear_velocity_x, -1.0, 1.0);
-  cmd.linear_velocity_y = std::clamp(msg.linear_velocity_y, -1.0, 1.0);
-  cmd.desired_pelvis_height = std::clamp(msg.desired_pelvis_height, 0.2, 1.0);
-  cmd.angular_velocity_z = std::clamp(msg.angular_velocity_z, -1.0, 1.0);
-  return cmd;
-}
 }  // namespace ocs2::humanoid

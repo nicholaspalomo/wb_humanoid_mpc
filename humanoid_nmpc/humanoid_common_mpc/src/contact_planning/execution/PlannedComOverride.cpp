@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -26,43 +30,54 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/execution/PlannedComOverride.h"
 
 #include <optional>
+#include <string>
+
+#include "ocs2_core/Dimensions.h"
 
 #include "humanoid_common_mpc/contact_planning/execution/PlanCoverage.h"
 
 namespace ocs2::humanoid {
 
 std::string PlannedComOverride::describe() const {
-  return "the plan's center of mass replaces the horizontal center-of-mass reference of the MPC target trajectory";
+  return "the plan's center of mass replaces the horizontal center-of-mass "
+         "reference of the MPC target trajectory";
 }
 
-void PlannedComOverride::overrideTarget(const ExecutionContext& ctx, TargetTrajectories& targetTrajectories) const {
+void PlannedComOverride::overrideTarget(
+    const ExecutionContext& ctx, TargetTrajectories& targetTrajectories) const {
   if (!ctx.hasPlan()) return;
   const ContactPlan& plan = *ctx.activePlan;
   if (plan.comPosition.empty()) return;
 
-  // The reference carries the base pose, the plan carries the center of mass. The horizontal offset between them is a
-  // property of the posture, so the one measured at this cycle is the right one to carry the plan across.
+  // The reference carries the base pose, the plan carries the center of mass.
+  // The horizontal offset between them is a property of the posture, so the one
+  // measured at this cycle is the right one to carry the plan across.
   const vector2_t comOffsetFromBase = ctx.com - ctx.basePosition;
 
   const size_t numPoints = targetTrajectories.timeTrajectory.size();
   for (size_t i = 0; i < numPoints; ++i) {
     const scalar_t time = targetTrajectories.timeTrajectory[i];
-    // Only the knots the plan covers. ContactPlan's lookups clamp to the first and the last node instead of saying
-    // that the query left the horizon, so a knot past the plan's end - the operator's own knots, which the reference
-    // manager appends exactly so that the reference tail follows the command once the plan runs out - came back
-    // frozen at the plan's last position while its velocity went on asking for the plan's last, non-zero velocity.
+    // Only the knots the plan covers. ContactPlan's lookups clamp to the first
+    // and the last node instead of saying that the query left the horizon, so a
+    // knot past the plan's end - the operator's own knots, which the reference
+    // manager appends exactly so that the reference tail follows the command
+    // once the plan runs out - came back frozen at the plan's last position
+    // while its velocity went on asking for the plan's last, non-zero velocity.
     if (!planCoversTime(plan, time)) continue;
-    const std::optional<vector2_t> plannedPosition = plan.comPositionAtTime(time);
-    const std::optional<vector2_t> plannedVelocity = plan.comVelocityAtTime(time);
+    const std::optional<vector2_t> plannedPosition =
+        plan.comPositionAtTime(time);
+    const std::optional<vector2_t> plannedVelocity =
+        plan.comVelocityAtTime(time);
     if (!plannedPosition.has_value() || !plannedVelocity.has_value()) continue;
 
     vector_t& stateRef = targetTrajectories.stateTrajectory[i];
     vector3_t basePosition = mpcRobotModel_->getBasePosition(stateRef);
-    basePosition.head<2>() = *plannedPosition - comOffsetFromBase;
+    basePosition.head<kHorizontalPositionDim>() =
+        *plannedPosition - comOffsetFromBase;
     mpcRobotModel_->setBasePosition(stateRef, basePosition);
 
     vector3_t comVelocity = mpcRobotModel_->getBaseComLinearVelocity(stateRef);
-    comVelocity.head<2>() = *plannedVelocity;
+    comVelocity.head<kHorizontalPositionDim>() = *plannedVelocity;
     mpcRobotModel_->setBaseComLinearVelocity(stateRef, comVelocity);
   }
 }

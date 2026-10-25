@@ -1,0 +1,15 @@
+syntax = "proto3";
+
+package humanoid_mpc_msgs;
+
+import "nproto/options.proto";
+
+// A dense vector of doubles (an Eigen vector_t). Packed on the wire.
+// Next ID: 2
+message Vector {
+  option (nproto.generate_struct) = "ocs2::humanoid::msgs::Vector";
+
+  reserved 2 to max;
+
+  repeated double data = 1;
+}

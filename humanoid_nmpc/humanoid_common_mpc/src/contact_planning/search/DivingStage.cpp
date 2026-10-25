@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -25,12 +29,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/contact_planning/search/DivingStage.h"
 
+#include <string>
+
 #include "absl/strings/str_cat.h"
 
 namespace ocs2::humanoid {
 
 std::string DivingStage::describe() const {
-  return absl::StrCat("dive from the root relaxation for an early incumbent, at most ", maxDiveIterations_, " iterations");
+  return absl::StrCat(
+      "dive from the root relaxation for an early incumbent, at most ",
+      maxDiveIterations_, " iterations");
 }
 
 void DivingStage::configure(const ContactPlanningConfig& config) {

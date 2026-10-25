@@ -37,30 +37,42 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * `hip_centered_stepping`: H_r(Theta) = PTP(R(Theta) r_hip) (Bledt, Appendix C, Table C.1).
+ * `hip_centered_stepping`: H_r(Theta) = PTP(R(Theta) r_hip) (Bledt, Appendix C,
+ * Table C.1).
  *
- * The foot placed under its own hip: the hip's position in the base frame, rotated into the world by the measured
- * base yaw and projected onto the ground.
+ * The foot placed under its own hip: the hip's position in the base frame,
+ * rotated into the world by the measured base yaw and projected onto the
+ * ground.
  *
- * This is the base case of the dissertation's whole foot-placement story, the "no heuristics" panel of figure 4-13
- * against which every later addition is measured. On its own it is barely enough to walk with - Bledt's robot could
- * "stably stand and take a few steps forward" and then fell as soon as it had any speed, because a foot placed under
- * the hip at lift-off is well behind the robot by touch-down. It earns its place as the term the velocity-dependent
- * heuristics are summed on top of, and as the only member of the family that tells the left foot from the right at
- * zero velocity.
+ * This is the base case of the dissertation's whole foot-placement story, the
+ * "no heuristics" panel of figure 4-13 against which every later addition is
+ * measured. On its own it is barely enough to walk with - Bledt's robot could
+ * "stably stand and take a few steps forward" and then fell as soon as it had
+ * any speed, because a foot placed under the hip at lift-off is well behind the
+ * robot by touch-down. It earns its place as the term the velocity-dependent
+ * heuristics are summed on top of, and as the only member of the family that
+ * tells the left foot from the right at zero velocity.
  *
- * It is also the only foothold heuristic that MOVES THE ANCHOR, from the stance foot to the measured base, which is a
- * change SwitchedModelReferenceManager's own documentation argues against for good reasons. See FootholdHeuristic and
- * HipCenteredSteppingParameters; the layer warns when this is listed alone, and warns again when the others are
- * listed without it.
+ * It is also the only foothold heuristic that MOVES THE ANCHOR, from the stance
+ * foot to the measured base, which is a change SwitchedModelReferenceManager's
+ * own documentation argues against for good reasons. See FootholdHeuristic and
+ * HipCenteredSteppingParameters; the layer warns when this is listed alone, and
+ * warns again when the others are listed without it.
+ *
+ * Like every LocomotionHeuristic, its const methods are safe to call
+ * concurrently; configure() is not, and must not run while they do.
  */
 class HipCenteredSteppingHeuristic final : public FootholdHeuristic {
  public:
   HipCenteredSteppingHeuristic() = default;
   ~HipCenteredSteppingHeuristic() override = default;
 
-  absl::string_view name() const override { return heuristic::kHipCenteredStepping; }
-  absl::Status configure(const LocomotionHeuristicConfig& config, const LocomotionHeuristicModelParameters& model) override;
+  absl::string_view name() const override {
+    return heuristic::kHipCenteredStepping;
+  }
+  absl::Status configure(
+      const LocomotionHeuristicConfig& config,
+      const LocomotionHeuristicModelParameters& model) override;
   std::string describe() const override;
 
   vector2_t offset(const FootholdHeuristicContext& context) const override;
@@ -68,7 +80,8 @@ class HipCenteredSteppingHeuristic final : public FootholdHeuristic {
 
  private:
   HipCenteredSteppingParameters parameters_;
-  feet_array_t<vector2_t> hipPositionInBaseFrame_ = makeFeetArray(vector2_t(vector2_t::Zero()));
+  feet_array_t<vector2_t> hipPositionInBaseFrame_ =
+      makeFeetArray(vector2_t(vector2_t::Zero()));
 };
 
 }  // namespace ocs2::humanoid

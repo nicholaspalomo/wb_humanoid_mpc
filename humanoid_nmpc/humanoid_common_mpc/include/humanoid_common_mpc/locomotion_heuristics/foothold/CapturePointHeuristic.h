@@ -37,20 +37,28 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * `capture_point`: H_r(pdot, Phi) = gain sqrt(p_z / g) (pdot - pdot_d) (Bledt, Appendix C, Table C.1).
+ * `capture_point`: H_r(pdot, Phi) = gain sqrt(p_z / g) (pdot - pdot_d) (Bledt,
+ * Appendix C, Table C.1).
  *
- * Step into the VELOCITY ERROR by the capture-point distance of a linear inverted pendulum of the measured
- * center-of-mass height.
+ * Step into the VELOCITY ERROR by the capture-point distance of a linear
+ * inverted pendulum of the measured center-of-mass height.
  *
- * The one member of the family that is feedback on a disturbance rather than a function of the command: it is
- * identically zero whenever the robot is moving as fast as it was asked to, and grows only when a push, a slip or a
- * model error has opened a gap between the two. Bledt lists it among the ANALYTIC heuristics because it needs no
- * fitting - it is Pratt's capture point, sqrt(z/g) being the time constant of the pendulum, and this repository
- * already uses the same quantity in its DCM terminal cost and its ZMP and DCM viewer markers.
+ * The one member of the family that is feedback on a disturbance rather than a
+ * function of the command: it is identically zero whenever the robot is moving
+ * as fast as it was asked to, and grows only when a push, a slip or a model
+ * error has opened a gap between the two. Bledt lists it among the ANALYTIC
+ * heuristics because it needs no fitting - it is Pratt's capture point,
+ * sqrt(z/g) being the time constant of the pendulum, and this repository
+ * already uses the same quantity in its DCM terminal cost and its ZMP and DCM
+ * viewer markers.
  *
- * Under this controller it is the heuristic with the clearest mandate. The foot cost's xy weights are the only thing
- * in the problem that can move a foot sideways in response to a push while the mode schedule holds the timing fixed,
- * and nothing is currently writing them a target.
+ * Under this controller it is the heuristic with the clearest mandate. The foot
+ * cost's xy weights are the only thing in the problem that can move a foot
+ * sideways in response to a push while the mode schedule holds the timing
+ * fixed, and nothing is currently writing them a target.
+ *
+ * Like every LocomotionHeuristic, its const methods are safe to call
+ * concurrently; configure() is not, and must not run while they do.
  */
 class CapturePointHeuristic final : public FootholdHeuristic {
  public:
@@ -58,7 +66,9 @@ class CapturePointHeuristic final : public FootholdHeuristic {
   ~CapturePointHeuristic() override = default;
 
   absl::string_view name() const override { return heuristic::kCapturePoint; }
-  absl::Status configure(const LocomotionHeuristicConfig& config, const LocomotionHeuristicModelParameters& model) override;
+  absl::Status configure(
+      const LocomotionHeuristicConfig& config,
+      const LocomotionHeuristicModelParameters& model) override;
   std::string describe() const override;
 
   vector2_t offset(const FootholdHeuristicContext& context) const override;
@@ -66,6 +76,9 @@ class CapturePointHeuristic final : public FootholdHeuristic {
  private:
   CapturePointParameters parameters_;
   scalar_t nominalComHeight_ = 0.0;
+  // [m/s^2] the model's gravity (LocomotionHeuristicModelParameters::gravity),
+  // set by configure().
+  scalar_t gravity_ = kGravitationalAcceleration;
 };
 
 }  // namespace ocs2::humanoid

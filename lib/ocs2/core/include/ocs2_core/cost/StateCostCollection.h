@@ -29,6 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include "absl/base/nullability.h"
+
 #include <ocs2_core/Types.h>
 #include <ocs2_core/misc/Collection.h>
 #include <ocs2_core/reference/TargetTrajectories.h>
@@ -48,7 +50,7 @@ class StateCostCollection : public Collection<StateCost> {
  public:
   StateCostCollection() = default;
   virtual ~StateCostCollection() = default;
-  virtual StateCostCollection* clone() const;
+  virtual StateCostCollection* absl_nonnull clone() const;
 
   /** Get state-only cost value */
   virtual scalar_t getValue(scalar_t time, const vector_t& state, const TargetTrajectories& targetTrajectories,

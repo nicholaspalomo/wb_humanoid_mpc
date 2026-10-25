@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -23,24 +27,26 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <gtest/gtest.h>
-
 #include <cmath>
+
+#include "gtest/gtest.h"
 
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
 
 /**
- * Unit tests of the toe-up swing pitch reference of the SwingTrajectoryPlanner. The foot height reference is tracked at
- * the center of the sole, so the toe -- half a foot length ahead of it -- has no height guarantee of its own. The pitch
- * reference raises it, and these tests pin down the properties the foot cost relies on: it is inert by default, it is
- * zero in stance and at both ends of a swing, and it never lowers the toe.
+ * Unit tests of the toe-up swing pitch reference of the SwingTrajectoryPlanner.
+ * The foot height reference is tracked at the center of the sole, so the toe --
+ * half a foot length ahead of it -- has no height guarantee of its own. The
+ * pitch reference raises it, and these tests pin down the properties the foot
+ * cost relies on: it is inert by default, it is zero in stance and at both ends
+ * of a swing, and it never lowers the toe.
  */
 namespace ocs2::humanoid {
 
 namespace {
 
-constexpr scalar_t kTol = 1e-9;
+constexpr scalar_t kTol = 1.0e-9;
 constexpr scalar_t kLiftOff = 1.0;
 constexpr scalar_t kTouchDown = 1.5;
 
@@ -49,7 +55,8 @@ ModeSchedule singleSwingSchedule() {
   contact_flag_t swinging = makeFeetArray(true);
   swinging[0] = false;
   const size_t stance = stanceLeg2ModeNumber(makeFeetArray(true));
-  return ModeSchedule({kLiftOff, kTouchDown}, {stance, stanceLeg2ModeNumber(swinging), stance});
+  return ModeSchedule({kLiftOff, kTouchDown},
+                      {stance, stanceLeg2ModeNumber(swinging), stance});
 }
 
 SwingTrajectoryPlanner::Config pitchedConfig(scalar_t angle) {
@@ -64,14 +71,17 @@ SwingTrajectoryPlanner::Config pitchedConfig(scalar_t angle) {
 }
 
 scalar_t atSwingFraction(const SwingTrajectoryPlanner& planner, scalar_t tau) {
-  return planner.getSwingPitchAngle(/*leg=*/0, kLiftOff + tau * (kTouchDown - kLiftOff));
+  return planner.getSwingPitchAngle(/*leg=*/0,
+                                    kLiftOff + tau * (kTouchDown - kLiftOff));
 }
 
 }  // namespace
 
-/** The default configuration must reproduce the previous flat-foot reference exactly. */
+/** The default configuration must reproduce the previous flat-foot reference
+ * exactly. */
 TEST(SwingPitchReference, disabledByDefault) {
-  SwingTrajectoryPlanner planner(SwingTrajectoryPlanner::Config(), N_CONTACTS);
+  SwingTrajectoryPlanner planner(SwingTrajectoryPlanner::Config(),
+                                 kNumContacts);
   planner.update(singleSwingSchedule(), /*terrainHeight=*/0.0);
 
   EXPECT_DOUBLE_EQ(SwingTrajectoryPlanner::Config().swingPitchAngle, 0.0);
@@ -80,9 +90,10 @@ TEST(SwingPitchReference, disabledByDefault) {
   }
 }
 
-/** Zero at both ends of the swing so that lift-off and touch-down are made with a flat sole. */
+/** Zero at both ends of the swing so that lift-off and touch-down are made with
+ * a flat sole. */
 TEST(SwingPitchReference, flatAtBothEndsOfTheSwing) {
-  SwingTrajectoryPlanner planner(pitchedConfig(0.1), N_CONTACTS);
+  SwingTrajectoryPlanner planner(pitchedConfig(0.1), kNumContacts);
   planner.update(singleSwingSchedule(), /*terrainHeight=*/0.0);
 
   EXPECT_NEAR(atSwingFraction(planner, /*tau=*/0.0), 0.0, kTol);
@@ -91,21 +102,25 @@ TEST(SwingPitchReference, flatAtBothEndsOfTheSwing) {
 
 /** A foot in contact is never pitched, on either side of the swing. */
 TEST(SwingPitchReference, zeroInStance) {
-  SwingTrajectoryPlanner planner(pitchedConfig(0.1), N_CONTACTS);
+  SwingTrajectoryPlanner planner(pitchedConfig(0.1), kNumContacts);
   planner.update(singleSwingSchedule(), /*terrainHeight=*/0.0);
 
   EXPECT_NEAR(planner.getSwingPitchAngle(/*leg=*/0, kLiftOff - 0.1), 0.0, kTol);
-  EXPECT_NEAR(planner.getSwingPitchAngle(/*leg=*/0, kTouchDown + 0.1), 0.0, kTol);
+  EXPECT_NEAR(planner.getSwingPitchAngle(/*leg=*/0, kTouchDown + 0.1), 0.0,
+              kTol);
   // The other foot stands through the whole schedule.
   for (scalar_t tau = 0.0; tau <= 1.0; tau += 0.1) {
-    EXPECT_NEAR(planner.getSwingPitchAngle(/*leg=*/1, kLiftOff + tau * (kTouchDown - kLiftOff)), 0.0, kTol);
+    EXPECT_NEAR(planner.getSwingPitchAngle(
+                    /*leg=*/1, kLiftOff + tau * (kTouchDown - kLiftOff)),
+                0.0, kTol);
   }
 }
 
-/** The configured angle is reached over the held section between the two ramps, and is never exceeded. */
+/** The configured angle is reached over the held section between the two ramps,
+ * and is never exceeded. */
 TEST(SwingPitchReference, reachesTheConfiguredAngleOverTheHeldSection) {
   const scalar_t angle = 0.1;
-  SwingTrajectoryPlanner planner(pitchedConfig(angle), N_CONTACTS);
+  SwingTrajectoryPlanner planner(pitchedConfig(angle), kNumContacts);
   planner.update(singleSwingSchedule(), /*terrainHeight=*/0.0);
 
   for (scalar_t tau = 0.30; tau <= 0.80; tau += 0.05) {
@@ -113,14 +128,16 @@ TEST(SwingPitchReference, reachesTheConfiguredAngleOverTheHeldSection) {
   }
   for (scalar_t tau = 0.0; tau <= 1.0; tau += 0.01) {
     const scalar_t pitch = atSwingFraction(planner, tau);
-    EXPECT_GE(pitch, -kTol);  // toe-up only: the reference never pitches the toe down
+    EXPECT_GE(pitch,
+              -kTol);  // toe-up only: the reference never pitches the toe down
     EXPECT_LE(pitch, angle + kTol);
   }
 }
 
-/** Monotone up through the rise and monotone down through the fall, so the reference is smooth for the solver. */
+/** Monotone up through the rise and monotone down through the fall, so the
+ * reference is smooth for the solver. */
 TEST(SwingPitchReference, monotoneRampsWithNoPlateauOvershoot) {
-  SwingTrajectoryPlanner planner(pitchedConfig(0.1), N_CONTACTS);
+  SwingTrajectoryPlanner planner(pitchedConfig(0.1), kNumContacts);
   planner.update(singleSwingSchedule(), /*terrainHeight=*/0.0);
 
   scalar_t previous = atSwingFraction(planner, /*tau=*/0.0);
@@ -138,13 +155,14 @@ TEST(SwingPitchReference, monotoneRampsWithNoPlateauOvershoot) {
 }
 
 /**
- * The point of the whole thing: through the part of the descent where the sole center is within a centimeter of the
- * ground, the toe must still be clear of it. Atlas' toe contact points are 0.12 m ahead of the tracked sole center.
+ * The point of the whole thing: through the part of the descent where the sole
+ * center is within a centimeter of the ground, the toe must still be clear of
+ * it. Atlas' toe contact points are 0.12 m ahead of the tracked sole center.
  */
 TEST(SwingPitchReference, keepsTheToeAboveGroundThroughTheLateDescent) {
   constexpr scalar_t kToeLever = 0.12;
   const scalar_t angle = 0.1;
-  SwingTrajectoryPlanner planner(pitchedConfig(angle), N_CONTACTS);
+  SwingTrajectoryPlanner planner(pitchedConfig(angle), kNumContacts);
   planner.update(singleSwingSchedule(), /*terrainHeight=*/0.0);
 
   bool sawLowSoleCenter = false;
@@ -153,26 +171,32 @@ TEST(SwingPitchReference, keepsTheToeAboveGroundThroughTheLateDescent) {
     const scalar_t soleCenter = planner.getZpositionConstraint(/*leg=*/0, time);
     if (soleCenter > 0.01) continue;
     sawLowSoleCenter = true;
-    const scalar_t toe = soleCenter + kToeLever * std::sin(planner.getSwingPitchAngle(/*leg=*/0, time));
+    const scalar_t toe =
+        soleCenter +
+        kToeLever * std::sin(planner.getSwingPitchAngle(/*leg=*/0, time));
     EXPECT_GE(toe, soleCenter);  // the pitch only ever helps the toe
   }
   EXPECT_TRUE(sawLowSoleCenter);
 }
 
-/** A swing shorter than swingTimeScale is scaled down in pitch, exactly as it is scaled down in height. */
+/** A swing shorter than swingTimeScale is scaled down in pitch, exactly as it
+ * is scaled down in height. */
 TEST(SwingPitchReference, shortSwingsAreScaledDown) {
   const scalar_t angle = 0.1;
-  SwingTrajectoryPlanner planner(pitchedConfig(angle), N_CONTACTS);
+  SwingTrajectoryPlanner planner(pitchedConfig(angle), kNumContacts);
 
   const scalar_t shortLiftOff = 1.0;
   const scalar_t shortTouchDown = 1.2;  // 0.2 s, half of swingTimeScale
   contact_flag_t swinging = makeFeetArray(true);
   swinging[0] = false;
   const size_t stance = stanceLeg2ModeNumber(makeFeetArray(true));
-  planner.update(ModeSchedule({shortLiftOff, shortTouchDown}, {stance, stanceLeg2ModeNumber(swinging), stance}), /*terrainHeight=*/0.0);
+  planner.update(ModeSchedule({shortLiftOff, shortTouchDown},
+                              {stance, stanceLeg2ModeNumber(swinging), stance}),
+                 /*terrainHeight=*/0.0);
 
   const scalar_t midSwing = 0.5 * (shortLiftOff + shortTouchDown);
-  EXPECT_NEAR(planner.getSwingPitchAngle(/*leg=*/0, midSwing), 0.5 * angle, kTol);
+  EXPECT_NEAR(planner.getSwingPitchAngle(/*leg=*/0, midSwing), 0.5 * angle,
+              kTol);
 }
 
 }  // namespace ocs2::humanoid

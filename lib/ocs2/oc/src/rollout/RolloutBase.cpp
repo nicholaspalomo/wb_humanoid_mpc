@@ -32,11 +32,21 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <algorithm>
 #include <iomanip>
 #include <iostream>
+#include <utility>
 
 #include <ocs2_core/NumericTraits.h>
-#include <ocs2_core/misc/Numerics.h>
+
+#include "absl/base/nullability.h"
 
 namespace ocs2 {
+
+namespace {
+
+/** The stream precision with which display() prints a time, and a state or an input. */
+constexpr int kDisplayTimePrecision = 12;
+constexpr int kDisplayStateInputPrecision = 3;
+
+}  // namespace
 
 /******************************************************************************************************/
 /******************************************************************************************************/
@@ -70,8 +80,10 @@ std::vector<std::pair<scalar_t, scalar_t>> RolloutBase::findActiveModesTimeInter
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-void RolloutBase::display(const scalar_array_t& timeTrajectory, const size_array_t& postEventIndices, const vector_array_t& stateTrajectory,
-                          const vector_array_t* const inputTrajectory) {
+void RolloutBase::display(const scalar_array_t& timeTrajectory,
+                          const size_array_t& postEventIndices,
+                          const vector_array_t& stateTrajectory,
+                          const vector_array_t* absl_nullable const inputTrajectory) {
   std::cerr << "Trajectory length:      " << timeTrajectory.size() << '\n';
   std::cerr << "Total number of events: " << postEventIndices.size() << '\n';
   if (!postEventIndices.empty()) {
@@ -88,10 +100,10 @@ void RolloutBase::display(const scalar_array_t& timeTrajectory, const size_array
   for (size_t i = 0; i < numSubsystems; i++) {
     for (; k < timeTrajectory.size(); k++) {
       std::cerr << "Index: " << k << '\n';
-      std::cerr << "Time:  " << std::setprecision(12) << timeTrajectory[k] << '\n';
-      std::cerr << "State: " << std::setprecision(3) << stateTrajectory[k].transpose() << '\n';
+      std::cerr << "Time:  " << std::setprecision(kDisplayTimePrecision) << timeTrajectory[k] << '\n';
+      std::cerr << "State: " << std::setprecision(kDisplayStateInputPrecision) << stateTrajectory[k].transpose() << '\n';
       if (inputTrajectory != nullptr) {
-        std::cerr << "Input: " << std::setprecision(3) << (*inputTrajectory)[k].transpose() << '\n';
+        std::cerr << "Input: " << std::setprecision(kDisplayStateInputPrecision) << (*inputTrajectory)[k].transpose() << '\n';
       }
 
       if (i < postEventIndices.size() && k + 1 == postEventIndices[i]) {
@@ -137,7 +149,8 @@ void RolloutBase::checkNumericalStability(const ControllerBase& controller, cons
       }
 
       // display
-      const vector_array_t* const inputTrajectoryTempPtr = rolloutSettings_.reconstructInputTrajectory ? &inputTrajectoryTemp : nullptr;
+      const vector_array_t* absl_nullable const inputTrajectoryTempPtr =
+          rolloutSettings_.reconstructInputTrajectory ? &inputTrajectoryTemp : nullptr;
       display(timeTrajectoryTemp, postEventIndices, stateTrajectoryTemp, inputTrajectoryTempPtr);
 
       controller.display();

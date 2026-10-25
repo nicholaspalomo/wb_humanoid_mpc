@@ -39,29 +39,52 @@ namespace ocs2::humanoid::safety_decay {
 /**
  * The decay law of the SAFETY mode, shared by the MRT joint controllers.
  *
- * In SAFETY the robot holds the posture it had at mode entry with a joint PD whose gains are both multiplied by
- * alpha(t) = exp(-t / tau), so the commanded torque alpha * (kp * (q_hold - q) - kd * qd) decays smoothly to nothing
- * instead of being cut in one cycle. Once alpha falls below kCutoff the joints are commanded zero gain and zero
- * feedforward, i.e. true zero torque; at the shipped tau that takes about 4 * tau.
+ * In SAFETY the robot holds the posture it had at mode entry with a joint PD
+ * whose gains are both multiplied by alpha(t) = exp(-t / tau), so the commanded
+ * torque alpha * (kp * (q_hold - q) - kd * qd) decays smoothly to nothing
+ * instead of being cut in one cycle. Once alpha falls below kCutoff the joints
+ * are commanded zero gain and zero feedforward, i.e. true zero torque; at the
+ * shipped tau that takes about 4 * tau.
  */
 
-/// [s] Guards against a division by zero in alpha(t) when a task file sets the time constant to zero.
-inline constexpr scalar_t kMinTimeConstant = 1e-3;
+/// [s] The time constant tau of the MRT joint controllers until a task file
+/// sets one (setSafetyDecayTimeConstant()).
+inline constexpr scalar_t kDefaultTimeConstant = 0.5;
 
-// LINT.IfChange(safety_decay_cutoff)
+/// [s] Guards against a division by zero in alpha(t) when a task file sets the
+/// time constant to zero.
+inline constexpr scalar_t kMinTimeConstant = 1.0e-3;
+
 /// alpha below which the command becomes zero torque.
 inline constexpr scalar_t kCutoff = 0.02;
-// LINT.ThenChange(//humanoid_nmpc/remote_control/remote_control/humanoid_finite_state_machine.py:safety_decay_cutoff)
 
 /**
- * alpha = exp(-elapsed / tau), snapped to 0 once it falls below kCutoff so that the mode reaches true zero torque in
- * finite time rather than only approaching it. A negative elapsed time (the clock stepped back) counts as zero, so the
+ * alpha = exp(-elapsed / tau), snapped to 0 once it falls below kCutoff so that
+ * the mode reaches true zero torque in finite time rather than only approaching
+ * it. A negative elapsed time (the clock stepped back) counts as zero, so the
  * factor never exceeds one.
  */
 inline scalar_t factor(scalar_t elapsedSinceEntry, scalar_t timeConstant) {
-  const scalar_t elapsed = std::max(scalar_t(0.0), elapsedSinceEntry);
-  const scalar_t alpha = std::exp(-elapsed / std::max(kMinTimeConstant, timeConstant));
-  return alpha < kCutoff ? scalar_t(0.0) : alpha;
+  const scalar_t elapsed = std::max(0.0, elapsedSinceEntry);
+  const scalar_t alpha =
+      std::exp(-elapsed / std::max(kMinTimeConstant, timeConstant));
+  return alpha < kCutoff ? 0.0 : alpha;
+}
+
+/**
+ * The factor of a decay that has already reached `previous`: min(previous,
+ * factor(elapsed, tau)), so that alpha never rises again within one stay in
+ * SAFETY. factor() alone is monotone in the elapsed time only while the clock
+ * and the time constant stay as they were: a clock that steps back by less than
+ * the controllers' rewind tolerance (which they do not compensate), or a time
+ * constant made longer while the mode runs, would raise it - after the cutoff
+ * from zero torque back to a stiff hold. A controller starts each stay at 1 and
+ * keeps the value this returns.
+ */
+inline scalar_t latchedFactor(scalar_t previous,
+                              scalar_t elapsedSinceEntry,
+                              scalar_t timeConstant) {
+  return std::min(previous, factor(elapsedSinceEntry, timeConstant));
 }
 
 }  // namespace ocs2::humanoid::safety_decay

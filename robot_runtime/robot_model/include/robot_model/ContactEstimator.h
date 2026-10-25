@@ -29,37 +29,62 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <robot_model/RobotState.h>
-
-#include <string>
 #include <vector>
+
+#include "absl/strings/string_view.h"
+
+#include "robot_model/RobotState.h"
 
 namespace robot::model {
 
 /**
  * Measured contact state of the contact points of a controller.
  *
- * A controller asks its estimator once per control cycle, from the control thread and after the robot state has been
- * updated, which of its contact points are touching the environment. The answer is the controller's measured contact
- * state: the observation mode handed to the MPC and the criterion for which planned contact wrenches the inverse
- * dynamics may project into joint torques (a foot in the air cannot transmit a wrench, whatever the plan says).
+ * A controller asks its estimator once per control cycle, from the control
+ * thread and after the robot state has been updated, which of its contact
+ * points are touching the environment. The answer is the controller's measured
+ * contact state: the observation mode handed to the MPC and the criterion for
+ * which planned contact wrenches the inverse dynamics may project into joint
+ * torques (a foot in the air cannot transmit a wrench, whatever the plan says).
  *
- * Implementations are free to use the robot state, the interface they were built with (a simulator, sensors), or any
- * history they keep. In simulation the CheaterSimContactEstimator reads the physics engine's ground truth; the
- * RobotStateContactEstimator hands back the flags the hardware interface wrote into the RobotState.
+ * Implementations are free to use the robot state, the interface they were
+ * built with (a simulator, sensors), or any history they keep. In simulation
+ * the CheaterSimContactEstimator reads the physics engine's ground truth; the
+ * RobotStateContactEstimator hands back the flags the hardware interface wrote
+ * into the RobotState.
  */
 class ContactEstimator {
  public:
   virtual ~ContactEstimator() = default;
 
   /**
-   * One flag per contact point of the controller, in the controller's order: true where the point is touching.
+   * Writes one flag per contact point of the controller into `flags`, in the
+   * controller's order: true where the point is touching. Called on the control
+   * thread every cycle, so an implementation resizes `flags` to the number of
+   * contact points (robotState.getContactFlags().size()) and allocates nothing
+   * else: a caller whose vector already holds that many flags allocates
+   * nothing.
    * @param robotState The robot state of the current control cycle.
+   * @param flags The flags, resized to the number of contact points.
    */
-  virtual std::vector<bool> estimateContactFlags(const RobotState& robotState) = 0;
+  virtual void estimateContactFlags(const RobotState& robotState,
+                                    std::vector<bool>& flags) = 0;
 
-  /** Name for logs and diagnostics. */
-  virtual std::string getName() const = 0;
+  /**
+   * Name for logs and diagnostics: a view of static storage (a string literal),
+   * valid while the estimator lives, so that a hot swap on the realtime thread
+   * reads it without allocating.
+   */
+  virtual absl::string_view getName() const = 0;
 };
+
+/** The flags `estimator` writes for `robotState`, in a vector of their own
+ * (allocates: for tests and tools). */
+inline std::vector<bool> estimateContactFlags(ContactEstimator& estimator,
+                                              const RobotState& robotState) {
+  std::vector<bool> flags;
+  estimator.estimateContactFlags(robotState, flags);
+  return flags;
+}
 
 }  // namespace robot::model

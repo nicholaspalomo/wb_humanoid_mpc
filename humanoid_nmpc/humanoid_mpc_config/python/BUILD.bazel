@@ -1,0 +1,80 @@
+load("@operator_deps//:requirements.bzl", "requirement")
+load("@rules_python//python:defs.bzl", "py_library", "py_test")
+
+# humanoid_mpc_config/python - the lossless editor of the configuration textprotos (../README.md), imported as
+# `from config_textproto import textproto_document` and `textproto_save`. A package of its own, so that config_textproto
+# never mixes with humanoid_mpc_config, the Python package of the generated *_pb2 modules.
+
+package(default_visibility = ["//visibility:public"])
+
+# The concrete syntax tree of a textproto and its edits: the standard library only, so that a Python without protobuf
+# (tools/locomotion_heuristics on the system Python) can read the configuration files.
+py_library(
+    name = "textproto_document",
+    srcs = [
+        "config_textproto/__init__.py",
+        "config_textproto/textproto_document.py",
+    ],
+    imports = ["."],
+)
+
+# Edits made in the text and in the parsed message, checked against each other by a strict parse, and written
+# atomically: what the tuning GUI saves with.
+py_library(
+    name = "textproto_save",
+    srcs = ["config_textproto/textproto_save.py"],
+    imports = ["."],
+    deps = [
+        ":textproto_document",
+        "//tools/nproto:nproto_textproto",
+        requirement("protobuf"),
+    ],
+)
+
+# The configuration files of every robot, the gait file and the dodgeball golden, and the repository's other
+# textprotos.
+# LINT.IfChange(textproto_files)
+_TEXTPROTO_FILES = [
+    "//config/ipc:network.textproto",
+    "//humanoid_nmpc/humanoid_mpc_config:config_registries.textproto",
+    "//humanoid_nmpc/humanoid_common_mpc:gait_config",
+    "//humanoid_nmpc/humanoid_common_mpc_app/robot:test/data/dodgeball_throw.textproto",
+    "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+    "//robot_models/engineai_sa01/engineai_sa01_centroidal_mpc",
+    "//robot_models/unitree_g1/g1_centroidal_mpc",
+    "//robot_models/unitree_g1/g1_wb_mpc",
+    "//robot_models/unitree_r1/unitree_r1_centroidal_mpc",
+    "//tools/nproto/test:testdata/scalars.textproto",
+]
+# LINT.ThenChange(//humanoid_nmpc/remote_control/BUILD.bazel:robot_configs)
+
+# The tokenizer, the tree, paths, comments and every edit, on texts written in the test and on every textproto of
+# _TEXTPROTO_FILES: an unedited document is its file, byte for byte. Standard library only, like the module.
+py_test(
+    name = "test_textproto_document",
+    size = "small",
+    srcs = ["config_textproto/test_textproto_document.py"],
+    data = _TEXTPROTO_FILES,
+    main = "config_textproto/test_textproto_document.py",
+    deps = [":textproto_document"],
+)
+
+# Edits against the schemas: every value type, insertion, removal, a refused edit, the atomic write; and the properties
+# on the shipped configuration files and on random messages of every file schema and of nproto's test protos (edited
+# text parses to the edited message, a one-value edit changes one token, a no-op edit changes nothing).
+py_test(
+    name = "test_textproto_save",
+    size = "small",
+    srcs = ["config_textproto/test_textproto_save.py"],
+    data = _TEXTPROTO_FILES,
+    main = "config_textproto/test_textproto_save.py",
+    deps = [
+        ":textproto_document",
+        ":textproto_save",
+        "//humanoid_nmpc/humanoid_mpc_config:config_py_proto",
+        "//humanoid_nmpc/humanoid_mpc_msgs:messages_py_proto",
+        "//tools/nproto:nproto_textproto",
+        "//tools/nproto/test:test_py_protos",
+        requirement("protobuf"),
+    ],
+)

@@ -1,0 +1,178 @@
+# proto-file: humanoid_nmpc/humanoid_mpc_config/gait_file.proto
+# proto-message: humanoid_mpc_config.GaitFile
+gait_list: "stance"
+gait_list: "left_leg"
+gait_list: "right_leg"
+gait_list: "trot"
+gait_list: "fast_trot"
+gait_list: "slow_trot"
+gait_list: "slower_trot"
+gait_list: "walk"
+gait_list: "fast_walk"
+gait_list: "slow_walk"
+gait_list: "very_slow_walk"
+gait_list: "run"
+gait_list: "fast_run"
+gait_list: "skip"
+gait_list: "jump"
+
+gaits {
+  name: "stance"
+  mode_sequence: "STANCE"
+  switching_times: 0.0
+  switching_times: 0.5
+}
+
+gaits {
+  name: "left_leg"
+  mode_sequence: "LF"
+  switching_times: 0.0
+  switching_times: 0.5
+}
+
+gaits {
+  name: "right_leg"
+  mode_sequence: "RF"
+  switching_times: 0.0
+  switching_times: 0.5
+}
+
+gaits {
+  name: "trot"
+  mode_sequence: "LF"
+  mode_sequence: "RF"
+  switching_times: 0.0
+  switching_times: 0.5
+  switching_times: 1.0
+}
+
+gaits {
+  name: "fast_trot"
+  mode_sequence: "LF"
+  mode_sequence: "RF"
+  switching_times: 0.0
+  switching_times: 0.4
+  switching_times: 0.8
+}
+
+gaits {
+  name: "slow_trot"
+  mode_sequence: "LF"
+  mode_sequence: "RF"
+  switching_times: 0.0
+  switching_times: 0.55
+  switching_times: 1.1
+}
+
+gaits {
+  name: "slower_trot"
+  mode_sequence: "LF"
+  mode_sequence: "RF"
+  switching_times: 0.0
+  switching_times: 0.6
+  switching_times: 1.2
+}
+
+gaits {
+  name: "walk"
+  mode_sequence: "LF"
+  mode_sequence: "STANCE"
+  mode_sequence: "RF"
+  mode_sequence: "STANCE"
+  switching_times: 0.0
+  switching_times: 0.6
+  switching_times: 0.7
+  switching_times: 1.3
+  switching_times: 1.4
+}
+
+gaits {
+  name: "fast_walk"
+  mode_sequence: "LF"
+  mode_sequence: "STANCE"
+  mode_sequence: "RF"
+  mode_sequence: "STANCE"
+  switching_times: 0.0
+  switching_times: 0.3
+  switching_times: 0.5
+  switching_times: 0.8
+  switching_times: 1.0
+}
+
+gaits {
+  name: "slow_walk"
+  mode_sequence: "LF"
+  mode_sequence: "STANCE"
+  mode_sequence: "RF"
+  mode_sequence: "STANCE"
+  switching_times: 0.0
+  switching_times: 0.65
+  switching_times: 0.85
+  switching_times: 1.5
+  switching_times: 1.7
+}
+
+gaits {
+  name: "very_slow_walk"
+  mode_sequence: "RF"
+  mode_sequence: "STANCE"
+  mode_sequence: "LF"
+  mode_sequence: "STANCE"
+  switching_times: 0.0
+  switching_times: 0.7
+  switching_times: 1.1
+  switching_times: 1.8
+  switching_times: 2.2
+}
+
+gaits {
+  name: "run"
+  mode_sequence: "LF"
+  mode_sequence: "FLY"
+  mode_sequence: "RF"
+  mode_sequence: "FLY"
+  switching_times: 0.0
+  switching_times: 0.3
+  switching_times: 0.4
+  switching_times: 0.7
+  switching_times: 0.8
+}
+
+gaits {
+  name: "skip"
+  mode_sequence: "LF"
+  mode_sequence: "FLY"
+  mode_sequence: "LF"
+  mode_sequence: "RF"
+  mode_sequence: "FLY"
+  mode_sequence: "RF"
+  switching_times: 0.0
+  switching_times: 0.25
+  switching_times: 0.3
+  switching_times: 0.5
+  switching_times: 0.75
+  switching_times: 0.8
+  switching_times: 1.0
+}
+
+gaits {
+  name: "fast_run"
+  mode_sequence: "LF"
+  mode_sequence: "FLY"
+  mode_sequence: "RF"
+  mode_sequence: "FLY"
+  switching_times: 0.0
+  switching_times: 0.3
+  switching_times: 0.4
+  switching_times: 0.7
+  switching_times: 0.8
+}
+
+gaits {
+  name: "jump"
+  mode_sequence: "STANCE"
+  mode_sequence: "FLY"
+  switching_times: 0.0
+  switching_times: 0.3
+  switching_times: 0.5
+}

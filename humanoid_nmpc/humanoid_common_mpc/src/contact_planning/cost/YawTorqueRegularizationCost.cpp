@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -27,6 +31,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cmath>
+#include <string>
 
 namespace ocs2::humanoid {
 
@@ -34,12 +39,20 @@ std::string YawTorqueRegularizationCost::describe() const {
   return weightLine("w sum_i tau_{i,k}^2 on the running nodes");
 }
 
-void YawTorqueRegularizationCost::configure(const ContactPlanningConfig& config) {
+void YawTorqueRegularizationCost::configure(
+    const ContactPlanningConfig& config) {
   weight_ = config.yawTorqueRegularization.weight;
 }
 
-void YawTorqueRegularizationCost::addToStage(const ContactPlanningContext& /*ctx*/, int /*node*/, StageAccumulator& stage) const {
-  for (size_t foot = 0; foot < N_CONTACTS; ++foot) stage.addQuadraticResidual({}, {{idx_.yawTorque[foot], 1.0}}, /*offset=*/0.0, weight_);
+void YawTorqueRegularizationCost::addToStage(
+    const ContactPlanningContext& /*ctx*/,
+    int /*node*/,
+    StageAccumulator& stage) const {
+  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+    stage.addQuadraticResidual(/*xCoefficients=*/{},
+                               {{idx_.yawTorque[foot], 1.0}}, /*offset=*/0.0,
+                               weight_);
+  }
 }
 
 }  // namespace ocs2::humanoid

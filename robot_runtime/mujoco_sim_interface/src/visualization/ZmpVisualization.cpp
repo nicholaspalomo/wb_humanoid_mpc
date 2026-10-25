@@ -29,22 +29,36 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "mujoco_sim_interface/visualization/ZmpVisualization.h"
 
+#include "absl/base/nullability.h"
+
 #include "mujoco_sim_interface/MujocoSimInterface.h"
 #include "mujoco_sim_interface/visualization/GroundMarkerGeoms.h"
 
 namespace robot::mujoco_sim_interface {
 
+namespace {
+constexpr double kZmpMarkerRadius = 0.025;  // [m]
+}  // namespace
+
 void ZmpVisualization::addSceneGeoms(const VisualizationFrame& frame) {
-  if (frame.sim == nullptr || frame.state == nullptr || frame.scene == nullptr) return;
-  const mjModel* model = frame.sim->getModel();
-  const RobotCentroidalState state = robotCentroidalState(model, frame.state->data);
+  if (frame.sim == nullptr || frame.model == nullptr ||
+      frame.state == nullptr || frame.scene == nullptr)
+    return;
+  const mjModel* absl_nonnull model = frame.model;
+  const RobotCentroidalState state =
+      robotCentroidalState(model, frame.state->data);
   if (!state.valid) return;
   constexpr double kMinNormalForce = 5.0;  // [N]
-  // The ball is excluded: it is not the ground, and the marker is the ZMP of the ground reaction.
+  // The ball is excluded: it is not the ground, and the marker is the ZMP of
+  // the ground reaction.
   const GroundReaction reaction =
-      groundReaction(model, frame.state->data, state.rootBodyId, kMinNormalForce, frame.sim->projectileBodyId());
+      groundReaction(model, frame.state->data, state.rootBodyId,
+                     kMinNormalForce, frame.sim->projectileBodyId());
   if (!reaction.valid) return;
-  addGroundDiscGeom(frame.scene, reaction.zmp[0], reaction.zmp[1], /*radius=*/0.025, MarkerColor{1.0f, 0.15f, 0.15f, 0.9f});
+  constexpr MarkerColor kZmpColor{
+      .r = 1.0f, .g = 0.15f, .b = 0.15f, .a = 0.9f};  // red
+  addGroundDiscGeom(frame.scene, reaction.zmp[0], reaction.zmp[1],
+                    kZmpMarkerRadius, kZmpColor);
 }
 
 }  // namespace robot::mujoco_sim_interface

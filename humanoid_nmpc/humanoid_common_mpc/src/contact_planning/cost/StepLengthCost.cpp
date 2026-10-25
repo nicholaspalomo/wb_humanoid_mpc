@@ -30,33 +30,45 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/cost/StepLengthCost.h"
 
 #include <algorithm>
+#include <string>
 
 #include "absl/strings/str_cat.h"
+#include "ocs2_core/Dimensions.h"
 
 namespace ocs2::humanoid {
 
 std::string StepLengthCost::describe() const {
-  return absl::StrCat(weightLine("w sum_i ||dp_{i,k} - d_nom (1 - c_{i,k})||^2 on the running nodes, d_nom = v_cmd dt T_stride / T_swing"),
-                      ", T_stride / T_swing = ", strideToSwingRatio_);
+  return absl::StrCat(
+      weightLine("w sum_i ||dp_{i,k} - d_nom (1 - c_{i,k})||^2 on the running "
+                 "nodes, d_nom = v_cmd dt T_stride / T_swing"),
+      ", T_stride / T_swing = ", strideToSwingRatio_);
 }
 
 void StepLengthCost::configure(const ContactPlanningConfig& config) {
   weight_ = config.stepLength.weight;
   const GaitLimits& limits = config.shared.gaitLimits;
   const scalar_t doubleSupport = std::max(0.0, limits.minDoubleSupportDuration);
-  strideToSwingRatio_ = 2.0 * (limits.minSwingDuration + doubleSupport) / limits.minSwingDuration;
+  strideToSwingRatio_ =
+      2.0 * (limits.minSwingDuration + doubleSupport) / limits.minSwingDuration;
 }
 
-vector2_t StepLengthCost::nominalDisplacementPerNode(const vector2_t& velocityCommand, scalar_t dt) const {
+vector2_t StepLengthCost::nominalDisplacementPerNode(
+    const vector2_t& velocityCommand, scalar_t dt) const {
   return velocityCommand * (dt * strideToSwingRatio_);
 }
 
-void StepLengthCost::addToStage(const ContactPlanningContext& ctx, int /*node*/, StageAccumulator& stage) const {
-  const vector2_t dNominal = nominalDisplacementPerNode(ctx.input->velocityCommand, ctx.dt);
-  for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
-    for (int axis = 0; axis < 2; ++axis) {
+void StepLengthCost::addToStage(const ContactPlanningContext& ctx,
+                                int /*node*/,
+                                StageAccumulator& stage) const {
+  const vector2_t dNominal =
+      nominalDisplacementPerNode(ctx.input->velocityCommand, ctx.dt);
+  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+    for (int axis = 0; axis < kHorizontalPositionDim; ++axis) {
       // dp - d_nom (1 - c) = dp + d_nom c - d_nom
-      stage.addQuadraticResidual({}, {{idx_.footDelta[foot][axis], 1.0}, {idx_.contact[foot], dNominal(axis)}}, -dNominal(axis), weight_);
+      stage.addQuadraticResidual(/*xCoefficients=*/{},
+                                 {{idx_.footDelta[foot][axis], 1.0},
+                                  {idx_.contact[foot], dNominal(axis)}},
+                                 -dNominal(axis), weight_);
     }
   }
 }

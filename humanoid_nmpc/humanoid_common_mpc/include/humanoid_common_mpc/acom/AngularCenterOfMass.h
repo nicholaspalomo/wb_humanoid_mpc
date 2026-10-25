@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -25,14 +29,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <Eigen/Core>
-#include <Eigen/Dense>
-
 #include <cstddef>
 #include <memory>
 #include <string>
 #include <vector>
 
+#include "Eigen/Core"
+#include "Eigen/Dense"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
@@ -40,28 +43,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/common/Types.h"
 
 namespace ocs2::humanoid {
-
-/**
- * Reorders an aCOM network output from the network's XYZ convention
- * [roll, pitch, yaw] to the OCS2 centroidal state's ZYX convention
- * [yaw, pitch, roll].
- */
-inline vector3_t acomXyzToZyx(const vector3_t& xyz) {
-  return vector3_t(xyz[2], xyz[1], xyz[0]);
-}
-
-/**
- * Reorders the rows of a (3 x n) aCOM Jacobian from the network's XYZ convention
- * to the OCS2 centroidal state's ZYX convention, by swapping the roll and yaw
- * rows and leaving the pitch row in place.
- */
-inline matrix_t acomJacobianXyzToZyx(const matrix_t& J_xyz) {
-  matrix_t J_zyx(J_xyz.rows(), J_xyz.cols());
-  J_zyx.row(0) = J_xyz.row(2);  // Yaw.
-  J_zyx.row(1) = J_xyz.row(1);  // Pitch.
-  J_zyx.row(2) = J_xyz.row(0);  // Roll.
-  return J_zyx;
-}
 
 /**
  * Structure holding parameters for a single SIREN layer in C++.
@@ -72,117 +53,179 @@ struct SirenLayerWeights {
 };
 
 /**
- * Angular Center of Mass (aCOM) C++ Evaluator.
+ * The body tangent Jacobian of the ACoM attitude xi_a = xi_hat (x)
+ * Exp(Delta_theta(q_j)) (AngularCenterOfMass:: acomAttitude()): when the base
+ * orientation moves to xi_hat (x) Exp(dphi) and the joints to q_j + dq_j, the
+ * attitude moves to xi_a (x) Exp(dphi_a) with, to first order,
  *
- * Evaluates the integrable whole-body orientation coordinate theta_aCOM(q) and
- * its exact analytical Jacobian J_aCOM(q) from the generalized coordinates
- * q = [pos_base, euler_zyx_base, q_joints] of the OCS2 centroidal model.
+ *   dphi_a = baseOrientation * dphi + jointAngles * dq_j.
  *
- * The underlying SIREN network is trained in Python and emits its 3-vector
- * output in XYZ order [roll, pitch, yaw]; computeJointOrientationOffset and
- * computeJointOffsetJacobian return that native ordering, while
- * computeAcomOrientation and computeAcomJacobian convert to the ZYX ordering the
- * centroidal state uses.
+ * Neither block depends on the base orientation, only on the joints.
+ */
+struct AcomAttitudeTangentJacobian {
+  /** R(Delta_theta)^T, 3 x 3: the adjoint that carries a body perturbation of
+   * the base into the frame of the ACoM. */
+  matrix3_t baseOrientation;
+  /** J_r(Delta_theta) J_Delta_theta(q_j), 3 x n_j: the right Jacobian of SO(3)
+   * times the network's joint Jacobian. */
+  matrix_t jointAngles;
+};
+
+/**
+ * Angular Center of Mass (ACoM) evaluator: the whole-body orientation of Chen,
+ * Nelson, Griffin, Posa and Pratt (IROS 2023) as a unit quaternion of the base
+ * orientation and a learned, joint-induced rotation (design section 2.8.3 of
+ * humanoid_nmpc/docs/quaternion_base_orientation/README.md):
+ *
+ *   xi_a(xi, q_j) = xi_hat (x) Exp(Delta_theta(q_j)).
+ *
+ * Delta_theta(q_j) is the rotation vector, in the base frame, that the SIREN
+ * network of humanoid_learning/acom emits: its components are about the base's
+ * x, y and z axes, in that order. The network was fitted at the identity base
+ * (dataset_generator.py), which is what makes it a function of the joints alone
+ * and lets the base rotation compose on its left. A rotation of the whole robot
+ * rotates the ACoM one for one: xi_a(q (x) xi, q_j) = q (x) xi_a(xi, q_j).
+ *
+ * Build one with Create(), which checks the network against the MPC model's
+ * joints. The evaluation methods are const, keep no state between calls and are
+ * safe to call concurrently; loadWeights() and setJointNames() are not.
  */
 class AngularCenterOfMass {
  public:
-  AngularCenterOfMass(std::size_t inputDim, std::size_t numLayers, double omega0 = 30.0);
+  /** The frequency omega_0 of the sinusoidal layers that the training code
+   * (humanoid_learning/acom) defaults to. */
+  static constexpr double kDefaultOmega0 = 30.0;
+
+  AngularCenterOfMass(size_t inputDim,
+                      size_t numLayers,
+                      double omega0 = kDefaultOmega0);
+
+  // A value type: copying it copies the network.
+  AngularCenterOfMass(const AngularCenterOfMass&) = default;
+  AngularCenterOfMass& operator=(const AngularCenterOfMass&) = default;
+  AngularCenterOfMass(AngularCenterOfMass&&) = default;
+  AngularCenterOfMass& operator=(AngularCenterOfMass&&) = default;
+  ~AngularCenterOfMass() = default;
 
   /**
-   * The values of model_settings.robotName that have a network compiled into this binary, sorted. This is the
-   * registry Create() resolves names against, and the list its unknown-robot error prints.
+   * The values of model_settings.robot_name that have a network compiled into
+   * this binary, sorted. This is the registry Create() resolves names against,
+   * and the list its unknown-robot error prints.
    */
   static std::vector<std::string> registeredRobotNames();
 
   /**
-   * Creates the evaluator for `robotName` (model_settings.robotName) and checks it against the model it will be fed.
+   * Creates the evaluator for `robotName` (model_settings.robot_name) and
+   * checks it against the model it will be fed.
    *
-   * The network is a function of a VECTOR of joint angles, so it is only meaningful when `modelJointNames` - the
-   * MPC model's joints, in the order the MPC hands them over (ModelSettings::mpcModelJointNames, or equivalently the
-   * reduced Pinocchio model's joints after the floating base) - is exactly the joint list recorded in the weight
-   * header at training time. A permutation, or a different set of fixed joints of the same size, keeps every
-   * dimension check green while the network silently evaluates a different robot, so the names are compared one by
-   * one here rather than only counted.
+   * The network is a function of a VECTOR of joint angles, so it is only
+   * meaningful when `modelJointNames` - the MPC model's joints, in the order
+   * the MPC hands them over (ModelSettings::mpcModelJointNames, or equivalently
+   * the reduced Pinocchio model's joints after the floating base) - is exactly
+   * the joint list recorded in the weight header at training time. A
+   * permutation, or a different set of fixed joints of the same size, keeps
+   * every dimension check green while the network silently evaluates a
+   * different robot, so the names are compared one by one here rather than only
+   * counted.
    *
-   * @return NotFound if no network is registered for `robotName`, listing the registered names;
-   *     FailedPrecondition if the joint list differs from the one the network was trained on, naming the robot and the
-   *     first joint that differs.
+   * @return NotFound if no network is registered for `robotName`, listing the
+   * registered names; FailedPrecondition if the joint list differs from the one
+   * the network was trained on, naming the robot and the first joint that
+   * differs.
    */
-  static absl::StatusOr<std::unique_ptr<AngularCenterOfMass>> Create(absl::string_view robotName,
-                                                                     const std::vector<std::string>& modelJointNames);
+  static absl::StatusOr<std::unique_ptr<AngularCenterOfMass>> Create(
+      absl::string_view robotName,
+      const std::vector<std::string>& modelJointNames);
 
   /**
-   * Validates and loads layer weights and biases. Returns InvalidArgument, and leaves the evaluator unchanged, if the
-   * layer count, a layer's shape or the 3-wide readout does not match the architecture this evaluator was built for.
+   * Validates and loads layer weights and biases. Returns InvalidArgument, and
+   * leaves the evaluator unchanged, if the layer count, a layer's shape or the
+   * 3-wide readout does not match the architecture this evaluator was built
+   * for.
    */
   absl::Status loadWeights(const std::vector<SirenLayerWeights>& layers);
 
   /**
-   * Throwing form of loadWeights().
-   *
-   * @throws std::runtime_error with loadWeights()'s message.
-   */
-  void setWeights(const std::vector<SirenLayerWeights>& layers);
-
-  /**
-   * Records the joint names, in input order, that the network was trained on. Returns InvalidArgument unless there is
-   * exactly one name per network input.
+   * Records the joint names, in input order, that the network was trained on.
+   * Returns InvalidArgument unless there is exactly one name per network input.
    */
   absl::Status setJointNames(std::vector<std::string> jointNames);
 
-  /** The joint names recorded by setJointNames(), in input order; empty if none were recorded. */
+  /** The joint names recorded by setJointNames(), in input order; empty if none
+   * were recorded. */
   const std::vector<std::string>& getJointNames() const { return jointNames_; }
 
   /**
-   * Computes the joint-induced orientation offset Delta_theta(q_j) in R^3.
+   * Computes the joint-induced orientation offset Delta_theta(q_j) in R^3: the
+   * rotation vector, in the base frame, of the ACoM relative to the base,
+   * components about the base's x, y and z axes (the network's native order).
    */
   vector3_t computeJointOrientationOffset(const vector_t& qJoints) const;
 
   /**
-   * Computes the exact analytical Jacobian d(Delta_theta)/d(q_j) in R^(3 x n_j).
+   * Computes the exact analytical Jacobian d(Delta_theta)/d(q_j) in R^(3 x
+   * n_j), rows as computeJointOrientationOffset().
    */
   matrix_t computeJointOffsetJacobian(const vector_t& qJoints) const;
 
   /**
-   * Computes the whole-body aCOM orientation in the OCS2 ZYX Euler convention:
-   * theta_aCOM(q) = euler_zyx_base + P * Delta_theta(q_j),
-   * where P swaps the roll and yaw rows of the network's XYZ output.
+   * Computes the ACoM attitude xi_a = xi_hat (x) Exp(Delta_theta(q_j)), the
+   * quaternion coefficients (x, y, z, w) of the rotation from the ACoM frame to
+   * the world.
    *
-   * @param q: Pinocchio generalized coordinates of the OCS2 centroidal model,
-   *     laid out as [pos_base(3), euler_zyx_base(3), q_joints(n_j)].
+   * @param xi       The base orientation, quaternion coefficients (x, y, z, w),
+   * read through safelyNormalizedQuaternion() (orientation/BaseOrientation.h):
+   * any nonzero scale gives the same attitude.
+   * @param qJoints  The network's joints, getInputDim() of them, in the order
+   * of getJointNames().
+   * @return A unit quaternion for every |xi| above kQuaternionNormGuard, in the
+   * hemisphere of xi_hat: -xi gives -xi_a.
    */
-  vector3_t computeAcomOrientation(const vector_t& q) const;
+  vector4_t acomAttitude(const vector4_t& xi, const vector_t& qJoints) const;
 
   /**
-   * Computes the whole-body aCOM configuration Jacobian d(theta_aCOM)/dq in the
-   * OCS2 ZYX Euler convention:
-   * J_aCOM(q) = [0_(3x3), I_(3x3), P * J_Delta_theta_(3xn_j)].
-   *
-   * The base orientation block is the identity because the aCOM orientation is
-   * the base Euler angle triple plus a joint-only offset. Note that this
-   * differentiates with respect to the Euler angles themselves, not with respect
-   * to an angular velocity.
+   * Computes the body tangent Jacobian of acomAttitude()
+   * (AcomAttitudeTangentJacobian): R(Delta_theta)^T for the base orientation
+   * and J_r(Delta_theta) J_Delta_theta(q_j) for the joints. `qJoints` as for
+   * acomAttitude(). One forward and one chain-rule pass of the network, as
+   * computeJointOffsetJacobian().
    */
-  matrix_t computeAcomJacobian(const vector_t& q) const;
+  AcomAttitudeTangentJacobian acomAttitudeTangentJacobian(
+      const vector_t& qJoints) const;
 
-  std::size_t getInputDim() const { return inputDim_; }
-  std::size_t getNumLayers() const { return numLayers_; }
-  double getOmega0() const { return omega0_; }
+  size_t getInputDim() const { return inputDim_; }
 
  private:
-  // The two checks below guard the evaluation hot path against PROGRAMMING errors - a joint vector of the wrong size,
-  // or an evaluator used before its weights were loaded - which Create() has already ruled out for every
-  // configuration it accepts. They throw std::runtime_error rather than returning a Status so that the evaluation
-  // methods can keep returning plain values.
+  /** Delta_theta(q_j) and d(Delta_theta)/d(q_j) of one forward and chain-rule
+   * pass. */
+  struct JointOffsetAndJacobian {
+    vector3_t offset;
+    matrix_t jacobian;
+  };
 
-  /** Throws if qJoints does not have exactly inputDim_ entries. */
+  /**
+   * Computes Delta_theta(q_j) and its Jacobian in one pass: the offset is
+   * computeJointOrientationOffset()'s, bit for bit (the same operations in the
+   * same order), the Jacobian computeJointOffsetJacobian()'s.
+   */
+  JointOffsetAndJacobian computeJointOffsetAndJacobian(
+      const vector_t& qJoints) const;
+
+  // The two checks below guard the evaluation hot path against PROGRAMMING
+  // errors - a joint vector of the wrong size, or an evaluator used before its
+  // weights were loaded - which Create() has already ruled out for every
+  // configuration it accepts. They are ABSL_CHECKs, so that the evaluation
+  // methods keep returning plain values: an invariant that does not hold ends
+  // the process with the message instead of evaluating out of bounds.
+
+  /** Checks that qJoints has exactly inputDim_ entries. */
   void checkJointVectorSize(const vector_t& qJoints) const;
 
-  /** Throws if no weights have been loaded. */
+  /** Checks that weights have been loaded. */
   void checkWeightsLoaded() const;
 
-  std::size_t inputDim_;
-  std::size_t numLayers_;
+  size_t inputDim_;
+  size_t numLayers_;
   double omega0_;
   std::vector<SirenLayerWeights> layers_;
   std::vector<std::string> jointNames_;

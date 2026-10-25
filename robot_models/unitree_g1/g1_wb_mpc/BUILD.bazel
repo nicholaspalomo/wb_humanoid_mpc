@@ -3,6 +3,10 @@ load("//bazel:robot_files.bzl", "ROBOT_FILE_EXCLUDES")
 
 package(default_visibility = ["//visibility:public"])
 
+# The launch files (robot.textproto, mpc.textproto, dummy_sim.textproto; tools/launch), for the tests that check them
+# and the robot bundle that exports robot.textproto (tools/deploy).
+exports_files(glob(["launch/*.textproto"]))
+
 # Configuration and launch files
 filegroup(
     name = "g1_wb_mpc",

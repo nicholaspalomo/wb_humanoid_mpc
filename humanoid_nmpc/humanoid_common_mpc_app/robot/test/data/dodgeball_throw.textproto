@@ -1,0 +1,23 @@
+# proto-file: humanoid_nmpc/humanoid_mpc_msgs/dodgeball_throw.proto
+# proto-message: humanoid_mpc_msgs.DodgeballThrow
+# A payload exactly as the GUI Dodgeball tab publishes it (remote_control/tk_app/dodgeball.py throw_payload for
+# azimuth 30 deg, elevation 15 deg, 3 m, 9 m/s, 1.2 kg), dumped the way the tab dumps it. Shared by the C++ parser test and
+# the Python payload test, so a key renamed on either side of the wire fails a test on that side.
+azimuth_deg: 30.0
+elevation_deg: 15.0
+distance: 3.0
+speed: 9.0
+mass: 1.2
+spawn_offset {
+  x: 2.509549
+  y: 1.448889
+  z: 0.776457
+}
+launch_velocity {
+  x: -7.762142
+  y: -4.481475
+  z: -0.815798
+}
+flight_time: 0.323306
+launch_speed: 9.0
+impact_momentum: 11.771877

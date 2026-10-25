@@ -1,7 +1,7 @@
 #!/bin/bash
 # ==============================================================================
 # Container shell setup — sourced by .bashrc inside the Docker container
-# Provides: Bazel/make tab completion, ROS2+Bazel env, git completion
+# Provides: Bazel/make tab completion, the Bazel environment (setup_env.sh), git completion
 # ==============================================================================
 
 # Tab completion is for a person at a prompt, so it is loaded in INTERACTIVE shells only. docker-compose.yaml points
@@ -46,8 +46,22 @@ if [ "${_wb_interactive_shell}" = 1 ] && [ -z "${BAZEL_REAL:-}" ]; then
 fi
 unset _wb_interactive_shell
 
-# --- Auto-source Bazel+ROS2 environment ---
-WORKSPACE_DIR="/wb_humanoid_mpc_ws/workspace/wb_humanoid_mpc"
+# --- Auto-source the Bazel environment ---
+# The setup_env.sh of the checkout the shell starts in, so that a second checkout of the repository (a git worktree
+# next to the default one, with an environment of its own) is set up by its own script; outside every checkout, the
+# default workspace's. Found by walking up from the working directory, without starting a process: every bash in the
+# container runs this.
+_wb_checkout=""
+_wb_dir="${PWD:-}"
+while [ -n "${_wb_dir}" ] && [ "${_wb_dir}" != "/" ]; do
+    if [ -f "${_wb_dir}/setup_env.sh" ] && [ -f "${_wb_dir}/MODULE.bazel" ]; then
+        _wb_checkout="${_wb_dir}"
+        break
+    fi
+    _wb_dir="${_wb_dir%/*}"
+done
+WORKSPACE_DIR="${_wb_checkout:-/wb_humanoid_mpc_ws/workspace/wb_humanoid_mpc}"
+unset _wb_checkout _wb_dir
 if [ -f "${WORKSPACE_DIR}/setup_env.sh" ]; then
     pushd "${WORKSPACE_DIR}" >/dev/null
     source setup_env.sh

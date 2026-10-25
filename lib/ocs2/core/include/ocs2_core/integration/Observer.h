@@ -29,6 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include "absl/base/nullability.h"
+
 #include <ocs2_core/Types.h>
 
 namespace ocs2 {
@@ -44,7 +46,7 @@ class Observer {
    * @param stateTrajectoryPtr: A pinter to an state trajectory container to store resulting state trajectory.
    * @param timeTrajectoryPtr: A pinter to an time trajectory container to store resulting time trajectory.
    */
-  explicit Observer(vector_array_t* stateTrajectoryPtr = nullptr, scalar_array_t* timeTrajectoryPtr = nullptr);
+  explicit Observer(vector_array_t* absl_nullable stateTrajectoryPtr = nullptr, scalar_array_t* absl_nullable timeTrajectoryPtr = nullptr);
 
   /**
    * Default destructor.
@@ -59,8 +61,8 @@ class Observer {
   void observe(const vector_t& state, scalar_t time);
 
  private:
-  scalar_array_t* timeTrajectoryPtr_;
-  vector_array_t* stateTrajectoryPtr_;
+  scalar_array_t* absl_nullable timeTrajectoryPtr_;
+  vector_array_t* absl_nullable stateTrajectoryPtr_;
 };
 
 }  // namespace ocs2

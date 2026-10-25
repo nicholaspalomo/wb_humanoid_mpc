@@ -1,0 +1,55 @@
+syntax = "proto3";
+
+package humanoid_rerun_viewer_proto;
+
+import "nproto/options.proto";
+
+// A plot configuration for humanoid_rerun_viewer: the topics, signals, wildcards, or tabs/panels to plot on 2D line
+// graphs in Rerun, and the MuJoCo viewer the robot process of a simulation starts.
+//
+// Next ID: 8
+message PlotConfig {
+  option (nproto.generate_struct) = "ocs2::humanoid::rerun::PlotConfig";
+
+  reserved 8 to max;
+
+  // The signals, telemetry/status paths (e.g. "base_pose/position_x", "status/mpc/*"), wildcards (e.g. "joints/*"),
+  // or contract tab/panel titles (e.g. "Base Pose & Euler", "Joint Positions & Targets") to plot on 2D line graphs.
+  repeated string signals = 1;
+
+  // Optional custom title for the tab containing arbitrary or custom signals not matching existing contract tabs.
+  // Defaults to "Signals" when empty.
+  string custom_tab_title = 2;
+
+  // The robot model instances to draw in the 3D scene (e.g. "measured", "terminal_state", "terminal_target"). Empty:
+  // every instance the scene carries (the blueprint still hides terminal_target until it is shown). Ignored when
+  // draw_terminal_state is false.
+  repeated string robot_instances = 3;
+
+  // Whether to draw the end-of-trajectory robots ("terminal_state", "terminal_target"): false draws only "measured",
+  // whatever robot_instances says; true or unset leaves the choice to robot_instances. The bridge's --terminal_state
+  // and --robot_instances override it (plot_config.resolve_allowed_instances()).
+  optional bool draw_terminal_state = 4;
+
+  // The MuJoCo viewer of the robot process, by registry name (robot_runtime/mujoco_sim_interface/README.md, "Viewers"):
+  // "glfw" (a window on DISPLAY), "web" (a browser tab at http://localhost:6090) or "none"; several are a preference
+  // list tried in order, e.g. ["web", "none"]. The robot process reads it from its --plot_config when no --viewer is
+  // given (the Makefile's VIEWER=, WB_ROBOT_VIEWER), and refuses an unknown name at start-up.
+  // LINT.IfChange(default_mujoco_viewer)
+  // Empty: "web".
+  repeated string mujoco_viewer = 5;
+  // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_app/robot/include/humanoid_common_mpc_app/robot/RobotAppOptions.h:default_viewer)
+
+  // The most viz/telemetry samples per second of robot time the bridge records for the plots [Hz]: the first sample of
+  // every 1 / rate interval. 0 records every sample (the rate of robot/state, 100 Hz on the shipped robots). What the
+  // viewer has to keep up with grows with it (humanoid_nmpc/humanoid_rerun_viewer/README.md, "Cost").
+  // LINT.IfChange(default_telemetry_rate)
+  // Unset: 50.
+  optional double telemetry_rate_hz = 6;
+  // LINT.ThenChange(//humanoid_nmpc/humanoid_rerun_viewer/python/humanoid_rerun_viewer/plot_config.py:default_telemetry_rate)
+
+  // Whether the bridge records every viz/telemetry group, also those that no tab, panel or signal of this file plots
+  // (for a view added in the viewer by hand). False: only the plotted groups, since the viewer ingests and keeps every
+  // row it is sent, plotted or not.
+  bool record_unplotted_telemetry = 7;
+}

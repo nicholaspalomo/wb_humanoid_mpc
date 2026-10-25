@@ -1,0 +1,365 @@
+load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
+load("@rules_python//python:defs.bzl", "py_binary", "py_library", "py_test")
+load("//bazel:copts.bzl", "FIRST_PARTY_COPTS")
+
+# web_viewer - the HTTP side of the MuJoCo web viewer (README.md): the server that serves the page and the frames and
+# queues the browsers' input, the frame and input hand-over to the render thread, the JPEG codec and the thread
+# placement. MuJoCo-free and EGL-free: the render thread lives in //robot_runtime/mujoco_sim_interface.
+
+package(default_visibility = ["//visibility:public"])
+
+# ==============================================================================
+# The page
+# ==============================================================================
+
+# The generator that compiles page/index.html into the library. `import embed_page`: the import root is tools/.
+py_library(
+    name = "embed_page_lib",
+    srcs = ["tools/embed_page.py"],
+    imports = ["tools"],
+    visibility = ["//visibility:private"],
+)
+
+py_binary(
+    name = "embed_page",
+    srcs = ["tools/embed_page.py"],
+    main = "tools/embed_page.py",
+    visibility = ["//visibility:private"],
+    deps = [":embed_page_lib"],
+)
+
+# WebViewerPage.cpp: webViewerPage() over the page, a raw string literal (WebViewerPage.h).
+genrule(
+    name = "web_viewer_page_source",
+    srcs = ["page/index.html"],
+    outs = ["WebViewerPage.cpp"],
+    cmd = "$(execpath :embed_page) --input $(location page/index.html) --output $@",
+    tools = [":embed_page"],
+    visibility = ["//visibility:private"],
+)
+
+# ==============================================================================
+# C++
+# ==============================================================================
+
+# The scheduling of the viewer's threads, apart from the server so that the viewer's options can name it
+# (//robot_runtime/mujoco_sim_interface:viewer_settings).
+cc_library(
+    name = "viewer_thread_priority",
+    hdrs = ["include/web_viewer/ViewerThreadPriority.h"],
+    copts = FIRST_PARTY_COPTS,
+    includes = ["include"],
+)
+
+# How the server binds and whom it serves (include/web_viewer/WebViewerServerOptions.h), apart from the server so that
+# the MuJoCo viewer's options take its defaults (//robot_runtime/mujoco_sim_interface:viewer_settings).
+cc_library(
+    name = "web_viewer_server_options",
+    hdrs = ["include/web_viewer/WebViewerServerOptions.h"],
+    copts = FIRST_PARTY_COPTS,
+    includes = ["include"],
+    deps = [":viewer_thread_priority"],
+)
+
+cc_library(
+    name = "web_viewer",
+    srcs = [
+        "src/JpegEncoder.cpp",
+        "src/ThreadPlacement.cpp",
+        "src/ViewerCameraMode.cpp",
+        "src/ViewerFrameMailbox.cpp",
+        "src/ViewerInputParsing.cpp",
+        "src/ViewerInputQueue.cpp",
+        "src/ViewerStatus.cpp",
+        "src/WebViewerServer.cpp",
+        ":web_viewer_page_source",
+    ],
+    hdrs = glob(
+        ["include/web_viewer/*.h"],
+        exclude = [
+            "include/web_viewer/JpegDecoder.h",
+            "include/web_viewer/ViewerThreadPriority.h",
+            "include/web_viewer/WebViewerServerOptions.h",
+        ],
+    ),
+    copts = FIRST_PARTY_COPTS,
+    includes = ["include"],
+    deps = [
+        ":viewer_thread_priority",
+        ":web_viewer_server_options",
+        "//lib/ocs2:ocs2_dimensions",
+        "@abseil-cpp//absl/base:core_headers",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/cleanup",
+        "@abseil-cpp//absl/container:flat_hash_map",
+        "@abseil-cpp//absl/container:flat_hash_set",
+        "@abseil-cpp//absl/log",
+        "@abseil-cpp//absl/log:absl_check",
+        "@abseil-cpp//absl/memory",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:str_format",
+        "@abseil-cpp//absl/strings:string_view",
+        "@abseil-cpp//absl/synchronization",
+        "@abseil-cpp//absl/time",
+        "@abseil-cpp//absl/types:span",
+        # The server's TU includes httplib.h; the patched module (MODULE.bazel) builds it without TLS and zlib.
+        "@cpp-httplib//:httplib",
+        "@libjpeg_turbo//:turbojpeg",
+    ],
+)
+
+# ==============================================================================
+# Tests
+# ==============================================================================
+
+# The JPEG decoder of the tests that check the frames the viewer serves, here and in
+# //robot_runtime/mujoco_sim_interface; nothing in production decodes.
+cc_library(
+    name = "jpeg_decoder",
+    testonly = True,
+    srcs = ["src/JpegDecoder.cpp"],
+    hdrs = ["include/web_viewer/JpegDecoder.h"],
+    copts = FIRST_PARTY_COPTS,
+    includes = ["include"],
+    deps = [
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/memory",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
+        "@libjpeg_turbo//:turbojpeg",
+    ],
+)
+
+# Synthetic frames and raw-socket HTTP clients for the server tests.
+cc_library(
+    name = "web_viewer_test_support",
+    testonly = True,
+    srcs = ["test/WebViewerTestSupport.cpp"],
+    hdrs = ["test/WebViewerTestSupport.h"],
+    copts = FIRST_PARTY_COPTS,
+    visibility = ["//visibility:private"],
+    deps = [
+        ":viewer_thread_priority",
+        ":web_viewer",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/functional:function_ref",
+        "@abseil-cpp//absl/memory",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
+        "@abseil-cpp//absl/time",
+    ],
+)
+
+# A server of synthetic frames that answer the page's input, for trying the page in a browser without a simulator:
+#   bazel run //robot_runtime/web_viewer:web_viewer_demo -- --port=6091
+cc_binary(
+    name = "web_viewer_demo",
+    testonly = True,
+    srcs = ["test/WebViewerDemoMain.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":viewer_thread_priority",
+        ":web_viewer",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/flags:flag",
+        "@abseil-cpp//absl/flags:parse",
+        "@abseil-cpp//absl/log",
+        "@abseil-cpp//absl/log:initialize",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/time",
+    ],
+)
+
+cc_test(
+    name = "jpeg_codec_test",
+    size = "small",
+    srcs = ["test/testJpegCodec.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":jpeg_decoder",
+        ":web_viewer",
+        ":web_viewer_test_support",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "viewer_input_queue_test",
+    size = "small",
+    srcs = ["test/testViewerInputQueue.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":web_viewer",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "viewer_input_parsing_test",
+    size = "small",
+    srcs = ["test/testViewerInputParsing.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":web_viewer",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/container:flat_hash_map",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "viewer_frame_mailbox_test",
+    size = "small",
+    srcs = ["test/testViewerFrameMailbox.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":web_viewer",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/synchronization",
+        "@abseil-cpp//absl/time",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "viewer_status_test",
+    size = "small",
+    srcs = ["test/testViewerStatus.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":web_viewer",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "thread_placement_test",
+    size = "small",
+    srcs = ["test/testThreadPlacement.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":viewer_thread_priority",
+        ":web_viewer",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/strings",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The routes, the trust checks and the client counting, on ephemeral ports of 127.0.0.1 and 0.0.0.0.
+cc_test(
+    name = "web_viewer_server_test",
+    size = "small",
+    srcs = ["test/testWebViewerServer.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":jpeg_decoder",
+        ":web_viewer",
+        ":web_viewer_test_support",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
+        "@abseil-cpp//absl/time",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# Start-up and shutdown: 1000 servers created and destroyed, port reuse, the request pool under idle keep-alive
+# connections, and a client that stops reading.
+cc_test(
+    name = "web_viewer_server_lifecycle_test",
+    size = "small",
+    srcs = ["test/testWebViewerServerLifecycle.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":web_viewer",
+        ":web_viewer_test_support",
+        "@abseil-cpp//absl/log",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/time",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# Create() when a request thread cannot start: a binary of its own, since it interposes pthread_create.
+cc_test(
+    name = "web_viewer_server_thread_failure_test",
+    size = "small",
+    srcs = [
+        "test/PthreadCreateInterposer.cpp",
+        "test/PthreadCreateInterposer.h",
+        "test/testWebViewerServerThreadFailure.cpp",
+    ],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":web_viewer",
+        ":web_viewer_test_support",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The age of the frames a pulling page shows through a throttled tunnel, against the MJPEG stream as the control.
+# Timing-sensitive, so it runs alone.
+cc_test(
+    name = "web_viewer_latency_test",
+    size = "medium",
+    srcs = ["test/testWebViewerLatency.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    tags = ["exclusive"],
+    deps = [
+        ":web_viewer",
+        ":web_viewer_test_support",
+        "@abseil-cpp//absl/base:core_headers",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/log",
+        "@abseil-cpp//absl/memory",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/synchronization",
+        "@abseil-cpp//absl/time",
+        "@googletest//:gtest_main",
+    ],
+)
+
+py_test(
+    name = "embed_page_test",
+    size = "small",
+    srcs = ["test/test_embed_page.py"],
+    data = ["page/index.html"],
+    main = "test/test_embed_page.py",
+    deps = [":embed_page_lib"],
+)
+
+# The page's script under node (the nodejs package of dependencies.txt) with a stub DOM, fetch and clock: its input
+# order, status line, HUD, settings controls and marker rows.
+py_test(
+    name = "page_script_test",
+    size = "small",
+    srcs = ["test/test_page_script.py"],
+    data = [
+        "page/index.html",
+        "test/page_script_harness.js",
+    ],
+    main = "test/test_page_script.py",
+)

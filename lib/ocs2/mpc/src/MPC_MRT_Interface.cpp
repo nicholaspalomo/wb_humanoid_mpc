@@ -29,15 +29,18 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "ocs2_mpc/MPC_MRT_Interface.h"
 
-#include <ocs2_core/control/FeedforwardController.h>
-#include <ocs2_core/control/LinearController.h>
-
 #include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
 
 namespace ocs2 {
+
+namespace {
+
+constexpr scalar_t kSecondsPerMillisecond = 1e-3;
+
+}  // namespace
 
 /******************************************************************************************************/
 /******************************************************************************************************/
@@ -106,10 +109,13 @@ absl::Status MPC_MRT_Interface::advanceMpc() {
   // measure the delay in running MPC
   mpcTimer_.startTimer();
 
-  SystemObservation currentObservation;
   {
     std::lock_guard<std::mutex> lock(observationMutex_);
-    currentObservation = currentObservation_;
+    solverObservation_ = currentObservation_;
+  }
+  const SystemObservation& currentObservation = solverObservation_;
+  if (solverObservationObserver_) {
+    solverObservationObserver_(currentObservation);
   }
 
   bool controllerIsUpdated;
@@ -140,7 +146,7 @@ absl::Status MPC_MRT_Interface::advanceMpc() {
   }
   copyToBuffer(currentObservation);
 
-  // measure the delay for sending ROS messages
+  // measure the time of the solve and of handing its policy to the buffer
   mpcTimer_.endTimer();
 
   // check MPC delay and solution window compatibility
@@ -148,7 +154,7 @@ absl::Status MPC_MRT_Interface::advanceMpc() {
   if (mpc_.settings().solutionTimeWindow_ < 0) {
     timeWindow = mpc_.getSolverPtr()->getFinalTime() - currentObservation.time;
   }
-  if (timeWindow < 2.0 * mpcTimer_.getAverageInMilliseconds() * 1e-3) {
+  if (timeWindow < 2.0 * mpcTimer_.getAverageInMilliseconds() * kSecondsPerMillisecond) {
     LOG(WARNING) << "The solution time window might be shorter than the MPC delay!";
   }
 
@@ -181,40 +187,6 @@ void MPC_MRT_Interface::copyToBuffer(const SystemObservation& mpcInitObservation
   *performanceIndicesPtr = mpc_.getSolverPtr()->getPerformanceIndeces();
 
   this->moveToBuffer(std::move(commandPtr), std::move(primalSolutionPtr), std::move(performanceIndicesPtr));
-}
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-matrix_t MPC_MRT_Interface::getLinearFeedbackGain(scalar_t time) {
-  auto controller = dynamic_cast<LinearController*>(this->getPolicy().controllerPtr_.get());
-  if (controller == nullptr) {
-    throw std::runtime_error("[MPC_MRT_Interface::getLinearFeedbackGain] Feedback gains only available with linear controller!");
-  }
-  matrix_t K;
-  controller->getFeedbackGain(time, K);
-  return K;
-}
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-ScalarFunctionQuadraticApproximation MPC_MRT_Interface::getValueFunction(scalar_t time, const vector_t& state) const {
-  return mpc_.getSolverPtr()->getValueFunction(time, state);
-}
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-vector_t MPC_MRT_Interface::getStateInputEqualityConstraintLagrangian(scalar_t time, const vector_t& state) const {
-  return mpc_.getSolverPtr()->getStateInputEqualityConstraintLagrangian(time, state);
-}
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-MultiplierCollection MPC_MRT_Interface::getIntermediateDualSolution(scalar_t time) const {
-  return mpc_.getSolverPtr()->getIntermediateDualSolution(time);
 }
 
 }  // namespace ocs2

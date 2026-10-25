@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -26,28 +30,35 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/logic/PlanConsistencyCost.h"
 
 #include <algorithm>
+#include <string>
 
 #include "absl/strings/str_cat.h"
 
 namespace ocs2::humanoid {
 
 std::string PlanConsistencyCost::describe() const {
-  return absl::StrCat(cost_, " per decided node whose contact differs from the previous plan");
+  return absl::StrCat(
+      cost_, " per decided node whose contact differs from the previous plan");
 }
 
 void PlanConsistencyCost::configure(const ContactPlanningConfig& config) {
   cost_ = config.planConsistency.cost;
 }
 
-scalar_t PlanConsistencyCost::cost(const ContactLogicState& s, const MiqpAssignment& a) const {
+scalar_t PlanConsistencyCost::cost(const ContactLogicState& s,
+                                   const MiqpAssignment& a) const {
   using S = ContactLogicState;
   int numInconsistent = 0;
-  if (s.previousPlanShift >= 0 && s.previousAssignment != nullptr && cost_ > 0.0) {
+  if (s.previousPlanShift.has_value() && s.previousAssignment != nullptr &&
+      cost_ > 0.0) {
     for (int k = 0; k < s.numNodes; ++k) {
-      const int source = std::min(k + s.previousPlanShift, s.numNodes - 1);
-      for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
-        const std::int8_t value = a[static_cast<size_t>(S::contactBinaryIndex(k, foot))];
-        if (value != kMiqpFree && value != (*s.previousAssignment)[static_cast<size_t>(S::contactBinaryIndex(source, foot))]) {
+      const int source = std::min(k + *s.previousPlanShift, s.numNodes - 1);
+      for (size_t foot = 0; foot < kNumContacts; ++foot) {
+        const int8_t value =
+            a[static_cast<size_t>(S::contactBinaryIndex(k, foot))];
+        if (value != kMiqpFree &&
+            value != (*s.previousAssignment)[static_cast<size_t>(
+                         S::contactBinaryIndex(source, foot))]) {
           ++numInconsistent;
         }
       }

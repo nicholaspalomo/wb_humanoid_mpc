@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -26,24 +30,36 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/hlip/HlipStandingBlend.h"
 
 #include <cmath>
-#include <functional>
 
 namespace ocs2::humanoid {
+namespace {
 
-scalar_t HlipStandingBlend::activity(const vector2_t& velocityCommand, scalar_t yawRateCommand, const vector2_t& comVelocity) const {
+/** (value / threshold)^2: one component of phi under the threshold metric P. */
+scalar_t squaredRatio(scalar_t value, scalar_t threshold) {
+  const scalar_t ratio = value / threshold;
+  return ratio * ratio;
+}
+
+}  // namespace
+
+scalar_t HlipStandingBlend::activity(const vector2_t& velocityCommand,
+                                     scalar_t yawRateCommand,
+                                     const vector2_t& comVelocity) const {
   const HlipBlendParameters& p = parameters_;
-  const std::function<scalar_t(scalar_t, scalar_t)> squaredRatio = [](scalar_t value, scalar_t threshold) {
-    const scalar_t ratio = value / threshold;
-    return ratio * ratio;
-  };
-  return squaredRatio(velocityCommand(0), p.maxCommandedVelocityX) + squaredRatio(velocityCommand(1), p.maxCommandedVelocityY) +
-         squaredRatio(yawRateCommand, p.maxCommandedYawRate) + squaredRatio(comVelocity(0), p.maxComVelocityX) +
+  return squaredRatio(velocityCommand(0), p.maxCommandedVelocityX) +
+         squaredRatio(velocityCommand(1), p.maxCommandedVelocityY) +
+         squaredRatio(yawRateCommand, p.maxCommandedYawRate) +
+         squaredRatio(comVelocity(0), p.maxComVelocityX) +
          squaredRatio(comVelocity(1), p.maxComVelocityY);
 }
 
-scalar_t HlipStandingBlend::weight(const vector2_t& velocityCommand, scalar_t yawRateCommand, const vector2_t& comVelocity) const {
+scalar_t HlipStandingBlend::weight(const vector2_t& velocityCommand,
+                                   scalar_t yawRateCommand,
+                                   const vector2_t& comVelocity) const {
   const scalar_t phi = activity(velocityCommand, yawRateCommand, comVelocity);
-  return 0.5 * std::tanh(parameters_.sharpness * (phi - parameters_.threshold)) + 0.5;
+  return 0.5 *
+             std::tanh(parameters_.sharpness * (phi - parameters_.threshold)) +
+         kHalfPointWeight;
 }
 
 }  // namespace ocs2::humanoid

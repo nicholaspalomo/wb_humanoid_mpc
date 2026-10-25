@@ -1,0 +1,24 @@
+edition = "2023";
+
+package humanoid_mpc_config;
+
+import "humanoid_mpc_config/config_options.proto";
+import "nproto/options.proto";
+
+// The control barrier function of the foot collision spheres (the task file's collision_cbf_constraint block; the soft
+// constraint foot_collision_cbf, FootCollisionCbfConstraint): the spheres are collision_constraint's, and this block
+// sets how fast they may approach each other and the relaxed barrier on the result.
+// Next ID: 4
+message CollisionCbfConstraintConfig {
+  option (nproto.generate_struct) = "ocs2::humanoid::mpc_config::CollisionCbfConstraintConfig";
+
+  reserved 4 to max;
+
+  // [1/s] Positive. The squared margin h = |p_a - p_b|^2 - (2 r)^2 of a pair may shrink at most at gamma * h: the
+  // larger, the closer the spheres may come before their approach is slowed.
+  double gamma = 1 [default = 0.0, (humanoid_mpc_config.tuning) = { reload: RELOAD_HOT unit: "1/s" }];
+  // The barrier (PieceWisePolynomialBarrierPenalty) on each row dh/dt + gamma * h: its weight, positive.
+  double mu = 2 [default = 1.0, (humanoid_mpc_config.tuning) = { reload: RELOAD_HOT }];
+  // [m^2/s] Positive: the width of the barrier's polynomial relaxation, in the units of a row.
+  double delta = 3 [default = 0.001, (humanoid_mpc_config.tuning) = { reload: RELOAD_HOT unit: "m^2/s" }];
+}

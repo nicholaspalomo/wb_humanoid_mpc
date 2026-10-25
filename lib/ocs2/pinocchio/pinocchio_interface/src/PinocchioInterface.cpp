@@ -32,6 +32,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ocs2_pinocchio_interface/implementation/PinocchioInterface.h>
 
 namespace ocs2 {
+namespace {
+
+// The width of the name column of the joint and the frame tables that operator<< prints.
+constexpr int kNameColumnWidth = 20;
+
+}  // namespace
 
 /******************************************************************************************************/
 /******************************************************************************************************/
@@ -66,14 +72,14 @@ std::ostream& operator<<(std::ostream& os, const PinocchioInterface& p) {
 
   os << "\nJoints:\n";
   for (int k = 0; k < model.njoints; ++k) {
-    os << std::setw(20) << model.names[k] << ":  ";
+    os << std::setw(kNameColumnWidth) << model.names[k] << ":  ";
     os << " ID = " << k;
     os << '\n';
   }
 
   os << "\nFrames:\n";
   for (int k = 0; k < model.nframes; ++k) {
-    os << std::setw(20) << model.frames[k].name << ":  ";
+    os << std::setw(kNameColumnWidth) << model.frames[k].name << ":  ";
     os << " ID = " << k;
     os << ", parent = " << model.frames[k].parentJoint;
     os << ", type = ";

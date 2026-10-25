@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -25,41 +29,60 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/contact_planning/execution/DcmStepAdjustmentRule.h"
 
+#include <string>
+
 #include "absl/strings/str_cat.h"
 
 namespace ocs2::humanoid {
 
 std::string DcmStepAdjustmentRule::describe() const {
-  return absl::StrCat("landing target += ", params_.gain, " * DCM error propagated to touch-down, |offset| <= ", params_.maxOffset,
-                      " m, clipped to the reachable region");
+  return absl::StrCat("landing target += ", params_.gain,
+                      " * DCM error propagated to touch-down, |offset| <= ",
+                      params_.maxOffset, " m, clipped to the reachable region");
 }
 
 void DcmStepAdjustmentRule::configure(const ContactPlanningConfig& config) {
   params_ = config.dcmStepAdjustment;
 }
 
-feet_array_t<vector2_t> DcmStepAdjustmentRule::correctFootholds(const ExecutionContext& ctx, const ModeSchedule& schedule) const {
-  feet_array_t<vector2_t> adjustments = makeFeetArray(vector2_t(vector2_t::Zero()));
+feet_array_t<vector2_t> DcmStepAdjustmentRule::correctFootholds(
+    const ExecutionContext& ctx, const ModeSchedule& schedule) const {
+  feet_array_t<vector2_t> adjustments =
+      makeFeetArray(vector2_t(vector2_t::Zero()));
   if (!ctx.hasPlan() || !ctx.hasPredictedComState) return adjustments;
   const scalar_t omega = ctx.omega();
   const ContactPlan& plan = *ctx.activePlan;
-  // Deviation from what the whole-body controller itself predicted for now. It is zero while the robot does what the
-  // NMPC expects, however far the planner's reduced model has drifted, and non-zero only under a real disturbance.
-  const vector2_t dcmError = computeDcm(ctx.com, ctx.comVelocity, omega) - computeDcm(ctx.predictedCom, ctx.predictedComVelocity, omega);
+  // Deviation from what the whole-body controller itself predicted for now. It
+  // is zero while the robot does what the NMPC expects, however far the
+  // planner's reduced model has drifted, and non-zero only under a real
+  // disturbance.
+  const vector2_t dcmError =
+      computeDcm(ctx.com, ctx.comVelocity, omega) -
+      computeDcm(ctx.predictedCom, ctx.predictedComVelocity, omega);
 
-  for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
-    const std::optional<std::pair<scalar_t, scalar_t>> phase = swingPhaseAtTime(schedule, foot, ctx.time);
+  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+    const std::optional<SwingWindow> phase =
+        swingPhaseAtTime(schedule, foot, ctx.time);
     if (!phase.has_value()) continue;
-    const scalar_t touchDownTime = phase->second;
-    const std::optional<vector2_t> landing = plan.footholdAtTime(foot, touchDownTime);
+    const scalar_t touchDownTime = phase->touchDown;
+    const std::optional<vector2_t> landing =
+        plan.footholdAtTime(foot, touchDownTime);
     if (!landing.has_value()) continue;
-    const vector2_t adjustment = dcmStepAdjustment(dcmError, omega, touchDownTime - ctx.time, params_.gain, params_.maxOffset);
-    const std::optional<LipState> atTouchDown = lipReferenceState(plan, omega, touchDownTime);
-    const vector2_t comAtTouchDown = atTouchDown.has_value() ? atTouchDown->com : plan.comPosition.back();
-    // The reachable region is the planner's, in the frame the planner wrote it in for that node: the planned heading at
-    // touch-down (the heading at the snapshot, plan.yaw, is the same thing without the heading model).
-    const scalar_t yawAtTouchDown = plan.headingAtTime(touchDownTime).value_or(plan.yaw);
-    const vector2_t clipped = clipFootholdToReach(*landing + adjustment, foot, comAtTouchDown, yawAtTouchDown, *ctx.config);
+    const vector2_t adjustment =
+        dcmStepAdjustment(dcmError, omega, touchDownTime - ctx.time,
+                          params_.gain, params_.maxOffset);
+    const std::optional<LipState> atTouchDown =
+        lipReferenceState(plan, omega, touchDownTime);
+    const vector2_t comAtTouchDown =
+        atTouchDown.has_value() ? atTouchDown->com : plan.comPosition.back();
+    // The reachable region is the planner's, in the frame the planner wrote it
+    // in for that node: the planned heading at touch-down (the heading at the
+    // snapshot, plan.yaw, is the same thing without the heading model).
+    const scalar_t yawAtTouchDown =
+        plan.headingAtTime(touchDownTime).value_or(plan.yaw);
+    const vector2_t clipped =
+        clipFootholdToReach(*landing + adjustment, foot, comAtTouchDown,
+                            yawAtTouchDown, *ctx.config);
     adjustments[foot] = clipped - *landing;
   }
   return adjustments;

@@ -29,6 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include "absl/base/nullability.h"
+
 #include <ocs2_core/cost/StateCost.h>
 
 namespace ocs2 {
@@ -43,7 +45,7 @@ class QuadraticStateCost : public StateCost {
    */
   explicit QuadraticStateCost(matrix_t Q);
   ~QuadraticStateCost() override = default;
-  QuadraticStateCost* clone() const override;
+  QuadraticStateCost* absl_nonnull clone() const override;
 
   /** Get cost term value */
   scalar_t getValue(scalar_t time, const vector_t& state, const TargetTrajectories& targetTrajectories, const PreComputation&) const final;

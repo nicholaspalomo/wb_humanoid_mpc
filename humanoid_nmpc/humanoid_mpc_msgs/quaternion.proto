@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+package humanoid_mpc_msgs;
+
+import "nproto/options.proto";
+
+// Unit quaternion, Hamilton convention (Eigen::Quaterniond).
+// Next ID: 5
+message Quaternion {
+  option (nproto.generate_struct) = "ocs2::humanoid::msgs::Quaternion";
+
+  reserved 5 to max;
+
+  double w = 1;
+  double x = 2;
+  double y = 3;
+  double z = 4;
+}

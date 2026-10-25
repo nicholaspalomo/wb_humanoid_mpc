@@ -44,10 +44,19 @@ namespace ocs2 {
 struct FilterLinesearch {
   enum class StepType { UNKNOWN, CONSTRAINT, DUAL, COST, ZERO };
 
-  scalar_t g_max = 1e6;          // (1): IF g{i+1} > g_max REQUIRE g{i+1} < (1-gamma_c) * g{i}
-  scalar_t g_min = 1e-6;         // (2): ELSE IF (g{i} < g_min AND g{i+1} < g_min AND dc/dw'{i} * delta_w < 0) REQUIRE Armijo condition
-  scalar_t gamma_c = 1e-6;       // (3): ELSE REQUIRE c{i+1} < (c{i} - gamma_c * g{i}) OR g{i+1} < (1-gamma_c) * g{i}
-  scalar_t armijoFactor = 1e-4;  // Armijo condition: c{i+1} < c{i} + armijoFactor * armijoDescentMetric{i}
+  static constexpr scalar_t kDefaultMaxConstraintViolation = 1e6;
+  static constexpr scalar_t kDefaultMinConstraintViolation = 1e-6;
+  static constexpr scalar_t kDefaultFilterMargin = 1e-6;
+  static constexpr scalar_t kDefaultArmijoFactor = 1e-4;
+
+  // (1): IF g{i+1} > g_max REQUIRE g{i+1} < (1-gamma_c) * g{i}
+  scalar_t g_max = kDefaultMaxConstraintViolation;
+  // (2): ELSE IF (g{i} < g_min AND g{i+1} < g_min AND dc/dw'{i} * delta_w < 0) REQUIRE Armijo condition
+  scalar_t g_min = kDefaultMinConstraintViolation;
+  // (3): ELSE REQUIRE c{i+1} < (c{i} - gamma_c * g{i}) OR g{i+1} < (1-gamma_c) * g{i}
+  scalar_t gamma_c = kDefaultFilterMargin;
+  // Armijo condition: c{i+1} < c{i} + armijoFactor * armijoDescentMetric{i}
+  scalar_t armijoFactor = kDefaultArmijoFactor;
 
   /**
    * Checks that the step is accepted.

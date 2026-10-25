@@ -1,373 +1,482 @@
 /******************************************************************************
 Copyright (c) 2022, Halodi Robotics AS. All rights reserved.
- *
- * @package humanoid_centroidal_mpc
- *
- * @author Manuel Yves Galliker
- * Contact:  manuel.galliker@1x.tech
- *
- ******************************************************************************/
 
-#include <pinocchio/fwd.hpp>
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
 
+* Redistributions of source code must retain the above copyright notice, this
+  list of conditions and the following disclaimer.
+
+* Redistributions in binary form must reproduce the above copyright notice,
+  this list of conditions and the following disclaimer in the documentation
+  and/or other materials provided with the distribution.
+
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+@package humanoid_centroidal_mpc
+
+@author Manuel Yves Galliker
+Contact:  manuel.galliker@1x.tech
+******************************************************************************/
+
+#include "pinocchio/fwd.hpp"
+
+#include <array>
 #include <chrono>
-#include <iomanip>
-#include <iostream>
+#include <exception>
 #include <random>
+#include <string>
+#include <utility>
 #include <vector>
 
-#include <pinocchio/algorithm/crba.hpp>
-#include <pinocchio/algorithm/frames.hpp>
-#include <pinocchio/algorithm/joint-configuration.hpp>
-#include <pinocchio/algorithm/kinematics.hpp>
-#include <pinocchio/algorithm/rnea.hpp>
-#include <pinocchio/multibody/data.hpp>
-#include <pinocchio/multibody/joint/joint-composite.hpp>
-#include <pinocchio/multibody/model.hpp>
-
-#include <ocs2_core/Types.h>
-#include "humanoid_centroidal_mpc/common/CentroidalMpcRobotModel.h"
-#include "humanoid_common_mpc/common/ModelSettings.h"
-#include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
-#include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
-
-#include <ocs2_robotic_tools/common/RotationTransforms.h>
-#include <ocs2_robotic_tools/common/SkewSymmetricMatrix.h>
-
-#include <ament_index_cpp/get_package_share_directory.hpp>
-
+#include "Eigen/Core"
+#include "Eigen/Geometry"
 #include "absl/log/globals.h"
 #include "absl/log/initialize.h"
 #include "absl/log/log.h"
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
+#include "absl/strings/str_format.h"
+#include "absl/strings/string_view.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
+#include "ocs2_robotic_tools/common/RotationTransforms.h"
+#include "pinocchio/algorithm/crba.hpp"
+#include "pinocchio/algorithm/frames.hpp"
+#include "pinocchio/algorithm/joint-configuration.hpp"
+#include "pinocchio/algorithm/kinematics.hpp"
+#include "pinocchio/algorithm/rnea.hpp"
+#include "pinocchio/multibody/data.hpp"
+#include "pinocchio/multibody/model.hpp"
 
-using namespace ocs2;
-using namespace ocs2::humanoid;
+#include "humanoid_common_mpc/common/ModelSettings.h"
+#include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc/config/ConfigFiles.h"
+#include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
+#include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
+#include "humanoid_mpc_config/task_file.nproto.h"
+#include "robot_core/ResourcePaths.h"
 
-void benchmarkInverseDynamics(PinocchioInterfaceTpl<scalar_t>& pinocchioInterface) {
-  const int NUM_ITERATIONS = 10000;
+/**
+ * A playground for the Unitree G1 Pinocchio model: prints the model from the
+ * URDF and the model the MPC builds, the placement of the contact frames, an
+ * orientation error against the ground plane, and compares and times the custom
+ * inverse dynamics against RNEA on the mass-scaled model.
+ */
 
-  // Get dimensions from pinocchio interface
-  const int nq = pinocchioInterface.getModel().nq;
-  const int nv = pinocchioInterface.getModel().nv;
-  const int njoints = nv - 6;  // Assuming floating base (6 DOF base + joint DOFs)
+namespace ocs2::humanoid {
+namespace {
 
-  // Random number generator
-  std::random_device rd;
-  std::mt19937 gen(rd());
-  std::normal_distribution<scalar_t> dis(0.0, 1.0);
+// Relative to the repository root.
+constexpr absl::string_view kUrdfFile =
+    "robot_models/unitree_g1/g1_description/urdf/g1_29dof.urdf";
+constexpr absl::string_view kTaskFile =
+    "robot_models/unitree_g1/g1_centroidal_mpc/config/mpc/task.textproto";
 
-  // Generate random test states
-  std::vector<vector_t> q_states, qd_states, qdd_joints_states;
-  std::vector<std::array<VECTOR6_T<scalar_t>, 2>> footWrenches_states;
+/** Random inputs of the inverse dynamics. */
+struct InverseDynamicsSamples {
+  std::vector<vector_t> q;
+  std::vector<vector_t> qd;
+  std::vector<vector_t> qddJoints;
+  std::vector<std::array<VECTOR6_T<scalar_t>, 2>> footWrenches;
+};
 
-  for (int i = 0; i < NUM_ITERATIONS; ++i) {
-    // Random generalized coordinates
-    vector_t q(nq);
-    for (int j = 0; j < nq; ++j) {
-      q[j] = dis(gen);
-    }
-    q_states.push_back(q);
+/** `size` standard-normal samples. */
+vector_t randomNormal(int size, std::mt19937& generator) {
+  std::normal_distribution<scalar_t> normal;  // mean 0, standard deviation 1
+  vector_t values(size);
+  for (int j = 0; j < size; ++j) values[j] = normal(generator);
+  return values;
+}
 
-    // Random generalized velocities
-    vector_t qd(nv);
-    for (int j = 0; j < nv; ++j) {
-      qd[j] = dis(gen);
-    }
-    qd_states.push_back(qd);
+/**
+ * `count` standard-normal samples of the generalized coordinates, velocities,
+ * joint accelerations and foot wrenches. The base orientation of each
+ * configuration is its sample normalized (pinocchio::normalize()): a unit
+ * quaternion.
+ */
+InverseDynamicsSamples randomInverseDynamicsSamples(
+    const PinocchioInterface& pinocchioInterface, int count) {
+  const pinocchio::Model& model = pinocchioInterface.getModel();
+  const int nq = model.nq;
+  const int nv = model.nv;
+  const int numJoints =
+      nv - 6;  // a floating base: 6 base degrees of freedom and the joints
 
-    // Random joint accelerations
-    vector_t qdd_joints(njoints);
-    for (int j = 0; j < njoints; ++j) {
-      qdd_joints[j] = dis(gen);
-    }
-    qdd_joints_states.push_back(qdd_joints);
-
-    // Random foot wrenches
+  std::random_device seed;
+  std::mt19937 generator(seed());
+  InverseDynamicsSamples samples;
+  for (int i = 0; i < count; ++i) {
+    vector_t q = randomNormal(nq, generator);
+    pinocchio::normalize(model, q);
+    samples.q.push_back(std::move(q));
+    samples.qd.push_back(randomNormal(nv, generator));
+    samples.qddJoints.push_back(randomNormal(numJoints, generator));
     std::array<VECTOR6_T<scalar_t>, 2> footWrenches;
-    for (int foot = 0; foot < 2; ++foot) {
-      for (int j = 0; j < 6; ++j) {
-        footWrenches[foot][j] = dis(gen);
-      }
-    }
-    footWrenches_states.push_back(footWrenches);
+    for (VECTOR6_T<scalar_t>& wrench : footWrenches)
+      wrench = randomNormal(/*size=*/6, generator);
+    samples.footWrenches.push_back(footWrenches);
   }
+  return samples;
+}
 
-  // Benchmark custom inverse dynamics
-  double customAvg = 0.0;
-  double rneaAvg = 0.0;
+/**
+ * Returns the joint torques of the floating-base inverse dynamics by
+ * Pinocchio's RNEA alone: the world-frame wrenches at the origins of
+ * `soleFrames` reach RNEA as external forces on their parent joints, and the
+ * base acceleration is the one at which RNEA's unactuated base rows vanish
+ * (RNEA is affine in the acceleration: a_b = -M_bb^-1 tau_b(a_b = 0)).
+ */
+vector_t rneaJointTorques(
+    const vector_t& q,
+    const vector_t& qd,
+    const vector_t& qddJoints,
+    const std::array<VECTOR6_T<scalar_t>, 2>& footWrenches,
+    const feet_array_t<pinocchio::FrameIndex>& soleFrames,
+    PinocchioInterface& pinocchioInterface) {
+  const pinocchio::Model& model = pinocchioInterface.getModel();
+  pinocchio::Data& data = pinocchioInterface.getData();
+  pinocchio::framesForwardKinematics(model, data, q);
+  std::vector<pinocchio::Force> fext(static_cast<size_t>(model.njoints),
+                                     pinocchio::Force::Zero());
+  for (size_t foot = 0; foot < soleFrames.size(); ++foot) {
+    const pinocchio::JointIndex joint =
+        model.frames[soleFrames[foot]].parentJoint;
+    const matrix3_t rotation = data.oMi[joint].rotation();
+    const vector3_t lever = data.oMf[soleFrames[foot]].translation() -
+                            data.oMi[joint].translation();
+    const vector3_t force = footWrenches[foot].head<3>();
+    const vector3_t moment = footWrenches[foot].tail<3>() + lever.cross(force);
+    fext[joint] += pinocchio::Force(rotation.transpose() * force,
+                                    rotation.transpose() * moment);
+  }
+  vector_t a = vector_t::Zero(model.nv);
+  a.tail(qddJoints.size()) = qddJoints;
+  const vector6_t baseForceAtZeroBaseAcceleration =
+      pinocchio::rnea(model, data, q, qd, a, fext).head<6>();
+  pinocchio::crba(model, data, q);
+  const matrix6_t baseMassMatrix =
+      data.M.topLeftCorner<6, 6>().selfadjointView<Eigen::Upper>();
+  a.head<6>() = -baseMassMatrix.ldlt().solve(baseForceAtZeroBaseAcceleration);
+  return pinocchio::rnea(model, data, q, qd, a, fext).tail(qddJoints.size());
+}
 
-  for (int i = 0; i < NUM_ITERATIONS; i = i + 10) {
-    std::chrono::high_resolution_clock::time_point start = std::chrono::high_resolution_clock::now();
-    for (int j = 0; j < 10; j++) {
-      vector_t result =
-          computeJointTorques(q_states[i + j], qd_states[i + j], qdd_joints_states[i + j], footWrenches_states[i + j], pinocchioInterface);
+/** The mean time of computeJointTorques() and of rneaJointTorques() over random
+ * inputs. */
+void benchmarkInverseDynamics(
+    PinocchioInterface& pinocchioInterface,
+    const feet_array_t<pinocchio::FrameIndex>& soleFrames) {
+  constexpr int kNumIterations = 10000;
+  constexpr int kBatch = 10;
+  const InverseDynamicsSamples samples =
+      randomInverseDynamicsSamples(pinocchioInterface, kNumIterations);
+
+  double customAverage = 0.0;
+  double rneaAverage = 0.0;
+  for (int i = 0; i < kNumIterations; i += kBatch) {
+    std::chrono::high_resolution_clock::time_point start =
+        std::chrono::high_resolution_clock::now();
+    for (int j = 0; j < kBatch; ++j) {
+      const vector_t result = computeJointTorques(
+          samples.q[i + j], samples.qd[i + j], samples.qddJoints[i + j],
+          samples.footWrenches[i + j], soleFrames, pinocchioInterface);
     }
+    std::chrono::high_resolution_clock::time_point end =
+        std::chrono::high_resolution_clock::now();
+    customAverage += static_cast<double>(
+        std::chrono::duration_cast<std::chrono::microseconds>(end - start)
+            .count());
 
-    std::chrono::high_resolution_clock::time_point end = std::chrono::high_resolution_clock::now();
-    const std::chrono::microseconds customDuration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
-    customAvg += static_cast<double>(customDuration.count());
-
-    // Benchmark RNEA inverse dynamics
     start = std::chrono::high_resolution_clock::now();
-
-    for (int j = 0; j < 10; j++) {
-      vector_t result = computeJointTorquesRNEA(q_states[i + j], qd_states[i + j], qdd_joints_states[i + j], footWrenches_states[i + j],
-                                                pinocchioInterface);
+    for (int j = 0; j < kBatch; ++j) {
+      const vector_t result = rneaJointTorques(
+          samples.q[i + j], samples.qd[i + j], samples.qddJoints[i + j],
+          samples.footWrenches[i + j], soleFrames, pinocchioInterface);
     }
-
     end = std::chrono::high_resolution_clock::now();
-    const std::chrono::microseconds rneaDuration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
-    rneaAvg += static_cast<double>(rneaDuration.count());
+    rneaAverage += static_cast<double>(
+        std::chrono::duration_cast<std::chrono::microseconds>(end - start)
+            .count());
   }
+  customAverage /= kNumIterations;
+  rneaAverage /= kNumIterations;
 
-  customAvg = customAvg / NUM_ITERATIONS;
-  rneaAvg = rneaAvg / NUM_ITERATIONS;
-
-  // Print results
-  LOG(INFO) << std::fixed << std::setprecision(2);
-  LOG(INFO) << "Inverse Dynamics Benchmark Results (" << NUM_ITERATIONS << " iterations):\n";
-  LOG(INFO) << "================================================\n";
-  LOG(INFO) << "Custom Implementation:  " << customAvg << " μs average\n";
-  LOG(INFO) << "RNEA Implementation:    " << rneaAvg << " μs average\n";
-  LOG(INFO) << "Speed ratio (Custom/RNEA): " << customAvg / rneaAvg << "x\n";
-
-  if (customAvg < rneaAvg) {
-    LOG(INFO) << "Custom implementation is " << (rneaAvg / customAvg) << "x faster\n";
+  LOG(INFO) << absl::StrFormat(
+      "Inverse Dynamics Benchmark Results (%d iterations):", kNumIterations);
+  LOG(INFO) << "================================================";
+  LOG(INFO) << absl::StrFormat("Custom Implementation:  %.2f μs average",
+                               customAverage);
+  LOG(INFO) << absl::StrFormat("RNEA Implementation:    %.2f μs average",
+                               rneaAverage);
+  LOG(INFO) << absl::StrFormat("Speed ratio (Custom/RNEA): %.2fx",
+                               customAverage / rneaAverage);
+  if (customAverage < rneaAverage) {
+    LOG(INFO) << absl::StrFormat("Custom implementation is %.2fx faster",
+                                 rneaAverage / customAverage);
   } else {
-    LOG(INFO) << "RNEA implementation is " << (customAvg / rneaAvg) << "x faster\n";
+    LOG(INFO) << absl::StrFormat("RNEA implementation is %.2fx faster",
+                                 customAverage / rneaAverage);
   }
 }
 
-void compareInverseDynamics(PinocchioInterfaceTpl<scalar_t>& pinocchioInterface) {
-  const int NUM_ITERATIONS = 10;
-
-  // Get dimensions from pinocchio interface
-  const int nq = pinocchioInterface.getModel().nq;
-  const int nv = pinocchioInterface.getModel().nv;
-  const int njoints = nv - 6;  // Assuming floating base (6 DOF base + joint DOFs)
-
-  // Random number generator
-  std::random_device rd;
-  std::mt19937 gen(rd());
-  std::normal_distribution<scalar_t> dis(0.0, 1.0);
-
-  // Generate random test states
-  std::vector<vector_t> q_states, qd_states, qdd_joints_states;
-  std::vector<std::array<VECTOR6_T<scalar_t>, 2>> footWrenches_states;
-
-  for (int i = 0; i < NUM_ITERATIONS; ++i) {
-    // Random generalized coordinates
-    vector_t q(nq);
-    for (int j = 0; j < nq; ++j) {
-      q[j] = dis(gen);
-    }
-    q_states.push_back(q);
-
-    // Random generalized velocities
-    vector_t qd(nv);
-    for (int j = 0; j < nv; ++j) {
-      qd[j] = dis(gen);
-    }
-    qd_states.push_back(qd);
-
-    // Random joint accelerations
-    vector_t qdd_joints(njoints);
-    for (int j = 0; j < njoints; ++j) {
-      qdd_joints[j] = dis(gen);
-    }
-    qdd_joints_states.push_back(qdd_joints);
-
-    // Random foot wrenches
-    std::array<VECTOR6_T<scalar_t>, 2> footWrenches;
-    for (int foot = 0; foot < 2; ++foot) {
-      for (int j = 0; j < 6; ++j) {
-        footWrenches[foot][j] = dis(gen);
-      }
-    }
-    footWrenches_states.push_back(footWrenches);
-  }
-
-  for (int i = 0; i < NUM_ITERATIONS; i++) {
-    const vector_t resultCustom =
-        computeJointTorques(q_states[i], qd_states[i], qdd_joints_states[i], footWrenches_states[i], pinocchioInterface);
-
-    const vector_t resultRNEA =
-        computeJointTorquesRNEA(q_states[i], qd_states[i], qdd_joints_states[i], footWrenches_states[i], pinocchioInterface);
-
+/** Prints computeJointTorques() next to rneaJointTorques() and their largest
+ * difference for a few random inputs. */
+void compareInverseDynamics(
+    PinocchioInterface& pinocchioInterface,
+    const feet_array_t<pinocchio::FrameIndex>& soleFrames) {
+  constexpr int kNumIterations = 10;
+  const InverseDynamicsSamples samples =
+      randomInverseDynamicsSamples(pinocchioInterface, kNumIterations);
+  for (int i = 0; i < kNumIterations; ++i) {
+    const vector_t resultCustom = computeJointTorques(
+        samples.q[i], samples.qd[i], samples.qddJoints[i],
+        samples.footWrenches[i], soleFrames, pinocchioInterface);
+    const vector_t resultRnea = rneaJointTorques(
+        samples.q[i], samples.qd[i], samples.qddJoints[i],
+        samples.footWrenches[i], soleFrames, pinocchioInterface);
     LOG(INFO) << "Result custom:" << resultCustom.transpose();
-    LOG(INFO) << "Result rnea  :" << resultRNEA.transpose();
+    LOG(INFO) << "Result rnea  :" << resultRnea.transpose();
+    LOG(INFO) << "Largest difference: "
+              << (resultCustom - resultRnea).cwiseAbs().maxCoeff();
   }
 }
 
 /**
- * @brief This file contains Manu's personal pinocchio playground.
+ * The neutral configuration of `model` (pinocchio::neutral(): the base at the
+ * origin, upright, with the identity quaternion of the Composite(Translation,
+ * Spherical) root, and every joint at zero) with the base raised to
+ * `baseHeight`.
  */
+Eigen::VectorXd neutralConfigurationAtHeight(const pinocchio::Model& model,
+                                             double baseHeight) {
+  Eigen::VectorXd q = pinocchio::neutral(model);
+  // The root joint (joint 1, after the universe) starts its configuration with
+  // the base position (x, y, z).
+  q[model.joints[1].idx_q() + 2] = baseHeight;
+  return q;
+}
 
-void testOrientationErrorWrtPlane(const PinocchioInterface* pinocchioInterfacePtr, Eigen::VectorXd q) {
-  const pinocchio::ReferenceFrame rf = pinocchio::ReferenceFrame::LOCAL_WORLD_ALIGNED;
+/** The entries of `values`, each with `precision` decimals. */
+std::string formatFixed(const Eigen::Ref<const Eigen::VectorXd>& values,
+                        int precision) {
+  std::string text;
+  for (Eigen::Index i = 0; i < values.size(); ++i) {
+    if (i > 0) text.push_back(' ');
+    absl::StrAppendFormat(&text, "%.*f", precision, values(i));
+  }
+  return text;
+}
 
-  pinocchio::Model model = pinocchioInterfacePtr->getModel();
-  pinocchio::Data data = pinocchioInterfacePtr->getData();
-
-  // Perform the forward kinematics over the kinematic tree
+/** Prints the distance of frame 69's orientation from the closest orientation
+ * whose z axis is the ground's normal. */
+void testOrientationErrorWrtPlane(const PinocchioInterface& pinocchioInterface,
+                                  const Eigen::VectorXd& q) {
+  const pinocchio::Model& model = pinocchioInterface.getModel();
+  pinocchio::Data data = pinocchioInterface.getData();
   pinocchio::forwardKinematics(model, data, q);
   pinocchio::updateFramePlacements(model, data);
 
-  vector3_t error;
-  vector3_t planeNormal(0.0, 0.0, 1.0);
-
+  const vector3_t planeNormal(0.0, 0.0, 1.0);
   const size_t frameId = 69;
-  vector3_t z_axis(0.0, 0.0, 1.0);
+  const vector3_t zAxis(0.0, 0.0, 1.0);
 
   // Rotation matrix local end effector frame to world frame
-  matrix3_t R_w_l = data.oMf[frameId].rotation();
+  const matrix3_t rotationLocalToWorld = data.oMf[frameId].rotation();
 
-  // Passive rotation projecting from end effector frame to the closest frame in plane.
-  // Computed through the shortest arc rotation  from the end effector z axis to the plane normal (both expressed in world frame).
-  quaternion_t quaternion_correction = getQuaternionFromUnitVectors<scalar_t>(R_w_l * z_axis, planeNormal);
+  // Passive rotation projecting from end effector frame to the closest frame in
+  // plane. Computed through the shortest arc rotation  from the end effector z
+  // axis to the plane normal (both expressed in world frame).
+  const quaternion_t quaternionCorrection =
+      getQuaternionFromUnitVectors<scalar_t>(rotationLocalToWorld * zAxis,
+                                             planeNormal);
+  LOG(INFO) << "quaternion_correction: "
+            << quaternionCorrection.coeffs().transpose();
 
-  LOG(INFO) << "quaternion_correction: " << quaternion_correction.coeffs();
-
-  error = quaternionDistance(quaternion_correction, quaternion_t::Identity());
-  LOG(INFO) << "error: " << error;
+  const vector3_t error =
+      quaternionDistance(quaternionCorrection, quaternion_t::Identity());
+  LOG(INFO) << "error: " << error.transpose();
 }
 
-void printModelDimensionality(PinocchioInterface pin_interface) {
-  pinocchio::Model model = pin_interface.getModel();
-  pinocchio::Data data = pin_interface.getData();
-
+void printModelDimensionality(const PinocchioInterface& pinocchioInterface) {
+  const pinocchio::Model& model = pinocchioInterface.getModel();
   LOG(INFO) << "model name: " << model.name;
   LOG(INFO) << "n q: " << model.nq;
   LOG(INFO) << "n v: " << model.nv;
 }
 
-void printJointNames(PinocchioInterface pin_interface) {
-  pinocchio::Model model = pin_interface.getModel();
-  for (pinocchio::JointIndex joint_id = 0; joint_id < (pinocchio::JointIndex)model.njoints; ++joint_id)
-    LOG(INFO) << std::setw(24) << std::left << model.names[joint_id];
+void printJointNames(const PinocchioInterface& pinocchioInterface) {
+  const pinocchio::Model& model = pinocchioInterface.getModel();
+  for (pinocchio::JointIndex jointId = 0;
+       jointId < static_cast<pinocchio::JointIndex>(model.njoints); ++jointId) {
+    LOG(INFO) << absl::StrFormat("%-24s", model.names[jointId]);
+  }
 }
 
-std::ostream& operator<<(std::ostream& os, const Eigen::Quaternion<double>& q) {
-  os << "[" << q.w() << ", " << q.x() << ", " << q.y() << ", " << q.z() << "]";
-  return os;
-}
-
-void printFrameRotation(PinocchioInterface pin_interface, Eigen::VectorXd q, std::string& frameName) {
-  pinocchio::Model model = pin_interface.getModel();
-  pinocchio::Data data = pin_interface.getData();
-
-  // Perform the forward kinematics over the kinematic tree
+/** Prints the orientation and the homogeneous transform of `frameName`, local
+ * to world, at `q`. */
+void printFrameRotation(const PinocchioInterface& pinocchioInterface,
+                        const Eigen::VectorXd& q,
+                        const std::string& frameName) {
+  const pinocchio::Model& model = pinocchioInterface.getModel();
+  pinocchio::Data data = pinocchioInterface.getData();
   pinocchio::forwardKinematics(model, data, q);
   pinocchio::updateFramePlacements(model, data);
 
-  pinocchio::FrameIndex frameID = pin_interface.getModel().getFrameId(frameName);
-  // Print out the placement of each joint of the kinematic tree
-  matrix3_t R_w_l = data.oMf[frameID].rotation();
-  const Eigen::Quaternion<scalar_t> q_w_l = matrixToQuaternion(R_w_l);
-  const Eigen::Matrix<scalar_t, 4, 4> translation =
-      data.oMf[frameID].toHomogeneousMatrix_impl();  // translation from local into world frame
+  const pinocchio::FrameIndex frameId = model.getFrameId(frameName);
+  const matrix3_t rotationLocalToWorld = data.oMf[frameId].rotation();
+  const quaternion_t quaternionLocalToWorld =
+      matrixToQuaternion(rotationLocalToWorld);
+  const Eigen::Matrix4d transform = data.oMf[frameId].toHomogeneousMatrix();
   LOG(INFO) << "Orientation of frame: R local to world " << frameName << ": ";
-  LOG(INFO) << q_w_l;
-  LOG(INFO) << R_w_l;
+  LOG(INFO) << absl::StrFormat("[%g, %g, %g, %g]", quaternionLocalToWorld.w(),
+                               quaternionLocalToWorld.x(),
+                               quaternionLocalToWorld.y(),
+                               quaternionLocalToWorld.z());
+  LOG(INFO) << rotationLocalToWorld;
   LOG(INFO) << "Translation from local to world frame " << frameName << ": ";
-  LOG(INFO) << translation;
+  LOG(INFO) << transform;
 }
 
-void computeForwardKinematics(PinocchioInterface pin_interface, Eigen::VectorXd q) {
-  pinocchio::Model model = pin_interface.getModel();
-  pinocchio::Data data = pin_interface.getData();
-
-  // Perform the forward kinematics over the kinematic tree
+/** Prints the placement of every joint and every frame of the model at `q`. */
+void computeForwardKinematics(const PinocchioInterface& pinocchioInterface,
+                              const Eigen::VectorXd& q) {
+  const pinocchio::Model& model = pinocchioInterface.getModel();
+  pinocchio::Data data = pinocchioInterface.getData();
   pinocchio::forwardKinematics(model, data, q);
   pinocchio::updateFramePlacements(model, data);
-  // Print out the placement of each joint of the kinematic tree
   LOG(INFO) << "###########################################";
   LOG(INFO) << "############### Model Joints ##############";
   LOG(INFO) << "###########################################";
-  for (pinocchio::JointIndex joint_id = 0; joint_id < (pinocchio::JointIndex)model.njoints; ++joint_id)
-    LOG(INFO) << std::setw(5) << std::left << "ID: " << joint_id << ", " << model.names[joint_id] << ": " << std::fixed
-              << std::setprecision(5) << data.oMi[joint_id].translation().transpose();
+  for (pinocchio::JointIndex jointId = 0;
+       jointId < static_cast<pinocchio::JointIndex>(model.njoints); ++jointId) {
+    LOG(INFO) << absl::StrFormat(
+        "%-5s%d, %s: %s", "ID: ", jointId, model.names[jointId],
+        formatFixed(data.oMi[jointId].translation(), /*precision=*/5));
+  }
   LOG(INFO) << "###########################################";
   LOG(INFO) << "############### Model Frames ##############";
   LOG(INFO) << "###########################################";
-  for (pinocchio::FrameIndex frame_id = 0; frame_id < (pinocchio::FrameIndex)model.nframes; ++frame_id)
-    LOG(INFO) << std::setw(10) << std::left << "ID: " << frame_id << ", name: " << model.frames[frame_id].name
-              << " : Pos: " << std::setprecision(5) << data.oMf[frame_id].translation().transpose();
+  for (pinocchio::FrameIndex frameId = 0;
+       frameId < static_cast<pinocchio::FrameIndex>(model.nframes); ++frameId) {
+    LOG(INFO) << absl::StrFormat(
+        "%-10s%d, name: %s : Pos: %s", "ID: ", frameId,
+        model.frames[frameId].name,
+        formatFixed(data.oMf[frameId].translation(), /*precision=*/5));
+  }
 }
 
-void computeInverseDyanmics(PinocchioInterface pin_interface, Eigen::VectorXd q, Eigen::VectorXd dq, Eigen::VectorXd ddq) {
-  pinocchio::Model model = pin_interface.getModel();
-  pinocchio::Data data = pin_interface.getData();
+/** The default model, the model of the MPC, and the mass-scaled model of the
+ * MPC with its inverse dynamics. */
+int printModels() {
+  // From the binary's runfiles (BUILD `data`), so `bazel run` and a run from
+  // .bazel/bin read the same files.
+  const absl::StatusOr<std::string> urdfFile =
+      robot::resolveResourcePath(kUrdfFile);
+  const absl::StatusOr<std::string> taskFile =
+      robot::resolveResourcePath(kTaskFile);
+  if (!urdfFile.ok() || !taskFile.ok()) {
+    LOG(ERROR) << "The model files are not in the runfiles: "
+               << urdfFile.status() << "; " << taskFile.status();
+    return 1;
+  }
+  LOG(INFO) << "urdf filename: " << *urdfFile;
 
-  const Eigen::VectorXd& tau = pinocchio::rnea(model, data, q, dq, ddq);
-  LOG(INFO) << "tau = " << tau.transpose();
+  // The default model.
+  PinocchioInterface pinocchioInterface =
+      createDefaultPinocchioInterface(*urdfFile);
+  LOG(INFO) << "Default PinocchioInterface initialized ";
+  printModelDimensionality(pinocchioInterface);
+  printJointNames(pinocchioInterface);
+
+  Eigen::VectorXd q = neutralConfigurationAtHeight(
+      pinocchioInterface.getModel(), /*baseHeight=*/0.8415);
+  computeForwardKinematics(pinocchioInterface, q);
+  const std::string leftFootFrameName = "foot_l_contact";
+  const std::string rightFootFrameName = "foot_r_contact";
+  printFrameRotation(pinocchioInterface, q, leftFootFrameName);
+
+  // The model of the MPC, from the task file read once (strictly: an unknown
+  // field is an error with its line).
+  const absl::StatusOr<mpc_config::TaskFile> task = loadTaskFile(*taskFile);
+  if (!task.ok()) {
+    LOG(ERROR) << task.status();
+    return 1;
+  }
+  absl::StatusOr<ModelSettings> modelSettings = ModelSettings::Create(
+      *task, *urdfFile, /*mpcName=*/"test_pinocchio", /*verbose=*/true);
+  if (!modelSettings.ok()) {
+    LOG(ERROR) << *taskFile << ": " << modelSettings.status();
+    return 1;
+  }
+  absl::StatusOr<PinocchioInterface> customInterface =
+      loadCustomPinocchioInterface(*task, *urdfFile, *modelSettings);
+  if (!customInterface.ok()) {
+    LOG(ERROR) << *taskFile << ": " << customInterface.status();
+    return 1;
+  }
+  pinocchioInterface = *std::move(customInterface);
+  LOG(INFO) << "Custom PinocchioInterface initialized ";
+  printModelDimensionality(pinocchioInterface);
+  printJointNames(pinocchioInterface);
+
+  q = neutralConfigurationAtHeight(pinocchioInterface.getModel(),
+                                   /*baseHeight=*/0.7925);
+  computeForwardKinematics(pinocchioInterface, q);
+  printFrameRotation(pinocchioInterface, q, rightFootFrameName);
+  printFrameRotation(pinocchioInterface, q, leftFootFrameName);
+  testOrientationErrorWrtPlane(pinocchioInterface, q);
+
+  // The model of the MPC with its total mass scaled.
+  absl::StatusOr<PinocchioInterface> scaledInterface =
+      loadCustomPinocchioInterface(*task, *urdfFile, *modelSettings,
+                                   /*scaleTotalMass=*/true,
+                                   /*totalMass=*/44.44);
+  if (!scaledInterface.ok()) {
+    LOG(ERROR) << *taskFile << ": " << scaledInterface.status();
+    return 1;
+  }
+  pinocchioInterface = *std::move(scaledInterface);
+  if (const absl::Status frames = checkContactFramesExist(
+          pinocchioInterface.getModel(), modelSettings->contactNames);
+      !frames.ok()) {
+    LOG(ERROR) << *taskFile << ": " << frames;
+    return 1;
+  }
+  const feet_array_t<pinocchio::FrameIndex> soleFrames = {
+      pinocchioInterface.getModel().getFrameId(modelSettings->contactNames[0]),
+      pinocchioInterface.getModel().getFrameId(modelSettings->contactNames[1])};
+  benchmarkInverseDynamics(pinocchioInterface, soleFrames);
+  compareInverseDynamics(pinocchioInterface, soleFrames);
+  return 0;
 }
 
-int main(int argc, char** argv) {
-  // Route Abseil log records to stderr. Without InitializeLog() Abseil warns once and writes everything to
-  // stderr anyway; with it the default stderr threshold is ERROR, so the INFO records have to be asked for.
+}  // namespace
+}  // namespace ocs2::humanoid
+
+int main() {
+  // Route Abseil log records to stderr. Without InitializeLog() Abseil warns
+  // once and writes everything to stderr anyway; with it the default stderr
+  // threshold is ERROR, so the INFO records have to be asked for.
   absl::InitializeLog();
   absl::SetStderrThreshold(absl::LogSeverityAtLeast::kInfo);
-  const std::string path(__FILE__);
-  const std::string dir = path.substr(0, path.find_last_of("/"));
-
-  std::string urdfFile;
   try {
-    urdfFile = ament_index_cpp::get_package_share_directory("g1_description") + "/urdf/g1_29dof.urdf";
-  } catch (const std::exception& e) {
-    throw std::runtime_error("Failed to get package share directory: g1_description. Error: " + std::string(e.what()));
+    return ocs2::humanoid::printModels();
+  } catch (const std::exception&
+               error) {  // Pinocchio reports a URDF it cannot read by throwing.
+    LOG(ERROR) << error.what();
+    return 1;
   }
-
-  const std::string taskFile = dir + "/../config/mpc/task.yaml";
-
-  LOG(INFO) << "urdf filename: " << urdfFile;
-
-  /// Test default model
-
-  PinocchioInterface pin_interface = createDefaultPinocchioInterface(urdfFile);
-
-  LOG(INFO) << "Default PinocchioInterface initialized ";
-
-  printModelDimensionality(pin_interface);
-  printJointNames(pin_interface);
-
-  // Initialize states
-  Eigen::VectorXd q = Eigen::VectorXd::Zero(35);
-  q[2] = 0.8415;
-
-  computeForwardKinematics(pin_interface, q);
-  std::string leftFootFrameName("foot_l_contact");
-  std::string rightFootFrameName("foot_r_contact");
-  printFrameRotation(pin_interface, q, leftFootFrameName);
-
-  /// Test custom model
-  ModelSettings modelSettings(taskFile, urdfFile, "test_pinocchio", "true");
-
-  pin_interface = createCustomPinocchioInterface(taskFile, urdfFile, modelSettings);
-
-  LOG(INFO) << "Custom PinocchioInterface initialized ";
-
-  printModelDimensionality(pin_interface);
-  printJointNames(pin_interface);
-
-  // Initialize states
-  q = Eigen::VectorXd::Zero(29);
-  q[2] = 0.7925;
-  // q[6] = 0.5;
-
-  computeForwardKinematics(pin_interface, q);
-  printFrameRotation(pin_interface, q, rightFootFrameName);
-  printFrameRotation(pin_interface, q, leftFootFrameName);
-
-  testOrientationErrorWrtPlane(&pin_interface, q);
-
-  /// Test custom model with mass scaling
-
-  pin_interface = createCustomPinocchioInterface(taskFile, urdfFile, modelSettings, /*scaleTotalMass=*/true, /*totalMass=*/44.44);
-
-  benchmarkInverseDynamics(pin_interface);
-
-  compareInverseDynamics(pin_interface);
-
-  return 0;
 }

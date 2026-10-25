@@ -32,12 +32,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <algorithm>
 #include <cmath>
 #include <memory>
+#include <string>
+#include <utility>
+#include <vector>
 
+#include "absl/log/check.h"
+#include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
-
-#include <ocs2_oc/approximate_model/LinearQuadraticApproximator.h>
-#include <ocs2_oc/oc_problem/OptimalControlProblemHelperFunction.h>
+#include "ocs2_oc/approximate_model/LinearQuadraticApproximator.h"
 
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
@@ -45,15 +48,19 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid::test {
 namespace {
 
-// The base position in the centroidal state x = [h_norm(6), p_base(3), euler_zyx(3), q_j], written out here rather
-// than taken from the model, so that a drift of the one definition shows up as a failure instead of moving the
-// reference with it.
+// The base position in the centroidal state x = [h_norm(6), p_base(3), xi(4),
+// q_j], written out here rather than taken from the model, so that a drift of
+// the one definition shows up as a failure instead of moving the reference with
+// it.
 constexpr Eigen::Index kBasePositionIndex = 6;
 
 template <typename CollectionT>
-void appendTermNames(Fingerprint& fingerprint, absl::string_view label, const CollectionT& collection) {
+void appendTermNames(Fingerprint& fingerprint,
+                     absl::string_view label,
+                     const CollectionT& collection) {
   std::vector<std::string> names;
-  for (const std::pair<const std::string, size_t>& entry : collection.getTermNameMap()) {
+  for (const std::pair<const std::string, size_t>& entry :
+       collection.getTermNameMap()) {
     names.push_back(entry.first);
   }
   std::sort(names.begin(), names.end());
@@ -62,26 +69,55 @@ void appendTermNames(Fingerprint& fingerprint, absl::string_view label, const Co
   fingerprint.emplace_back(line, matrix_t());
 }
 
-void append(Fingerprint& fingerprint, const std::string& label, const matrix_t& value) {
+void append(Fingerprint& fingerprint,
+            const std::string& label,
+            const matrix_t& value) {
   fingerprint.emplace_back(label, value);
+}
+
+/**
+ * `state` with its tuning-layout vector (the task file's blocks, in their
+ * units) moved by `step`, mapped back onto the state by `model`: the same move
+ * of the robot on every state layout (on the quaternion layout the orientation
+ * rows move the base's ZYX Euler angles, which stateFromTuning() maps onto its
+ * quaternion). `step` has getStateTangentDim() entries; aborts when the model
+ * refuses a vector, which its own sizes rule out.
+ */
+vector_t movedInTuningLayout(const MpcRobotModelBase<scalar_t>& model,
+                             const vector_t& state,
+                             const vector_t& step) {
+  absl::StatusOr<vector_t> tuning = model.tuningFromState(state);
+  ABSL_CHECK_OK(tuning);
+  absl::StatusOr<vector_t> moved = model.stateFromTuning(*tuning + step);
+  ABSL_CHECK_OK(moved);
+  return *std::move(moved);
 }
 
 }  // namespace
 
 void setWalkingReferences(CentroidalMpcInterface& interface) {
-  const vector_t x0 = interface.getInitialState();
-  const Eigen::Index nu = static_cast<Eigen::Index>(interface.getEffectiveMpcRobotModel().getInputDim());
-  const ModeSchedule schedule({0.2, 0.55, 0.65, 1.0, 1.1, 1.45}, {STANCE, LF, STANCE, RF, STANCE, LF, STANCE});
+  const vector_t& x0 = interface.getInitialState();
+  const Eigen::Index nu = static_cast<Eigen::Index>(
+      interface.getEffectiveMpcRobotModel().getInputDim());
+  const ModeSchedule schedule(
+      {0.2, 0.55, 0.65, 1.0, 1.1, 1.45},
+      {ModeNumber::kStance, ModeNumber::kLf, ModeNumber::kStance,
+       ModeNumber::kRf, ModeNumber::kStance, ModeNumber::kLf,
+       ModeNumber::kStance});
   vector_t xStart = x0;
   xStart(0) = 0.4;  // forward normalized momentum: a walking command
   vector_t xEnd = xStart;
   xEnd(kBasePositionIndex) += 0.8;
   const vector_t u0 = vector_t::Zero(nu);
-  const std::shared_ptr<SwitchedModelReferenceManager> referenceManager = interface.getSwitchedModelReferenceManagerPtr();
+  const std::shared_ptr<SwitchedModelReferenceManager> referenceManager =
+      interface.getSwitchedModelReferenceManagerPtr();
   referenceManager->getGaitSchedule()->updateModeSchedule(schedule);
-  referenceManager->setTargetTrajectories(TargetTrajectories({0.0, 2.0}, {xStart, xEnd}, {u0, u0}));
-  referenceManager->preSolverRun(/*initTime=*/0.0, /*finalTime=*/1.5, x0, STANCE);
-  interface.getOptimalControlProblemRef().targetTrajectoriesPtr = &referenceManager->getTargetTrajectories();
+  referenceManager->setTargetTrajectories(
+      TargetTrajectories({0.0, 2.0}, {xStart, xEnd}, {u0, u0}));
+  referenceManager->preSolverRun(/*initTime=*/0.0, /*finalTime=*/1.5, x0,
+                                 ModeNumber::kStance);
+  interface.getOptimalControlProblemRef().targetTrajectoriesPtr =
+      &referenceManager->getTargetTrajectories();
 }
 
 Fingerprint fingerprintOf(CentroidalMpcInterface& interface) {
@@ -91,29 +127,42 @@ Fingerprint fingerprintOf(CentroidalMpcInterface& interface) {
   appendTermNames(fingerprint, "stateCostPtr", *problem.stateCostPtr);
   appendTermNames(fingerprint, "finalCostPtr", *problem.finalCostPtr);
   appendTermNames(fingerprint, "softConstraintPtr", *problem.softConstraintPtr);
-  appendTermNames(fingerprint, "stateSoftConstraintPtr", *problem.stateSoftConstraintPtr);
-  appendTermNames(fingerprint, "finalSoftConstraintPtr", *problem.finalSoftConstraintPtr);
-  appendTermNames(fingerprint, "equalityConstraintPtr", *problem.equalityConstraintPtr);
+  appendTermNames(fingerprint, "stateSoftConstraintPtr",
+                  *problem.stateSoftConstraintPtr);
+  appendTermNames(fingerprint, "finalSoftConstraintPtr",
+                  *problem.finalSoftConstraintPtr);
+  appendTermNames(fingerprint, "equalityConstraintPtr",
+                  *problem.equalityConstraintPtr);
 
   setWalkingReferences(interface);
   const vector_t x0 = interface.getInitialState();
-  const Eigen::Index nx = x0.size();
-  const Eigen::Index nu = static_cast<Eigen::Index>(interface.getEffectiveMpcRobotModel().getInputDim());
-  const std::shared_ptr<SwitchedModelReferenceManager> referenceManager = interface.getSwitchedModelReferenceManagerPtr();
+  const MpcRobotModelBase<scalar_t>& robotModel = interface.getMpcRobotModel();
+  const Eigen::Index tuningDim =
+      static_cast<Eigen::Index>(robotModel.getStateTangentDim());
+  const Eigen::Index nu = static_cast<Eigen::Index>(
+      interface.getEffectiveMpcRobotModel().getInputDim());
+  const std::shared_ptr<SwitchedModelReferenceManager> referenceManager =
+      interface.getSwitchedModelReferenceManagerPtr();
 
   const std::vector<scalar_t> times = {0.05, 0.3, 0.6, 0.8, 1.2};
   for (size_t k = 0; k < times.size(); ++k) {
     const scalar_t t = times[k];
-    vector_t x = x0;
-    for (Eigen::Index i = 0; i < nx; ++i) x(i) += 0.01 * std::sin(0.7 * static_cast<scalar_t>(i) + 1.3 * static_cast<scalar_t>(k));
+    vector_t step(tuningDim);
+    for (Eigen::Index i = 0; i < tuningDim; ++i)
+      step(i) = 0.01 * std::sin(0.7 * static_cast<scalar_t>(i) +
+                                1.3 * static_cast<scalar_t>(k));
+    const vector_t x = movedInTuningLayout(robotModel, x0, step);
     vector_t u(nu);
-    for (Eigen::Index i = 0; i < nu; ++i) u(i) = 5.0 + 3.0 * std::cos(0.4 * static_cast<scalar_t>(i) + static_cast<scalar_t>(k));
+    for (Eigen::Index i = 0; i < nu; ++i)
+      u(i) = 5.0 + 3.0 * std::cos(0.4 * static_cast<scalar_t>(i) +
+                                  static_cast<scalar_t>(k));
     const std::string at = absl::StrCat("@", t);
-    append(fingerprint, absl::StrCat("desiredState", at), referenceManager->getDesiredState(*problem.targetTrajectoriesPtr, x, t));
-    MultiplierCollection multipliers;
-    initializeIntermediateMultiplierCollection(problem, t, multipliers);
-    const ModelData model = approximateIntermediateLQ(problem, t, x, u, multipliers);
-    append(fingerprint, absl::StrCat("cost.f", at), matrix_t::Constant(1, 1, model.cost.f));
+    append(fingerprint, absl::StrCat("desiredState", at),
+           referenceManager->getDesiredState(*problem.targetTrajectoriesPtr, x,
+                                             t));
+    const ModelData model = approximateIntermediateLQ(problem, t, x, u);
+    append(fingerprint, absl::StrCat("cost.f", at),
+           matrix_t::Constant(1, 1, model.cost.f));
     append(fingerprint, absl::StrCat("cost.dfdx", at), model.cost.dfdx);
     append(fingerprint, absl::StrCat("cost.dfdu", at), model.cost.dfdu);
     append(fingerprint, absl::StrCat("cost.dfdxx", at), model.cost.dfdxx);
@@ -122,38 +171,48 @@ Fingerprint fingerprintOf(CentroidalMpcInterface& interface) {
     append(fingerprint, absl::StrCat("dynamics.f", at), model.dynamics.f);
     append(fingerprint, absl::StrCat("dynamics.dfdx", at), model.dynamics.dfdx);
     append(fingerprint, absl::StrCat("dynamics.dfdu", at), model.dynamics.dfdu);
-    append(fingerprint, absl::StrCat("equality.f", at), model.stateInputEqConstraint.f);
-    append(fingerprint, absl::StrCat("equality.dfdx", at), model.stateInputEqConstraint.dfdx);
-    append(fingerprint, absl::StrCat("equality.dfdu", at), model.stateInputEqConstraint.dfdu);
+    append(fingerprint, absl::StrCat("equality.f", at),
+           model.stateInputEqConstraint.f);
+    append(fingerprint, absl::StrCat("equality.dfdx", at),
+           model.stateInputEqConstraint.dfdx);
+    append(fingerprint, absl::StrCat("equality.dfdu", at),
+           model.stateInputEqConstraint.dfdu);
   }
   const scalar_t finalTime = 1.5;
-  vector_t xFinal = x0;
-  for (Eigen::Index i = 0; i < nx; ++i) xFinal(i) += 0.02 * std::cos(0.3 * static_cast<scalar_t>(i));
-  MultiplierCollection multipliers;
-  initializeFinalMultiplierCollection(problem, finalTime, multipliers);
-  const ModelData finalModel = approximateFinalLQ(problem, finalTime, xFinal, multipliers);
+  vector_t finalStep(tuningDim);
+  for (Eigen::Index i = 0; i < tuningDim; ++i)
+    finalStep(i) = 0.02 * std::cos(0.3 * static_cast<scalar_t>(i));
+  const vector_t xFinal = movedInTuningLayout(robotModel, x0, finalStep);
+  const ModelData finalModel = approximateFinalLQ(problem, finalTime, xFinal);
   append(fingerprint, "final.f", matrix_t::Constant(1, 1, finalModel.cost.f));
   append(fingerprint, "final.dfdx", finalModel.cost.dfdx);
   append(fingerprint, "final.dfdxx", finalModel.cost.dfdxx);
   return fingerprint;
 }
 
-::testing::AssertionResult identical(const Fingerprint& a, const Fingerprint& b) {
+::testing::AssertionResult identical(const Fingerprint& a,
+                                     const Fingerprint& b) {
   if (a.size() != b.size()) {
-    return ::testing::AssertionFailure() << "the fingerprints have " << a.size() << " and " << b.size() << " entries";
+    return ::testing::AssertionFailure() << "the fingerprints have " << a.size()
+                                         << " and " << b.size() << " entries";
   }
   for (size_t i = 0; i < a.size(); ++i) {
     if (a[i].first != b[i].first) {
-      return ::testing::AssertionFailure() << "entry " << i << " is '" << a[i].first << "' against '" << b[i].first << "'";
+      return ::testing::AssertionFailure()
+             << "entry " << i << " is '" << a[i].first << "' against '"
+             << b[i].first << "'";
     }
     const matrix_t& x = a[i].second;
     const matrix_t& y = b[i].second;
     if (x.rows() != y.rows() || x.cols() != y.cols()) {
-      return ::testing::AssertionFailure() << a[i].first << " is " << x.rows() << "x" << x.cols() << " against " << y.rows() << "x"
-                                           << y.cols();
+      return ::testing::AssertionFailure()
+             << a[i].first << " is " << x.rows() << "x" << x.cols()
+             << " against " << y.rows() << "x" << y.cols();
     }
     if (!(x.array() == y.array()).all()) {
-      return ::testing::AssertionFailure() << a[i].first << " differs, by up to " << (x - y).cwiseAbs().maxCoeff();
+      return ::testing::AssertionFailure()
+             << a[i].first << " differs, by up to "
+             << (x - y).cwiseAbs().maxCoeff();
     }
   }
   return ::testing::AssertionSuccess();

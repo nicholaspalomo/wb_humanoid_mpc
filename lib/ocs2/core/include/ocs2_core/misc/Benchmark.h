@@ -75,11 +75,6 @@ class RepeatedTimer {
   };
 
   /**
-   * @return Number of intervals that were timed
-   */
-  int getNumTimedIntervals() const { return numTimedIntervals_; }
-
-  /**
    * @return Total cumulative time of timed intervals
    */
   scalar_t getTotalInMilliseconds() const { return std::chrono::duration<scalar_t, std::milli>(totalTime_).count(); }

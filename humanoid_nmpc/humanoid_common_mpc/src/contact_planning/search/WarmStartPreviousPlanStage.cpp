@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -26,23 +30,32 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/search/WarmStartPreviousPlanStage.h"
 
 #include <algorithm>
+#include <string>
+#include <utility>
 
 #include "humanoid_common_mpc/contact_planning/logic/ContactLogicState.h"
 
 namespace ocs2::humanoid {
 
 std::string WarmStartPreviousPlanStage::describe() const {
-  return "the previous plan's contacts, shifted by the elapsed time, are tried first as the incumbent";
+  return "the previous plan's contacts, shifted by the elapsed time, are tried "
+         "first as the incumbent";
 }
 
 void WarmStartPreviousPlanStage::beforeSearch(SearchSetup& setup) const {
-  if (setup.previousPlanShift < 0 || setup.previousAssignment == nullptr) return;
+  if (!setup.previousPlanShift.has_value() ||
+      setup.previousAssignment == nullptr)
+    return;
   constexpr int kBinariesPerNode = ContactLogicState::kBinariesPerNode;
-  MiqpAssignment warm(static_cast<size_t>(kBinariesPerNode * setup.numNodes), kMiqpFree);
+  MiqpAssignment warm(static_cast<size_t>(kBinariesPerNode * setup.numNodes),
+                      kMiqpFree);
   for (int k = 0; k < setup.numNodes; ++k) {
-    const int source = std::min(k + setup.previousPlanShift, setup.numNodes - 1);
+    const int source =
+        std::min(k + *setup.previousPlanShift, setup.numNodes - 1);
     for (int j = 0; j < kBinariesPerNode; ++j) {
-      warm[static_cast<size_t>(kBinariesPerNode * k + j)] = (*setup.previousAssignment)[static_cast<size_t>(kBinariesPerNode * source + j)];
+      warm[static_cast<size_t>(kBinariesPerNode * k + j)] =
+          (*setup.previousAssignment)[static_cast<size_t>(
+              kBinariesPerNode * source + j)];
     }
   }
   setup.warmStart = std::move(warm);

@@ -30,20 +30,27 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include <memory>
+#include <string>
 
 #include "mujoco_sim_interface/visualization/MujocoVisualization.h"
 
 namespace robot::mujoco_sim_interface {
 
 /**
- * A visualization MuJoCo draws itself, switched by a flag of mjvOption (contact points, its contact force arrows, the
- * centers of mass, the inertia ellipsoids, the convex hulls) or, for the transparency, by the alpha of the model's
- * geoms. The flag follows the enabled state every frame, so disabling the visualization clears it again.
+ * A visualization MuJoCo draws itself, switched by a flag of mjvOption (contact
+ * points, its contact force arrows, the centers of mass, the inertia
+ * ellipsoids, the convex hulls, the x-ray view). The flag follows the enabled
+ * state every frame, so disabling the visualization clears it again; the model
+ * is never written. Not thread-safe; the renderer calls it on its own thread.
  */
 class MujocoOptionFlagVisualization final : public MujocoVisualization {
  public:
-  /** `flag` is an mjtVisFlag index, or -1 for the model transparency. Starts disabled, like the MuJoCo defaults. */
-  MujocoOptionFlagVisualization(std::string name, std::string description, char hotkey, int flag);
+  /** `flag` is an mjtVisFlag index. Starts disabled, like the MuJoCo defaults.
+   */
+  MujocoOptionFlagVisualization(std::string name,
+                                std::string description,
+                                char hotkey,
+                                int flag);
 
   static std::unique_ptr<MujocoOptionFlagVisualization> contactPoints();
   static std::unique_ptr<MujocoOptionFlagVisualization> contactForces();
@@ -58,15 +65,11 @@ class MujocoOptionFlagVisualization final : public MujocoVisualization {
   int flag() const { return flag_; }
   void beforeSceneUpdate(const VisualizationFrame& frame) override;
 
-  static constexpr int kTransparency = -1;
-  static constexpr float kTransparentAlpha = 0.3f;
-
  private:
   std::string name_;
   std::string description_;
   char hotkey_;
   int flag_;
-  bool transparencyApplied_{false};
 };
 
 }  // namespace robot::mujoco_sim_interface

@@ -1,0 +1,24 @@
+edition = "2023";
+
+package humanoid_mpc_config;
+
+import "humanoid_mpc_config/config_options.proto";
+import "nproto/options.proto";
+
+// The touch-down shaping of the planned contact wrenches in the inverse dynamics of the robot's MRT joint controller
+// (the task file's contact_wrench_gate block, ContactWrenchGate::Config). A foot's planned wrench is projected into
+// feedforward torques only while the foot is measured in contact; both times at 0 apply it in full from the first
+// control cycle of measured contact. Lift-off is never shaped. A time the block leaves out is 0, the gate's own
+// default; a negative time is refused. Without the block the gate is instantaneous.
+// Next ID: 3
+message ContactWrenchGateConfig {
+  option (nproto.generate_struct) = "ocs2::humanoid::mpc_config::ContactWrenchGateConfig";
+
+  reserved 3 to max;
+
+  // [s] How long measured contact must persist before the wrench is applied (formerly debounceTime); a bounce across
+  // the detection threshold restarts it.
+  double debounce_time = 1 [default = 0.0, (humanoid_mpc_config.tuning) = { unit: "s" }];
+  // [s] How long the wrench then takes to rise linearly from zero to the planned value (formerly rampTime).
+  double ramp_time = 2 [default = 0.0, (humanoid_mpc_config.tuning) = { unit: "s" }];
+}

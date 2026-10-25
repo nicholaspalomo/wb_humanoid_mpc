@@ -1,0 +1,47 @@
+# Builds cpp-httplib without TLS and without zlib (the single_version_override in MODULE.bazel).
+#
+# The BCR overlay of cpp-httplib 0.46.0 links @boringssl//:ssl and @zlib, defines CPPHTTPLIB_OPENSSL_SUPPORT and
+# CPPHTTPLIB_ZLIB_SUPPORT for its own compile and turns on the parse_headers feature. boringssl would bring
+# google_benchmark and googletest 1.17.0.bcr.2 into the module graph, and minimal version selection would raise the
+# repository's googletest to that version. The MuJoCo web viewer serves plain HTTP and defines neither macro, so the
+# header needs neither library. The hunks below remove both deps, both local_defines and the parse_headers feature from
+# the overlay's BUILD.bazel, and the boringssl and zlib bazel_deps from its MODULE.bazel, which Bazel patches before it
+# resolves the module graph.
+#
+# Keep the `diff --git` lines: without them, Bazel 9 applies every hunk to MODULE.bazel when it patches the module file
+# and fails. A new version of cpp-httplib needs the hunks made again from its overlay
+# (https://bcr.bazel.build/modules/cpp-httplib/<version>/overlay/).
+# LINT.IfChange(cpp_httplib_patch)
+diff --git a/BUILD.bazel b/BUILD.bazel
+--- a/BUILD.bazel
++++ b/BUILD.bazel
+@@ -3,18 +3,7 @@
+ cc_library(
+     name = "httplib",
+     hdrs = ["httplib.h"],
+-    features = [
+-        "parse_headers",
+-    ],
+     includes = ["."],
+-    deps = [
+-        "@boringssl//:ssl",
+-        "@zlib",
+-    ],
+-    local_defines = [
+-        "CPPHTTPLIB_OPENSSL_SUPPORT",
+-        "CPPHTTPLIB_ZLIB_SUPPORT",
+-    ],
+     visibility = ["//visibility:public"],
+ )
+ 
+diff --git a/MODULE.bazel b/MODULE.bazel
+--- a/MODULE.bazel
++++ b/MODULE.bazel
+@@ -5,6 +5,4 @@
+     compatibility_level = 1,
+ )
+ 
+-bazel_dep(name = "boringssl", version = "0.20260327.0")
+ bazel_dep(name = "rules_cc", version = "0.2.17")
+-bazel_dep(name = "zlib", version = "1.3.1.bcr.6")
+# LINT.ThenChange(//MODULE.bazel:cpp_httplib_version)

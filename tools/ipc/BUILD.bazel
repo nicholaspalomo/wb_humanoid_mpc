@@ -1,0 +1,86 @@
+load("@operator_deps//:requirements.bzl", "requirement")
+load("@rules_python//python:defs.bzl", "py_binary", "py_library", "py_test")
+
+# tools/ipc - inspect the IPC bus from the command line, see README.md.
+#
+#   bazel run //tools/ipc:ipc_tool -- list | echo <topic> | hz <topic>
+#
+# The tool only receives: a subscribe-only robot_ipc.Bus on the network file's DDS domain
+# (humanoid_nmpc/docs/distributed_runtime/README.md).
+
+package(default_visibility = ["//visibility:public"])
+
+py_library(
+    name = "ipc_tool_lib",
+    srcs = [
+        "bus_listener.py",
+        "ipc_tool.py",
+        "message_decoding.py",
+        "topic_statistics.py",
+    ],
+    # The modules import each other by name, as they do when ipc_tool.py runs as a script.
+    imports = ["."],
+    deps = [
+        # The bus messages, and the configuration files the tuning GUI publishes whole (MpcParameterUpdate,
+        # JointPdGainsFile).
+        "//humanoid_nmpc/humanoid_mpc_config:config_py_proto",
+        "//humanoid_nmpc/humanoid_mpc_msgs:messages_py_proto",
+        # The network file's loader and the subscribe-only bus.
+        "//robot_runtime/robot_ipc:robot_ipc_py",
+        requirement("protobuf"),
+    ],
+)
+
+py_binary(
+    name = "ipc_tool",
+    srcs = ["ipc_tool.py"],
+    main = "ipc_tool.py",
+    deps = [":ipc_tool_lib"],
+)
+
+# Publishers of raw bus messages on the test process's own DDS domain, and its network file.
+py_library(
+    name = "bus_test_publisher",
+    testonly = True,
+    srcs = ["bus_test_publisher.py"],
+    imports = ["."],
+    deps = [
+        "//robot_runtime/robot_ipc:robot_ipc_py",
+        requirement("cyclonedds"),
+    ],
+)
+
+py_test(
+    name = "test_bus_listener",
+    size = "small",
+    srcs = ["test_bus_listener.py"],
+    data = ["//config/ipc:network.textproto"],
+    deps = [
+        ":bus_test_publisher",
+        ":ipc_tool_lib",
+    ],
+)
+
+py_test(
+    name = "test_message_decoding",
+    size = "small",
+    srcs = ["test_message_decoding.py"],
+    deps = [":ipc_tool_lib"],
+)
+
+py_test(
+    name = "test_topic_statistics",
+    size = "small",
+    srcs = ["test_topic_statistics.py"],
+    deps = [":ipc_tool_lib"],
+)
+
+py_test(
+    name = "test_ipc_tool",
+    size = "small",
+    srcs = ["test_ipc_tool.py"],
+    deps = [
+        ":bus_test_publisher",
+        ":ipc_tool_lib",
+    ],
+)
